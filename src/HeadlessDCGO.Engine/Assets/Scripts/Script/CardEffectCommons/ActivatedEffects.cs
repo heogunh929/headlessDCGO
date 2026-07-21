@@ -166,29 +166,13 @@ public sealed class SelectAndDigivolveEffect : IActivatedCardEffect
 
 
 
-/// <summary>(G8-004) "[Security] activate this card's [Main] effect" — a security skill that re-runs the
-/// card's Option [Main] activated effects. Resolved by <see cref="ActivatedEffectResolver"/>; not
-/// auto-registered (security timing is excluded from <see cref="CardEffectRegistrar.AllTimings"/>).</summary>
-public sealed class ReuseMainOptionEffect : IActivatedCardEffect
-{
-    public ReuseMainOptionEffect(string description, Func<ICardEffect, Task>? afterMainEffect = null)
-    {
-        Description = description;
-        AfterMainEffect = afterMainEffect;
-    }
-
-    public string Description { get; }
-
-    /// <summary>(이연③-d) AS-IS <c>ActivateMainOptionSecurityEffect</c>'s <c>afterMainEffect</c> callback
-    /// (CardEffectFactory.cs:551 — <c>Func&lt;ICardEffect, IEnumerator&gt;</c>, substrate <c>Task</c>): the
-    /// follow-up coroutine run AFTER the reused [Main] inside the SAME activation (e.g. ST4_15's "Then, add this
-    /// card to your hand" → <c>CardEffectCommons.AddThisCardToHand</c>). Retires the invented
-    /// <c>AddThisCardToHandEffect</c> composite that was formerly appended as a separate effect.</summary>
-    public Func<ICardEffect, Task>? AfterMainEffect { get; }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Reuse-main security effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-g EXHAUSTED) `ReuseMainOptionEffect` DELETED — the invented "[Security] activate this card's [Main]
+// effect" carrier is retired (census-0). The AS-IS idiom is the ActivateClass returned by
+// `CardEffectFactory.ActivateMainOptionSecurityEffect` (AS-IS CardEffectFactory.cs:551 — SetIsSecurityEffect +
+// CanTriggerSecurityEffect + a coroutine reusing `OptionMainEffect(card).Activate(...)` then afterMainEffect),
+// emitted by the commons `AddActivateMainOptionSecurityEffect` factory and resolved by
+// ActivatedEffectResolver's ActivateICardEffect case at the SecuritySkill timing. The `afterMainEffect`
+// follow-up (ST4_15) rides on that ActivateClass's own coroutine, not this bespoke carrier.
 
 
 // (이연③-b RETIRED) `ReuseWhenDigivolvingEffect` DELETED — the mirror-invented "[All Turns] re-activate this

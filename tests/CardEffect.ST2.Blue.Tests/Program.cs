@@ -319,6 +319,12 @@ async Task ST2_15_PlayFromUnder()
 {
     EngineContext context = Context();
     var opt = new HeadlessEntityId("p1:trash:OPT15");
+    // (이연③-g) Register `opt` as a live ST2_15 Option instance: the [Security] factory resolves
+    // OptionMainEffect(card) = card.EffectList(OptionSkill) at BUILD time (AS-IS CardEffectFactory.cs:553),
+    // which dispatches through the card instance's definition — exactly the production reveal path.
+    ((CardDatabase)context.CardRepository).Upsert(
+        new CardRecord(new HeadlessEntityId("ST2_15def"), "ST2_15", "ST2_15", new Dictionary<string, object?>(), CardType: "Option"));
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(opt, new HeadlessEntityId("ST2_15def"), P1));
     // An owner Digimon with a Digimon digivolution card under it.
     var host = new HeadlessEntityId("p1:battle:H15");
     await PlaceDigimon(context, P1, host, level: 4, sources: 1);
@@ -336,9 +342,19 @@ async Task ST2_15_PlayFromUnder()
     AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, under), "[Main] the under-card is now its own battle-area Digimon");
     AssertTrue(CardEffectCommons.HasNoDigivolutionCards(new CardSource(context, host, P1), host), "host lost that digivolution source");
 
-    // [Security] reuses the Main option.
-    ICardEffect security = new ST2_15().CardEffects(EffectTiming.SecuritySkill, Source(context, opt)).Single();
-    AssertTrue(security is ReuseMainOptionEffect, "[Security] reuses the Main option");
+    // [Security] reuses the Main option — (이연③-g) now the AS-IS ActivateClass from
+    // CardEffectFactory.ActivateMainOptionSecurityEffect (SetIsSecurityEffect + [Main] reuse coroutine),
+    // emitted by the commons AddActivateMainOptionSecurityEffect factory, not the retired ReuseMainOptionEffect.
+    // The factory resolves OptionMainEffect(card) (= card.EffectList(OptionSkill)) at BUILD time (AS-IS
+    // CardEffectFactory.cs:553), so the security build now runs under the ambient match scope production's
+    // ResolveAsync always enters before building an effect list.
+    ICardEffect security;
+    using (AmbientMatchContext.Enter(context))
+    {
+        security = new ST2_15().CardEffects(EffectTiming.SecuritySkill, Source(context, opt)).Single();
+    }
+
+    AssertTrue(security is ActivateClass { IsSecurityEffect: true }, "[Security] reuses the Main option");
 }
 
 async Task ST2_16_Bounce()

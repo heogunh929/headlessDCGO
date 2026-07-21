@@ -38,6 +38,11 @@ async Task SecurityReusesMain()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 804);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (이연③-g) The [Security] reuse is now the AS-IS ActivateClass (CardEffectFactory.ActivateMainOptionSecurityEffect),
+    // resolved by the ActivateICardEffect case, which honours the AS-IS CanTrigger gate (DoneStartGame = phase past
+    // Setup) the retired ReuseMainOptionEffect bespoke case skipped. Advance the phase exactly as production's game
+    // loop does during a security check (the E3-Witness / C3-Witness precedent).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     CardDatabase cards = (CardDatabase)context.CardRepository;
 
     cards.Upsert(new CardRecord(new HeadlessEntityId("ST1_16"), "ST1_16", "Gaia Force", new Dictionary<string, object?>(), CardType: "Option"));

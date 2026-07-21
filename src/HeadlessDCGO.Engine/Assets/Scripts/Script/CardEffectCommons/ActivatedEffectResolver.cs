@@ -893,28 +893,15 @@ public static class ActivatedEffectResolver
                 // UntilCalculateFixedCostEffect) is now inline (TfxBeforePayCostReduction), run by the
                 // ActivateICardEffect case during the BeforePayCost window.
 
-                case ReuseMainOptionEffect reuse:
-                {
-                    // (G8-004 / #13) "[Security] activate this card's [Main] effect" — resolve ONLY the card's
-                    // [Main]-tagged OptionSkill effect (AS-IS OptionMainEffect), not every OptionSkill effect,
-                    // through the same sink / choice provider.
-                    resolved += await ResolveListAsync(
-                        context, effectClass, card, players, sink,
-                        effectClass.CardEffects(EffectTiming.OptionSkill, card).Where(IsMainOptionEffect).ToList(),
-                        cancellationToken,
-                        hashtable: CardEffectCommons.OptionMainCheckHashtable(card),
-                        timing: EffectTiming.OptionSkill).ConfigureAwait(false);
-
-                    // (이연③-d) AS-IS ActivateMainOptionSecurityEffect.ActivateCoroutine: after the reused [Main],
-                    // run the afterMainEffect callback in the SAME activation (CardEffectFactory.cs:579-582).
-                    // ST4_15 [Security] threads "Then, add this card to your hand" here.
-                    if (reuse.AfterMainEffect is not null)
-                    {
-                        await reuse.AfterMainEffect(reuse).ConfigureAwait(false);
-                    }
-
-                    break;
-                }
+                // (이연③-g EXHAUSTED) `case ReuseMainOptionEffect` DELETED — the invented "[Security] reuse this
+                // card's [Main]" carrier is retired (census-0). The commons factory
+                // `AddActivateMainOptionSecurityEffect` now emits the AS-IS `CardEffectFactory.
+                // ActivateMainOptionSecurityEffect` ActivateClass (SetIsSecurityEffect + CanTriggerSecurityEffect
+                // gate + a coroutine that runs the reused [Main] via `mainActivateClass.Activate(
+                // OptionMainCheckHashtable(card))` then the afterMainEffect callback — AS-IS CardEffectFactory.cs:551
+                // verbatim), resolved by the ActivateICardEffect case above. The reused [Main] ActivateClass is the
+                // same `OptionMainEffect(card)` object this case formerly re-ran through ResolveListAsync; the
+                // afterMain follow-up (ST4_15) now runs inside that ActivateClass's own coroutine.
 
                 // (이연③-b RETIRED) `case ReuseWhenDigivolvingEffect` DELETED — the test-only "[All Turns]
                 // re-activate [When Digivolving]" marker is retired. The AS-IS delivery (EX8_074 region #6:

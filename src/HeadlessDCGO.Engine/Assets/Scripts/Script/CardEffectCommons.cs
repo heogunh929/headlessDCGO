@@ -4597,23 +4597,30 @@ public static partial class CardEffectCommons
         return null;
     }
 
-    /// <summary>Mirror of the original <c>AddActivateMainOptionSecurityEffect</c>: reuse the Option's [Main]
-    /// skill from security (driven live by <see cref="Headless.Runtime.SecurityResolver"/> →
-    /// <see cref="ActivatedEffectResolver"/> at the SecuritySkill timing). <paramref name="afterMainEffect"/>
-    /// mirrors the AS-IS <c>afterMainEffect</c> callback (a follow-up run AFTER the reused [Main], in order —
-    /// AS-IS ActivateMainOfOptionSide sequences main-then-after inside ONE coroutine): the follow-up effect is
-    /// appended to the SecuritySkill list so the sequential ResolveListAsync pass runs it right after the reused
-    /// [Main] (ST4_15 — "then, add this card to your hand" via <c>AddThisCardToHand</c>, the same live self-bounce
-    /// the ST3_13 / BT9_109 [Security] path calls inline). (이연③-d) <paramref name="afterMainEffect"/> now mirrors
-    /// AS-IS's own callback shape exactly — <c>Func&lt;ICardEffect, IEnumerator&gt;</c> → <c>Func&lt;ICardEffect,
-    /// Task&gt;</c> (AS-IS AddActivateMainOptionSecurityEffect, CardEffectCommons.cs:723) — carried on
-    /// <see cref="ReuseMainOptionEffect"/> and run by the resolver after the reused [Main], retiring the invented
-    /// AddThisCardToHandEffect composite that was formerly appended as a separate effect.</summary>
+    /// <summary>1:1 mirror of AS-IS <c>CardEffectCommons.AddActivateMainOptionSecurityEffect</c>
+    /// (CardEffectCommons.cs:723): reuse the Option's [Main] skill from security. Guards on
+    /// <see cref="OptionMainEffect(CardSource)"/> == null (AS-IS :725 — add NOTHING when the card has no [Main]
+    /// <c>ActivateClass</c>), then adds the AS-IS <see cref="CardEffectFactory.ActivateMainOptionSecurityEffect"/>
+    /// <c>ActivateClass</c> (AS-IS CardEffectFactory.cs:551): <c>SetIsSecurityEffect(true)</c> +
+    /// <c>CanUseCondition = CanTriggerSecurityEffect(OptionMainCheckHashtable(card), card)</c> + a coroutine that
+    /// runs the reused [Main] via <c>mainActivateClass.Activate(OptionMainCheckHashtable(card))</c> then
+    /// <paramref name="afterMainEffect"/> in the SAME activation. Resolved by <see cref="ActivatedEffectResolver"/>'s
+    /// <c>ActivateICardEffect</c> case at the SecuritySkill timing (driven live by
+    /// <see cref="Headless.Runtime.SecurityResolver"/>). <paramref name="afterMainEffect"/> mirrors the AS-IS
+    /// <c>afterMainEffect</c> callback (a follow-up run AFTER the reused [Main]; ST4_15 — "then, add this card to
+    /// your hand" via <c>AddThisCardToHand</c>). Substrate: <c>Func&lt;ICardEffect, IEnumerator&gt;</c> →
+    /// <c>Func&lt;ICardEffect, Task&gt;</c>. (이연③-g) factory-seat flip — the invented <c>ReuseMainOptionEffect</c>
+    /// carrier is retired in favour of this AS-IS <c>ActivateClass</c> idiom.</summary>
     public static void AddActivateMainOptionSecurityEffect(
         CardSource card, ref List<ICardEffect> cardEffects, string effectName, Func<ICardEffect, Task>? afterMainEffect = null)
     {
         ArgumentNullException.ThrowIfNull(cardEffects);
-        cardEffects.Add(new ReuseMainOptionEffect(effectName, afterMainEffect));
+        if (OptionMainEffect(card) is null)
+        {
+            return;
+        }
+
+        cardEffects.Add(CardEffectFactory.ActivateMainOptionSecurityEffect(card, effectName, afterMainEffect: afterMainEffect));
     }
 
     /// <summary>Mirror of the original <c>Permanent.HasNoDigivolutionCards</c> (entity-id form): the
