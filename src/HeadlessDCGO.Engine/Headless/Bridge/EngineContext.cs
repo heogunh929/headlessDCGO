@@ -48,7 +48,6 @@ public sealed class EngineContext
         GameEventQueue = gameEventQueue ?? new GameEventQueue();
         OptionalPromptQueue = new OptionalPromptQueue();
         MulliganCoordinator = new MulliganCoordinator();
-        OnceFlags = new OnceFlagController();
         PlayerTurnCounters = new HeadlessDCGO.Engine.Headless.Runtime.PlayerTurnCounterController();
         DeferredActivations = new HeadlessDCGO.Engine.Headless.Runtime.DeferredActivationController();
         WindowResolution = new HeadlessDCGO.Engine.Headless.Effects.WindowResolutionController();
@@ -106,8 +105,10 @@ public sealed class EngineContext
     /// match setup enables mulligan; otherwise idle.</summary>
     public MulliganCoordinator MulliganCoordinator { get; }
 
-    /// <summary>(F-4) Per-turn use-count tracking that gates once-per-turn / max-count-per-turn effects.</summary>
-    public OnceFlagController OnceFlags { get; }
+    // (R6-Da'-6 D1=A) `OnceFlags` (OnceFlagController — the invented string-key once-per-turn cap holder +
+    // uniform-cycle transaction) DELETED with the uniform ActivatedEffect corpus. The AS-IS cap store is the
+    // per-instance CEntity_EffectController (UseEffectsThisTurn + IsSameEffect partition), suspend/resume-guarded
+    // by the single surviving cycle CEntityUseCycle (which also owns the mutation replay journal).
 
     /// <summary>Player-scoped, turn-scoped counters (AS-IS <c>Player.DigivolveCount_ThisTurn</c> etc.).</summary>
     public HeadlessDCGO.Engine.Headless.Runtime.PlayerTurnCounterController PlayerTurnCounters { get; }
@@ -347,7 +348,6 @@ public sealed class EngineContext
         ResetIfSupported(GameEventQueue);
         OptionalPromptQueue.Clear();
         MulliganCoordinator.Clear();
-        OnceFlags.ResetMatchState();
         PlayerTurnCounters.ResetMatchState();
         DeferredActivations.ResetMatchState();
         WindowResolution.ResetMatchState();
@@ -447,7 +447,6 @@ public sealed class EngineContext
         RegisterService(GameEventQueue);
         RegisterService(OptionalPromptQueue);
         RegisterService(MulliganCoordinator);
-        RegisterService(OnceFlags);
         RegisterService(DeferredActivations);
         RegisterService(WindowResolution);
         RegisterService<IHeadlessPlayerStatusController>(PlayerStatusController);

@@ -80,7 +80,8 @@ async Task ResetRestoresDeclaration()
     AssertTrue(FindActivateMain(action, context, P1, permanent) is null, "spent this turn");
 
     // A new turn resets every card's per-turn use (AS-IS InitUseCountThisTurn) — the skill is declarable again.
-    context.OnceFlags.ResetForTurn(turnSequence: 1, turnPlayerId: P1);
+    // (uniform-사멸 flip) per-turn caps live on the AS-IS CEntity_EffectController store now.
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountsForTurn(context);
     AssertTrue(FindActivateMain(action, context, P1, permanent) is not null, "the [Main] skill is offered again next turn (B-2 cap reset)");
 }
 

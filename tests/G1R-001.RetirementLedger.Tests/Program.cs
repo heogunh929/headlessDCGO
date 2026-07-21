@@ -17,7 +17,13 @@ using System.Text.RegularExpressions;
 var ledger = new (string Symbol, int Baseline, string Batch)[]
 {
     ("PlaySelfAtEndOfBattleSecurityEffect", 8, "R6-Db carry (D4: AS-IS UntilEndBattleEffects rehome, RD-P6C3-B2 re-adjudication — live resolver case + factory + FAILa-10)"),
-    ("ActivatedSelectEffect", 22, "STAYS — uniform survival core (EX8_074 RD-R6-07/R2-C STOP + live ST1/ST2 cards + fixtures + white-box casts); final deletion after A8 R2-C + Tfx retirement"),
+    // (uniform-사멸 flip) `ActivatedSelectEffect` row RETIRED — the symbol was DELETED in its owning batch: the
+    // EX8_074 RD-R6-07 STOP was resolved by the earlier inline re-port, the B5 uniform fixtures
+    // (TfxCappedSelectSuspend/TfxOptionalSelectSuspend) were retired with their suite, the internal
+    // SelectDestroyThenTrashSecurityBody wrapper was consumer-0 (AD1_025 re-ported) and died with it, and the
+    // stale ST1.Red/ST2.Blue white-box casts were re-targeted onto the live ActivateClass surface. The whole
+    // uniform core (`ActivatedEffect` 437-line file + resolver uniform seats + OnceFlagController/OnceFlagHelpers
+    // + SuspendCostReductionEffect + BeforePayCostAvailabilityReduction) died in the same batch.
     // (R6-Db) `ActivatedSelectBounceAndDiscardSourcesEffect` row RETIRED — the symbol was DELETED in R6-Db: it was
     // consumer-0 in production (no card producer), and its ONLY remaining consumer, the green C3-Witness case (9),
     // was re-targeted onto the REAL substrate it composed (DigivolutionStackHelpers.TrashSourcesAsync(honorProtection:

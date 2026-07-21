@@ -354,6 +354,22 @@ public static class CEntity_EffectControllerStore
         return perContext.GetOrAdd(instanceId, id => Create(context, id));
     }
 
+    /// <summary>(R6-Da'-6 D3) AS-IS SINGLE-CARD use-count reset — <c>CardSource.Init()</c> →
+    /// <c>cEntity_EffectController.InitUseCountThisTurn()</c>, run whenever ONE card gets a fresh play context:
+    /// tucked under a permanent (PlacePermanentToDigivolutionCards, CardController.cs:3093), merged by
+    /// Jogress/DNA (CardController.cs:1509-1512), DigiXros materials (SelectDigiXrosClass.cs:923), attached as
+    /// a link card (AddLinkCard, CardController.cs:3393), or re-entering play. The card-instance keyed twin of
+    /// <see cref="ResetUseCountsForTurn"/>; a card whose controller was never created has no recorded uses, so
+    /// the miss is a no-op (equivalent set).</summary>
+    public static void ResetUseCountForCard(EngineContext context, HeadlessEntityId instanceId)
+    {
+        if (ByContext.TryGetValue(context, out ConcurrentDictionary<HeadlessEntityId, CEntity_EffectController>? perContext)
+            && perContext.TryGetValue(instanceId, out CEntity_EffectController? controller))
+        {
+            controller.InitUseCountThisTurn();
+        }
+    }
+
     /// <summary>(C2) AS-IS turn-boundary use-count reset (TurnStateMachine.cs:3204-3208: every
     /// <c>gameContext.ActiveCardList</c> card's <c>cEntity_EffectController.InitUseCountThisTurn()</c>). The
     /// mirror walks every controller that EXISTS for this match — a card whose controller was never created has

@@ -51,13 +51,12 @@ public static class ActivatedEffectResolver
     /// contributes only its <c>IsInheritedEffect</c> effects), a TOP scan (false — the default for every
     /// non-bridge caller: option / security / declaration / on-play / digivolve) keeps only NON-inherited effects
     /// (AS-IS the top card contributes only its non-inherited effects).
-    /// (P6 stage A) inherited-ness now reads the AS-IS base flag <see cref="ICardEffect.IsInheritedEffect"/> for
-    /// a NEW-model effect (cards call <c>SetIsInheritedEffect(true)</c> verbatim); the LEGACY uniform
-    /// <see cref="ActivatedEffect"/> keeps its own hiding property (read through the concrete type), and any
-    /// other legacy type carries no flag (base false = non-inherited, matching the accepted uniform-migration
-    /// gap). Linked-effect membership (AS-IS <c>IsLinkedEffect</c> branch) stays the C2-01 latent.</summary>
+    /// (P6 stage A; uniform-사멸 flip) inherited-ness reads the AS-IS base flag
+    /// <see cref="ICardEffect.IsInheritedEffect"/> (cards call <c>SetIsInheritedEffect(true)</c> verbatim); a
+    /// legacy corpus type carries no flag (base false = non-inherited). Linked-effect membership (AS-IS
+    /// <c>IsLinkedEffect</c> branch) stays the C2-01 latent.</summary>
     private static bool MembershipKeeps(ICardEffect effect, bool inheritedScan) =>
-        (effect is ActivatedEffect ae ? ae.IsInheritedEffect : effect.IsInheritedEffect) == inheritedScan;
+        effect.IsInheritedEffect == inheritedScan;
 
     /// <summary>(P6 stage A) Whether the effect is ACTIVATED — the legacy marker
     /// (<see cref="IActivatedCardEffect"/>, old-model corpus) or the AS-IS contract
@@ -194,15 +193,6 @@ public static class ActivatedEffectResolver
                     return true;
                 }
             }
-            else if (effects[i] is ActivatedEffect uniform)
-            {
-                if (uniform.CanResolveActivateHalf()
-                    && context.OnceFlags.CanActivate(
-                        BuildUniformResolveContext(uniform, drivingEvent).Request, uniform.MaxCountPerTurn))
-                {
-                    return true;
-                }
-            }
             else
             {
                 return true;
@@ -253,15 +243,6 @@ public static class ActivatedEffectResolver
                 // CanTrigger(hashtable)` — the once-per-turn cap + CanUseCondition over the emit payload.
                 Hashtable? hashtable = ActivatedHashtableBridge.Build(context, timing, drivingEvent!, card);
                 if (!effects[i].IsBackgroundProcess && effects[i].CanTrigger(hashtable!))
-                {
-                    return true;
-                }
-            }
-            else if (effects[i] is ActivatedEffect uniform)
-            {
-                CardEffectResolveContext resolveCtx = BuildUniformResolveContext(uniform, drivingEvent);
-                if (uniform.CanResolveUseHalf(resolveCtx)
-                    && context.OnceFlags.CanActivate(resolveCtx.Request, uniform.MaxCountPerTurn))
                 {
                     return true;
                 }
@@ -320,15 +301,6 @@ public static class ActivatedEffectResolver
                     return true;
                 }
             }
-            else if (effects[i] is ActivatedEffect uniform)
-            {
-                CardEffectResolveContext resolveCtx = BuildUniformResolveContext(uniform, drivingEvent);
-                if (uniform.CanResolve(resolveCtx)
-                    && context.OnceFlags.CanActivate(resolveCtx.Request, uniform.MaxCountPerTurn))
-                {
-                    return true;
-                }
-            }
             else if (effects[i] is DigiBurstActivatedEffect burst)
             {
                 // (B-2) Mirror AS-IS IDigiBurst.CanDigiBurst / ST4_13's CanUseCondition (ST4_13.cs:37-48): a [Main]
@@ -358,41 +330,10 @@ public static class ActivatedEffectResolver
         return false;
     }
 
-    /// <summary>(RDx-A3) Build the resolve-context for a uniform <see cref="ActivatedEffect"/> EXACTLY as the
-    /// resolution loop does — TriggerEntityId is the driving event's subject (broadcast bridge) or the card itself
-    /// (subject-scoped), and the event's primitive metadata is threaded as "event.&lt;key&gt;" values. Shared by the
-    /// resolution loop (uniform case) and <see cref="CanActivateAt"/> so the per-pass gate's CanResolve reads the
-    /// IDENTICAL context the resolver will.</summary>
-    internal static CardEffectResolveContext BuildUniformResolveContext(ActivatedEffect uniform, GameEvent? drivingEvent)
-    {
-        ArgumentNullException.ThrowIfNull(uniform);
-        HeadlessEntityId triggerId =
-            drivingEvent?.Subject is HeadlessEntityId eventSubject && !eventSubject.IsEmpty
-                ? eventSubject
-                : uniform.Card.InstanceId;
-        Dictionary<string, object?>? eventValues = null;
-        if (drivingEvent is not null)
-        {
-            eventValues = new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [GameFlowProcessor.EventTypeKey] = drivingEvent.Type.ToString(),
-            };
-            foreach (KeyValuePair<string, object?> pair in drivingEvent.Metadata)
-            {
-                if (pair.Value is string or int or bool or long)
-                {
-                    eventValues[$"{GameFlowProcessor.EventValuePrefix}{pair.Key}"] = pair.Value;
-                }
-            }
-        }
+    // (uniform-사멸 flip) BuildUniformResolveContext DELETED — it existed solely to feed the retired uniform
+    // ActivatedEffect gate/resolution seats (the OnceFlags string-key cap path); the new-model gates read the
+    // AS-IS hashtable payload (ActivatedHashtableBridge) instead.
 
-        var subjectCtx = new EffectContext(
-            uniform.Card.Controller, uniform.Card.Owner, uniform.Card.InstanceId,
-            triggerEntityId: triggerId, targetEntityIds: Array.Empty<HeadlessEntityId>(),
-            values: eventValues);
-        return new CardEffectResolveContext(new EffectRequest(
-            uniform.EffectId, uniform.Card.Controller, EffectTimings.ToTriggerName(uniform.Timing), subjectCtx));
-    }
 
     public static async Task<int> ResolveAsync(
         EngineContext context,
@@ -495,11 +436,11 @@ public static class ActivatedEffectResolver
     {
         var coordinator = context.ChoiceProvider as IDeferredChoiceCoordinator;
         coordinator?.BeginResolution();
-        bool cycleOwner = context.OnceFlags.BeginUniformCycle();
-        // (RD-C5W-ACTIVATEBODY) the SAME register-before-body transaction for the AS-IS CEntity_EffectController
-        // per-turn use list (the ported-card [Once Per Turn] cap — ICardEffect.CanActivate/isOverMaxCountPerTurn),
-        // driven in lockstep with OnceFlags so a deferred-choice REPLAY-resume of a capped optional/interactive
-        // effect does not re-gate on its own in-flight use (proof: the UNCAPPED [On Deletion] already resumes fine).
+        // (RD-C5W-ACTIVATEBODY; R6-Da'-6 D1=A single-drive) the register-before-body transaction for the AS-IS
+        // CEntity_EffectController per-turn use list (the [Once Per Turn] cap — ICardEffect.CanActivate/
+        // isOverMaxCountPerTurn) + the mutation replay journal. Formerly driven in exact lockstep with the
+        // OnceFlags uniform-cycle (the invented string-key cap holder) — that cycle died with the uniform
+        // ActivatedEffect corpus, leaving CEntityUseCycle the single cycle driver.
         bool ceCycleOwner = CEntityUseCycle.For(context).Begin();
 
         int resolved;
@@ -509,7 +450,6 @@ public static class ActivatedEffectResolver
         }
         catch (Exception ex) when (ex is DeferredChoicePendingException or WindowChoicePendingException)
         {
-            context.OnceFlags.SuspendUniformCycle(cycleOwner);
             CEntityUseCycle.For(context).Suspend(ceCycleOwner);
             // (C-Del 3c-2b nested cycles) park this cycle's replay frame — a NESTED cycle's suspension must not
             // leave the coordinator's active depth pointing at the parent's frame (see DeferredChoiceProvider).
@@ -518,14 +458,12 @@ public static class ActivatedEffectResolver
         }
         catch
         {
-            context.OnceFlags.AbortUniformCycle(cycleOwner);
             CEntityUseCycle.For(context).Abort(ceCycleOwner);
             // The cycle is dead — discard its replay frame (positional, like completion).
             coordinator?.CompleteResolution();
             throw;
         }
 
-        context.OnceFlags.CompleteUniformCycle(cycleOwner);
         CEntityUseCycle.For(context).Complete(ceCycleOwner);
         await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
         coordinator?.CompleteResolution();
@@ -740,7 +678,7 @@ public static class ActivatedEffectResolver
                                 context.CardInstanceRepository, context.ZoneMover, topId, intoZone,
                                 new[] { permId, matId }, gameEventQueue: context.GameEventQueue,
                                 kind: FusionKind.DnaDigivolve, cancellationToken: cancellationToken,
-                                onceFlags: context.OnceFlags).ConfigureAwait(false);
+                                context: context).ConfigureAwait(false);
                             fusedCount = merged.Count;
                         }).ConfigureAwait(false);
                         if (fusedCount > 0)
@@ -905,91 +843,12 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                // (R6-Da'-5) `case ActivatedSelectAndDeDigivolveEffect` DELETED — the producer was census-0 (no
-                // printed card creates one: the sole construction was the [Obsolete] factory helper
-                // CardEffectFactory.SelectAndDeDigivolveEffect, whose only consumer was the G9-046 DeDigivolve
-                // white-box test). The de-digivolve RULE surface is the shared DeDigivolveKind sink mutation,
-                // covered live by CardEffectCommons.DeDigivolvePermanent (C5-witness, EX8_051 ESS) and the
-                // SelectDeDigivolveThenConditionalDestroyEffect / MassDeDigivolveThenConditionalDestroyEffect
-                // primitives (BT3_107 / BT3_112). Body class + factory helper deleted with the case.
-
-                case ActivatedEffect uniform:
-                {
-                    // Uniform activated effect (mirror of AS-IS ActivateClass). Without a driving event the card
-                    // being resolved IS the event subject (subject-scoped bridge/onplay/digivolve route by
-                    // subject), so TriggerEntityId falls back to the card itself. A BROADCAST bridge timing
-                    // (AS-IS StackSkillInfos offers the event to every field card) passes the driving event:
-                    // TriggerEntityId is then the event's subject (e.g. the Digimon whose sources were trashed,
-                    // not this listener) and the event's primitive metadata is threaded as "event.<key>" values
-                    // so gates (CanTriggerOnTrashDigivolutionCard …) read the AS-IS hashtable mirror.
-                    // (RDx-A3) build the resolve-context via the SHARED helper so the window's per-pass gate
-                    // (CanActivateAt → MarkerGate) reads the IDENTICAL context this resolver will.
-                    CardEffectResolveContext resolveCtx = BuildUniformResolveContext(uniform, drivingEvent);
-
-                    // Gate: a WINDOW-dispatched marker re-checks only the CanActivate half at execution entry —
-                    // AS-IS AutoProcessing.cs:1068 runs `CanActivate(hashtable)` on the stacked skill and NEVER
-                    // re-evaluates CanTrigger/CanUseCondition after collect (the collect gate already ran in
-                    // CanCollectAt when the marker was synthesised). A DIRECT path (option play / on-play /
-                    // declaration) collects-and-resolves inline, so it evaluates BOTH halves here, mirroring the
-                    // AS-IS collect filter + execution gate run back-to-back.
-                    bool gate = windowDispatched ? uniform.CanResolveActivateHalf() : uniform.CanResolve(resolveCtx);
-                    if (!gate)
-                    {
-                        break;
-                    }
-
-                    // AS-IS CanActivate includes the once-per-turn cap (ICardEffect.cs:366-372) — re-checked with
-                    // the condition half above at every gate site. Cycle-aware: a resumed re-run sees the same
-                    // view its original run saw (staged consumes replay).
-                    if (!context.OnceFlags.CanActivate(resolveCtx.Request, uniform.MaxCountPerTurn))
-                    {
-                        break;
-                    }
-
-                    // (B-1 rework) register the per-turn use BEFORE the body — AS-IS register-before-body. The
-                    // register point differs by path, and both are mirrored:
-                    //   - DECLARATIVE ([Main] skill declaration, TurnStateMachine.cs:1183-1186): register fires
-                    //     BEFORE the optional prompt — declining a declared capped skill leaves the cap consumed
-                    //     (that path has no RemoveUse). AS-IS then bypasses its own consumed cap with the
-                    //     IsDeclarative flag (AutoProcessing.cs:1068 `CanActivate || IsDeclarative`); here the cap
-                    //     was checked above, before the register, so no bypass flag is needed — same net gate.
-                    //   - WINDOW / standard (ICardEffect.cs:1117-1124 Activate_Execute): the OnProcessCallbuck
-                    //     register fires AFTER the optional gate (`UseOptional || !IsOptional`) and BEFORE the
-                    //     body coroutine — declining registers nothing.
-                    // Suspend safety is the OnceFlags uniform-cycle transaction (see ResolveAsync), NOT a consume
-                    // re-order: a suspend keeps the staged use and the resumed replay neither double-consumes nor
-                    // reads itself as capped-out.
-                    if (declarative)
-                    {
-                        context.OnceFlags.Consume(resolveCtx.Request, uniform.MaxCountPerTurn);
-                    }
-
-                    // (RD-13) an optional effect ("you may ...") asks the controller yes/no before it runs (AS-IS
-                    // OptionalSkill / Activate_Optional_Effect_Execute).
-                    if (uniform.IsOptional && !await ConfirmOptionalAsync(context, uniform, cancellationToken).ConfigureAwait(false))
-                    {
-                        break;
-                    }
-
-                    if (!declarative)
-                    {
-                        context.OnceFlags.Consume(resolveCtx.Request, uniform.MaxCountPerTurn);
-                    }
-
-                    // (B-4 rework) run the body; the use stays consumed even when the body does nothing — the
-                    // AS-IS DEFAULT (~1,170 [Once Per Turn] cards never call RemoveUse). ONLY a card whose AS-IS
-                    // body explicitly runs `if (!executed) RemoveUse()` opts in via RefundWhenNotExecuted
-                    // (executed defaults to "selection not skipped", overridable per card via ExecutedPredicate —
-                    // AS-IS executed is card-defined: AD1_024's 3-branch OR, BT14_029's board predicate).
-                    bool executed = await uniform.ResolveBodyAsync(sink, context.ChoiceProvider, players, cancellationToken).ConfigureAwait(false);
-                    if (!executed && uniform.RefundWhenNotExecuted)
-                    {
-                        context.OnceFlags.Refund(resolveCtx.Request, uniform.MaxCountPerTurn);
-                    }
-
-                    resolved++;
-                    break;
-                }
+                // (uniform-사멸 flip) `case ActivatedEffect uniform:` DELETED — the invented uniform kind died
+                // consumer-0 (fixtures re-written to the AS-IS inline ActivateClass; the last producer, the
+                // Commons afterMainBody carrier, now emits the sequential follow-up effect). Its cap/refund/
+                // executed/resume accounting lives on the AS-IS path this switch's ActivateICardEffect case
+                // already drives: CEntity_EffectController (register-before-body + IsSameEffect partition)
+                // + CEntityUseCycle (staged replay + mutation journal).
 
                 case DrawEffect draw:
                 {
@@ -1189,27 +1048,9 @@ public static class ActivatedEffectResolver
         }
     }
 
-    /// <summary>(RD-13) Ask the effect's controller whether to use an OPTIONAL effect (AS-IS OptionalSkill
-    /// "Will you use ~?"). A single "use" candidate that the agent selects (yes) or skips (no) — the same
-    /// <see cref="ChoiceType.OptionalEffect"/> the trigger-window optional prompt uses.</summary>
-    private static async Task<bool> ConfirmOptionalAsync(EngineContext context, ActivatedEffect uniform, CancellationToken cancellationToken)
-    {
-        var request = new ChoiceRequest(
-            ChoiceType.OptionalEffect,
-            uniform.Card.Controller,
-            $"Use optional effect? {uniform.Description}",
-            minCount: 0,
-            maxCount: 1,
-            canSkip: true,
-            ChoiceZone.Custom,
-            new[]
-            {
-                new ChoiceCandidate(uniform.EffectId, uniform.Description, ChoiceZone.Custom, IsSelectable: true, ownerId: uniform.Card.Controller),
-            });
+    // (uniform-사멸 flip) ConfirmOptionalAsync DELETED — the uniform optional prompt; the new-model optional
+    // gate is the AS-IS OptionalSkill.SelectOptional (Activate_Optional, ICardEffect.cs).
 
-        ChoiceResult decision = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
-        return !decision.IsSkipped && decision.SelectedIds.Count > 0;
-    }
 
     private static IReadOnlyList<HeadlessPlayerId> ResolvePlayers(EngineContext context, HeadlessPlayerId controller)
     {

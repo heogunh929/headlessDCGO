@@ -141,8 +141,10 @@ async Task PlaysTamerBack()
     // Fixing requires re-pointing the factory (or this call site) to whatever the new model's equivalent
     // playback body/type is — outside NewModelContinuousScan.cs / Headless/Runtime/*Gate.cs /
     // MatchStateMutationSink.cs (this pass's touch scope). Not forced; left failing, documented here.
-    var playBack = (ActivatedPlayFromUnderEffect)((ActivatedEffect)CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(
-        new CardSource(ctx, tamer, P1), cardName: "TAMER", effectDescription: "")).Body;
+    // (uniform-사멸 flip) `ActivatedEffect` was deleted with the uniform corpus — the factory returns the
+    // new-model ActivateClass, so this single cast still throws the SAME documented InvalidCastException.
+    var playBack = (ActivatedPlayFromUnderEffect)CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(
+        new CardSource(ctx, tamer, P1), cardName: "TAMER", effectDescription: "");
     ChoiceRequest request = playBack.BuildRequest(new[] { P1 });
     AssertTrue(request.Candidates.Any(c => c.Id == tamer), "the linked TAMER under-card is a candidate (Digimon-only filter fixed)");
 

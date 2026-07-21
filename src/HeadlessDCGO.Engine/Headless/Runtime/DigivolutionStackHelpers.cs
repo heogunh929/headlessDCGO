@@ -28,7 +28,7 @@ public static class DigivolutionStackHelpers
 
     /// <summary>Moves <paramref name="cards"/> from <paramref name="fromZone"/> off-field and appends them
     /// (in order) to the BOTTOM of <paramref name="targetId"/>'s digivolution stack.
-    /// (B-3 tuck reset) When <paramref name="onceFlags"/> is supplied, each tucked card's per-turn use counts are
+    /// (B-3 tuck reset; R6-Da'-6 D3) When <paramref name="context"/> is supplied, each tucked card's per-turn use counts are
     /// cleared — AS-IS clears them on EVERY path that puts a card under another permanent:
     /// PlacePermanentToDigivolutionCards runs InitUseCountThisTurn on the tucked card (CardController.cs:3093)
     /// after RemoveField already Init()-reset the whole leaving stack (CardObjectController.cs:546-553); DigiXros
@@ -41,7 +41,7 @@ public static class DigivolutionStackHelpers
         IReadOnlyList<HeadlessEntityId> cards,
         ChoiceZone fromZone,
         CancellationToken cancellationToken = default,
-        Effects.OnceFlagController? onceFlags = null,
+        Bridge.EngineContext? context = null,
         GameEventQueue? gameEventQueue = null,
         HeadlessEntityId causeSourceId = default,
         bool skipEffectAndActivateSkill = false)
@@ -76,7 +76,12 @@ public static class DigivolutionStackHelpers
             }
 
             appended.Add(cardId.Value);
-            onceFlags?.ResetForCard(card.OwnerId, cardId);
+            // (R6-Da'-6 D3) AS-IS CardSource.Init() per-card cap reset on the CEntity_EffectController store
+            // (the OnceFlags string-key twin died with the uniform corpus).
+            if (context is not null)
+            {
+                Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountForCard(context, cardId);
+            }
         }
 
         AppendSources(repository, target, appended);
@@ -98,7 +103,7 @@ public static class DigivolutionStackHelpers
         IReadOnlyList<HeadlessEntityId> cards,
         ChoiceZone fromZone,
         CancellationToken cancellationToken = default,
-        Effects.OnceFlagController? onceFlags = null,
+        Bridge.EngineContext? context = null,
         GameEventQueue? gameEventQueue = null,
         HeadlessEntityId causeSourceId = default)
     {
@@ -126,7 +131,12 @@ public static class DigivolutionStackHelpers
                 cancellationToken).ConfigureAwait(false);
             moved.Add(cardId.Value);
             // (B-3 tuck reset) same AS-IS InitUseCountThisTurn mirror as AddSourcesBottomAsync.
-            onceFlags?.ResetForCard(card.OwnerId, cardId);
+            // (R6-Da'-6 D3) AS-IS CardSource.Init() per-card cap reset on the CEntity_EffectController store
+            // (the OnceFlags string-key twin died with the uniform corpus).
+            if (context is not null)
+            {
+                Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountForCard(context, cardId);
+            }
         }
 
         PrependSources(repository, target, moved);
@@ -146,7 +156,7 @@ public static class DigivolutionStackHelpers
         HeadlessEntityId fromId,
         HeadlessEntityId toId,
         int count,
-        Effects.OnceFlagController? onceFlags = null,
+        Bridge.EngineContext? context = null,
         GameEventQueue? gameEventQueue = null,
         HeadlessEntityId causeSourceId = default)
     {
@@ -175,7 +185,7 @@ public static class DigivolutionStackHelpers
 
         repository.Upsert(source with { Metadata = WithSources(source.Metadata, remaining) });
         AppendSources(repository, destination, moved);
-        if (onceFlags is not null)
+        if (context is not null)
         {
             foreach (string movedValue in moved)
             {
@@ -183,7 +193,7 @@ public static class DigivolutionStackHelpers
                 HeadlessPlayerId owner = repository.TryGetInstance(movedId, out CardInstanceRecord? movedCard) && movedCard is not null
                     ? movedCard.OwnerId
                     : destination.OwnerId;
-                onceFlags.ResetForCard(owner, movedId);
+                Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountForCard(context, movedId);
             }
         }
 

@@ -46,6 +46,9 @@ async Task CappedInteractiveSurvivesResume()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 13, deferredChoice: true);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (uniform-사멸 flip) the fixtures are now AS-IS ActivateClass — ICardEffect.CanTrigger gates on
+    // DoneStartGame (phase past None/Setup), so advance to Main (PRIM-P0/G9-009 harness precedent).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     var cards = (CardDatabase)context.CardRepository;
 
     // The [Once Per Turn] interactive-trash card in P1's battle area.
@@ -88,6 +91,9 @@ async Task SkippedInteractiveRefundsCap()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 21, deferredChoice: true);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (uniform-사멸 flip) the fixtures are now AS-IS ActivateClass — ICardEffect.CanTrigger gates on
+    // DoneStartGame (phase past None/Setup), so advance to Main (PRIM-P0/G9-009 harness precedent).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     var cards = (CardDatabase)context.CardRepository;
 
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxOncePerTurnOptionalTrash"), "TfxOncePerTurnOptionalTrash", "OPTI",
@@ -122,6 +128,9 @@ async Task SkippedInteractiveDefaultConsumes()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 34, deferredChoice: true);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (uniform-사멸 flip) the fixtures are now AS-IS ActivateClass — ICardEffect.CanTrigger gates on
+    // DoneStartGame (phase past None/Setup), so advance to Main (PRIM-P0/G9-009 harness precedent).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     var cards = (CardDatabase)context.CardRepository;
 
     // The DEFAULT (no-refund) fixture — like AS-IS BT2_078 (canNoSelect body, no RemoveUse): selecting nothing
@@ -158,6 +167,9 @@ async Task MultiEffectSuspendRepaysOnce()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 55, deferredChoice: true);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (uniform-사멸 flip) the fixtures are now AS-IS ActivateClass — ICardEffect.CanTrigger gates on
+    // DoneStartGame (phase past None/Setup), so advance to Main (PRIM-P0/G9-009 harness precedent).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     context.MemoryController.Set(0);
     var cards = (CardDatabase)context.CardRepository;
 

@@ -276,112 +276,10 @@ public sealed class LinkSelfEffect : IActivatedCardEffect
 }
 
 
-/// <summary>(C-2 witness / BT22_035 [On Play] / [When Digivolving]) "you may link 1 level 4 or lower [Appmon]
-/// Digimon card from your HAND or THIS Digimon's DIGIVOLUTION CARDS to this Digimon without paying the cost".
-/// THIS card is the HOST; the chosen card is attached as a LINK card via
-/// <see cref="Runtime.LinkHelpers.AddLinkCardAsync"/> (which opens the WhenLinked window and trims the host's
-/// link max), so a subsequent deletion of the host routes the link card to the trash (C-2 DeletionSourceTrash).
-/// Composable body of a uniform <see cref="ActivatedEffect"/> (the timing gate / optional prompt / cap live on
-/// the wrapper).
-///
-/// AS-IS (BT22_035.cs:83-179 SharedActivateCoroutine) presents an AREA sub-choice (hand vs sources) THEN a card
-/// select within the chosen area. The linkable-card RESULT set is identical whether the areas are chosen first
-/// or pooled, so — matching the established <see cref="ActivatedSelectAndPlayFromZonesEffect"/> multi-zone idiom
-/// — this pools the hand + own-source candidates into ONE optional (canNoSelect ⇒ canSkip) selection. AS-IS
-/// isOptional=true is folded into that canSkip (B-5 convention). A source-origin pick is first DETACHED from the
-/// host stack (<see cref="Runtime.DigivolutionStackHelpers.PlaySpecificSourceAsync"/> to
-/// <see cref="ChoiceZone.None"/>) so it is not counted as both a digivolution source AND a link, then attached
-/// from None. Like <see cref="LinkSelfEffect"/>, the attach is a direct (unjournaled) ZoneMover mutation — the
-/// live deferred-choice replay path for links is a shared, later concern; the choice itself precedes the
-/// attach.</summary>
-public sealed class LinkFromHandOrSourcesToSelfBody : IEffectBody
-{
-    private readonly CardSource _card;
-    private readonly Func<CardSource, bool> _canLink;
-    private readonly string _description;
+// (uniform-사멸 flip) `LinkFromHandOrSourcesToSelfBody` DELETED — consumer-0 invented IEffectBody (the
+// interface died with the uniform ActivatedEffect corpus; the live <Link> surface is LinkSelfEffect +
+// LinkHelpers).
 
-    public LinkFromHandOrSourcesToSelfBody(CardSource card, Func<CardSource, bool> canLink, string description)
-    {
-        _card = card ?? throw new ArgumentNullException(nameof(card));
-        _canLink = canLink ?? throw new ArgumentNullException(nameof(canLink));
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        _description = description;
-    }
-
-    public bool IsInteractive => true;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players)
-    {
-        var zones = (IZoneStateReader)_card.Context.ZoneMover;
-        var candidates = new List<ChoiceCandidate>();
-
-        // AS-IS canUseHand: HasMatchConditionOwnersHand(card, SharedIsAppMon).
-        foreach (HeadlessEntityId id in zones.GetCards(_card.Owner, ChoiceZone.Hand))
-        {
-            if (_canLink(new CardSource(_card.Context, id, _card.Owner)))
-            {
-                candidates.Add(new ChoiceCandidate(id, id.Value, ChoiceZone.Hand, IsSelectable: true, ownerId: _card.Owner));
-            }
-        }
-
-        // AS-IS canUseSources: card.PermanentOfThisCard().DigivolutionCards.Filter(SharedIsAppMon).
-        foreach (CardSource source in new Permanent(_card.Context, _card.InstanceId, _card.Owner).DigivolutionCards)
-        {
-            if (_canLink(source))
-            {
-                candidates.Add(new ChoiceCandidate(
-                    source.InstanceId, source.InstanceId.Value, ChoiceZone.DigivolutionCards, IsSelectable: true, ownerId: _card.Owner));
-            }
-        }
-
-        int max = Math.Min(1, candidates.Count);
-        // AS-IS maxCount:1, canNoSelect:true ⇒ optional ("you may"): min 0, canSkip.
-        return new ChoiceRequest(
-            ChoiceType.Card, _card.Owner, _description, minCount: 0, maxCount: max, canSkip: true, ChoiceZone.Custom, candidates);
-    }
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        ApplyAsync(card, sink, selected, CancellationToken.None).AsTask().GetAwaiter().GetResult();
-
-    public async ValueTask ApplyAsync(
-        CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected, CancellationToken cancellationToken)
-    {
-        if (selected.Count == 0)
-        {
-            return; // AS-IS: cardForLinking == null ⇒ no attach.
-        }
-
-        HeadlessEntityId linkId = selected[0];
-        if (linkId.IsEmpty)
-        {
-            return;
-        }
-
-        EngineContext context = _card.Context;
-        var zones = (IZoneStateReader)context.ZoneMover;
-        ChoiceZone from;
-        if (zones.GetCards(_card.Owner, ChoiceZone.Hand).Contains(linkId))
-        {
-            from = ChoiceZone.Hand;
-        }
-        else
-        {
-            // Own-source pick: detach it from THIS card's stack (to off-field) before attaching it as a link, so
-            // it is not tracked as both a source and a link. AS-IS Permanent.AddLinkCard performs the equivalent
-            // move off the stack.
-            await DigivolutionStackHelpers.PlaySpecificSourceAsync(
-                context.CardInstanceRepository, context.ZoneMover, _card.InstanceId, linkId, ChoiceZone.None, cancellationToken).ConfigureAwait(false);
-            from = ChoiceZone.None;
-        }
-
-        // AS-IS card.PermanentOfThisCard().AddLinkCard(cardForLinking): THIS card is the host.
-        await LinkHelpers.AddLinkCardAsync(
-            context.CardInstanceRepository, context.ZoneMover, _card.InstanceId, linkId, from,
-            context.GameEventQueue, cancellationToken, context,
-            // (G-Link P2 risk-1) this effect IS the cause — its source card is the host; thread it to WhenLinked.
-            causeSourceId: _card.InstanceId).ConfigureAwait(false);
-    }
-}
 
 
 /// <summary>(G8-004) "[Security] activate this card's [Main] effect" — a security skill that re-runs the
@@ -504,145 +402,15 @@ public sealed class ModeChoiceEffect : IActivatedCardEffect
 }
 
 
-/// <summary>
-/// An activated targeted effect (an Option [Main] / [Security] skill that selects permanents and acts on
-/// them, e.g. "delete up to 2 of your opponent's Digimon"). Wraps the <see cref="SelectPermanentEffect"/>
-/// helper: <see cref="BuildRequest"/> enumerates candidates into a <c>ChoiceRequest</c> and
-/// <see cref="Apply"/> applies the Mode's mutation to the chosen targets.
-///
-/// NOTE: the interactive activation path (Option/Security action -> resolve this effect with a live choice
-/// provider) is NOT yet wired (IHeadlessCardEffect.ResolveAsync has no choice provider). These effects are
-/// therefore resolved imperatively (build request -> answer -> apply), exactly as the
-/// SelectPermanentEffect tests do, until that integration lands. They are not auto-registered (their
-/// OptionSkill / SecuritySkill timing is excluded from <see cref="CardEffectRegistrar.AllTimings"/>).
-/// </summary>
-// (R6-Da'-1 carry-over marking; R6-Db census re-confirmed) RETIREMENT CONFIRMED but STAYS — this is the uniform
-// survival core. Remaining LIVE consumers: EX8_074 (RD-R6-07 / R2-C STOP — the blocker keeping the whole uniform
-// path alive), live cards ST1_15/ST1_16/ST2_16, fixtures TfxCappedSelectSuspend/TfxOptionalSelectSuspend, and its
-// own internal use inside SelectDestroyThenTrashSecurityBody (_select). Final deletion follows EX8_074's R2-C resolution
-// (A8) + the Tfx uniform-fixture retirement. Do NOT wire new consumers.
-[Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(Da'-5/corpus) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
-public sealed class ActivatedSelectEffect : IActivatedCardEffect, IEffectBody
-{
-    private readonly SelectPermanentEffect _select = new();
-
-    public ActivatedSelectEffect(
-        CardSource card,
-        Func<HeadlessEntityId, bool> canTarget,
-        int maxCount,
-        bool canNoSelect,
-        bool canEndNotMax,
-        SelectPermanentEffect.Mode mode,
-        string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canTarget);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Description = description;
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect, canEndNotMax, mode, card.InstanceId, card.Context);
-        _select.SetUpCustomMessage(description);
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    /// <summary>Enumerate the candidates into a Permanent ChoiceRequest the driver/agent answers.</summary>
-    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players) =>
-        _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
-
-    /// <summary>Apply the Mode's mutation to the chosen targets.</summary>
-    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected) =>
-        _select.Apply(sink, selected);
-
-    // (B-5) IEffectBody — so this select can be a composable body of a uniform ActivatedEffect, gaining the
-    // shared once-per-turn cap + optional gate. Delegates to the existing BuildRequest/Apply (internal Card).
-    bool IEffectBody.IsInteractive => true;
-
-    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
-
-    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        Apply(sink, selected);
-
-    // Activated effects are not auto-registered; lowering one to a binding is a wiring error.
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Activated select effect is resolved via the activation flow, not registered: {Description}");
-}
+// (uniform-사멸 flip) `ActivatedSelectEffect` + `SelectDestroyThenTrashSecurityBody` + `SuspendCostReductionEffect`
+// DELETED — the uniform ActivatedEffect corpus died consumer-0: the B5 Tfx fixtures were retired, the AD1_025
+// re-port dropped the composite body's only construction, and the SuspendCostReduction rule surface is the
+// AS-IS inline shape (TfxBeforePayCost/EX8_074 region #1: SelectPermanentEffect(Mode.Custom) +
+// SuspendPermanentsClass.Tap + UntilCalculateFixedCostEffect ChangeCostClass; availability = region #2's
+// hidden isCheckAvailability ChangeCostClass folded by GetPayingCostWithBaseCost). G1R-001 rows retired.
 
 
-/// <summary>(AD1_025 [All Turns]) Composite body: (conditionally) select 1 target to DESTROY, then trash the
-/// enemy's top security card. 1:1 mirror of AS-IS AD1_025.cs:172-211 <c>ActivateCoroutine</c>:
-/// <c>if (HasMatchConditionOpponentsPermanent(IsEnemyOptionPermanent)) SelectPermanentEffect(Mode.Destroy,
-/// maxCount 1, canNoSelect false); yield IDestroySecurity(enemy, 1, fromTop:true)</c>. The select runs ONLY when
-/// a matching target exists (the AS-IS guard); the security trash runs UNCONDITIONALLY afterwards. Because the
-/// AS-IS coroutine sequences select-then-security, the whole body is driven through <see cref="IEffectBody.ApplyAsync"/>:
-/// <see cref="BuildRequest"/> returns the select request only when the guard holds (else null → the resolver takes
-/// the non-interactive branch and still runs ApplyAsync), and ApplyAsync applies the destroy (if any) then the
-/// security trash. No selectable target = no select prompt, still trashes security.</summary>
-public sealed class SelectDestroyThenTrashSecurityBody : IEffectBody
-{
-    private readonly CardSource _card;
-    private readonly Func<HeadlessEntityId, bool> _canTarget;
-    private readonly ActivatedSelectEffect _select;
-    private readonly HeadlessPlayerId _securityPlayer;
-    private readonly int _securityCount;
-    private readonly bool _fromTop;
 
-    public SelectDestroyThenTrashSecurityBody(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget,
-        HeadlessPlayerId securityPlayer, int securityCount, bool fromTop, string selectMessage)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canTarget);
-        _card = card;
-        _canTarget = canTarget;
-        _securityPlayer = securityPlayer;
-        _securityCount = securityCount;
-        _fromTop = fromTop;
-        _select = new ActivatedSelectEffect(
-            card, canTarget, maxCount: 1, canNoSelect: false, canEndNotMax: false,
-            SelectPermanentEffect.Mode.Destroy, selectMessage);
-    }
-
-    public bool IsInteractive => true;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players)
-    {
-        // AS-IS guard: HasMatchConditionOpponentsPermanent(IsEnemyOptionPermanent) — no target ⇒ skip the select
-        // (returning null routes the resolver to the non-interactive branch, which still runs ApplyAsync).
-        return CardEffectCommons.HasMatchConditionPermanent(_card, _canTarget)
-            ? ((IEffectBody)_select).BuildRequest(card, players)
-            : null;
-    }
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        throw new NotSupportedException("SelectDestroyThenTrashSecurityBody must be applied via ApplyAsync (select then security).");
-
-    public ValueTask ApplyAsync(
-        CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        if (selected.Count > 0)
-        {
-            ((IEffectBody)_select).Apply(card, sink, selected);
-        }
-
-        // AS-IS IDestroySecurity(player: enemy, destroySecurityCount: 1, fromTop: true) — same mutation the
-        // shared TrashSecurityBody emits.
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.TrashSecurityKind,
-            _card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.PlayerIdKey] = _securityPlayer.Value,
-                [MatchStateMutationSink.CountKey] = _securityCount,
-                [MatchStateMutationSink.FromTopKey] = _fromTop,
-            }));
-
-        return ValueTask.CompletedTask;
-    }
-}
 
 
 // (R6-Db) ActivatedSelectBounceAndDiscardSourcesEffect (ST4_16-shaped bounce+source-discard) DELETED —
@@ -720,136 +488,6 @@ public sealed class BeforePayCostReductionEffect : IActivatedCardEffect
 }
 
 
-/// <summary>
-/// (EX8_074 Stage 3 brick) An activated "suspend N of your Digimon to reduce THIS card's play cost by M"
-/// effect — the headless composite of the original <c>SuspendPermanentsClass.Tap()</c> +
-/// <c>ChangeCostClass</c> added to <c>Player.UntilCalculateFixedCostEffect</c>. Selecting EXACTLY
-/// <see cref="SuspendCount"/> own Digimon suspends them (<see cref="SelectPermanentEffect.Mode.Tap"/> →
-/// <c>SuspendKind</c>) and registers a one-shot self play-cost reduction binding
-/// (<see cref="EffectDuration.UntilCalculateFixedCost"/> — cleared by PlayCardAction's
-/// <c>ExpireFixedCostCalc</c> once the play's cost is locked, mirroring the original's one-shot lifetime).
-/// Selecting fewer (declined / insufficient) applies nothing — the original adds the ChangeCostClass only
-/// inside the "permanents.Count == 2" branch. Resolved via the choice flow (<see cref="ActivatedEffectResolver"/>),
-/// not auto-registered. This brick is engine-side only; wiring it into the BeforePayCost pre-payment window
-/// of PlayCardAction is a later stage.
-/// </summary>
-public sealed class SuspendCostReductionEffect : IActivatedCardEffect, IEffectBody
-{
-    private readonly SelectPermanentEffect _select = new();
-
-    private readonly Func<HeadlessEntityId, bool> _canSuspendTarget;
-
-    public SuspendCostReductionEffect(
-        CardSource card,
-        Func<HeadlessEntityId, bool> canSuspendTarget,
-        int suspendCount,
-        int costReduction,
-        string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canSuspendTarget);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        if (suspendCount <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(suspendCount), "Suspend count must be positive.");
-        }
-
-        if (costReduction <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(costReduction), "Cost reduction must be positive.");
-        }
-
-        Card = card;
-        SuspendCount = suspendCount;
-        CostReduction = costReduction;
-        Description = description;
-        _canSuspendTarget = canSuspendTarget;
-        // Configure the suspend selection (Mode.Tap); canNoSelect is recomputed per BuildRequest from the
-        // owner's affordability (see Configure). The ctor setup also keeps Apply safe if called without a
-        // prior BuildRequest (mode must be Tap).
-        Configure(canNoSelect: true);
-        _select.SetUpCustomMessage(description);
-    }
-
-    public CardSource Card { get; }
-
-    public int SuspendCount { get; }
-
-    public int CostReduction { get; }
-
-    public string Description { get; }
-
-    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players)
-    {
-        // (#1↔#2 coupling) The original sets canNoSelect:false when the player cannot otherwise afford the
-        // card (PayingCost > MaxMemoryCost) — the suspend is FORCED when the reduction is the only way to
-        // pay; optional (canNoSelect:true) when the full cost is affordable without it.
-        Configure(canNoSelect: CanAffordFullCost());
-        return _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
-    }
-
-    private void Configure(bool canNoSelect) =>
-        _select.SetUp(Card.Owner, _canSuspendTarget, maxCount: SuspendCount, canNoSelect, canEndNotMax: false, SelectPermanentEffect.Mode.Tap, Card.InstanceId, Card.Context);
-
-    /// <summary>Whether the owner can pay this card's FULL play cost (without this reduction, which is only
-    /// registered in <see cref="Apply"/>). When false, the suspend is mandatory.</summary>
-    private bool CanAffordFullCost()
-    {
-        if (!Card.Context.CardInstanceRepository.TryGetInstance(Card.InstanceId, out CardInstanceRecord? instance) || instance is null
-            || !Card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) || def is null
-            || !PlayCostHelpers.TryResolveCost(def, instance, out int baseCost, out _))
-        {
-            return true; // unknown cost → don't force the suspend
-        }
-
-        // (R2-C) single AS-IS orchestrator; this BeforePayCost effect's card is played from hand (Root.Hand).
-        int fullCost = Card.GetPayingCostWithBaseCost(baseCost, SelectCardEffect.Root.Hand, targetPermanents: null);
-        return Card.Context.MemoryController.CanPay(fullCost);
-    }
-
-    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        List<HeadlessEntityId> ids = selected?.ToList() ?? new List<HeadlessEntityId>();
-        if (ids.Count != SuspendCount)
-        {
-            // Declined or short — mirror the original: the ChangeCostClass is only added when exactly N
-            // Digimon were suspended. No suspend, no reduction.
-            return;
-        }
-
-        _select.Apply(sink, ids);
-        RegisterReduction();
-    }
-
-    /// <summary>(R6-Da'-3) The one-shot self PLAY-cost reduction the suspend pays for — the AS-IS
-    /// <c>Player.UntilCalculateFixedCostEffect.Add(_ => changeCostClass)</c> idiom: a self play-cost-only
-    /// <c>ChangeCostClass</c> (<see cref="CardEffectFactory.MandatorySelfPlayCostReduction{T}"/> — gated on
-    /// <c>cardSource == this card</c> and play-cost only via its null/empty targetPermanents PermanentsCondition)
-    /// added to the OWNER's <see cref="EffectDuration.UntilCalculateFixedCost"/> bucket, so it lasts only until
-    /// this play's cost is locked (cleared by EffectDurationExpiry.ExpireFixedCostCalc / PlayCardAction). Read
-    /// back by CardSource.GetPayingCostWithBaseCost's ChangeCostClass fold. Replaces the INVENTED EffectRegistry
-    /// NumericModifier binding.</summary>
-    private void RegisterReduction()
-    {
-        var reduction = CardEffectFactory.MandatorySelfPlayCostReduction(CostReduction, Card);
-        if (reduction is not null)
-        {
-            new Player(Card.Context, Card.Owner).UntilCalculateFixedCostEffect.Add(_ => reduction);
-        }
-    }
-
-    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
-    bool IEffectBody.IsInteractive => true;
-
-    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
-
-    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        Apply(sink, selected);
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Suspend-cost-reduction effect is resolved via the activation flow, not registered: {Description}");
-}
 
 
 // (R6-Da'-3) invented granted-continuous BUFF body classes DELETED — `ActivatedTargetBuffEffect` (select-and-buff
@@ -872,7 +510,7 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect, IEffectBo
 // remaining consumers are the STALE ST2.Blue white-box casts. Delete this class together with that suite's
 // disposal. Do NOT wire new consumers.
 [Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(A6, ST2.Blue 처분과 동시 삭제) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
-public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffect, IEffectBody
+public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffect
 {
     private readonly SelectPermanentEffect _select = new();
     private readonly int _trashCount;
@@ -917,13 +555,8 @@ public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffec
         }
     }
 
-    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
-    bool IEffectBody.IsInteractive => true;
-
-    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
-
-    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        Apply(sink, selected);
+    // (uniform-사멸 flip) explicit IEffectBody half REMOVED — the interface died with the uniform
+    // ActivatedEffect corpus; the public BuildRequest/Apply surface is unchanged.
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Activated trash-digivolution effect is resolved via the activation flow, not registered: {Description}");
@@ -2160,7 +1793,7 @@ public sealed class TrashSelfThenGainMemoryDelayEffect : IActivatedCardEffect
 /// PlayDigivolutionAsDigimon mutation that moves the chosen under-card out of its host onto the battle area
 /// (cost-free) and auto-registers it.
 /// </summary>
-public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect, IEffectBody
+public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
 {
     private readonly string _cardType;
     private readonly string? _cardName;
@@ -2275,13 +1908,8 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect, IEffect
             && CardEffectCommons.CanPlayAsNewPermanent(new CardSource(Card.Context, id, Card.Owner), payCost: false, null);
     }
 
-    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
-    bool IEffectBody.IsInteractive => true;
-
-    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
-
-    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        Apply(sink, selected);
+    // (uniform-사멸 flip) explicit IEffectBody half REMOVED — the interface died with the uniform
+    // ActivatedEffect corpus; the public BuildRequest/Apply surface is unchanged.
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Play-from-under effect is resolved via the activation flow, not registered: {Description}");
@@ -2538,7 +2166,7 @@ public sealed class SelectHandAttachToOwnStackThenMemoryEffect : IActivatedCardE
         await DigivolutionStackHelpers.AddSourcesTopAsync(
             context.CardInstanceRepository, context.ZoneMover, Card.InstanceId,
             new[] { result.SelectedIds[0] }, ChoiceZone.Hand, cancellationToken,
-            onceFlags: context.OnceFlags,
+            context: context,
             // (F1-Tier2 OnAddDigivolutionCards) effect place-under (top) — this card's own effect is the cause.
             gameEventQueue: context.GameEventQueue, causeSourceId: Card.InstanceId).ConfigureAwait(false);
 
@@ -2876,7 +2504,7 @@ public sealed class OpponentBinaryChoiceEffect : IActivatedCardEffect
 /// select over a combined candidate pool where each candidate carries its own source zone into the play
 /// mutation (the AS-IS "from hand / from trash" zone prompt is UI sugar; the outcome set is identical).
 /// Generalises <see cref="ActivatedSelectAndPlayEffect"/> (a single fixed fromZone) to a multi-zone pool.</summary>
-public sealed class ActivatedSelectAndPlayFromZonesEffect : IActivatedCardEffect, IEffectBody
+public sealed class ActivatedSelectAndPlayFromZonesEffect : IActivatedCardEffect
 {
     private readonly IReadOnlyList<ChoiceZone> _fromZones;
     private readonly Func<HeadlessEntityId, bool> _canTarget;
@@ -2956,13 +2584,8 @@ public sealed class ActivatedSelectAndPlayFromZonesEffect : IActivatedCardEffect
         }
     }
 
-    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
-    bool IEffectBody.IsInteractive => true;
-
-    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
-
-    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        Apply(sink, selected);
+    // (uniform-사멸 flip) explicit IEffectBody half REMOVED — the interface died with the uniform
+    // ActivatedEffect corpus; the public BuildRequest/Apply surface is unchanged.
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Multi-zone select-and-play effect is resolved via the activation flow, not registered: {Description}");

@@ -22,14 +22,17 @@ void Check(bool cond, string label)
     else { Console.WriteLine($"PASS {label}"); }
 }
 
-// The activated effect id the fixture produces (ActivatedEffect.EffectId = "{instanceId}:ae:{timing}:{body}").
+// (uniform-사멸 flip) The fixture is now an AS-IS ActivateClass — the optional yes/no prompt is the AS-IS
+// OptionalSkill.SelectOptional ChoiceRequest whose single candidate id is the effect SOURCE CARD's instance id
+// (OptionalSkill.cs — AS-IS asks "Will you use ~?" on the card), so the accept answer selects the card id.
 HeadlessEntityId Card = new("p1:OPT");
-HeadlessEntityId EffectId = new($"{Card.Value}:ae");   // unhashed cap partition = per card (AS-IS IsSameEffect)
 
 async Task<EngineContext> Setup()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 13);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (uniform-사멸 flip) AS-IS ActivateClass CanTrigger gates on DoneStartGame — advance to Main.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     var cards = (CardDatabase)ctx.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxOptionalMemory"), "TfxOptionalMemory", "Opt",
         new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
@@ -52,7 +55,7 @@ Task Resolve(EngineContext ctx) =>
 // --- 2. Accept (scripted 'select the use candidate'): memory +1. ---
 {
     EngineContext ctx = await Setup();
-    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(EffectId));
+    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(Card));
     await Resolve(ctx);
     Check(ctx.MemoryController.Current.Current == 1, "accepting an optional effect resolves it (memory +1)");
 }
@@ -63,7 +66,7 @@ Task Resolve(EngineContext ctx) =>
     await Resolve(ctx);   // decline (fallback skip) — must NOT consume the once-per-turn cap
     Check(ctx.MemoryController.Current.Current == 0, "precondition: first (declined) attempt gained nothing");
 
-    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(EffectId));
+    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(Card));
     await Resolve(ctx);   // accept — should still be usable this turn (decline consumed no cap)
     Check(ctx.MemoryController.Current.Current == 1, "a declined once-per-turn optional is still usable later the same turn (+1)");
 }
@@ -71,11 +74,11 @@ Task Resolve(EngineContext ctx) =>
 // --- 4. (RD-12) An ACCEPTED once-per-turn optional consumes the use -> a second accept the same turn is a no-op. ---
 {
     EngineContext ctx = await Setup();
-    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(EffectId));
+    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(Card));
     await Resolve(ctx);   // accept -> +1, cap consumed
     Check(ctx.MemoryController.Current.Current == 1, "precondition: first accept gained +1");
 
-    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(EffectId));
+    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(Card));
     await Resolve(ctx);   // capped out -> not offered/resolved
     Check(ctx.MemoryController.Current.Current == 1, "a once-per-turn optional does not fire twice in a turn (stays +1)");
 }

@@ -2621,7 +2621,7 @@ public static partial class CardEffectCommons
         await Headless.Runtime.DigivolutionStackHelpers.AddSourcesBottomAsync(
             context.CardInstanceRepository, context.ZoneMover, result.SelectedIds[0],
             new[] { card.InstanceId }, ChoiceZone.Trash, cancellationToken,
-            onceFlags: context.OnceFlags,
+            context: context,
             // (F1-Tier2 OnAddDigivolutionCards) Save place-under — the saved card's own effect is the cause.
             gameEventQueue: context.GameEventQueue, causeSourceId: card.InstanceId).ConfigureAwait(false);
     }
@@ -4584,21 +4584,23 @@ public static partial class CardEffectCommons
 
     /// <summary>Mirror of the original <c>AddActivateMainOptionSecurityEffect</c>: reuse the Option's [Main]
     /// skill from security (driven live by <see cref="Headless.Runtime.SecurityResolver"/> →
-    /// <see cref="ActivatedEffectResolver"/> at the SecuritySkill timing). <paramref name="afterMainBody"/>
-    /// mirrors the AS-IS <c>afterMainEffect</c> callback: a follow-up body (e.g. <see cref="SelfToHandBody"/>
-    /// for "then, add this card to your hand", ST4_15) resolved AFTER the reused [Main], in order.</summary>
+    /// <see cref="ActivatedEffectResolver"/> at the SecuritySkill timing). <paramref name="afterMainEffect"/>
+    /// mirrors the AS-IS <c>afterMainEffect</c> callback (a follow-up run AFTER the reused [Main], in order —
+    /// AS-IS ActivateMainOfOptionSide sequences main-then-after inside ONE coroutine): the follow-up effect is
+    /// appended to the SecuritySkill list so the sequential ResolveListAsync pass runs it right after the reused
+    /// [Main] (e.g. <see cref="AddThisCardToHandEffect"/> for "then, add this card to your hand", ST4_15 — the
+    /// same effect kind the EX1_072/BT9_109 [Security] add-to-hand path uses). (uniform-사멸 flip) Replaces the
+    /// former gate-free uniform <c>ActivatedEffect</c> body-carrier — the last non-fixture uniform producer.</summary>
     public static void AddActivateMainOptionSecurityEffect(
-        CardSource card, ref List<ICardEffect> cardEffects, string effectName, IEffectBody? afterMainBody = null)
+        CardSource card, ref List<ICardEffect> cardEffects, string effectName, ICardEffect? afterMainEffect = null)
     {
         ArgumentNullException.ThrowIfNull(cardEffects);
         cardEffects.Add(new ReuseMainOptionEffect(effectName));
-        if (afterMainBody is not null)
+        if (afterMainEffect is not null)
         {
-            // A gate-free ActivatedEffect carrying the follow-up body: resolved right after the reused [Main]
-            // in the same ResolveListAsync pass (SecuritySkill flow), matching the AS-IS sequential callback.
-            cardEffects.Add(new ActivatedEffect(
-                card: card, timing: EffectTiming.SecuritySkill, canUse: null, canActivate: null,
-                body: afterMainBody, maxCountPerTurn: null, isOptional: false, description: effectName));
+            // The follow-up effect: resolved right after the reused [Main] in the same ResolveListAsync pass
+            // (SecuritySkill flow), matching the AS-IS sequential callback.
+            cardEffects.Add(afterMainEffect);
         }
     }
 

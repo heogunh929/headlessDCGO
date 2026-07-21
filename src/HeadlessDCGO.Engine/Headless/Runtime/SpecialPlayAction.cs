@@ -383,7 +383,7 @@ public sealed class SpecialPlayAction
             IReadOnlyList<HeadlessEntityId> merged = await FusionDigivolveHelpers.FuseAsync(
                 context.CardInstanceRepository, context.ZoneMover, topCardId, ChoiceZone.Hand, materials,
                 materialFromZone: ChoiceZone.BattleArea, gameEventQueue: context.GameEventQueue, kind: fusion, cancellationToken: cancellationToken,
-                onceFlags: context.OnceFlags).ConfigureAwait(false);
+                context: context).ConfigureAwait(false);
             performed = merged.Count > 0;
         }
 

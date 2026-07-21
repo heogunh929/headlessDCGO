@@ -106,7 +106,6 @@ public static class CardEffectRegistrar
         // re-play / de-digivolve / re-stack, so a stale use from an earlier stint this turn would otherwise linger
         // and wrongly cap the effect on re-entry. Reset only THIS card's counts (others untouched). A first-time
         // play removes 0.
-        context.OnceFlags.ResetForCard(instance.OwnerId, instanceId);
         var card = new CardSource(context, instanceId, controller, instance.OwnerId);
         // (P6 stage A) the NEW-model per-turn cap lives on the per-instance CEntity_EffectController
         // (UseEffectsThisTurn) — reset it alongside the legacy OnceFlags reset, mirroring the same AS-IS

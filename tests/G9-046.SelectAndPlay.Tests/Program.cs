@@ -72,7 +72,7 @@ async Task SelfReturn()
 // corrected candidate set.
 async Task Bt1044Candidates()
 {
-    EngineContext ctx = Ctx();
+    EngineContext ctx = Ctx(deferred: true);
     // BT1_044's own permanent: under-cards LV3 (candidate) and LV5 (excluded by Level <= 4).
     var self = await PlaceLeveled(ctx, P1, "BT44", ChoiceZone.BattleArea, level: 6);
     var lv3 = await PlaceLeveled(ctx, P1, "LV3", ChoiceZone.None, level: 3);
@@ -83,12 +83,14 @@ async Task Bt1044Candidates()
     var otherUnder = await PlaceLeveled(ctx, P1, "OU3", ChoiceZone.None, level: 3);
     SetSources(ctx, other, otherUnder);
 
-    var uniform = (ActivatedEffect)new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue.BT1_044()
+    // (uniform-사멸 flip re-target) BT1_044 is the AS-IS inline ActivateClass — assert the per-pass gate on the
+    // live ICardEffect surface and read the coroutine's SelectCardEffect request via a deferred drive.
+    var eff = (HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass)new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue.BT1_044()
         .CardEffects(EffectTiming.OnAllyAttack, new CardSource(ctx, self, P1)).Single();
-    AssertTrue(uniform.CanResolveActivateHalf(), "canActivate: on battle area with a Lv<=4 own-stack under-card");
+    using var scope = AmbientMatchContext.Enter(ctx);
+    AssertTrue(eff.CanActivate(new System.Collections.Hashtable()), "canActivate: on battle area with a Lv<=4 own-stack under-card");
 
-    var body = (ActivatedPlayFromUnderEffect)uniform.Body;
-    var req = body.BuildRequest(new[] { P1, P2 });
+    ChoiceRequest req = await OpenUnderSelect(ctx, eff);
     AssertTrue(req.Candidates.Count == 1, $"exactly ONE candidate (got {req.Candidates.Count})");
     AssertTrue(req.Candidates[0].Id == lv3, "the candidate is the own-stack Lv3 under-card (Lv5 and other-stack Lv3 excluded)");
     AssertTrue(req.MinCount == 1 && !req.CanSkip, "mandatory pick (AS-IS canNoSelect: () => false)");
@@ -103,12 +105,11 @@ async Task Bt1044NoCandidateGate()
     var lv5 = await PlaceLeveled(ctx, P1, "LV5", ChoiceZone.None, level: 5);
     SetSources(ctx, self, lv5);
 
-    var uniform = (ActivatedEffect)new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue.BT1_044()
+    // (uniform-사멸 flip re-target) live per-pass gate on the AS-IS ICardEffect surface.
+    var eff = (HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass)new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue.BT1_044()
         .CardEffects(EffectTiming.OnAllyAttack, new CardSource(ctx, self, P1)).Single();
-    AssertTrue(!uniform.CanResolveActivateHalf(), "canActivate rejects: no Lv<=4 own-stack under-card");
-
-    var body = (ActivatedPlayFromUnderEffect)uniform.Body;
-    AssertTrue(body.BuildRequest(new[] { P1, P2 }).Candidates.Count == 0, "and the body offers no candidate");
+    using var scope = AmbientMatchContext.Enter(ctx);
+    AssertTrue(!eff.CanActivate(new System.Collections.Hashtable()), "canActivate rejects: no Lv<=4 own-stack under-card");
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -145,11 +146,28 @@ void SetSources(EngineContext ctx, HeadlessEntityId host, params HeadlessEntityI
 MatchStateMutationSink Sink(EngineContext ctx) => new(
     ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.EffectRegistry, ctx.GameEventQueue);
 
-EngineContext Ctx()
+EngineContext Ctx(bool deferred = false)
 {
-    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 946);
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 946, deferredChoice: deferred);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
     return ctx;
+}
+
+// (uniform-사멸 flip) Drive BT1_044's ActivateClass coroutine with the DEFERRED provider until its
+// SelectCardEffect surfaces, then return the pending request (the live candidate/min rule surface).
+async Task<ChoiceRequest> OpenUnderSelect(EngineContext ctx, HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass eff)
+{
+    try
+    {
+        await eff.Activate(new System.Collections.Hashtable());
+    }
+    catch (DeferredChoicePendingException)
+    {
+    }
+
+    ChoiceRequest? pending = ctx.ChoiceController.PendingRequest;
+    AssertTrue(pending is not null, "the under-card select surfaced to the agent (deferred)");
+    return pending!;
 }
 
 async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, string tag, ChoiceZone zone)

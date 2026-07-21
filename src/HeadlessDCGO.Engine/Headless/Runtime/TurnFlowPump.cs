@@ -307,8 +307,9 @@ public static class TurnFlowPump
             // clear), so a PLAYED digimon stayed summoning-sick forever — the security-win shadow witness
             // surfaced it (no pump-side attack was ever possible from the real play path).
             ExpireEnteredThisTurnFlags(context, newTurn);
-            // F-4: once-per-turn use counts (legacy metadata-key model) reset for the NEW turn.
-            context.OnceFlags.ResetForTurn(newTurn.TurnNumber, newTurn.TurnPlayerId);
+            // (R6-Da'-6) The legacy OnceFlags per-turn cap reset DIED with the uniform corpus — the AS-IS
+            // per-card use counts (CEntity_EffectController.UseEffectsThisTurn) are reset by EndPhaseAsync's
+            // ActiveCardList InitUseCountThisTurn loop (TurnStateMachine, AS-IS :3204-3208 mirror) above.
             // AS-IS :3181 player.DigivolveCount_ThisTurn = 0 — substrate PlayerTurnCounterController owner.
             context.PlayerTurnCounters.ResetForTurn();
             // F-1.7: leftover "until cost is calculated" one-shot modifiers expire at the boundary.

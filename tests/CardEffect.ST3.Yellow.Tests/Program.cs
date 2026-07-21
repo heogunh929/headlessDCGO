@@ -103,7 +103,8 @@ async Task ST3_01_SelfBuff()
     EffectBinding bd = Bind(d, sd);
     AssertTrue(await ResolveDeletion(d, bd, await MakeDeleted(d, P2, "del:f1", dpZero: true)), "1st delete fires");
     AssertTrue(!await ResolveDeletion(d, bd, await MakeDeleted(d, P2, "del:f2", dpZero: true)), "2nd delete same turn blocked (once-per-turn)");
-    d.OnceFlags.ResetForTurn(2, P1);
+    // (uniform-사멸 flip) the legacy OnceFlags gate died — the harness-local cap ledger below is cleared instead.
+    LocalCapUses.Clear();
     AssertTrue(await ResolveDeletion(d, bd, await MakeDeleted(d, P2, "del:f3", dpZero: true)), "next turn fires again");
 }
 
@@ -324,7 +325,9 @@ async Task<bool> ResolveDeletion(EngineContext context, EffectBinding binding, H
     var evtCtx = new EffectContext(baseCtx.SourcePlayerId, baseCtx.OwnerPlayerId, baseCtx.SourceEntityId,
         triggerEntityId: deleted, targetEntityIds: Array.Empty<HeadlessEntityId>());
     var request = new EffectRequest(binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing, evtCtx);
-    if (!context.OnceFlags.TryActivate(request, binding.Effect!.Definition.MaxCountPerTurn))
+    // (uniform-사멸 flip) the engine's OnceFlags gate died with the uniform corpus; this harness-local ledger
+    // preserves the once-per-turn suppression the OLD binding-drive helper mirrored.
+    if (!LocalTryActivate(request.EffectId.Value, binding.Effect!.Definition.MaxCountPerTurn))
     {
         return false;
     }
@@ -371,4 +374,27 @@ static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
+}
+
+// (uniform-사멸 flip) Harness-local once-per-turn ledger for the legacy binding-drive helpers above.
+partial class Program
+{
+    private static readonly Dictionary<string, int> LocalCapUses = new(StringComparer.Ordinal);
+
+    private static bool LocalTryActivate(string effectId, int? maxCountPerTurn)
+    {
+        if (maxCountPerTurn is not int max)
+        {
+            return true;
+        }
+
+        int used = LocalCapUses.TryGetValue(effectId, out int u) ? u : 0;
+        if (used >= max)
+        {
+            return false;
+        }
+
+        LocalCapUses[effectId] = used + 1;
+        return true;
+    }
 }

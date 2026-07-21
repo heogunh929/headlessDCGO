@@ -11,7 +11,10 @@
 //
 // The discriminator: after the battle + drive-to-stable, does the [On Deletion] play choice list DeathXmon as a
 // candidate? Post-trash (correct) => yes at count 5; pre-trash (bug) => no (only the normal purple/black lv3).
+using System.Collections;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -105,80 +108,95 @@ async Task BoundaryIsOwnSource()
 
 // --- (C-3 재상환 P1-D) [When Digivolving] gate-half tests ------------------
 
-// (4) AS-IS CanUseCondition = CanTriggerWhenDigivolving ONLY — a skill whose OR (Dorugoramon-in-sources /
-// from-trash) is FALSE at collect still stacks, and the board half re-reads the live stack per pass: a
-// Dorugoramon source added inside the window flips CanActivate to true. The pre-fix headless folded the OR
-// into canUse (collect-once), which would return FALSE here and never stack the skill.
+// (4) (uniform-사멸 flip re-target) AS-IS gate split on the NEW-model ActivateClass: CanUseCondition =
+// CanTriggerWhenDigivolving ONLY — a skill whose OR (Dorugoramon-in-sources / from-trash) is FALSE at collect
+// still collects (CanTrigger true), and the board half re-reads the live stack per pass (CanActivate over the
+// SAME hashtable): a Dorugoramon source added inside the window flips CanActivate to true.
 async Task WhenDigivolvingPerPassBoardHalf()
 {
-    (EngineContext ctx, HeadlessEntityId bt9, ActivatedEffect eff) = await WhenDigivolvingSetup();
+    (EngineContext ctx, HeadlessEntityId bt9, ICardEffect eff) = await WhenDigivolvingSetup();
+    using var scope = AmbientMatchContext.Enter(ctx);
 
-    AssertTrue(eff.CanResolveUseHalf(DigivolveCtx(ctx, bt9, "Hand")),
-        "collect half (canUse) passes on a hand-root digivolve even with the OR false");
-    AssertTrue(!eff.CanResolveActivateHalf(),
+    AssertTrue(eff.CanTrigger(DigivolveHashtable(ctx, bt9, SelectCardEffect.Root.Hand)),
+        "collect half (CanTrigger/CanUseCondition) passes on a hand-root digivolve even with the OR false");
+    AssertTrue(!eff.CanActivate(DigivolveHashtable(ctx, bt9, SelectCardEffect.Root.Hand)),
         "per-pass half is false: no [Dorugoramon] source, not from trash");
 
     // Mid-window board change: tuck a card named exactly [Dorugoramon] under BT9_081.
     HeadlessEntityId doru = Loose(ctx, P2, "src:DORU", "Dorugoramon", colors: new[] { "Purple" }, level: 6, type: "Digimon");
     SetSources(ctx, bt9, doru);
 
-    AssertTrue(eff.CanResolveActivateHalf(),
+    AssertTrue(eff.CanActivate(DigivolveHashtable(ctx, bt9, SelectCardEffect.Root.Hand)),
         "per-pass half flips TRUE after the source appears — the stack is re-read per pass, not latched at collect");
 }
 
-// (5) The event half: digivolving from the trash satisfies the OR with no Dorugoramon source; the root is only
-// visible at collect (canUse), so it is latched there for the per-pass gate.
+// (5) The event half: digivolving from the trash satisfies the OR with no Dorugoramon source — AS-IS both
+// halves read the driving hashtable per pass (the invented from-trash LATCH was dropped with the uniform model:
+// BT9_081's CanActivateCondition evaluates CanTriggerWhenDigivolving(hashtable, RootCondition) directly).
 async Task WhenDigivolvingFromTrashLatch()
 {
-    (EngineContext ctx, HeadlessEntityId bt9, ActivatedEffect eff) = await WhenDigivolvingSetup();
+    (EngineContext ctx, HeadlessEntityId bt9, ICardEffect eff) = await WhenDigivolvingSetup();
+    using var scope = AmbientMatchContext.Enter(ctx);
 
-    AssertTrue(eff.CanResolveUseHalf(DigivolveCtx(ctx, bt9, "Trash")), "collect half passes on a trash-root digivolve");
-    AssertTrue(eff.CanResolveActivateHalf(),
-        "per-pass half is TRUE via the latched from-trash root (no [Dorugoramon] source needed)");
+    AssertTrue(eff.CanTrigger(DigivolveHashtable(ctx, bt9, SelectCardEffect.Root.Trash)), "collect half passes on a trash-root digivolve");
+    AssertTrue(eff.CanActivate(DigivolveHashtable(ctx, bt9, SelectCardEffect.Root.Trash)),
+        "per-pass half is TRUE via the from-trash root in the driving hashtable (no [Dorugoramon] source needed)");
 }
 
-// (6) Latch lifetime: every collect overwrites the latch, so a later hand-root digivolve does not inherit a
-// stale from-trash TRUE from an earlier window.
+// (6) No cross-window contamination: a trash-root pass being TRUE must not leak into a later hand-root pass —
+// AS-IS each pass reads its OWN driving hashtable, so the hand-root re-check is FALSE (the property the old
+// invented latch-overwrite case pinned, expressed on the AS-IS per-pass surface).
 async Task WhenDigivolvingLatchOverwrite()
 {
-    (EngineContext ctx, HeadlessEntityId bt9, ActivatedEffect eff) = await WhenDigivolvingSetup();
+    (EngineContext ctx, HeadlessEntityId bt9, ICardEffect eff) = await WhenDigivolvingSetup();
+    using var scope = AmbientMatchContext.Enter(ctx);
 
-    AssertTrue(eff.CanResolveUseHalf(DigivolveCtx(ctx, bt9, "Trash")), "first window: trash root");
-    AssertTrue(eff.CanResolveActivateHalf(), "first window: latched TRUE");
+    AssertTrue(eff.CanTrigger(DigivolveHashtable(ctx, bt9, SelectCardEffect.Root.Trash)), "first window: trash root");
+    AssertTrue(eff.CanActivate(DigivolveHashtable(ctx, bt9, SelectCardEffect.Root.Trash)), "first window: TRUE via the trash root");
 
-    AssertTrue(eff.CanResolveUseHalf(DigivolveCtx(ctx, bt9, "Hand")), "second window: hand root re-collects");
-    AssertTrue(!eff.CanResolveActivateHalf(), "second window: the stale from-trash latch was overwritten to FALSE");
+    AssertTrue(eff.CanTrigger(DigivolveHashtable(ctx, bt9, SelectCardEffect.Root.Hand)), "second window: hand root re-collects");
+    AssertTrue(!eff.CanActivate(DigivolveHashtable(ctx, bt9, SelectCardEffect.Root.Hand)), "second window: the hand-root pass reads FALSE (no stale from-trash carry-over)");
 }
 
 // Battle-area BT9_081 (P2) + one enemy Digimon (P1, the lowest-level delete target) and the card's
-// [When Digivolving] uniform ActivatedEffect, built exactly as the resolver dispatches it.
-async Task<(EngineContext Ctx, HeadlessEntityId Bt9, ActivatedEffect Effect)> WhenDigivolvingSetup()
+// [When Digivolving] NEW-model ActivateClass, built exactly as the resolver dispatches it.
+async Task<(EngineContext Ctx, HeadlessEntityId Bt9, ICardEffect Effect)> WhenDigivolvingSetup()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 48);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // ICardEffect.CanTrigger gates on DoneStartGame (phase past None/Setup) — advance to Main.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     await Combatant(ctx, P1, "ENEMY", dp: 5000, suspended: false, number: "ENEMY", name: "EnemyDigimon", colors: new[] { "Red" }, level: 4);
     HeadlessEntityId bt9 = await Combatant(ctx, P2, "BT9_081", dp: 6000, suspended: false,
         number: "BT9_081", name: "DoruBattlemon", colors: new[] { "Purple" }, level: 6);
 
     var card = new CardSource(ctx, bt9, P2, P2);
-    ActivatedEffect eff = new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT9.Purple.BT9_081()
+    using var scope = AmbientMatchContext.Enter(ctx);
+    ICardEffect eff = new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT9.Purple.BT9_081()
         .CardEffects(EffectTiming.OnEnterFieldAnyone, card)
-        .OfType<ActivatedEffect>()
+        .OfType<ActivateClass>()
         .Single();
     return (ctx, bt9, eff);
 }
 
-// A WhenDigivolving resolve-context exactly as BuildUniformResolveContext threads it: the driving event's
-// subject as TriggerEntityId + "event.<key>" primitive metadata (triggerTiming / fromZone).
-CardEffectResolveContext DigivolveCtx(EngineContext ctx, HeadlessEntityId subject, string fromZone)
+// A [When Digivolving] driving hashtable exactly as the AS-IS emit threads it (HashtableSetting
+// WhenDigivolvingCheckHashtable shape): isEvolution + per-entry {Permanent, Root}.
+Hashtable DigivolveHashtable(EngineContext ctx, HeadlessEntityId subject, SelectCardEffect.Root root)
 {
-    var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+    return new Hashtable()
     {
-        [$"{GameFlowProcessor.EventValuePrefix}{AutoProcessingTriggerCollector.TriggerTimingKey}"] = TriggerTimings.WhenDigivolving,
-        [$"{GameFlowProcessor.EventValuePrefix}fromZone"] = fromZone,
+        { "isEvolution", true },
+        {
+            "hashtables", new List<Hashtable>()
+            {
+                new Hashtable()
+                {
+                    { "Permanent", new Permanent(ctx, subject, P2) },
+                    { "Root", root },
+                }
+            }
+        },
     };
-    var effectContext = new EffectContext(P2, P2, subject, triggerEntityId: subject, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
-    return new CardEffectResolveContext(new EffectRequest(new HeadlessEntityId("test:wd"), P2, "Trigger", effectContext));
 }
 
 // --- Battle drive --------------------------------------------------------

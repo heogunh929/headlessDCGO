@@ -276,3 +276,30 @@ F1/F2/F3 갈림길 결정(2026-07-21 코디네이터 확정)에 따라 아래는
 | `ActivatedSelectTrashDigivolutionEffect` | ST2.Blue stale 캐스트 3좌석 — ST2.Blue 처분과 동시 삭제 | A6 |
 | `SelectAndDeDigivolveEffect`(헬퍼) | G9-046 DeDigivolve 케이스 소비 — body와 동시 소멸 | Da′-5 |
 | `ActivatedSelectAndDeDigivolveEffect`(body) | resolver switch case(:928) 보유 | Da′-5 |
+
+---
+
+## §10. uniform 사멸 결합 flip 집행 원장 (2026-07-21, 전체 집행)
+
+Base main `94fc7994`. 코디네이터 결정: 분할 없이 전체 집행(정정: 코어 삭제 선행조건 = resolver uniform 전용 좌석 ~8, Da'-5 switch 전붕괴 아님).
+
+### 처분 확정
+- **KEEP 5 Tfx 인라인 재작성**(AS-IS `new ActivateClass()` 인라인): TfxOncePerTurnInteractiveTrash(SelectHandEffect Mode.Discard + IUnsuspendPermanents), TfxCappedMemoryThenSelectTrash(SetHashString "mem"/"trash" 분리 파티션 + journaled sink 즉시-memory), TfxOncePerTurnOptionalTrash(코루틴 말미 `RemoveUse()` = AS-IS opt-in 환불), TfxOncePerTurnOptionalTrashNoRefund(무환불 기본), TfxBeforePayCost(EX8_074 region #1+#2 verbatim-adapted — availability = [None] isCheckAvailability ChangeCostClass). TfxOptionalMemory도 재작성(isOptional=OptionalSkill 경로). 단언 대조표 게이트 전 항목 보존(B1 4/4·B3 3/3·RD13 6/6·G9-006 2/2·G9-007 5/5·G9-013 3/3 green).
+- **ST4_15/Commons flip**: `AddActivateMainOptionSecurityEffect`의 afterMainBody 우니폼 캐리어 → `ICardEffect? afterMainEffect` 순차 후속 효과(ST4_15 = `AddThisCardToHandEffect`, EX1_072/BT9_109 동일 kind). SelfToHandBody 소멸.
+- **은퇴 스위트**: B5-UniformMigration(+Tfx 3종), PRIM.UniformActivated, G9-005.SuspendCostReduction(커버=G9-006/007 재조준+G9-013+EX8_074 witnesses), G3.5-F4.OncePerTurnGating, G3L-001.Once.per.turn.flag.helper.
+- **BeforePayCostReduction 판정 = 존치**: `BeforePayCostReductionEffect`는 실카드 생산자 BT2_023 보유(비-uniform corpus) — uniform 스코프 무관, corpus 삭제 시점 처분.
+- **코어 삭제**: `ActivatedEffect.cs`(437줄: ActivatedEffect + IEffectBody 인터페이스 + Draw/Memory/SelectTrashHand/SelfToHand/GrantContinuous/Select 바디) 파일 삭제. `ActivatedSelectEffect`·`SelectDestroyThenTrashSecurityBody`(AD1_025 재포팅으로 consumer-0)·`SuspendCostReductionEffect`·`LinkFromHandOrSourcesToSelfBody`(consumer-0) 삭제. 잔존 corpus 3종(ActivatedSelectTrashDigivolution/ActivatedPlayFromUnder/ActivatedSelectAndPlayFromZones)의 IEffectBody 절반 제거 → **IEffectBody src 코드 참조 0**.
+- **resolver uniform 좌석 소멸**: MembershipKeeps 삼항, CanActivateAt/CanCollectAt/CanDeclareAt uniform 분기 3, BuildUniformResolveContext, `case ActivatedEffect`, ConfirmOptionalAsync (1247→1088줄).
+- **⑥ 헬퍼 삭제**: `PlayCardAction.BeforePayCostAvailabilityReduction`(발명 프로젝션) + :397 좌석 — availability는 AS-IS checkAvailability:true fold 직독.
+- **⑦ D3**: `CEntity_EffectControllerStore.ResetUseCountForCard(context, id)` 신설(AS-IS CardSource.Init 단일-카드 미러) + 5좌석 배선(LinkHelpers:154, FusionDigivolveHelpers, DigivolutionStackHelpers×3) — 헬퍼 시그니처 `onceFlags:` → `context:`(EngineContext 스레딩), 호출부 9좌석 갱신. B3 스위트가 CEntity 표면으로 재조준되어 행동 검증(3/3 green).
+- **⑧ OnceFlagController 완전소멸(D1=A 완결)**: 파일 + OnceFlagHelpers.cs + `EngineContext.OnceFlags`(ctor/prop/reset/RegisterService) + TurnFlowPump ResetForTurn(턴 리셋=EndPhaseAsync의 AS-IS ActiveCardList InitUseCountThisTurn 루프 단독) + CardEffectRegistrar OnceFlags 리셋(CEntity 리셋 기존 유지) 전량 삭제. resolver 사이클 CEntityUseCycle **단일구동** 전환.
+
+### 스테일 white-box 정리 (전부 pre-existing red — 회귀 0)
+- ST1.Red ActivatedTests 4 케이스·ST2.Blue ST2_16 케이스: live ActivateClass 구동으로 재조준(스위트 잔여 red는 A6-carry 기존分, 16=16/12=12 무회귀). ST2.Blue/ST3.Yellow 레거시 binding-드라이브 헬퍼의 OnceFlags 게이트 → 하네스-로컬 cap 원장.
+- C4-Witness 케이스 4-6: BT9_081 신모델 gate-split(CanTrigger/CanActivate + AS-IS hashtable)로 재조준 — **5 failed → 2 failed**(잔여 2 = 기존 red).
+- G9-046 BT1_044 2 케이스 재조준(deferred SelectCardEffect 표면), G9-060/FAILa-11: 죽은 이중캐스트 제거(문서화된 stale-red 유지).
+- B2/G11-004/D2/F1-M1-OnLoseSecurity: `OnceFlags.ResetForTurn` → `CEntity_EffectControllerStore.ResetUseCountsForTurn`.
+
+### 검증
+- RLB2-01 다이제스트 10시드(1000..1009): **bit-identical 10/10** (BEFORE=94fc7994 워크트리 / AFTER=flip 트리). D3 시나리오 판정: 변화 판 0 = 무관 판 변화 없음(재스택/융합/링크 캡 경로 시드 미발화) — 정지 조건 미해당.
+- G1R-001: ActivatedSelectEffect 행 은퇴(소진), 잔여 2행 baseline OK.

@@ -146,7 +146,8 @@ async Task ResetsNextTurn()
 
     // AS-IS InitUseCountThisTurn — the per-turn cap resets on the new turn (C2: the new-model per-instance
     // cap lives on CEntity_EffectController.UseEffectsThisTurn; the real turn advance resets both).
-    ctx.OnceFlags.ResetForTurn(turnSequence: 1, turnPlayerId: P1);
+    // (uniform-사멸 flip) per-turn caps live on the AS-IS CEntity_EffectController store now.
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountsForTurn(ctx);
     HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountsForTurn(ctx);
 
     await DeleteBatchViaSink(ctx, d2);

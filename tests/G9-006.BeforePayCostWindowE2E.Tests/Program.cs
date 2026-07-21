@@ -48,8 +48,12 @@ async Task PaysReducedAndSuspends()
     // Synchronous resolver: seed the suspend selection the BeforePayCost effect will ask for.
     ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(d1, d2));
 
+    // (uniform-사멸 flip) the fixture now carries the AS-IS [None] availability half (hidden isCheckAvailability
+    // ChangeCostClass, EX8_074 region #2) — with >= 2 suspendable Digimon the LANE cost (checkAvailability:true
+    // resolve, PlayCardAction validation) is the reduced 2, so the payload declares 2 (the P_223/EX8_074 lane
+    // convention). The actual payment below still re-resolves through the brick-2 window's until-calc -4.
     ActionProcessResult result = await new PlayCardAction().ProcessAsync(
-        HeadlessActionFactory.PlayCard(P1, hand, 6), context);
+        HeadlessActionFactory.PlayCard(P1, hand, 2), context);
 
     AssertTrue(result.IsSuccess, $"the play succeeded ({result.Message})");
     AssertTrue(IsSuspended(context, d1) && IsSuspended(context, d2), "both chosen Digimon were suspended as the cost");

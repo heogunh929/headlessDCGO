@@ -28,7 +28,7 @@ internal static class ActivatedTests
     {
         // Base 4000 -> the 5000-DP Digimon is NOT a candidate (covered by ST1_15_Candidates). With a +2000
         // delete-threshold raise active, the same 5000-DP Digimon becomes deletable (4000 + 2000 = 6000).
-        (EngineContext context, _, _, _) = await ThreeOpponents();
+        (EngineContext context, _, _, _) = await ThreeOpponents(deferred: true);
         var raise = new EffectBinding(
             new EffectRequest(new HeadlessEntityId("raise:delthreshold"), P1, "Continuous",
                 new EffectContext(P1, P1, new HeadlessEntityId("raise:src"), triggerEntityId: null,
@@ -37,8 +37,9 @@ internal static class ActivatedTests
             keywords: null, EffectQueryRole.Continuous, new[] { "DeleteThreshold" }, effect: null, duration: null);
         context.EffectRegistry.Register(raise);
 
-        var effect = (ActivatedSelectEffect)((ActivatedEffect)Main(new ST1_15(), context)).Body;
-        ChoiceRequest request = effect.BuildRequest(Both);
+        // (uniform-사멸 flip re-target) drive the re-ported ActivateClass coroutine with a DEFERRED provider and
+        // read the surfaced SelectPermanentEffect request (the live rule surface; the old uniform Body cast died).
+        ChoiceRequest request = await OpenSelect(context, Main(new ST1_15(), context));
         AssertEqual(3, request.Candidates.Count, "with +2000 threshold, the 5000-DP Digimon is now a candidate");
     }
 
@@ -68,16 +69,10 @@ internal static class ActivatedTests
         await Place(context, P2, b1, dp: 3000);
         await Place(context, P2, b2, dp: 3000);
 
-        var effect = (ActivatedSelectEffect)((ActivatedEffect)Main(new ST1_16(), context)).Body;
-        ChoiceRequest request = effect.BuildRequest(Both);
-        AssertEqual(2, request.Candidates.Count, "both opponent Digimon are candidates");
-
-        var sink = Sink(context);
-        var provider = new ScriptedChoiceProvider();
-        provider.Enqueue(ChoiceResult.Select(b1));
-        ChoiceResult result = await provider.ChooseAsync(request);
-        effect.Apply(sink, result.SelectedIds);
-        await sink.FlushAsync();
+        // (uniform-사멸 flip re-target) live surface: the re-ported ActivateClass coroutine drives
+        // SelectPermanentEffect(Mode.Destroy) through the context's scripted provider.
+        ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(b1));
+        await RunMain(context, Main(new ST1_16(), context));
 
         AssertTrue(InZone(context, P2, ChoiceZone.Trash, b1), "B1 trashed");
         AssertTrue(InZone(context, P2, ChoiceZone.BattleArea, b2), "B2 untouched");
@@ -85,9 +80,9 @@ internal static class ActivatedTests
 
     private static async Task ST1_15_Candidates()
     {
-        (EngineContext context, _, _, _) = await ThreeOpponents();
-        var effect = (ActivatedSelectEffect)((ActivatedEffect)Main(new ST1_15(), context)).Body;
-        ChoiceRequest request = effect.BuildRequest(Both);
+        (EngineContext context, _, _, _) = await ThreeOpponents(deferred: true);
+        // (uniform-사멸 flip re-target) the surfaced SelectPermanentEffect request is the live rule surface.
+        ChoiceRequest request = await OpenSelect(context, Main(new ST1_15(), context));
         AssertEqual(2, request.Candidates.Count, "only the two <=4000 DP Digimon are candidates");
         AssertEqual(2, request.MaxCount, "up to 2");
         AssertEqual(1, request.MinCount, "canEndNotMax -> min 1");
@@ -96,24 +91,18 @@ internal static class ActivatedTests
     private static async Task ST1_15_Delete()
     {
         (EngineContext context, HeadlessEntityId low1, HeadlessEntityId high, HeadlessEntityId low2) = await ThreeOpponents();
-        var effect = (ActivatedSelectEffect)((ActivatedEffect)Main(new ST1_15(), context)).Body;
-        ChoiceRequest request = effect.BuildRequest(Both);
-
-        var sink = Sink(context);
-        var provider = new ScriptedChoiceProvider();
-        provider.Enqueue(ChoiceResult.Select(low1, low2));
-        ChoiceResult result = await provider.ChooseAsync(request);
-        effect.Apply(sink, result.SelectedIds);
-        await sink.FlushAsync();
+        // (uniform-사멸 flip re-target) live drive through the scripted provider.
+        ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(low1, low2));
+        await RunMain(context, Main(new ST1_15(), context));
 
         AssertTrue(InZone(context, P2, ChoiceZone.Trash, low1), "low1 trashed");
         AssertTrue(InZone(context, P2, ChoiceZone.Trash, low2), "low2 trashed");
         AssertTrue(InZone(context, P2, ChoiceZone.BattleArea, high), "5000 DP Digimon untouched");
     }
 
-    private static async Task<(EngineContext, HeadlessEntityId, HeadlessEntityId, HeadlessEntityId)> ThreeOpponents()
+    private static async Task<(EngineContext, HeadlessEntityId, HeadlessEntityId, HeadlessEntityId)> ThreeOpponents(bool deferred = false)
     {
-        EngineContext context = EngineContext.CreateDefault(randomSeed: 15);
+        EngineContext context = EngineContext.CreateDefault(randomSeed: 15, deferredChoice: deferred);
         var low1 = new HeadlessEntityId("p2:battle:LOW1");
         var high = new HeadlessEntityId("p2:battle:HIGH");
         var low2 = new HeadlessEntityId("p2:battle:LOW2");
@@ -127,6 +116,32 @@ internal static class ActivatedTests
     {
         var source = new CardSource(context, new HeadlessEntityId("p1:trash:OPT"), P1);
         return card.CardEffects(EffectTiming.OptionSkill, source).Single();
+    }
+
+    /// <summary>(uniform-사멸 flip) Run the re-ported [Main] ActivateClass coroutine under the ambient match
+    /// scope (the AS-IS GManager component flow) with the context's own choice provider.</summary>
+    private static async Task RunMain(EngineContext context, ICardEffect effect)
+    {
+        using var scope = AmbientMatchContext.Enter(context);
+        await ((HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass)effect).Activate(
+            CardEffectCommons.OptionMainCheckHashtable(effect.EffectSourceCard));
+    }
+
+    /// <summary>(uniform-사멸 flip) Drive the coroutine with a DEFERRED provider until its permanent-select
+    /// surfaces, and return the pending ChoiceRequest (the live candidates/min/max rule surface).</summary>
+    private static async Task<ChoiceRequest> OpenSelect(EngineContext context, ICardEffect effect)
+    {
+        try
+        {
+            await RunMain(context, effect);
+        }
+        catch (HeadlessDCGO.Engine.Headless.Runtime.DeferredChoicePendingException)
+        {
+        }
+
+        ChoiceRequest? pending = context.ChoiceController.PendingRequest;
+        AssertTrue(pending is not null, "the coroutine surfaced its permanent select (deferred)");
+        return pending!;
     }
 
     private static async Task Place(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId id, int dp)

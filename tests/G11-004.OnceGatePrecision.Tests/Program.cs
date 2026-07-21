@@ -63,7 +63,8 @@ async Task OnceStillCaps()
     await Attack(context, card);
     AssertEqual(4, context.MemoryController.Current.Current, "2nd same-turn firing blocked by once-per-turn (still 4)");
 
-    context.OnceFlags.ResetForTurn(2, P1);
+    // (uniform-사멸 flip) per-turn caps live on the AS-IS CEntity_EffectController store now.
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountsForTurn(context);
     await Attack(context, card);
     AssertEqual(3, context.MemoryController.Current.Current, "next turn: once resets, fires again (-1)");
 }

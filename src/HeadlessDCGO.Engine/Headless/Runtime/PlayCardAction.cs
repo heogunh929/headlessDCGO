@@ -215,7 +215,7 @@ public sealed class PlayCardAction
                 .ToList();
             await DigivolutionStackHelpers.AddSourcesBottomAsync(
                 context.CardInstanceRepository, context.ZoneMover, payload.CardId, stillInTrash, ChoiceZone.Trash,
-                cancellationToken, onceFlags: context.OnceFlags).ConfigureAwait(false);
+                cancellationToken, context: context).ConfigureAwait(false);
         }
 
         Dictionary<string, object?> metadata = Metadata(action, payload, validation);
@@ -389,13 +389,12 @@ public sealed class PlayCardAction
                 instance.DefinitionId);
         }
 
-        // (EX8_074 Stage 3 brick 3 — availability) The original's [None] isCheckAvailability ChangeCostClass:
-        // during availability calculation, a card with a passable BeforePayCost suspend-reduction is treated
-        // as costing that much less, so it can be offered/played when the FULL cost is unaffordable but the
-        // reduced cost is not. The payload cost stays full (the actual reduction is applied by the brick-2
-        // pre-payment window in ProcessAsync); only the affordability check uses the reduced cost.
-        int availabilityCost = Math.Max(0, expectedCost - BeforePayCostAvailabilityReduction(context, payload.CardId, playerId));
-        if (!context.MemoryController.CanPay(availabilityCost))
+        // (EX8_074 Stage 3 brick 3 — availability; uniform-사멸 flip) The AS-IS availability pre-discount is a
+        // [None] isCheckAvailability ChangeCostClass on the card itself (EX8_074 region #2), already folded into
+        // `expectedCost` by TryGetPlayCost's checkAvailability:true resolve (GetPayingCostWithBaseCost) — the
+        // former invented projection over the retired uniform SuspendCostReductionEffect body is deleted, so the
+        // affordability check reads the folded cost directly.
+        if (!context.MemoryController.CanPay(expectedCost))
         {
             return PlayCardValidation.Illegal(
                 $"Cannot pay play cost {payload.MemoryCost}.",
@@ -421,48 +420,12 @@ public sealed class PlayCardAction
         return PlayCardValidation.Legal(instance.DefinitionId);
     }
 
-    /// <summary>(EX8_074 Stage 3 brick 3) The total play-cost reduction available from this card's
-    /// <see cref="EffectTiming.BeforePayCost"/> activated effects whose gate currently passes — read straight
-    /// from the card's effect list (the card only returns a <see cref="SuspendCostReductionEffect"/> when its
-    /// gate, e.g. ">= 2 suspendable Digimon", is met). Mirrors the original's availability-check ChangeCostClass.
-    /// 0 for the vast majority of cards (no BeforePayCost effect / un-ported), so the normal path is unchanged.</summary>
-    private static int BeforePayCostAvailabilityReduction(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId)
-    {
-        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null
-            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) || def is null
-            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect) || effect is null)
-        {
-            return 0;
-        }
+    // (uniform-사멸 flip) BeforePayCostAvailabilityReduction DELETED — the invented availability projection
+    // (it unwrapped the retired uniform SuspendCostReductionEffect body). The availability pre-discount is
+    // now the AS-IS surface itself: a [None] isCheckAvailability ChangeCostClass on the card (EX8_074
+    // region #2 / TfxBeforePayCost), folded into TryGetPlayCost's checkAvailability:true resolve
+    // (CardSource.GetPayingCostWithBaseCost).
 
-        var card = new CardSource(context, cardId, playerId, instance.OwnerId);
-        int reduction = 0;
-        // (B.O.4 #1) this is a PLAY availability pre-discount — set the Play root so the card's root-gated
-        // [BeforePayCost] reduction is offered (else it self-gates out and the card looks unaffordable).
-        PayCostRoot previousRoot = context.CurrentPayCostRoot;
-        context.CurrentPayCostRoot = PayCostRoot.Play;
-        try
-        {
-            foreach (ICardEffect cardEffect in effect.CardEffects(EffectTiming.BeforePayCost, card))
-            {
-                // (B-5) the reduction is now a body of a uniform ActivatedEffect (shared cap/optional gate) —
-                // unwrap it; the pre-migration bare form is kept for safety though every site now wraps.
-                SuspendCostReductionEffect? suspendReduce =
-                    (cardEffect as ActivatedEffect)?.Body as SuspendCostReductionEffect
-                    ?? cardEffect as SuspendCostReductionEffect;
-                if (suspendReduce is not null)
-                {
-                    reduction += suspendReduce.CostReduction;
-                }
-            }
-        }
-        finally
-        {
-            context.CurrentPayCostRoot = previousRoot;
-        }
-
-        return reduction;
-    }
 
     private static void MarkEnteredThisTurn(EngineContext context, HeadlessEntityId cardId)
     {

@@ -6,10 +6,11 @@
 // helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` +
 // `GManager.instance.GetComponent<SelectPermanentEffect>()` + `SetUp(...)` (Mode.Tap) structure (see
 // BT1_043.cs / ST4_13.cs for the identically-shaped select+Mode precedent within this batch).
-// [Security] block UNCHANGED: `CardEffectCommons.AddActivateMainOptionSecurityEffect(..., afterMainBody: new
-// SelfToHandBody())` is the established GENUINE bridge for the AS-IS "reuse [Main] then afterMainEffect"
-// SecuritySkill shape (SelfToHandBody mirrors AddThisCardToHand exactly) — already correct, not the invented
-// old-model factory family this pass retires.
+// [Security] block (uniform-사멸 flip): `CardEffectCommons.AddActivateMainOptionSecurityEffect(...,
+// afterMainEffect: new AddThisCardToHandEffect(card, ...))` — the AS-IS "reuse [Main] then afterMainEffect"
+// SecuritySkill shape; the follow-up is the same AddThisCardToHandEffect kind the EX1_072/BT9_109 [Security]
+// add-to-hand path resolves (mirrors AS-IS AddThisCardToHand exactly). Replaces the retired uniform
+// `ActivatedEffect` + `SelfToHandBody` carrier.
 // Substrate translation only: IEnumerator->Task; `yield return ContinuousController.instance.StartCoroutine(X)`
 // -> `await X`; `Func<Permanent,bool> CanSelectPermanentCondition` -> the established
 // `Func<HeadlessEntityId,bool>` id-shape idiom (IsOpponentBattleAreaDigimon(card, id)).
@@ -80,11 +81,11 @@ public sealed class ST4_15 : CEntity_Effect
         if (timing == EffectTiming.SecuritySkill)
         {
             // [Security] reuse [Main] (suspend 1 opponent Digimon), THEN add this card to hand — the AS-IS
-            // afterMainEffect callback, mirrored via the afterMainBody follow-up (SelfToHandBody).
+            // afterMainEffect callback, mirrored via the sequential follow-up effect (AddThisCardToHandEffect).
             CardEffectCommons.AddActivateMainOptionSecurityEffect(
                 card: card, cardEffects: ref cardEffects,
                 effectName: "Suspend 1 Digimon and add this card to hand",
-                afterMainBody: new SelfToHandBody());
+                afterMainEffect: new AddThisCardToHandEffect(card, "Then, add this card to your hand."));
         }
 
         return cardEffects;

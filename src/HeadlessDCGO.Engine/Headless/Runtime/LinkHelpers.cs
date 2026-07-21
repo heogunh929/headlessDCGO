@@ -151,7 +151,11 @@ public static class LinkHelpers
         // (B-3 tuck reset) AS-IS AddLinkCard resets the attached card's per-turn use counts
         // (cardSource.cEntity_EffectController.InitUseCountThisTurn(), CardController.cs:3393 — after the
         // RemoveField that already Init()-reset a field-origin permanent's stack).
-        context?.OnceFlags.ResetForCard(linkCard.OwnerId, linkCardId);
+        // (R6-Da'-6 D3) per-card cap reset on the CEntity_EffectController store (OnceFlags twin retired).
+        if (context is not null)
+        {
+            Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountForCard(context, linkCardId);
+        }
 
         // (MIG2) AS-IS AddLinkCard (Permanent.cs:1251-1257): overflow is resolved BEFORE the attach — with
         // LinkedMax == 1 the current LinkedCards[0] is removed SILENTLY (bare RemoveLinkedCard: trash, but NO

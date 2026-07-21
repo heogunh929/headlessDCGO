@@ -1,17 +1,21 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // B-3 (P1-6): a card that RE-ENTERS a play context (played, replayed from trash, de-digivolved, re-stacked) gets
-// FRESH once-per-turn uses — AS-IS CardSource.Init() → InitUseCountThisTurn(). The headless keys the per-turn cap by
-// the card INSTANCE (stable across a re-play), so without a reset a use spent in an earlier stint this turn would
-// linger and wrongly cap the effect on re-entry. CardEffectRegistrar.RegisterCard (the enter-play hook) now resets
-// ONLY the entering card's counts. This proves: (a) re-entering play refreshes that card's use, (b) other cards are
-// untouched.
+// FRESH once-per-turn uses — AS-IS CardSource.Init() → InitUseCountThisTurn(). The headless keys the per-turn cap
+// by the card INSTANCE (stable across a re-play), so without a reset a use spent in an earlier stint this turn
+// would linger and wrongly cap the effect on re-entry.
+// (uniform-사멸 flip / R6-Da'-6 D3) Re-targeted from the retired invented OnceFlags string-key model onto the
+// AS-IS surface itself: uses register on the per-instance CEntity_EffectController (RegisterUseEffectThisTurn /
+// isOverMaxCountPerTurn), and the reset seats call CEntity_EffectControllerStore.ResetUseCountForCard —
+// CardEffectRegistrar.RegisterCard (enter-play), DigivolutionStackHelpers (tuck), LinkHelpers (link attach).
+// This proves: (a) re-entering play refreshes that card's use, (b) other cards are untouched, (c) tuck and link
+// attach reset the moved card only.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -54,20 +58,23 @@ async Task ReEnterPlayResetsCardUse()
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000 }));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, cardX, ChoiceZone.None, ChoiceZone.BattleArea));
     var cardY = new HeadlessEntityId("p1:battle:Y");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(cardY, new HeadlessEntityId("DEF:Y"), P1, Metadata: new Dictionary<string, object?>()));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, cardY, ChoiceZone.None, ChoiceZone.BattleArea));
 
-    // Card X and card Y each spend a once-per-turn effect this turn (keyed by their own instance as the source).
-    EffectRequest reqX = OnceRequest("X:ae:eff", cardX);
-    EffectRequest reqY = OnceRequest("Y:ae:eff", cardY);
-    context.OnceFlags.Consume(reqX, 1);
-    context.OnceFlags.Consume(reqY, 1);
-    AssertTrue(!context.OnceFlags.CanActivate(reqX, 1), "card X's once-per-turn is spent");
-    AssertTrue(!context.OnceFlags.CanActivate(reqY, 1), "card Y's once-per-turn is spent");
+    // Card X and card Y each spend a once-per-turn effect this turn (registered on their OWN instance's
+    // CEntity_EffectController — the AS-IS UseEffectsThisTurn list).
+    (CardSource srcX, ICardEffect effX) = CappedEffect(context, cardX);
+    (CardSource srcY, ICardEffect effY) = CappedEffect(context, cardY);
+    srcX.cEntity_EffectController.RegisterUseEffectThisTurn(effX);
+    srcY.cEntity_EffectController.RegisterUseEffectThisTurn(effY);
+    AssertTrue(srcX.cEntity_EffectController.isOverMaxCountPerTurn(effX, 1), "card X's once-per-turn is spent");
+    AssertTrue(srcY.cEntity_EffectController.isOverMaxCountPerTurn(effY, 1), "card Y's once-per-turn is spent");
 
     // Card X re-enters play (e.g., bounced to hand then replayed) — the enter-play hook resets ITS use only.
     context.RegisterEnteredCardEffects(cardX, P1);
 
-    AssertTrue(context.OnceFlags.CanActivate(reqX, 1), "card X's once-per-turn use is FRESH after re-entering play (B-3)");
-    AssertTrue(!context.OnceFlags.CanActivate(reqY, 1), "card Y's use is UNTOUCHED (per-card reset, not a turn-wide reset)");
+    AssertTrue(!srcX.cEntity_EffectController.isOverMaxCountPerTurn(effX, 1), "card X's once-per-turn use is FRESH after re-entering play (B-3)");
+    AssertTrue(srcY.cEntity_EffectController.isOverMaxCountPerTurn(effY, 1), "card Y's use is UNTOUCHED (per-card reset, not a turn-wide reset)");
 }
 
 async Task TuckUnderResetsCardUse()
@@ -76,7 +83,7 @@ async Task TuckUnderResetsCardUse()
     // PlacePermanentToDigivolutionCards runs InitUseCountThisTurn on the tucked card (CardController.cs:3093)
     // after RemoveField Init()-reset the leaving stack (CardObjectController.cs:546-553); Jogress resets all
     // merged sources (:1509-1512); DigiXros materials reset per card (SelectDigiXrosClass.cs:923). The headless
-    // tuck primitive (AddSourcesBottomAsync + onceFlags) mirrors that; MindLink/DNA/DigiXros route through it.
+    // tuck primitive (AddSourcesBottomAsync + context) mirrors that; MindLink/DNA/DigiXros route through it.
     EngineContext context = EngineContext.CreateDefault(randomSeed: 8);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
     var host = new HeadlessEntityId("p1:battle:HOST");
@@ -86,17 +93,17 @@ async Task TuckUnderResetsCardUse()
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, host, ChoiceZone.None, ChoiceZone.BattleArea));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, tucked, ChoiceZone.None, ChoiceZone.BattleArea));
 
-    EffectRequest reqTucked = OnceRequest("TUCK:ae:eff", tucked);
-    EffectRequest reqHost = OnceRequest("HOST:ae:eff", host);
-    context.OnceFlags.Consume(reqTucked, 1);
-    context.OnceFlags.Consume(reqHost, 1);
+    (CardSource srcT, ICardEffect effT) = CappedEffect(context, tucked);
+    (CardSource srcH, ICardEffect effH) = CappedEffect(context, host);
+    srcT.cEntity_EffectController.RegisterUseEffectThisTurn(effT);
+    srcH.cEntity_EffectController.RegisterUseEffectThisTurn(effH);
 
     await DigivolutionStackHelpers.AddSourcesBottomAsync(
         context.CardInstanceRepository, context.ZoneMover, host, new[] { tucked }, ChoiceZone.BattleArea,
-        onceFlags: context.OnceFlags);
+        context: context);
 
-    AssertTrue(context.OnceFlags.CanActivate(reqTucked, 1), "the tucked card's once-per-turn use is FRESH (AS-IS tuck reset)");
-    AssertTrue(!context.OnceFlags.CanActivate(reqHost, 1), "the HOST's use is untouched (only the tucked card resets)");
+    AssertTrue(!srcT.cEntity_EffectController.isOverMaxCountPerTurn(effT, 1), "the tucked card's once-per-turn use is FRESH (AS-IS tuck reset)");
+    AssertTrue(srcH.cEntity_EffectController.isOverMaxCountPerTurn(effH, 1), "the HOST's use is untouched (only the tucked card resets)");
 }
 
 async Task LinkAttachResetsCardUse()
@@ -112,20 +119,28 @@ async Task LinkAttachResetsCardUse()
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, host, ChoiceZone.None, ChoiceZone.BattleArea));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, link, ChoiceZone.None, ChoiceZone.BattleArea));
 
-    EffectRequest reqLink = OnceRequest("LINK:ae:eff", link);
-    context.OnceFlags.Consume(reqLink, 1);
+    (CardSource srcL, ICardEffect effL) = CappedEffect(context, link);
+    srcL.cEntity_EffectController.RegisterUseEffectThisTurn(effL);
+    AssertTrue(srcL.cEntity_EffectController.isOverMaxCountPerTurn(effL, 1), "precondition: the link card's use is spent");
 
     bool attached = await LinkHelpers.AddLinkCardAsync(
         context.CardInstanceRepository, context.ZoneMover, host, link, ChoiceZone.BattleArea,
         context.GameEventQueue, context: context);
     AssertTrue(attached, "the link card attached");
-    AssertTrue(context.OnceFlags.CanActivate(reqLink, 1), "the linked card's once-per-turn use is FRESH (AS-IS AddLinkCard reset)");
+    AssertTrue(!srcL.cEntity_EffectController.isOverMaxCountPerTurn(effL, 1), "the linked card's once-per-turn use is FRESH (AS-IS AddLinkCard reset)");
 }
 
 // --- Helpers -------------------------------------------------------------
 
-EffectRequest OnceRequest(string effectId, HeadlessEntityId source) =>
-    new(new HeadlessEntityId(effectId), P1, "OnTest",
-        new EffectContext(P1, P1, source, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>()));
+// A [Once Per Turn]-capped ActivateClass bound to the card instance — the AS-IS cap currency
+// (EffectSourceCard + empty HashString partition; register/check on the instance's CEntity_EffectController).
+(CardSource Card, ICardEffect Effect) CappedEffect(EngineContext context, HeadlessEntityId id)
+{
+    var card = new CardSource(context, id, P1);
+    var activateClass = new ActivateClass();
+    activateClass.SetUpICardEffect("test capped effect", _ => true, card);
+    activateClass.SetUpActivateClass(null, _ => Task.CompletedTask, 1, false, "test capped effect");
+    return (card, activateClass);
+}
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }

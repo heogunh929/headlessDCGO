@@ -142,7 +142,8 @@ async Task OncePerTurnCap()
     ctx.TurnController.EndTurn();                 // -> P2's turn
     ctx.TurnController.EndTurn();                 // -> P1's turn again (new turn number)
     var turn = ctx.TurnController.Current;
-    ctx.OnceFlags.ResetForTurn(turn.TurnNumber, turn.TurnPlayerId!.Value);
+    // (uniform-사멸 flip) per-turn caps live on the AS-IS CEntity_EffectController store now.
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountsForTurn(ctx);
     await LoseSecurity(ctx, P1);
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(2, ctx.MemoryController.Current.Current, "after the per-turn reset a new own-security loss gains again");

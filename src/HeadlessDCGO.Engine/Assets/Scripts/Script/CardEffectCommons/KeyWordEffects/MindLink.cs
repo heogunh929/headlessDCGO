@@ -110,13 +110,13 @@ public sealed class MindLinkClass
         // (PlacePermanentToDigivolutionCards, CardController.cs:3093).
         await DigivolutionStackHelpers.AddSourcesBottomAsync(
             _context.CardInstanceRepository, _context.ZoneMover, selectedDigimonId, new[] { tamerId },
-            ChoiceZone.BattleArea, cancellationToken, onceFlags: _context.OnceFlags,
+            ChoiceZone.BattleArea, cancellationToken, context: _context,
             // (F1-Tier2 OnAddDigivolutionCards) MindLink places the Tamer under a Digimon via
             // IPlacePermanentToDigivolutionCards -> AddDigivolutionCardsBottom (skip=false), so it fires. AS-IS cause is
             // the MindLink activateClass's source; MindLink is the Tamer's own effect, so tamerId is that source.
             gameEventQueue: _context.GameEventQueue, causeSourceId: tamerId).ConfigureAwait(false);
         DigivolutionStackHelpers.MoveSourcesBottom(
-            _context.CardInstanceRepository, tamerId, selectedDigimonId, int.MaxValue, onceFlags: _context.OnceFlags);
+            _context.CardInstanceRepository, tamerId, selectedDigimonId, int.MaxValue, context: _context);
         _context.EffectRegistry.RemoveWhere(binding => binding.Request.Context.SourceEntityId == tamerId);
         return true;
     }

@@ -3924,7 +3924,7 @@ public sealed class Permanent
                 group.ToArray(),
                 group.Key,
                 cancellationToken: cancellationToken,
-                onceFlags: _context.OnceFlags,
+                context: _context,
                 gameEventQueue: _context.GameEventQueue,
                 causeSourceId: causeEffectSourceId ?? default).ConfigureAwait(false);
         }
@@ -4173,7 +4173,7 @@ public sealed class Permanent
                 group.ToArray(),
                 group.Key,
                 cancellationToken: cancellationToken,
-                onceFlags: _context.OnceFlags,
+                context: _context,
                 gameEventQueue: _context.GameEventQueue,
                 causeSourceId: causeEffectSourceId ?? default,
                 skipEffectAndActivateSkill: skipEffectAndActivateSkill).ConfigureAwait(false);
