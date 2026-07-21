@@ -938,150 +938,13 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect, IEffectBo
 }
 
 
-/// <summary>
-/// An activated effect that SELECTS targets and grants each a continuous numeric modifier for a
-/// <see cref="EffectDuration"/> (e.g. ST1_13 [Main] "1 of your Digimon gets +3000 DP for the turn").
-/// <see cref="ApplyBuff"/> registers a duration-tagged continuous binding per chosen target, so the
-/// existing gate folds it in and <see cref="EffectDurationExpiry"/> removes it on expiry.
-/// </summary>
-public sealed class ActivatedTargetBuffEffect : IActivatedCardEffect, IEffectBody
-{
-    private readonly SelectPermanentEffect _select = new();
-
-    public ActivatedTargetBuffEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string deltaKey, int changeValue, EffectDuration duration, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canTarget);
-        ArgumentException.ThrowIfNullOrWhiteSpace(deltaKey);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        DeltaKey = deltaKey;
-        ChangeValue = changeValue;
-        Duration = duration;
-        Description = description;
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId, card.Context);
-        _select.SetUpCustomMessage(description);
-    }
-
-    public CardSource Card { get; }
-
-    public string DeltaKey { get; }
-
-    public int ChangeValue { get; }
-
-    public EffectDuration Duration { get; }
-
-    public string Description { get; }
-
-    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players) =>
-        _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
-
-    /// <summary>Register a duration-tagged continuous modifier on each chosen target.</summary>
-    public void ApplyBuff(IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(selected);
-        int index = 0;
-        foreach (HeadlessEntityId target in selected)
-        {
-            var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [DeltaKey] = ChangeValue };
-            var context = new EffectContext(
-                Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { target }, values: values);
-            var binding = new EffectBinding(
-                new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:buff:{target.Value}:{DeltaKey}:{index++}"), Card.Controller, "Continuous", context),
-                keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope }, effect: null, duration: Duration);
-            Card.Context.EffectRegistry.Register(binding);
-        }
-    }
-
-    // (B-5) IEffectBody — interactive select whose per-target follow-up registers continuous modifiers.
-    bool IEffectBody.IsInteractive => true;
-
-    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
-
-    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        ApplyBuff(selected);
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Activated buff effect is resolved via the activation flow, not registered: {Description}");
-}
-
-
-/// <summary>
-/// An activated PLAYER-SCOPE timed buff ("all your Digimon gain +X for a duration", e.g. ST1_13 [Security]
-/// "all your Digimon gain Security Attack +1 until your next turn end"). <see cref="ApplyBuff"/> registers
-/// one duration-tagged player-scope continuous binding.
-/// </summary>
-public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect, IEffectBody
-{
-    private readonly HeadlessPlayerId _scopePlayerId;
-
-    public ActivatedPlayerScopeBuffEffect(CardSource card, string deltaKey, int changeValue, EffectDuration duration, string scopeCardType, string description, string? scopeZone = null, HeadlessPlayerId? scopePlayerId = null)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(deltaKey);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        DeltaKey = deltaKey;
-        ChangeValue = changeValue;
-        Duration = duration;
-        ScopeCardType = scopeCardType;
-        ScopeZone = scopeZone;
-        Description = description;
-        _scopePlayerId = scopePlayerId ?? card.Owner;
-    }
-
-    public CardSource Card { get; }
-
-    public string DeltaKey { get; }
-
-    public int ChangeValue { get; }
-
-    public EffectDuration Duration { get; }
-
-    public string? ScopeCardType { get; }
-
-    public string? ScopeZone { get; }
-
-    public string Description { get; }
-
-    public void ApplyBuff()
-    {
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
-            [PlayerScopeContinuousHelpers.ScopePlayerIdKey] = _scopePlayerId.Value,
-            [DeltaKey] = ChangeValue,
-        };
-        if (!string.IsNullOrWhiteSpace(ScopeCardType))
-        {
-            values[PlayerScopeContinuousHelpers.ScopeCardTypeKey] = ScopeCardType;
-        }
-
-        if (!string.IsNullOrWhiteSpace(ScopeZone))
-        {
-            values[PlayerScopeContinuousHelpers.ScopeZoneKey] = ScopeZone;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
-        var binding = new EffectBinding(
-            new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:pscopebuff:{DeltaKey}:{ScopeZone ?? "battle"}:{_scopePlayerId.Value}"), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope }, effect: null, duration: Duration);
-        Card.Context.EffectRegistry.Register(binding);
-    }
-
-    // (B-5) IEffectBody — non-interactive player-scope grant (no selection; registers one binding).
-    bool IEffectBody.IsInteractive => false;
-
-    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        ApplyBuff();
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Activated player-scope buff is resolved via the activation flow, not registered: {Description}");
-}
+// (R6-Da'-3) invented granted-continuous BUFF body classes DELETED — `ActivatedTargetBuffEffect` (select-and-buff
+// DP/SA) and `ActivatedPlayerScopeBuffEffect` (player/opponent-scope buff). Both registered their duration-tagged
+// continuous onto the INVENTED `EffectRegistry.Register(EffectBinding)` bridge and had NO resolver case; their only
+// consumers were the 6 zero-call-site buff factory seats (CardEffectFactory `AsUniformActivated` — also deleted).
+// D2=A: the live buff behavior is the AS-IS duration-bucket (`CardEffectCommons.ChangeDigimonDP` /
+// `ChangeDigimonSAttackPlayerEffect` → AddEffectToPermanent/Player), already re-ported inline into the cards
+// (ST1_13/14/08, ST3_11/13/14/15/16, BT2_035/092/097/099). EffectDurationExpiry sweeps the bucket at reset.
 
 
 /// <summary>
@@ -2422,6 +2285,12 @@ public sealed class PlayThisCardToBattleEffect : IActivatedCardEffect
 /// one-shot <see cref="PlaySelfAtEndOfBattleTriggerEffect"/> that plays this card cost-free AT THE END OF THE
 /// BATTLE (AS-IS <c>card.Owner.UntilEndBattleEffects.Add(...)</c>), optionally scheduling a turn-end delete of
 /// the played Digimon (<paramref name="deleteTiming"/>: "own"/"opponent"/"each", or null = keep).</summary>
+// (R6-Da'-3 carry-over marking) RETIREMENT CONFIRMED, DEFERRED to R6-Db (design §5 D4 = 승인). Of the 6
+// granted-continuous producers this is the only one that is NOT a continuous — it registers a one-shot deferred
+// TRIGGER (PlaySelfAtEndOfBattleTriggerEffect), a separate path from the AS-IS duration bucket, so it is left
+// untouched by Da'-3 and rehomed in R6-Db (PlaySelfAtEndOfBattle re-adjudication, bundled with the special-play
+// markers) 1:1 with AS-IS UntilEndBattleEffects. Do NOT wire new consumers here.
+[Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(R6-Db PlaySelfAtEndOfBattle 재판정) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
 public sealed class PlaySelfAtEndOfBattleSecurityEffect : IActivatedCardEffect
 {
     private readonly string? _deleteTiming;

@@ -9,9 +9,14 @@
 using System.Text.RegularExpressions;
 
 // symbol, pinned baseline, owning disposal batch (where the symbol actually dies).
+// (R6-Da'-3 update) `AsUniformActivated` row RETIRED — the symbol was deleted in its owning batch (Da'-3):
+// its 6 granted-continuous buff factory seats had 0 card call-sites, so the helper + the 2 invented buff
+// bodies were removed outright (retirement-guard-protocol step 3). `PlaySelfAtEndOfBattleSecurityEffect`
+// (granted-continuous producer :2573, the sole deferred-trigger of the 6) is added here as a carry-over to
+// R6-Db (design §5 D4) — it is [Obsolete]-guarded and must not GAIN consumers before its R6-Db rehome.
 var ledger = new (string Symbol, int Baseline, string Batch)[]
 {
-    ("AsUniformActivated", 8, "Da'-3/6 (buff/restriction factory seats flip)"),
+    ("PlaySelfAtEndOfBattleSecurityEffect", 8, "R6-Db (PlaySelfAtEndOfBattle re-adjudication + special-play markers)"),
     ("ActivatedSelectEffect", 22, "Da'-5 / corpus deletion (EX8_074 RD-R6-07 STOP + fixtures + white-box casts)"),
     ("ActivatedSelectBounceAndDiscardSourcesEffect", 7, "corpus deletion R6-Db (re-target C3-Witness case (9) first)"),
     ("ActivatedSelectTrashDigivolutionEffect", 6, "A6 (deleted with the ST2.Blue disposal)"),

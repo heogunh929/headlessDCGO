@@ -21,28 +21,14 @@ using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectF
 /// </summary>
 public static partial class CardEffectFactory
 {
-    /// <summary>(B-5 uniform migration) Wrap a composable <see cref="IEffectBody"/> as a uniform
-    /// <see cref="ActivatedEffect"/> so the activated-effect resolver applies the SHARED once-per-turn cap
-    /// (<paramref name="maxCountPerTurn"/>) + optional yes/no gate (<paramref name="isOptional"/>) that the
-    /// per-shape resolver cases could not express. For a plain activated skill (Option / [Main] / Security)
-    /// <paramref name="timing"/> is <see cref="EffectTiming.None"/> and <paramref name="canUse"/> is null —
-    /// the timing block the card registers the effect under carries the AS-IS timing; a broadcast trigger
-    /// passes its own timing/gate. 1:1 mirror of the AS-IS <c>ActivateClass</c>
-    /// (SetUpActivateClass(canActivate, coroutine, maxCountPerTurn, isOptional, description)).</summary>
-    // (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried to Da'-3/6 — the remaining consumers are the
-    // buff/restriction factory seats (SelectAndBuffDp/SAttack, PlayerScope*, TrashDigivolution retained bodies)
-    // that flip with the granted-continuous/OnceFlags batches. Do NOT wire new consumers.
-    [Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(Da'-3/6) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
-    internal static ActivatedEffect AsUniformActivated(
-        CardSource card,
-        IEffectBody body,
-        string description,
-        bool isOptional = false,
-        int? maxCountPerTurn = null,
-        EffectTiming timing = EffectTiming.None,
-        Func<CardEffectResolveContext, bool>? canUse = null,
-        Func<bool>? canActivate = null) =>
-        new ActivatedEffect(card, timing, canUse, canActivate, body, maxCountPerTurn, isOptional, description);
+    // (R6-Da'-3) invented `AsUniformActivated` helper DELETED — retirement-guard-protocol step 3 (consumer-0
+    // confirmed batch → immediate deletion). Its only consumers were the 6 granted-continuous BUFF factory
+    // seats (SelectAndBuffDp/SAttack, PlayerScope*, OpponentScope), all of which had 0 card call-sites at
+    // Da'-3 (their former cards ST1_13/14/08, ST3_11/13/14/15/16, BT2_035/092/097/099, ST6_12-STOP etc. were
+    // ALREADY re-ported inline to the AS-IS `ActivateClass` + `ChangeDigimonDP`/`ChangeDigimonSAttackPlayerEffect`
+    // duration-bucket idiom, D2=A). The helper + its 6 seats + the 2 invented buff bodies
+    // (ActivatedTargetBuffEffect / ActivatedPlayerScopeBuffEffect, which registered onto the inert
+    // EffectRegistry bridge) are all removed together. G1R-001 AsUniformActivated ledger row retired.
 
     // (P4 slice) ChangeSelfSAttackStaticEffect moved to CardEffectFactory/ChangeSAttack.cs (AS-IS 1:1)
 
@@ -1546,24 +1532,12 @@ public static partial class CardEffectFactory
         }
     }
 
-    /// <summary>An activated "select up to <paramref name="maxCount"/> matching Digimon and give each
-    /// +<paramref name="changeValue"/> DP for <paramref name="duration"/>" effect (e.g. ST1_13 [Main]).</summary>
-    public static ICardEffect SelectAndBuffDpEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int changeValue, EffectDuration duration, string description) =>
-        AsUniformActivated(card, new ActivatedTargetBuffEffect(card, canTarget, maxCount, ModifierHelpers.DpDeltaKey, changeValue, duration, description), description);
-
-    /// <summary>An activated "all your Digimon gain +<paramref name="changeValue"/> Security Attack for
-    /// <paramref name="duration"/>" player-scope effect (e.g. ST1_13 [Security]).</summary>
-    public static ICardEffect PlayerScopeBuffSAttackEffect(
-        CardSource card, int changeValue, EffectDuration duration, string description) =>
-        AsUniformActivated(card, new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, scopeCardType: "Digimon", description), description);
-
-    /// <summary>An activated "all your Security Digimon get +<paramref name="changeValue"/> DP for
-    /// <paramref name="duration"/>" player-scope effect, scoped to the owner's Security-zone Digimon
-    /// (e.g. ST1_14).</summary>
-    public static ICardEffect PlayerScopeBuffSecurityDpEffect(
-        CardSource card, int changeValue, EffectDuration duration, string description) =>
-        AsUniformActivated(card, new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.DpDeltaKey, changeValue, duration, scopeCardType: "Digimon", description, scopeZone: "Security"), description);
+    // (R6-Da'-3) invented granted-continuous BUFF factory seats DELETED — 0 card call-sites (census, Da'-1
+    // precedent): SelectAndBuffDpEffect (ST1_13/ST1_08/ST3_11-era), PlayerScopeBuffSAttackEffect (ST1_13 [Sec]),
+    // PlayerScopeBuffSecurityDpEffect (ST1_14). Their former cards were already re-ported inline to the AS-IS
+    // `ActivateClass` + `CardEffectCommons.ChangeDigimonDP(...)` / `ChangeDigimonSAttackPlayerEffect(...)` with an
+    // `EffectDuration` bucket (AddEffectToPermanent/Player), so the buff lands in the AS-IS duration-bucket and
+    // EffectDurationExpiry sweeps it at the matching reset (D2=A — AS-IS bucket single storage).
 
     // (R6-Da'-1) invented helper `SelectAndTrashDigivolutionEffect` DELETED — 0 call-sites (its former cards
     // ST2_03/ST2_06/ST2_09 were re-ported to the AS-IS inline ActivateClass + SelectPermanentEffect Mode.Custom
@@ -1605,24 +1579,9 @@ public static partial class CardEffectFactory
     // AS-IS same-named helper exists to fold into, so removal (not a fold) zeroes the TriggeredSelfDpBuffEffect /
     // RecoverTriggerEffect references. Both classes removed from TriggeredEffects.cs.
 
-    /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and give each
-    /// +<paramref name="changeValue"/> Security Attack for <paramref name="duration"/>" effect (e.g. ST3_15 [Main]).</summary>
-    public static ICardEffect SelectAndBuffSAttackEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int changeValue, EffectDuration duration, string description) =>
-        AsUniformActivated(card, new ActivatedTargetBuffEffect(card, canTarget, maxCount, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, description), description);
-
-    /// <summary>An activated "all your Digimon get +<paramref name="changeValue"/> DP for
-    /// <paramref name="duration"/>" player-scope effect (e.g. ST3_13 [Security]).</summary>
-    public static ICardEffect PlayerScopeBuffDpEffect(
-        CardSource card, int changeValue, EffectDuration duration, string description) =>
-        AsUniformActivated(card, new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.DpDeltaKey, changeValue, duration, scopeCardType: "Digimon", description), description);
-
-    /// <summary>An activated "all of your opponent's Digimon get +<paramref name="changeValue"/> Security
-    /// Attack for <paramref name="duration"/>" player-scope effect, scoped to <paramref name="opponentId"/>
-    /// (e.g. ST3_15 [Security] "all opponent Digimon gain Security Attack -1").</summary>
-    public static ICardEffect OpponentScopeBuffSAttackEffect(
-        CardSource card, int changeValue, EffectDuration duration, HeadlessPlayerId opponentId, string description) =>
-        AsUniformActivated(card, new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, scopeCardType: "Digimon", description, scopePlayerId: opponentId), description);
+    // (R6-Da'-3) invented granted-continuous BUFF factory seats DELETED — 0 card call-sites (census, Da'-1
+    // precedent): SelectAndBuffSAttackEffect (ST3_15 [Main]-era), PlayerScopeBuffDpEffect (ST3_13 [Sec]),
+    // OpponentScopeBuffSAttackEffect (ST3_15 [Sec]). Same AS-IS re-port disposition as the sibling seats above.
 
     // (P4 slice) ChangeSecurityDigimonCardDPStaticEffect moved to CardEffectFactory/ChangeCardDP.cs (AS-IS 1:1)
 

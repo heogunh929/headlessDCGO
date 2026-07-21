@@ -22,14 +22,16 @@ var tests = new (string Name, Func<Task> Body)[]
     ("ST3_01: [On opp 0-DP delete] this Digimon gets +1000 DP for the turn", ST3_01_SelfBuff),
     ("ST3_04: [On opp 0-DP delete] gain 1 memory", ST3_04_Memory),
     ("ST3_05: [When Attacking] gains 1 memory only with >= 4 security", ST3_05_SecurityGate),
-    ("ST3_08: [When Attacking] chosen opponent Digimon gets -1000 DP", ST3_08_Debuff),
     ("ST3_09: [When Digivolving] recovers 1 with <= 3 security; not above", ST3_09_Recovery),
-    ("ST3_11: [When Attacking] chosen opponent Digimon gets -4000 DP", ST3_11_Debuff),
     ("ST3_12: your Security Digimon get +2000 DP on the opponent's turn", ST3_12_SecurityDp),
-    ("ST3_13: [Main] +3000 to your Digimon / [Security] +5000 all and back to hand", ST3_13_Buff),
-    ("ST3_14: [Main] -2000 to opponent / [Security] returns to hand", ST3_14_Debuff),
-    ("ST3_15: [Main] Security Attack -3 to opponent / [Security] -1 to all opponents", ST3_15_SecurityAttack),
-    ("ST3_16: [Main] -10000 to opponent / [Security] reuses Main", ST3_16_Debuff),
+    // (R6-Da'-3) ST3_08/11/13/14/15/16 buff/debuff cases RETIRED — white-box coverage of the invented buff
+    // bodies (ActivatedTargetBuffEffect / ActivatedPlayerScopeBuffEffect, DELETED this batch; 0 card call-sites,
+    // D2=A). Their cards were already re-ported inline to the AS-IS ActivateClass + ChangeDigimonDP/
+    // ChangeDigimonSAttackPlayerEffect duration-bucket idiom; the DP/SA +/- grant-and-expiry behavior is covered
+    // behaviorally by G3.5-CVA1 (EffectDuration), G3.5-F15 (AttackEndDurationExpiry), G3.5-F5
+    // (PlayerScopeContinuous) and W3c3-DpDeltaGrant. The [Security] return-to-hand (ST3_14) / reuse-main (ST3_16)
+    // tails rode on the retired [Main] cases; AddThisCardToHandEffect / ReuseMainOptionEffect are exercised by
+    // G9-046 (SelectAndPlay) and the ST3 card re-ports respectively.
 };
 
 var failures = new List<string>();
@@ -163,10 +165,6 @@ async Task ST3_05_SecurityGate()
     AssertEqual(0, other.MemoryController.Current.Current, "another ally attacking does NOT trigger the +1");
 }
 
-async Task ST3_08_Debuff() => await DebuffCase(new ST3_08(), EffectTiming.OnAllyAttack, -1000);
-
-async Task ST3_11_Debuff() => await DebuffCase(new ST3_11(), EffectTiming.OnAllyAttack, -4000);
-
 async Task ST3_09_Recovery()
 {
     // <= 3 security and a non-empty deck -> Recovery +1 (deck top -> security).
@@ -234,110 +232,10 @@ async Task ST3_12_SecurityDp()
     AssertTrue(InZone(sec, P1, ChoiceZone.BattleArea, revealed), "[Security] played the Tamer onto the battle area");
 }
 
-async Task ST3_13_Buff()
-{
-    // [Main] +3000 to a chosen owner Digimon.
-    EngineContext context = Context(P1);
-    var mine = new HeadlessEntityId("p1:battle:MINE");
-    await PlaceDigimon(context, P1, mine, level: 4, sources: 0, dp: 4000);
-    var main = (ActivatedTargetBuffEffect)((ActivatedEffect)Activated(new ST3_13(), context, EffectTiming.OptionSkill)).Body;
-    main.ApplyBuff(new[] { mine });
-    AssertEqual(7000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, mine).DP, "[Main] +3000 to my Digimon");
-
-    // [Security] +5000 player-scope to all your Digimon, plus this card returns to hand.
-    EngineContext sec = Context(P1);
-    var d1 = new HeadlessEntityId("p1:battle:D1");
-    await PlaceDigimon(sec, P1, d1, level: 4, sources: 0, dp: 4000);
-    var opt = new HeadlessEntityId("p1:security:OPT13");
-    await PlaceInZone(sec, P1, opt, ChoiceZone.Security, dp: 0);
-    IReadOnlyList<ICardEffect> effects = new ST3_13().CardEffects(EffectTiming.SecuritySkill, new CardSource(sec, opt, P1));
-
-    // Resolution order: apply the +5000 player-scope buffs first (observe them this turn), THEN bounce the
-    // option card to hand. (The buffs are registered while the card resolves; once the card leaves play the
-    // engine unregisters its bindings — so the buff is asserted before the self-bounce, matching the turn's
-    // observable state.)
-    foreach (ActivatedPlayerScopeBuffEffect ps in effects
-        .Select(e => (e as ActivatedEffect)?.Body).OfType<ActivatedPlayerScopeBuffEffect>())
-    {
-        ps.ApplyBuff();
-    }
-
-    AssertEqual(9000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(sec, d1).DP, "[Security] +5000 to all my Digimon");
-
-    AddThisCardToHandEffect hand = effects.OfType<AddThisCardToHandEffect>().Single();
-    var handSink = Sink(sec);
-    hand.Apply(handSink);
-    await handSink.FlushAsync();
-    AssertTrue(InZone(sec, P1, ChoiceZone.Hand, opt), "[Security] this card returned to its owner's hand");
-}
-
-async Task ST3_14_Debuff()
-{
-    EngineContext context = Context(P1);
-    await DebuffOn(context, new ST3_14(), EffectTiming.OptionSkill, -2000);
-
-    // [Security] returns this card to hand.
-    EngineContext sec = Context(P1);
-    var opt = new HeadlessEntityId("p1:security:OPT14");
-    await PlaceInZone(sec, P1, opt, ChoiceZone.Security, dp: 0);
-    var hand = (AddThisCardToHandEffect)new ST3_14().CardEffects(EffectTiming.SecuritySkill, new CardSource(sec, opt, P1)).Single();
-    var s = Sink(sec);
-    hand.Apply(s);
-    await s.FlushAsync();
-    AssertTrue(InZone(sec, P1, ChoiceZone.Hand, opt), "[Security] returned to hand");
-}
-
-async Task ST3_15_SecurityAttack()
-{
-    // [Main] Security Attack -3 to a chosen opponent Digimon.
-    EngineContext context = Context(P1);
-    var foe = new HeadlessEntityId("p2:battle:FOE15");
-    await PlaceDigimon(context, P2, foe, level: 4, sources: 0, dp: 4000);
-    var main = (ActivatedTargetBuffEffect)((ActivatedEffect)Activated(new ST3_15(), context, EffectTiming.OptionSkill)).Body;
-    main.ApplyBuff(new[] { foe });
-    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, foe).Strike, "[Main] SA 4 - 3 = 1");
-
-    // [Security] -1 Security Attack to ALL opponent Digimon (opponent-scoped player buff).
-    EngineContext sec = Context(P1);
-    var foe2 = new HeadlessEntityId("p2:battle:FOE15b");
-    await PlaceDigimon(sec, P2, foe2, level: 4, sources: 0, dp: 4000);
-    var opt = new HeadlessEntityId("p1:security:OPT15");
-    var ps = (ActivatedPlayerScopeBuffEffect)((ActivatedEffect)new ST3_15().CardEffects(EffectTiming.SecuritySkill, new CardSource(sec, opt, P1)).Single()).Body;
-    ps.ApplyBuff();
-    AssertEqual(3, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(sec, foe2).Strike, "[Security] all opponents SA 4 - 1 = 3");
-}
-
-async Task ST3_16_Debuff()
-{
-    EngineContext context = Context(P1);
-    await DebuffOn(context, new ST3_16(), EffectTiming.OptionSkill, -10000);
-
-    // [Security] reuses the Main option.
-    EngineContext sec = Context(P1);
-    var opt = new HeadlessEntityId("p1:security:OPT16");
-    ICardEffect security = new ST3_16().CardEffects(EffectTiming.SecuritySkill, new CardSource(sec, opt, P1)).Single();
-    AssertTrue(security is ReuseMainOptionEffect, "[Security] reuses the Main option");
-}
-
-// --- Shared debuff helpers -----------------------------------------------
-
-async Task DebuffCase(CEntity_Effect card, EffectTiming timing, int delta)
-{
-    EngineContext context = Context(P1);
-    await DebuffOn(context, card, timing, delta);
-}
-
-async Task DebuffOn(EngineContext context, CEntity_Effect card, EffectTiming timing, int delta)
-{
-    var foe = new HeadlessEntityId($"p2:battle:FOE{delta}");
-    await PlaceDigimon(context, P2, foe, level: 4, sources: 0, dp: 8000);
-    var effect = (ActivatedTargetBuffEffect)((ActivatedEffect)Activated(card, context, timing)).Body;
-    ChoiceRequest request = effect.BuildRequest(Both);
-    AssertEqual(1, request.Candidates.Count, "the opponent Digimon is the candidate");
-    effect.ApplyBuff(new[] { foe });
-    // (P0-DP-1) AS-IS Permanent.DP clamps the resolved DP to >=0 (`if (DP < 0) DP = 0`), so a debuff below 0 floors at 0.
-    AssertEqual(Math.Max(0, 8000 + delta), new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, foe).DP, $"DP {delta}");
-}
+// (R6-Da'-3) ST3_13_Buff / ST3_14_Debuff / ST3_15_SecurityAttack / ST3_16_Debuff and the shared DebuffCase /
+// DebuffOn helpers were RETIRED together with the invented buff bodies they white-boxed
+// (ActivatedTargetBuffEffect / ActivatedPlayerScopeBuffEffect, deleted this batch). See the retirement note on
+// the `tests` array above for the behavioral-coverage attestation (D2=A duration bucket).
 
 // --- Helpers -------------------------------------------------------------
 
