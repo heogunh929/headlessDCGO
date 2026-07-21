@@ -498,105 +498,18 @@ public sealed class AddedDigivolutionRequirementPredicateEffect : ICardEffect
 }
 
 
-/// <summary>A self keyword grant (Blocker / Jamming / Reboot / Piercing) reusing the existing
-/// <see cref="KeywordBaseBatch1Effect"/> resolution + gate wiring.</summary>
-public sealed class SelfKeywordEffect : ICardEffect
-{
-    public SelfKeywordEffect(CardSource card, KeywordBaseBatch1Kind kind, bool isInheritedEffect, Func<bool>? condition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        Card = card;
-        Kind = kind;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-    }
-
-    public CardSource Card { get; }
-
-    public KeywordBaseBatch1Kind Kind { get; }
-
-    public bool IsInheritedEffect { get; }
-
-    public Func<bool>? Condition { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        // The keyword factory derives its own deterministic effect id from (kind, source); effectId is
-        // accepted for signature uniformity with ICardEffect but not needed here.
-        var context = new EffectContext(
-            Card.Controller,
-            Card.Owner,
-            Card.InstanceId,
-            triggerEntityId: null,
-            targetEntityIds: new[] { Card.InstanceId });
-        KeywordBaseBatch1Effect effect = KeywordBaseBatch1Factory.Create(
-            Kind,
-            Card.InstanceId,
-            targetEntityId: Card.InstanceId,
-            isInherited: IsInheritedEffect,
-            isLinked: false);
-        return KeywordBaseBatch1Factory.ToBinding(effect, Card.Controller, context);
-    }
-}
-
-
-/// <summary>
-/// Self-static keyword grant for the <see cref="KeywordBaseBatch2Kind"/> family (Vortex / Alliance /
-/// Overclock / …). Structural twin of <see cref="SelfKeywordEffect"/> (which covers Batch1) — the original
-/// <c>CardEffectFactory</c> exposes a per-keyword <c>&lt;Keyword&gt;SelfEffect</c> for each of these, so the
-/// headless mirror provides the same entry points lowering to a Batch2 binding. The "this Digimon is on the
-/// battle area" guard the original <c>SelfEffect</c> wraps around <paramref name="condition"/> is enforced
-/// here by the binding lifecycle (registered on enter-play, unregistered on leave) + the read-time
-/// <see cref="ContinuousKeywordGate"/> query, matching how the existing Batch1 self-statics behave.
-/// </summary>
-public sealed class SelfKeywordBatch2Effect : ICardEffect
-{
-    public SelfKeywordBatch2Effect(CardSource card, KeywordBaseBatch2Kind kind, bool isInheritedEffect, Func<bool>? condition, IReadOnlyDictionary<string, object?>? extraValues = null)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        Card = card;
-        Kind = kind;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-        ExtraValues = extraValues;
-    }
-
-    public CardSource Card { get; }
-
-    public KeywordBaseBatch2Kind Kind { get; }
-
-    public bool IsInheritedEffect { get; }
-
-    public Func<bool>? Condition { get; }
-
-    /// <summary>(A4) additional binding values carried on the grant (e.g. Partition's stored
-    /// <c>PartitionCondition</c> list) — consumed live by the keyword's behaviour gate.</summary>
-    public IReadOnlyDictionary<string, object?>? ExtraValues { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        var context = new EffectContext(
-            Card.Controller,
-            Card.Owner,
-            Card.InstanceId,
-            triggerEntityId: null,
-            targetEntityIds: new[] { Card.InstanceId },
-            values: ExtraValues);
-        KeywordBaseBatch2Effect effect = KeywordBaseBatch2Factory.Create(
-            Kind,
-            Card.InstanceId,
-            targetEntityId: Card.InstanceId,
-            isInherited: IsInheritedEffect,
-            isLinked: false);
-        return KeywordBaseBatch2Factory.ToBinding(effect, Card.Controller, context);
-    }
-}
-
-
 /// <summary>(PRIM-W2) A self-static keyword grant BY NAME — for keywords outside the Batch1/Batch2 enums
 /// (Raid / Barrier / Collision / Fortitude / Evade) whose behaviour gates read a metadata flag. Registers a
 /// keyword binding (keywords = [name], target self) so <see cref="ContinuousKeywordGate.HasKeyword"/> reports
 /// it live; the same bar as the Batch2 self-statics. Condition / inherited carried on the binding values.</summary>
+// RESIDUE (design item RD-SELFKW-BYNAME): old-model EffectBinding producer. Batch1/Batch2 twins deleted
+// (이연④-d) as zero-producer dead code — their real-card factories were already flipped to new-model
+// kind-classes in a prior wave. This by-name variant is KEPT: it has 0 real-card producers (the invented
+// MindLinkSelfEffect factory is test-only; real MindLink card EX11_070 runs MindLinkClass, not this) but
+// remains load-bearing test scaffolding — tests/G3.5-C910 (Collision/Execute consumer witnesses) and
+// tests/G9-037 (MindLink round-trip) register keyword bindings through it, read by the LIVE registry-half of
+// ContinuousKeywordGate.HasKeyword. Retire alongside a MindLink/keyword-consumer corpus decision (no faithful
+// new-model re-point exists for the MindLink continuous keyword without inventing a kind-class).
 public sealed class SelfKeywordByNameEffect : ICardEffect
 {
     public SelfKeywordByNameEffect(CardSource card, string keywordName, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? permanentCondition = null, IReadOnlyDictionary<string, object?>? extraValues = null)
@@ -1018,62 +931,6 @@ public sealed class ContinuousCanNotPlayOptionEffect : ICardEffect
             new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
             keywords: null, EffectQueryRole.Continuous,
             new[] { HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan.Scope }, effect: null, duration: null);
-    }
-}
-
-
-/// <summary>(FR-P3) A defender-conditional "cannot attack" restriction (AS-IS
-/// <c>CanNotAttackTargetDefendingPermanentClass</c> with a <c>defenderCondition</c>): the attacker may not
-/// attack defenders matching <see cref="DefenderPredicate"/>, but MAY attack others. Registers a self
-/// CannotAttack binding carrying the defender predicate, which ContinuousRestrictionGate.EvaluateAttack
-/// evaluates against the chosen defender.</summary>
-public sealed class CanNotAttackDefenderConditionEffect : ICardEffect
-{
-    public CanNotAttackDefenderConditionEffect(CardSource card, Func<CardSource, bool> defenderPredicate, bool isInheritedEffect, Func<bool>? condition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(defenderPredicate);
-        Card = card;
-        DefenderPredicate = defenderPredicate;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-    }
-
-    public CardSource Card { get; }
-    public Func<CardSource, bool> DefenderPredicate { get; }
-    public bool IsInheritedEffect { get; }
-    public Func<bool>? Condition { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [RestrictionHelpers.RestrictionTargetEntityIdKey] = Card.InstanceId.Value,
-            [RestrictionHelpers.RestrictionSourceEntityIdKey] = Card.InstanceId.Value,
-            [RestrictionHelpers.CannotAttackKey] = true,
-        };
-
-        // (joint-migration) canonical joint: subject = this card; cannot attack a defender matching the predicate.
-        HeadlessEntityId selfId = Card.InstanceId;
-        Func<CardSource, bool> defPred = DefenderPredicate;
-        values[JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotAttackKey)] = (Func<CardSource, CardSource?, bool>)((subject, cp) =>
-            subject.InstanceId == selfId && cp is not null && defPred(cp));
-
-        if (IsInheritedEffect)
-        {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
-        }
-
-        if (Condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
     }
 }
 
