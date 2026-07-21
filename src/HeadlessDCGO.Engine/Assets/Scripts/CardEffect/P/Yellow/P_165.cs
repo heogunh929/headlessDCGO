@@ -8,12 +8,11 @@
 //    * Inherited Effect   :90-96  (WhenPermanentWouldBeDeleted — BarrierSelfEffect, isInheritedEffect)
 //
 // ② 프리미티브 매핑:
-//    * P:PlaySelfDigimonAfterBattleSecurityEffect — [Security] (AS-IS :17; CardEffectFactory.cs:988).
-//      **표면 확인**: 등록 arm(CanUseCondition/CanActivateCondition)은 실장돼 실행되나, ActivateCoroutine
-//      본문은 design item RD-P6C3-B2로 NotSupportedException throw(unlanded Player.UntilEndBattleEffects/
-//      Permanent.UntilOpponentTurnEndEffects grant bucket + DestroyPermanentsClass 필요). 이 latent 갭은
-//      기존 실카드 EX10_029([Security] 동일 몸통, EXEMPLAR-T1 정본)가 이미 동일하게 안고 있는 선례 —
-//      등록-arm만 포팅하고 소비자(런타임 발화) 갭은 그대로 상속(공용층 미수정).
+//    * P:PlaySelfDigimonAfterBattleSecurityEffect — [Security] (AS-IS :17; CardEffectFactory.cs 미러).
+//      (R6-Db D4 LANDED) ActivateCoroutine 본문이 이제 AS-IS UntilEndBattleEffects 관용구로 완전 착지 —
+//      RD-P6C3-B2 해소. [Security] 해소 시 즉시 플레이하지 않고 owner.UntilEndBattleEffects에 지연-플레이를
+//      등재(OnEndBattle 샘플링 → 실행에어리어에서 cost-free 플레이). EX10_029([Security] 동일 몸통,
+//      EXEMPLAR-T1 정본)와 공유. default deleteDigimon=UntilEndBattle → 삭제 분기 미도달.
 //    * P:PlaySelfDeleteFamiliarToken — [When Digivolving]/[On Play] 공유 몸통 (AS-IS :50,84;
 //      CardEffectCommons.cs:2545).
 //    * P:BarrierSelfEffect — Inherited Effect (AS-IS :94; CardEffectFactory/KeyWordEffects/Barrier.cs).

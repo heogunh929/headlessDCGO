@@ -952,14 +952,9 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case PlaySelfAtEndOfBattleSecurityEffect playAfterBattle:
-                {
-                    // (#10) A [Security] "at end of battle, play this Digimon": register the OnEndBattle trigger
-                    // instead of playing now, so the play (and any turn-end delete) resolves after the battle.
-                    playAfterBattle.Apply(sink);
-                    resolved++;
-                    break;
-                }
+                // (R6-Db D4 EXHAUSTED) `case PlaySelfAtEndOfBattleSecurityEffect` DELETED — the mirror-invented
+                // [Security] end-of-battle carrier is retired; the AS-IS UntilEndBattleEffects idiom is landed in
+                // CardEffectFactory.PlaySelfDigimonAfterBattleSecurityEffect (resolved via the ActivateClass flow).
 
                 case BeforePayCostReductionEffect beforePayReduce:
                 {

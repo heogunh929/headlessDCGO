@@ -16,7 +16,17 @@ using System.Text.RegularExpressions;
 // R6-Db (design §5 D4) — it is [Obsolete]-guarded and must not GAIN consumers before its R6-Db rehome.
 var ledger = new (string Symbol, int Baseline, string Batch)[]
 {
-    ("PlaySelfAtEndOfBattleSecurityEffect", 8, "R6-Db carry (D4: AS-IS UntilEndBattleEffects rehome, RD-P6C3-B2 re-adjudication — live resolver case + factory + FAILa-10)"),
+    // (R6-Db D4) `PlaySelfAtEndOfBattleSecurityEffect` row RETIRED — the LAST active ledger row; its removal takes
+    // the ledger to 0 ROWS. The symbol (+ its one-shot `PlaySelfAtEndOfBattleTriggerEffect` carrier) was DELETED
+    // in its owning batch (D4): RD-P6C3-B2 RE-ADJUDICATED and RESOLVED — the AS-IS [Security] end-of-battle
+    // deferred play is now landed 1:1 in CardEffectFactory.PlaySelfDigimonAfterBattleSecurityEffect against the
+    // A1b-landed Player.UntilEndBattleEffects bucket (OnEndBattle-sampled) + the Permanent.UntilOpponentTurnEndEffects
+    // bucket + CardController.DestroyPermanentsClass for the delete branch. The invented EffectRegistry
+    // OnEndBattle-trigger substitute (body + trigger + the ActivatedEffectResolver switch case) was consumer-0
+    // (diversified grep: no live constructor/cast/switch — only comment tombstones), so all three were removed
+    // outright; the live consumers EX10_029/P_165 keep calling the (now-landed) factory, and G9-031/FAILa-10 were
+    // re-aimed onto the UntilEndBattleEffects mechanism (assertions preserved). Retirement guard = the deleted
+    // symbol no longer exists.
     // (uniform-사멸 flip) `ActivatedSelectEffect` row RETIRED — the symbol was DELETED in its owning batch: the
     // EX8_074 RD-R6-07 STOP was resolved by the earlier inline re-port, the B5 uniform fixtures
     // (TfxCappedSelectSuspend/TfxOptionalSelectSuspend) were retired with their suite, the internal

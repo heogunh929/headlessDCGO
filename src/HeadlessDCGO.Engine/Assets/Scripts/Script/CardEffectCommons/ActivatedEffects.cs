@@ -1643,40 +1643,11 @@ public sealed class PlayThisCardToBattleEffect : IActivatedCardEffect
 }
 
 
-/// <summary>(PRIM-W2 #10) AS-IS <c>PlaySelfDigimonAfterBattleSecurityEffect</c> — the [Security] activated
-/// effect. When it resolves (during the security check), it does NOT play immediately; instead it registers a
-/// one-shot <see cref="PlaySelfAtEndOfBattleTriggerEffect"/> that plays this card cost-free AT THE END OF THE
-/// BATTLE (AS-IS <c>card.Owner.UntilEndBattleEffects.Add(...)</c>), optionally scheduling a turn-end delete of
-/// the played Digimon (<paramref name="deleteTiming"/>: "own"/"opponent"/"each", or null = keep).</summary>
-// (R6-Da'-3 carry-over marking) RETIREMENT CONFIRMED, DEFERRED to R6-Db (design §5 D4 = 승인). Of the 6
-// granted-continuous producers this is the only one that is NOT a continuous — it registers a one-shot deferred
-// TRIGGER (PlaySelfAtEndOfBattleTriggerEffect), a separate path from the AS-IS duration bucket, so it is left
-// untouched by Da'-3 and rehomed in R6-Db (PlaySelfAtEndOfBattle re-adjudication, bundled with the special-play
-// markers) 1:1 with AS-IS UntilEndBattleEffects. Do NOT wire new consumers here.
-[Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(R6-Db PlaySelfAtEndOfBattle 재판정) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
-public sealed class PlaySelfAtEndOfBattleSecurityEffect : IActivatedCardEffect
-{
-    private readonly string? _deleteTiming;
-
-    public PlaySelfAtEndOfBattleSecurityEffect(CardSource card, string? deleteTiming)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        Card = card;
-        _deleteTiming = deleteTiming;
-    }
-
-    public CardSource Card { get; }
-
-    public void Apply(MatchStateMutationSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        var trigger = new PlaySelfAtEndOfBattleTriggerEffect(Card, _deleteTiming);
-        Card.Context.EffectRegistry.Register(trigger.ToBinding(trigger.Definition.EffectId.Value));
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException("Play-at-end-of-battle security effect is resolved via the activation flow, not registered.");
-}
+// (R6-Db D4 EXHAUSTED) The mirror-invented `PlaySelfAtEndOfBattleSecurityEffect` (+ its one-shot
+// `PlaySelfAtEndOfBattleTriggerEffect` carrier in TriggeredEffects.cs) is DELETED. It was a parallel
+// EffectRegistry OnEndBattle-trigger substitute for the AS-IS `Player.UntilEndBattleEffects` bucket; the real
+// AS-IS idiom is now landed directly in CardEffectFactory.PlaySelfDigimonAfterBattleSecurityEffect
+// (UntilEndBattleEffects.Add → OnEndBattle → cost-free play). RD-P6C3-B2 RESOLVED. G1R-001 ledger → 0 rows.
 
 
 /// <summary>(PRIM-W2 #9) AS-IS <c>Gain2MemoryOptionDelayEffect</c> — the [Main] &lt;Delay&gt; activation: TRASH

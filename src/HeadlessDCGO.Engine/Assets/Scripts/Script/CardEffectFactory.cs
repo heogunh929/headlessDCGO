@@ -962,19 +962,17 @@ public static partial class CardEffectFactory
         return activateClass;
     }
 
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:285
-    // PlaySelfDigimonAfterBattleSecurityEffect. Replaces the old mirror-invented PlaySelfAtEndOfBattleSecurityEffect
-    // version (and its DeleteTimingString helper). Coroutine->async Task; StartCoroutine->await;
-    // card.PermanentOfThisCard()->ICardEffect.ResolvePermanentOfThisCard(card);
-    // CanNotBeAffected(effect)->CanNotBeAffected(effect.EffectSourceCard?.InstanceId); PlaySE/WaitForSeconds = UI (stripped).
-    // Zero consumers on the mirror corpus (no real card / no Tfx fixture references
-    // PlaySelfDigimonAfterBattleSecurityEffect). STOP (design item RD-P6C3-B2) at ActivateCoroutine: the AS-IS
-    // body nests a SECOND delayed grant (card.Owner.UntilEndBattleEffects.Add(GetCardEffect1) — the AS-IS
-    // Player mutable EffectTiming.OnEndBattle bucket, part of the unlanded player-grant store,
-    // P6A-PLAYER-EFFECTLIST) and, conditionally, a THIRD (playedDigimon.UntilOpponentTurnEndEffects.Add —
-    // same gap on Permanent) plus a DestroyPermanentsClass batch-delete helper with no mirror. All three are
-    // out of this build-fix pass's scope; kept as the AS-IS-named entry point (method-name-fidelity contract)
-    // for a future card port instead of deleted.
+    // (P4 ACTIVATED inline-mutation; R6-Db D4 landed) 1:1 mirror of AS-IS CardEffectFactory.cs:285
+    // PlaySelfDigimonAfterBattleSecurityEffect. Coroutine->async Task; StartCoroutine->await;
+    // card.PermanentOfThisCard()->ICardEffect.ResolvePermanentOfThisCard(card); PlaySE/WaitForSeconds = UI (stripped).
+    // Live consumers: EX10_029, P_165 ([Security], default deleteDigimon=UntilEndBattle → no delete branch).
+    // (RD-P6C3-B2 RE-ADJUDICATED — RESOLVED) The AS-IS body's nested grants are now landed: the SECOND grant
+    // (card.Owner.UntilEndBattleEffects.Add(GetCardEffect1) — the OnEndBattle-sampled Player bucket) sits on the
+    // Player.cs:279 store landed by B군-2R A1b (reset at battle end in BattleResolver); the conditional THIRD
+    // (playedDigimon.UntilOpponentTurnEndEffects.Add + DestroyPermanentsClass batch-delete) is mirrored against
+    // the landed Permanent.cs:2061 store + CardController DestroyPermanentsClass. The former mirror-invented
+    // PlaySelfAtEndOfBattleSecurityEffect / PlaySelfAtEndOfBattleTriggerEffect carriers (a parallel EffectRegistry
+    // OnEndBattle-trigger substitute for this bucket) are RETIRED with this landing.
     public static ICardEffect PlaySelfDigimonAfterBattleSecurityEffect(CardSource card, EffectDuration deleteDigimon = EffectDuration.UntilEndBattle)
     {
         ActivateClass activateClass = new ActivateClass();
@@ -997,13 +995,171 @@ public static partial class CardEffectFactory
             return CardEffectCommons.IsExistOnExecutingArea(card);
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        // (R6-Db D4 / RD-P6C3-B2 landed) 1:1 mirror of AS-IS CardEffectFactory.cs:307-461. AS-IS :309 `yield
+        // return null` / :311 PlaySE(BuffSE) / :358 WaitForSeconds(0.2f) = UI frame yields — stripped.
+        async Task ActivateCoroutine(Hashtable _hashtable)
         {
-            throw new NotSupportedException(
-                "PlaySelfDigimonAfterBattleSecurityEffect (AS-IS CardEffectFactory.cs:285) needs the AS-IS " +
-                "Player.UntilEndBattleEffects / Permanent.UntilOpponentTurnEndEffects mutable grant buckets " +
-                "(unlanded player/permanent-grant store, design item P6A-PLAYER-EFFECTLIST) + DestroyPermanentsClass " +
-                "— unported substrate, design item RD-P6C3-B2.");
+            // ── Play Card (AS-IS :313-459) ──────────────────────────────────────────────────────
+            ActivateClass activateClass1 = new ActivateClass();
+            activateClass1.SetUpICardEffect("Play this card", CanUseCondition1, card);
+            activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription1());
+            // AS-IS :317 card.Owner.UntilEndBattleEffects.Add(GetCardEffect1) — the OnEndBattle-sampled Player grant
+            // bucket (Player.cs:279 mirror store, landed B군-2R A1b; expired at battle end by BattleResolver's
+            // battle-end UntilEndBattle reset, co-located with EffectDurationExpiry.ExpireBattleEnd). Precedent =
+            // ST17_13 [Security] Digivolve-into-this (same UntilEndBattleEffects→OnEndBattle idiom).
+            new Player(card.Context, card.Owner).UntilEndBattleEffects.Add(GetCardEffect1);
+
+            string EffectDiscription1()
+            {
+                return "Play this card without paying its memory cost.";
+            }
+
+            bool CanUseCondition1(Hashtable hashtable)
+            {
+                return true;
+            }
+
+            bool CanActivateCondition1(Hashtable hashtable)
+            {
+                // AS-IS :331 CanPlayAsNewPermanent(card, payCost:false, activateClass1, root:Security) — the mirror
+                // orchestrator carries no Root param (Root.None can-pay gate), substrate translation.
+                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1))
+                {
+                    // AS-IS :333 the card is still in a playable transient position (not back in deck/security).
+                    Player owner = new Player(card.Context, card.Owner);
+                    if (!owner.LibraryCards.Contains(card) && !owner.SecurityCards.Contains(card))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine1(Hashtable _hashtable1)
+            {
+                Player owner = new Player(card.Context, card.Owner);
+                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1)
+                    && !owner.LibraryCards.Contains(card) && !owner.SecurityCards.Contains(card))
+                {
+                    // AS-IS :348 PlayPermanentCards(card, activateClass1, payCost:false, isTapped:false,
+                    // root:Security, activateETB:true). Mirror 2nd arg = CardSource sourceCard (P_165/ST3_13 idiom).
+                    // ROOT translation: AS-IS SelectCardEffect.Root.Security is the COST-root; under payCost:false
+                    // it carries no cost, and the mirror PlayPermanentCards uses `root` as the PHYSICAL from-zone.
+                    // A revealed security card resolving its [Security] effect physically sits in the EXECUTING AREA
+                    // (ChoiceZone.Execution — the outer CanActivateCondition gates on IsExistOnExecutingArea; same
+                    // transient position the sibling PlaceSelfDelayOptionSecurityEffect plays from), NOT the Security
+                    // stack, so the physical transport is Execution → BattleArea.
+                    await CardEffectCommons.PlayPermanentCards(
+                        cardSources: new List<CardSource>() { card },
+                        sourceCard: card,
+                        payCost: false,
+                        isTapped: false,
+                        root: ChoiceZone.Execution,
+                        activateETB: true);
+
+                    if (deleteDigimon != EffectDuration.UntilEndBattle)
+                    {
+                        // ── Delete Digimon Played (AS-IS :360-444) ─────────────────────────────
+                        Permanent playedDigimon = ICardEffect.ResolvePermanentOfThisCard(card);
+
+                        ActivateClass activateClass2 = new ActivateClass();
+                        activateClass2.SetUpICardEffect("Delete this Digimon", CanUseCondition2, card);
+                        activateClass2.SetUpActivateClass(CanActivateCondition2, ActivateCoroutine2, -1, false, EffectDiscription2());
+                        activateClass2.SetEffectSourcePermanent(playedDigimon);
+                        // AS-IS :367 playedDigimon.UntilOpponentTurnEndEffects.Add(GetCardEffect) — OnEndTurn-sampled
+                        // Permanent grant bucket (Permanent.cs:2061 mirror store, landed).
+                        playedDigimon.UntilOpponentTurnEndEffects.Add(GetCardEffect);
+
+                        string EffectDiscription2()
+                        {
+                            if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
+                            {
+                                return "[End of Your Turn] Delete this Digimon.";
+                            }
+
+                            if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
+                            {
+                                return "[End of Opponents Turn] Delete this Digimon.";
+                            }
+
+                            if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
+                            {
+                                return "[End of Turn] Delete this Digimon.";
+                            }
+
+                            return "";
+                        }
+
+                        bool CanUseCondition2(Hashtable hashtable1)
+                        {
+                            if (CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(playedDigimon, card))
+                            {
+                                if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
+                                {
+                                    return CardEffectCommons.IsOwnerTurn(card);
+                                }
+
+                                if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
+                                {
+                                    return CardEffectCommons.IsOpponentTurn(card);
+                                }
+
+                                if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
+                                {
+                                    return CardEffectCommons.IsOwnerTurn(card)
+                                        || CardEffectCommons.IsOpponentTurn(card);
+                                }
+                            }
+
+                            return false;
+                        }
+
+                        bool CanActivateCondition2(Hashtable hashtable1)
+                        {
+                            if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
+                            {
+                                if (!playedDigimon.TopCard.CanNotBeAffected(activateClass2))
+                                {
+                                    return true;
+                                }
+                            }
+
+                            return false;
+                        }
+
+                        async Task ActivateCoroutine2(Hashtable _hashtable2)
+                        {
+                            if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
+                            {
+                                await new DestroyPermanentsClass(
+                                    new List<Permanent>() { playedDigimon },
+                                    CardEffectCommons.CardEffectHashtable(activateClass2)).Destroy();
+                            }
+                        }
+
+                        ICardEffect GetCardEffect(EffectTiming _timing)
+                        {
+                            if (_timing == EffectTiming.OnEndTurn)
+                            {
+                                return activateClass2;
+                            }
+
+                            return null;
+                        }
+                    }
+                }
+            }
+
+            ICardEffect GetCardEffect1(EffectTiming _timing)
+            {
+                if (_timing == EffectTiming.OnEndBattle)
+                {
+                    return activateClass1;
+                }
+
+                return null;
+            }
         }
 
         return activateClass;

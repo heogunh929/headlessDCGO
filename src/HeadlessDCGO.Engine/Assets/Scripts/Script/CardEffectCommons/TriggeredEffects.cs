@@ -74,81 +74,10 @@ public sealed class StartOfMainAttackEffect : Headless.Effects.IHeadlessCardEffe
 // activateClass), owner-turn gate inline). Zero remaining constructions in src (tests retargeted in R3-C2b-2).
 
 
-/// <summary>(PRIM-W2 #10) The one-shot OnEndBattle trigger registered by
-/// <see cref="PlaySelfAtEndOfBattleSecurityEffect"/>: at the end of the current battle, play this card (from
-/// security / the executing area) cost-free, then — if a delete timing was requested — mark the played Digimon
-/// for a turn-end self-delete (the same marker <c>AddSelfDeleteEffect</c> uses). Removes its own binding on
-/// resolution so it fires exactly once.</summary>
-public sealed class PlaySelfAtEndOfBattleTriggerEffect : ICardEffect, IHeadlessCardEffect
-{
-    private readonly string? _deleteTiming;
-
-    public PlaySelfAtEndOfBattleTriggerEffect(CardSource card, string? deleteTiming)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        Card = card;
-        _deleteTiming = deleteTiming;
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId($"{card.InstanceId.Value}:playAfterBattle"),
-            card.InstanceId, "Play this card without paying its memory cost.",
-            Headless.Effects.TriggerTimings.OnEndBattle, isOptional: false);
-    }
-
-    public CardSource Card { get; }
-
-    public CardEffectDefinition Definition { get; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(mutations);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        // Fire exactly once: drop this binding regardless of whether the play proceeds.
-        Card.Context.EffectRegistry.RemoveWhere(b => b.Request.EffectId == Definition.EffectId);
-
-        var zones = (IZoneStateReader)Card.Context.ZoneMover;
-        ChoiceZone? from = zones.GetCards(Card.Owner, ChoiceZone.Security).Contains(Card.InstanceId) ? ChoiceZone.Security
-            : zones.GetCards(Card.Owner, ChoiceZone.Execution).Contains(Card.InstanceId) ? ChoiceZone.Execution
-            : (ChoiceZone?)null;
-        if (from is null || !CardEffectCommons.CanPlayAsNewPermanent(Card, payCost: false, null))
-        {
-            return ValueTask.FromResult(EffectResult.Success("Card no longer available to play after battle."));
-        }
-
-        mutations.Apply(new EffectMutation(
-            MatchStateMutationSink.PlayCardKind,
-            Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value,
-                [MatchStateMutationSink.FromZoneKey] = from.Value.ToString(),
-            }));
-
-        if (_deleteTiming is not null &&
-            Card.Context.CardInstanceRepository.TryGetInstance(Card.InstanceId, out CardInstanceRecord? rec) && rec is not null)
-        {
-            Card.Context.CardInstanceRepository.Upsert(rec with
-            {
-                Metadata = new Dictionary<string, object?>(rec.Metadata, StringComparer.Ordinal)
-                {
-                    [Headless.Runtime.GameFlowProcessor.DeleteAtTurnEndKey] = _deleteTiming,
-                    [Headless.Runtime.GameFlowProcessor.DeleteAtTurnEndSourceKey] = Card.InstanceId.Value,
-                }
-            });
-        }
-
-        return ValueTask.FromResult(EffectResult.Success("Play this card at the end of the battle."));
-    }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
-        return new EffectBinding(
-            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, context),
-            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
-    }
-}
+// (R6-Db D4 EXHAUSTED) The mirror-invented one-shot `PlaySelfAtEndOfBattleTriggerEffect` is DELETED together
+// with its `PlaySelfAtEndOfBattleSecurityEffect` producer (ActivatedEffects.cs). It was an EffectRegistry
+// OnEndBattle-trigger substitute for the AS-IS `Player.UntilEndBattleEffects` bucket + a DeleteAtTurnEnd metadata
+// marker for the delete branch; the real AS-IS idiom (UntilEndBattleEffects.Add + PlayPermanentCards, and
+// UntilOpponentTurnEndEffects.Add + DestroyPermanentsClass for the delete branch) is now landed directly in
+// CardEffectFactory.PlaySelfDigimonAfterBattleSecurityEffect. RD-P6C3-B2 RESOLVED.
 
