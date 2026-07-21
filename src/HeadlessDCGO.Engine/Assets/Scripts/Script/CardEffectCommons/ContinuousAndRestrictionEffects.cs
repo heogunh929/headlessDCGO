@@ -19,6 +19,31 @@ using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectF
 /// optional inherited / condition markers, so <c>ContinuousDpGate</c> /
 /// <see cref="ContinuousModifierGate"/> fold it in automatically (with inherited / condition gating
 /// applied by <see cref="ContinuousScopeEvaluation"/>).
+///
+/// (이연④-g, design item RD-④G-SELFMOD) KEEP + MARK — real-card production census = 0 (NO factory constructs
+/// this; the self DP/SAttack/cost factories were flipped to kind-classes long ago: ChangeSelfDPStaticEffect →
+/// ChangeDPClass, ChangeSelfSAttackStaticEffect → ChangeSAttackClass, ChangePlayCostStaticEffect/
+/// MandatorySelfPlayCostReduction → ChangeCostClass — each carrying the AS-IS "Replaces the old
+/// ContinuousSelfModifierEffect-based" note). The 2026-07-20 registry census (registry_probe_census) lists the
+/// 14 live `.Register` producers and this type is NOT among them — its only two surviving producers are
+/// test-pin scaffolding, and the two metric halves are asymmetric:
+///   • DP variant (DpDeltaKey) is now DEAD/INERT — R1-a rehoused Permanent.DP to the pure IChangeDPEffect
+///     kind-class fold (proven by W3c3-DpDeltaGrant 7/7), which does NOT read the continuous registry. The lone
+///     producer tests/G9-038.ImmuneFromDpMinus registers a DpDeltaKey binding that no longer folds (Permanent.DP
+///     stays at base — that subtest is already RED for exactly this reason). SAttack self is likewise DEAD (real
+///     SAttack self-buffs fold via Permanent.Strike/ChangeSAttackClass, W3c3).
+///   • Cost variant (Play/DigivolutionCostDeltaKey) is a LIVE code path (CardSource.GetPayingCostWithBaseCost
+///     UNIONs the legacy substrate NumericModifier fold ContinuousModifierGate.FoldLegacy*CostModifiers before
+///     the AS-IS new-model ChangeCostClass fold; both honour the SAME Player.CanReduceCost immunity), exercised
+///     GREEN by tests/FAILa-05.CannotReduceCostScope — but that legacy fold has NO real-card feed either
+///     (ChangePlayCostPlayerEffect has zero card call-sites), so this type only scaffolds it.
+/// NOT retired here: (1) the four shared const keys below (InheritedEffectKey / ConditionKey / DynamicValueKey /
+/// DynamicMetricKey) are read by ContinuousScopeEvaluation and re-used by the sibling continuous effects and 9
+/// rule-layer files, so they must be rehoused before the type can be deleted; (2) deleting requires retargeting
+/// the two test-pins (G9-038 → a live ChangeDPClass DP-minus seam; FAILa-05 → a kind-class cost reduction, which
+/// is invention-free since CanReduceCost gates both folds uniformly) — a fold-pipeline touch the registry census
+/// sequences into the final W3c-final registry deletion under mandatory adversarial review, NOT a ④ producer flip.
+/// Retire alongside that batch. (Cf. ContinuousSelfRestrictionEffect / RD-④E-SELFRESTR — same census-0 posture.)
 /// </summary>
 public sealed class ContinuousSelfModifierEffect : ICardEffect
 {
