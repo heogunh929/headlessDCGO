@@ -36,10 +36,15 @@ async Task ChangeCardNames()
     var id = await Place(ctx, P1, "GREY", "Greymon");
     var cs = new CardSource(ctx, id, P1);
     AssertTrue(cs.EqualsCardName("Greymon") && !cs.EqualsCardName("Agumon"), "printed name only before");
+    // (이연④-c) RE-AIMED off the dead AddedCardNameKey registry binding onto the LIVE CardSource.CardNames scan.
+    // The flipped factory returns the new-model kind-class ChangeCardNamesClass (an IChangeCardNamesEffect, no
+    // ToBinding) — the exact seam CardSource.CardNames enumerates (IChangeCardNamesEffect, CanUse(null), then
+    // Distinct). Place it on the card's own effect list and drive the observable name fold (the old-model
+    // ChangeCardNamesEffect's AddedCardNameKey write was DEAD after R1-e dropped the registry read, so the factory
+    // output was production-inert until this flip resurrected it).
     var changeNamesEffect = CardEffectFactory.ChangeCardNamesStaticEffect("Agumon", false, new CardSource(ctx, id, P1), null);
-    if (!LegacyBindingBridge.TryToBinding(changeNamesEffect, $"ccn:{id.Value}", out var changeNamesBinding) || changeNamesBinding is null)
-        throw new InvalidOperationException($"{changeNamesEffect.GetType().Name} has no ToBinding bridge.");
-    ctx.EffectRegistry.Register(changeNamesBinding);
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(changeNamesEffect);
+    using var _ = AmbientMatchContext.Enter(ctx);
     AssertTrue(cs.EqualsCardName("Agumon") && cs.EqualsCardName("Greymon"), "added name folded into CardNames");
 }
 

@@ -1846,10 +1846,35 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     /// caller only consults this on the return chokepoints).</summary>
     private bool IsRemovalBlockedByScan(HeadlessEntityId candidateId)
     {
-        // (joint-migration) canonical scan (AS-IS Permanent.CanNotBeRemoved): single-participant restriction, no cause.
-        return _context is not null
-            && Runtime.RestrictionScan.IsRestricted(
-                _context, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotBeRemovedKey, candidateId, default);
+        if (_context is null)
+        {
+            return false;
+        }
+
+        // (joint-migration) canonical registry scan (AS-IS Permanent.CanNotBeRemoved): single-participant restriction, no cause.
+        if (Runtime.RestrictionScan.IsRestricted(
+                _context, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotBeRemovedKey, candidateId, default))
+        {
+            return true;
+        }
+
+        // (이연④-c) UNION the LIVE new-model interface scan (AS-IS Permanent.CanBeRemoved() — the
+        // ICanNotBeRemovedEffect scan over every turn-ordered player's field permanents + player). A ported
+        // CanNotBeRemovedClass (EX6_044 "can't leave the battle area except by deletion") registers NO legacy
+        // binding, so the registry scan above cannot see it; the AS-IS getter enumerates it directly. This mirrors
+        // the IsRestrictedFromCause new-model union pattern — the retired old-model CanNotBeRemovedEffect (which
+        // wrote CannotBeRemovedKey) was census-0 and deleted, so the real card's protection was production-INERT
+        // until this seam. CanBeRemoved() returns FALSE when a usable ICanNotBeRemovedEffect forbids the candidate
+        // leaving the field (bounce / deck-bounce) — deletion is exempt (this is consulted only on return chokepoints).
+        if (_repository.TryGetInstance(candidateId, out CardInstanceRecord? record) && record is not null)
+        {
+            if (!new Assets.Scripts.Script.CardEffectCommons.Permanent(_context, candidateId, record.OwnerId).CanBeRemoved())
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private bool IsRestrictedFromCause(HeadlessEntityId cardId, string restrictionKey, HeadlessEntityId causingSourceId)

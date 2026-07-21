@@ -1544,10 +1544,46 @@ public static partial class CardEffectFactory
         Func<CardSource, bool> cardCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousCanNotPlayOptionEffect(card, cardCondition, isInheritedEffect, condition);
 
-    /// <summary>(PRIM-W5) <c>ChangeCardNamesClass</c> — grants this card an additional name
-    /// (<paramref name="addedName"/>), folded into <c>CardSource.CardNames</c>.</summary>
-    public static ICardEffect ChangeCardNamesStaticEffect(string addedName, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ChangeCardNamesEffect(card, addedName, isInheritedEffect, condition);
+    /// <summary>(PRIM-W5 / 이연④-c) <c>ChangeCardNamesClass</c> — grants this card an additional name
+    /// (<paramref name="addedName"/>), folded into <c>CardSource.CardNames</c>. NEW-MODEL flip: returns the AS-IS
+    /// kind-class <see cref="CardEffects.ChangeCardNamesClass"/> (an <c>IChangeCardNamesEffect</c>, no
+    /// <c>ToBinding</c>) so the LIVE <c>CardSource.CardNames</c> scan (which enumerates
+    /// <c>IChangeCardNamesEffect</c>, <c>CanUse(null)</c>) actually SEES it — replacing the retired old-model
+    /// <c>ChangeCardNamesEffect</c> (ICardEffect-only; its <c>AddedCardNameKey</c> registry write was DEAD after
+    /// R1-e dropped the <c>CardNames</c> registry read, so the factory output was production-INERT). The
+    /// <c>changeCardNames</c> fold mirrors the ported-card idiom (BT14_097 :55-63): self-scoped
+    /// (<c>cardSource == card</c>) append of <paramref name="addedName"/>; <c>CardNames</c> re-Distincts. CanUse
+    /// mirrors AS-IS <c>condition</c>.</summary>
+    public static ICardEffect ChangeCardNamesStaticEffect(string addedName, bool isInheritedEffect, CardSource card, Func<bool>? condition)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(addedName);
+        ArgumentNullException.ThrowIfNull(card);
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return condition == null || condition();
+        }
+
+        List<string> ChangeCardNames(CardSource cardSource, List<string> cardNames)
+        {
+            if (cardSource == card)
+            {
+                cardNames.Add(addedName);
+            }
+
+            return cardNames;
+        }
+
+        CardEffects.ChangeCardNamesClass changeCardNamesClass = new CardEffects.ChangeCardNamesClass();
+        changeCardNamesClass.SetUpICardEffect($"Also treated as having [{addedName}] in its name", CanUseCondition, card);
+        changeCardNamesClass.SetUpChangeCardNamesClass(changeCardNames: ChangeCardNames);
+        if (isInheritedEffect)
+        {
+            changeCardNamesClass.SetIsInheritedEffect(true);
+        }
+
+        return changeCardNamesClass;
+    }
 
     // ===== (PRIM-W5) special plays — DigiXros / Blast / Blast-DNA =====================================
     // The card DECLARES its recipe (SpecialPlayRecipeRegistry, keyed by card number); SpecialPlayAction then

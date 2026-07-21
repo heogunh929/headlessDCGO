@@ -1,8 +1,11 @@
+using System.Collections;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // FAIL-d: CanNotBeRemoved (AS-IS ICanNotBeRemovedEffect, EX6_044 "can't leave battle area except by deletion")
@@ -36,6 +39,9 @@ async Task Run(string kind, Protect protect, bool expectStays)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 922);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (이연④-c) DoneStartGame gate for the new-model kind-class CanUse(null) — the live Permanent.CanBeRemoved()
+    // scan gates each ICanNotBeRemovedEffect on cardEffect.CanUse(null), which is false before the game starts.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     var cards = (CardDatabase)ctx.CardRepository;
 
     cards.Upsert(new CardRecord(new HeadlessEntityId("T"), "T", "T", new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000 }, CardType: "Digimon"));
@@ -49,28 +55,34 @@ async Task Run(string kind, Protect protect, bool expectStays)
 
     if (protect != Protect.None)
     {
-        // AS-IS joint... single-arg predicate CanNotBeRemoved(candidate): which permanents are protected.
-        Func<CardSource, bool> predicate = protect == Protect.Other
-            ? candidate => candidate.InstanceId == new HeadlessEntityId("p1:OTHER")
-            : candidate => candidate.InstanceId == target;
+        // (이연④-c) RE-AIMED off the registry direct-read onto the LIVE chokepoint. The old-model
+        // CanNotBeRemovedEffect (which wrote CannotBeRemovedKey via ToBinding) was census-0 and DELETED; the real
+        // card EX6_044 and the CanNotBeRemovedStaticEffect factory build the new-model kind-class
+        // CanNotBeRemovedClass (an ICanNotBeRemovedEffect, no ToBinding). MatchStateMutationSink.IsRemovalBlockedByScan
+        // now UNIONs the live AS-IS Permanent.CanBeRemoved() interface scan alongside the registry scan, so this
+        // test REAL-DRIVES the factory's own output through that chokepoint: place the factory's CanNotBeRemovedClass
+        // on the target's own effect list (the seam CanBeRemoved() enumerates over every field permanent), then
+        // exercise the bounce / deck-bounce / delete mutations. AS-IS Permanent.CanNotBeRemoved is a per-permanent
+        // predicate (Func<Permanent,bool>); Protect.Other points it at a DIFFERENT id, Protect.Conditioned fails CanUse.
+        HeadlessEntityId matchId = protect == Protect.Other ? new HeadlessEntityId("p1:OTHER") : target;
         Func<bool>? condition = protect == Protect.Conditioned ? () => false : null;
-        // MIGRATION-NOTE (P7 test-fix): CardEffectFactory.CanNotBeRemovedStaticEffect now wraps the NEW-model
-        // kind-class CanNotBeRemovedClass (no ToBinding/EffectRegistry bridge — stage-B RED, docs/audit/
-        // rebuild_p6_stageA_notes.md), which MatchStateMutationSink.IsRemovalBlockedByScan does not read. The
-        // gate this test actually checks (IsRemovalBlockedByScan -> Runtime.RestrictionScan.IsRestricted over
-        // RestrictionHelpers.CannotBeRemovedKey) is fed by the OLD-model "true-scan" CanNotBeRemovedEffect class
-        // (ContinuousAndRestrictionEffects.cs) — the single-arg-predicate joint-restriction producer built for
-        // exactly this remediation — so the test constructs that class directly (same predicate/condition
-        // shape the test already assembles) instead of going through the now-dead factory method.
-        ctx.EffectRegistry.Register(new CanNotBeRemovedEffect(
-            new CardSource(ctx, target, P1), predicate, condition).ToBinding($"cnbr:{target.Value}"));
+        ICardEffect cnbr = CardEffectFactory.CanNotBeRemovedStaticEffect(
+            permanentCondition: perm => perm.InstanceId == matchId,
+            isInheritedEffect: false,
+            card: new CardSource(ctx, target, P1),
+            condition: condition!,
+            effectName: "Can't leave battle area except by deletion effect");
+        new CardSource(ctx, target, P1).cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(cnbr);
     }
 
     var sink = new MatchStateMutationSink(
         ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
-    sink.Apply(new EffectMutation(kind, src,
-        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target.Value }));
-    await sink.FlushAsync();
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        sink.Apply(new EffectMutation(kind, src,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target.Value }));
+        await sink.FlushAsync();
+    }
 
     bool stays = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(target);
     if (stays != expectStays)
@@ -78,3 +90,13 @@ async Task Run(string kind, Protect protect, bool expectStays)
 }
 
 enum Protect { None, Match, Other, Conditioned }
+
+// (이연④-c) Minimal effect-list provider — the seam Permanent.EffectList(None) enumerates (backed by the
+// per-instance CEntity_EffectControllerStore), so the placed CanNotBeRemovedClass is visible to the live
+// Permanent.CanBeRemoved() scan the removal chokepoint now consults.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

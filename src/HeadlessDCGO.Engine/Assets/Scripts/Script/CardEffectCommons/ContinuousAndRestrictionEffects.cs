@@ -1098,50 +1098,13 @@ public sealed class SpecialPlayRecipeMarkerEffect : ICardEffect
 }
 
 
-/// <summary>(PRIM-W5) Grants this card an additional card name (AS-IS <c>ChangeCardNamesClass</c>). Registers
-/// a continuous binding carrying <see cref="CardSource.AddedCardNameKey"/>, which <see cref="CardSource.CardNames"/>
-/// folds in — so name-based predicates (EqualsCardName / ContainsCardName) see it.</summary>
-public sealed class ChangeCardNamesEffect : ICardEffect
-{
-    public ChangeCardNamesEffect(CardSource card, string addedName, bool isInheritedEffect, Func<bool>? condition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(addedName);
-        Card = card;
-        AddedName = addedName;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-    }
-
-    public CardSource Card { get; }
-    public string AddedName { get; }
-    public bool IsInheritedEffect { get; }
-    public Func<bool>? Condition { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [CardSource.AddedCardNameKey] = AddedName,
-        };
-        if (IsInheritedEffect)
-        {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
-        }
-
-        if (Condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
-    }
-}
+// (이연④-c) The old-model `ChangeCardNamesEffect` (ICardEffect-only, invisible to the live `CardSource.CardNames`
+// IChangeCardNamesEffect scan) was DELETED here. Its `ToBinding` wrote `CardSource.AddedCardNameKey`, but R1-e
+// dropped that registry read from `CardNames` (AS-IS has no such branch — an added name is an IChangeCardNamesEffect
+// enumerated by the scan), leaving the write DEAD and the factory output production-INERT. `ChangeCardNamesStaticEffect`
+// now emits the AS-IS kind-class `CardEffects.ChangeCardNamesClass` (IChangeCardNamesEffect), which the live scan sees;
+// all real cards (BT14_097 …) already build that kind-class directly. With no producers left, this type is census-0
+// and removed (structural-invention campaign 이연④-c).
 
 
 /// <summary>(d-remediation, true-scan) AS-IS <c>ICanNotSelectBySkillEffect</c> / <c>Permanent.CanSelectBySkill</c>:
@@ -1260,47 +1223,15 @@ public sealed class JointRestrictionEffect : ICardEffect
 }
 
 
-/// <summary>(d-remediation, true-scan) AS-IS <c>ICanNotBeRemovedEffect</c> / <c>Permanent.CanNotBeRemoved</c>:
-/// SCANNED over every field permanent's effects; while any usable one's predicate <c>CanNotBeRemoved(candidate)</c>
-/// holds, the candidate cannot leave the battle area except by deletion (EX6_044). AS-IS single-arg predicate.</summary>
-public sealed class CanNotBeRemovedEffect : ICardEffect
-{
-    private readonly Func<CardSource, bool> _predicate;
-    private readonly Func<bool>? _condition;
-
-    public CanNotBeRemovedEffect(CardSource card, Func<CardSource, bool> predicate, Func<bool>? condition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(predicate);
-        Card = card;
-        _predicate = predicate;
-        _condition = condition;
-    }
-
-    public CardSource Card { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        // (joint-migration) canonical joint key — single-arg AS-IS predicate (no counterpart).
-        Func<CardSource, bool> pred = _predicate;
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotBeRemovedKey)] =
-                (Func<CardSource, CardSource?, bool>)((subject, _) => pred(subject)),
-        };
-        if (_condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
-    }
-}
+// (이연④-c) The old-model `CanNotBeRemovedEffect` (ICardEffect-only, invisible to the live AS-IS
+// `Permanent.CanBeRemoved()` ICanNotBeRemovedEffect scan) was DELETED here. Its `ToBinding` wrote the
+// `CannotBeRemovedKey` joint-restriction registry binding read by `MatchStateMutationSink.IsRemovalBlockedByScan`,
+// but it had ZERO production producers (census-0): the real card EX6_044 and the `CanNotBeRemovedStaticEffect`
+// factory both build the new-model kind-class `CardEffects.CanNotBeRemovedClass` (an ICanNotBeRemovedEffect, no
+// ToBinding). That kind-class was invisible to the registry-only chokepoint, so EX6_044's removal-protection was
+// production-INERT; `IsRemovalBlockedByScan` now UNIONs the live `Permanent.CanBeRemoved()` interface scan (which
+// enumerates the kind-class), resurrecting it. With no producers left, this type is census-0 and removed
+// (structural-invention campaign 이연④-c).
 
 
 /// <summary>(d-remediation, true-scan) AS-IS <c>ICanNotMoveEffect</c> / <c>Permanent.CanMove</c>: SCANNED over every
@@ -1409,33 +1340,11 @@ public sealed class CannotIgnoreDigivolutionConditionEffect : ICardEffect
 }
 
 
-/// <summary>(d-remediation) AS-IS <c>DontBattleSecurityDigimonClass</c> (<c>IDontBattleSecurityDigimonEffect</c>):
-/// an INTRINSIC marker a card returns at <see cref="EffectTiming.None"/> (e.g. EX4_013 "Ignore Battle") — when the
-/// card is revealed as a security Digimon, the attacker does NOT battle it. Not a registered continuous effect
-/// (the security card is not on the battle area); the security resolver dispatches the revealed card's own effects
-/// and consults this marker. Mirrors AS-IS <c>CanUse</c> (<paramref name="condition"/>) + <c>CardSourceCondition</c>
-/// (evaluated against the revealed card).</summary>
-public sealed class DontBattleSecurityDigimonEffect : ICardEffect
-{
-    private readonly Func<CardSource, bool> _cardSourceCondition;
-    private readonly Func<bool>? _condition;
-
-    public DontBattleSecurityDigimonEffect(CardSource card, Func<CardSource, bool> cardSourceCondition, Func<bool>? condition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(cardSourceCondition);
-        Card = card;
-        _cardSourceCondition = cardSourceCondition;
-        _condition = condition;
-    }
-
-    public CardSource Card { get; }
-
-    /// <summary>True when the revealed security card should NOT battle the attacker.</summary>
-    public bool SkipsBattle(CardSource revealedCard) =>
-        (_condition is null || _condition()) && _cardSourceCondition(revealedCard);
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException("DontBattleSecurityDigimon is an intrinsic security-check marker, not a registered effect.");
-}
+// (이연④-c) The old-model `DontBattleSecurityDigimonEffect` (ICardEffect-only, with a `SkipsBattle` method the
+// security resolver never called — it scans the AS-IS-literal `IDontBattleSecurityDigimonEffect.DontBattleSecurityDigimon`
+// interface) was DELETED here. It was ALREADY census-0: the `DontBattleSecurityDigimonStaticEffect` factory (flipped
+// in R3-W3c-4b B1) and the real card EX5_053 both build the new-model kind-class
+// `CardEffects.DontBattleSecurityDigimonClass` (an IDontBattleSecurityDigimonEffect), which the resolver's live scan
+// (SecurityResolver.cs:556/571) sees. With no producers left, this type is census-0 and removed (structural-invention
+// campaign 이연④-c).
 
