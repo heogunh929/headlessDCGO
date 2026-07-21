@@ -2928,57 +2928,13 @@ public static partial class CardEffectCommons
         => (_timing) => _timing == timing ? cardEffect : null!;
 
 
-    /// <summary>(E-3) AS-IS <c>AddEffectToPlayer(effectDuration, card, cardEffect, timing)</c> for a CONTINUOUS
-    /// (non-fire-once) player-bucket effect — the shape <see cref="AddEffectToPlayer"/> does NOT cover (that
-    /// overload registers a fire-then-clear delayed trigger via DelayedOneShotKey). Here the effect is a
-    /// continuous binding that lives in the registry and is consulted live (e.g. EX1_072's CanNotPlay grant,
-    /// scanned by <see cref="HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan"/>). The AS-IS
-    /// <c>player.Until*Effects</c> bucket is mirrored by tagging the binding with <paramref name="effectDuration"/>
-    /// so <see cref="HeadlessDCGO.Engine.Headless.Effects.EffectDurationExpiry"/> removes it at the matching
-    /// turn/battle end (controller = the caster, so UntilOpponentTurnEnd expires at the opponent's turn end and
-    /// UntilEachTurnEnd at the next turn end — 1:1 with the AS-IS bucket clears). The effect's own ToBinding
-    /// carries the scope + joint + CanUse; this just overrides its (null) duration.</summary>
-    public static void AddContinuousEffectToPlayer(
-        EffectDuration effectDuration, CardSource card, ICardEffect cardEffect)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(cardEffect);
-        // (P6 cluster3) old-model lowering via LegacyBindingBridge — NEW-model effect = STOP (RD-P6C3-C1).
-        if (!LegacyBindingBridge.TryToBinding(
-                cardEffect,
-                $"{card.InstanceId.Value}:addPlayerContEffect:{Guid.NewGuid():N}",
-                out EffectBinding? binding) || binding is null)
-        {
-            throw new NotSupportedException(
-                $"AddContinuousEffectToPlayer: '{cardEffect.GetType().Name}' is a NEW-model effect — no new-model player grant store exists yet (design item RD-P6C3-C1).");
-        }
-
-        EffectContext ctx = binding.Request.Context;
-
-        // (E-3) AS-IS AddEffectToPlayer stores the effect in the PLAYER's Until*Effects bucket — it is
-        // card-INDEPENDENT: the granting card leaving the field (EX1_072 goes to trash / back to hand) does NOT
-        // clear it; only the duration bucket clear does. The headless leave-field cleanup drops every binding
-        // whose SourceEntityId is the leaving card (MatchStateMutationSink / UnregisterCard), so re-source the
-        // player-bucket binding to a synthetic per-owner id (not a card instance) so ONLY EffectDurationExpiry
-        // removes it. ControllerId stays the caster, so UntilOpponentTurnEnd/UntilOwnerTurnEnd expiry is correct.
-        var playerSource = new HeadlessEntityId($"player:{ctx.OwnerPlayerId.Value}:contEffect:{Guid.NewGuid():N}");
-        var reSourced = new EffectRequest(
-            binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing,
-            new EffectContext(ctx.SourcePlayerId, ctx.OwnerPlayerId, playerSource, ctx.TriggerEntityId, ctx.TargetEntityIds, ctx.Values));
-        card.Context.EffectRegistry.Register(new EffectBinding(
-            reSourced, binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect,
-            duration: effectDuration));
-    }
-
-    /// <summary>(E-3) Convenience for the AS-IS EX1_072 shape: register a player-bucket
-    /// <see cref="ContinuousCanNotPlayOptionEffect"/> (region ①, <c>playerScope: true</c>) that forbids the
-    /// options matching <paramref name="cardCondition"/> for <paramref name="effectDuration"/>. CanUse is always
-    /// true (AS-IS <c>(hashtable) =&gt; true</c>).</summary>
-    public static void AddCanNotPlayOptionToPlayer(
-        EffectDuration effectDuration, CardSource card, Func<CardSource, bool> cardCondition) =>
-        AddContinuousEffectToPlayer(
-            effectDuration, card,
-            new ContinuousCanNotPlayOptionEffect(card, cardCondition, isInheritedEffect: false, condition: null, playerScope: true));
+    // (이연④-f) AddContinuousEffectToPlayer + AddCanNotPlayOptionToPlayer DELETED with the CanNotPlayOption registry
+    // teardown. They were the substrate carrier for EX1_072's player-bucket CanNotPlay grant (old-model
+    // ContinuousCanNotPlayOptionEffect registry-half, re-sourced to a synthetic player id + EffectDurationExpiry).
+    // RD-P6C3-C1 is now RESOLVED: EX1_072 emits the AS-IS kind-class `CanNotPlayClass` and stores it via the AS-IS
+    // `AddEffectToPlayer(duration, card, cardEffect, timing: None)` player Until*Effects bucket (GiveEffect/
+    // GiveEffectToPermanentOrPlayer.cs), read LIVE by CanNotPlayOptionScan region ① and cleared by the AS-IS
+    // turn-end bucket reset (HeadlessEndTurnCleanupFlow) — no registry, no ToBinding.
 
     /// <summary>(W6-G) shared restriction-grant core — AS-IS GiveEffectToPermanent shape: target-locked,
     /// duration-tagged restriction binding with the LIVE CanUse (on field && !CanNotBeAffected) plus an

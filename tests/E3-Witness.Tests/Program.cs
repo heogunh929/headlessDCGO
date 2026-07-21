@@ -189,12 +189,16 @@ bool ReadSuspended(EngineContext ctx, string instanceId) =>
     Check(resolved > 0, "EX1_072 [Main]: activated effect resolved");
     Check(CanNotPlayOptionScan.CanNotPlay(ctx, P2, p2opt), "EX1_072 [Main]: P2 Option BLOCKED after activation");
 
-    // Does NOT expire at the CASTER's (P1) turn end — the grant lasts until the OPPONENT's turn end.
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, endingTurnPlayerId: P1);
+    // (이연④-f) The grant now lives in the caster's (P1) UntilOpponentTurnEnd PLAYER bucket (AddEffectToPlayer),
+    // cleared by the AS-IS turn-end reset (HeadlessEndTurnCleanupFlow) — not the registry EffectDurationExpiry.
+    // Does NOT expire at the CASTER's (P1) turn end: ending P1's turn clears the NON-turn player's (P2)
+    // UntilOpponentTurnEnd bucket, leaving P1's grant intact.
+    new HeadlessEndTurnCleanupFlow().Cleanup(ctx, ctx.TurnController.Current); // ends P1's turn (turn player = P1)
     Check(CanNotPlayOptionScan.CanNotPlay(ctx, P2, p2opt), "EX1_072 [Main]: still blocked after the caster's own turn ends");
 
-    // Expires at the OPPONENT's (P2) turn end.
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, endingTurnPlayerId: P2);
+    // Expires at the OPPONENT's (P2) turn end: ending P2's turn clears the NON-turn player's (P1) bucket = the grant.
+    ctx.TurnController.EndTurn(); // advance to P2's turn
+    new HeadlessEndTurnCleanupFlow().Cleanup(ctx, ctx.TurnController.Current);
     Check(!CanNotPlayOptionScan.CanNotPlay(ctx, P2, p2opt), "EX1_072 [Main]: released at the end of the opponent's next turn (UntilOpponentTurnEnd)");
 }
 
@@ -221,12 +225,12 @@ bool ReadSuspended(EngineContext ctx, string instanceId) =>
     bool inHand = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Hand).Contains(ex1);
     Check(inHand, "EX1_072 [Security]: this card was added to its owner's hand");
 
-    // (P2-1 isolation) "this turn" -> UntilEachTurnEnd expires at ANY turn end, INCLUDING the caster/controller's
-    // (P1's) OWN turn end (EffectDurationExpiry: UntilEachTurnEnd => always true). A UntilOpponentTurnEnd grant
-    // (controller P1) would SURVIVE P1's own turn end (as the [Main] test above proves) — so releasing here on
-    // ExpireTurnEnd(P1) is CONSTANT-SENSITIVE: it fails if the [Security] duration were mistakenly the
-    // opponent-turn-end constant. (The prior ExpireTurnEnd(P2) fired under BOTH constants and did not isolate.)
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, endingTurnPlayerId: P1);
+    // (이연④-f / P2-1 isolation) "this turn" -> the grant lives in the caster's (P1) UntilEachTurnEnd PLAYER bucket;
+    // UntilEachTurnEnd clears for EVERY player at ANY turn end (HeadlessEndTurnCleanupFlow), so it releases at the
+    // caster's OWN (P1) turn end. CONSTANT-SENSITIVE: a UntilOpponentTurnEnd grant in P1's bucket would clear only on
+    // the NON-turn player's turn end, so ending P1's OWN turn would leave it — the check below would then fail.
+    ctx.TurnController.EndTurn(); // P2's turn -> P1's turn, so this ends P1's (the caster's) OWN turn
+    new HeadlessEndTurnCleanupFlow().Cleanup(ctx, ctx.TurnController.Current);
     Check(!CanNotPlayOptionScan.CanNotPlay(ctx, P2, p2opt),
         "EX1_072 [Security]: released at the CASTER's OWN turn end (UntilEachTurnEnd — a UntilOpponentTurnEnd grant would survive)");
 }

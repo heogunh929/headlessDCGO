@@ -60,11 +60,12 @@ public static class CanNotPlayOptionScan
 
         // (R3-W3c-4) AS-IS-literal LIVE scan (CardSource.CanNotPlayThisOption regions ①②③, CardSource.cs:184-238):
         // for each population, `cardEffect is ICanNotPlayCardEffect && cardEffect.CanUse(null) && CanNotPlay(option)`.
-        // This is what sees NEW-model CanNotPlayClass kind-classes (no ToBinding), e.g. BT8_057. Unioned with the
-        // registry scan below, which still serves old-model player-bucket grants (EX1_072 via
-        // AddCanNotPlayOptionToPlayer) until those are re-ported to the AS-IS player EffectList bucket
-        // (design item W3c-CANNOTPLAY-PLAYERBUCKET). The old ContinuousCanNotPlayOptionEffect is NOT an
-        // ICanNotPlayCardEffect, so the two halves never double-count.
+        // This is the interface-scan half — it sees every AS-IS CanNotPlayClass kind-class (no ToBinding): BT8_057
+        // (region ②), EX1_072's player-bucket grant (region ①, via AddEffectToPlayer's Player.EffectList bucket),
+        // and a self-forbidding option (region ③). (이연④-f) EVERY producer was flipped to CanNotPlayClass, so the
+        // registry scan below (JointPredicateKey / ContinuousCanNotPlayOptionEffect.ToBinding) is now DEAD — no
+        // producer writes it. It is retained (returns nothing) only pending the atomic CanNotPlayOptionScan
+        // registry-read deletion; design item W3c-CANNOTPLAY-PLAYERBUCKET is RESOLVED.
         var gameContext = new GameContext(context);
         foreach (var player in gameContext.Players)
         {
@@ -103,6 +104,8 @@ public static class CanNotPlayOptionScan
         }
 
         // Regions ① (player-scope) + ② (field permanents): registered continuous CanNotPlay bindings.
+        // (이연④-f) DEAD registry-half — no producer writes the JointPredicateKey binding any more
+        // (ContinuousCanNotPlayOptionEffect deleted); this loop finds nothing. Retained pending atomic deletion.
         foreach (EffectRequest request in context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(Scope)))
         {
             IReadOnlyDictionary<string, object?> values = request.Context.Values;
@@ -139,6 +142,9 @@ public static class CanNotPlayOptionScan
         // option being played from hand is not a permanent, so its own continuous effects are dispatch-built
         // (unregistered, like the face-up-security source scan and OptionColorRequirement's self ignore-color
         // scan) and evaluated with their CanUse gate (CardSource.EffectConditionPasses).
+        // (이연④-f) DEAD dispatch-half — the region-③ producer (TfxOptionForbidsSelf) now emits the AS-IS kind-class
+        // CanNotPlayClass, served by the LIVE ICanNotPlayCardEffect scan above (option.EffectList(None)); no
+        // JointPredicateKey is dispatch-built, so this loop finds nothing. Retained pending atomic deletion.
         if (!IsPermanentOfThisCard(context, owner, optionCardId))
         {
             foreach (EffectRequest request in CardEffectRegistrar.BuildContinuousRequests(context, optionCardId, owner, Scope))

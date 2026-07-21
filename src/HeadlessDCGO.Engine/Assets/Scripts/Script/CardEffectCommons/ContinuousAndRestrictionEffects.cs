@@ -734,82 +734,13 @@ public sealed class BareCauseEffect : ICardEffect
 }
 
 
-/// <summary>(E-3) A continuous "an Option matching <see cref="CardCondition"/> cannot be played" effect
-/// registered under <see cref="HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan"/> (AS-IS
-/// <c>CanNotPlayClass</c> — <c>ICanNotPlayCardEffect.CanNotPlay(cardSource) = cardCondition(cardSource)</c>).
-/// The option-play legality gate scans every such active effect (<see cref="CanNotPlayThisOption"/> regions
-/// ①②③). <paramref name="playerScope"/> distinguishes a PLAYER-bucket grant (AS-IS <c>AddEffectToPlayer</c>
-/// region ①, granter not a field permanent — bypasses the field membership check) from a FIELD static (region
-/// ②, e.g. BT8_057, subject to the AS-IS EffectList_ForCard stack-position membership).</summary>
-public sealed class ContinuousCanNotPlayOptionEffect : ICardEffect
-{
-    public ContinuousCanNotPlayOptionEffect(
-        CardSource card,
-        Func<CardSource, bool> cardCondition,
-        bool isInheritedEffect,
-        Func<bool>? condition,
-        bool playerScope = false)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(cardCondition);
-        Card = card;
-        CardCondition = cardCondition;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-        PlayerScope = playerScope;
-    }
-
-    public CardSource Card { get; }
-
-    /// <summary>AS-IS <c>CanNotPlayClass._cardCondition</c> — WHICH option (owner / IsOption / …) this forbids,
-    /// evaluated against the option being played.</summary>
-    public Func<CardSource, bool> CardCondition { get; }
-
-    public bool IsInheritedEffect { get; }
-
-    /// <summary>AS-IS <c>cardEffect.CanUse(null)</c> gate — the effect's live usability condition.</summary>
-    public Func<bool>? Condition { get; }
-
-    /// <summary>True for an AS-IS region-① player-bucket grant (bypasses the field stack-position membership).</summary>
-    public bool PlayerScope { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal);
-
-        Func<CardSource, bool> cardCondition = CardCondition;
-        // AS-IS CanNotPlay(option) = cardCondition(option). Single-arg joint (no causing-effect arg — the AS-IS
-        // interface takes only the CardSource being played).
-        values[HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan.JointPredicateKey] =
-            (Func<CardSource, bool>)(option => cardCondition(option));
-
-        if (PlayerScope)
-        {
-            values[HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan.PlayerScopeKey] = true;
-        }
-
-        if (IsInheritedEffect)
-        {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
-        }
-
-        if (Condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null,
-            // Registered field-wide (no target): the option-play scan enumerates the scope, not a per-card target.
-            targetEntityIds: Array.Empty<HeadlessEntityId>(),
-            values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous,
-            new[] { HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan.Scope }, effect: null, duration: null);
-    }
-}
+// (이연④-f) ContinuousCanNotPlayOptionEffect (old-model CanNotPlayOption registry carrier) DELETED. Its ToBinding
+// wrote the CanNotPlayOptionScan JointPredicateKey binding consumed by the scan's registry-half (regions ①②
+// GetContinuousEffects + region ③ BuildContinuousRequests). Every producer now emits the AS-IS kind-class
+// `CanNotPlayClass` (ICanNotPlayCardEffect), read by the scan's interface-scan half: EX1_072's player-bucket grant
+// via AddEffectToPlayer (region ①), BT8_057 as a field static (region ②), the TfxOptionForbidsSelf fixture as the
+// option's own [None] effect (region ③). The scan's registry-half reads are now DEAD (no producer) and are retained
+// only pending the atomic registry-scan deletion.
 
 
 /// <summary>(PRIM-W5) A no-op effect returned by the special-play factories. The real work (registering the
@@ -958,12 +889,16 @@ public sealed class JointRestrictionEffect : ICardEffect
 /// field permanent's effects; while any usable one's predicate <c>CanNotMove(candidate, causing)</c> holds, the
 /// candidate cannot move (the move gate passes a null causing effect, AS-IS <c>CanNotMove(TopCard, null)</c>).
 ///
-/// (이연④-e, substrate reclassification) DUAL-LIVE — both halves are consumed, so the <c>ToBinding</c> registry-half
-/// is KEPT (contrast the sibling <c>CanNotSelectBySkillEffect</c>, whose registry-half was 사문 and deleted): the
-/// interface half feeds <c>Permanent.CanMove</c>, and the registry half feeds the LIVE move legal-action FLOW —
-/// <c>RestrictionScan.IsRestricted(context, RestrictionHelpers.CannotMoveKey, …)</c> reads the joint predicate this
-/// <c>ToBinding</c> writes, called from the breeding→battle move gate (real card BT1_089.cs:106). Reclassified as a
-/// substrate kind-class-style effect (not old-model residue to retire).</summary>
+/// (이연④-f, registry-half retired) LIVE-only now. Formerly DUAL: the <c>ToBinding</c> registry-half fed the
+/// breeding→battle move gate (BT1_089) via <c>RestrictionScan.IsRestricted(CannotMoveKey)</c>. That consumer was
+/// re-pointed to the AS-IS interface-scan half (<c>Permanent.CanMove</c> — the same <c>permanent.CanMove</c> the
+/// AS-IS BT1_089:56 uses), so nothing reads the CannotMoveKey binding any more. The <c>ToBinding</c> is dropped:
+/// with no <c>ToBinding</c> method the <see cref="LegacyBindingBridge"/> reflective lowering returns false and the
+/// registrar leaves this effect out of the registry entirely — the interface half (this effect sits on the card's
+/// live EffectList and implements <see cref="ICanNotMoveEffect"/>) is the sole path, feeding <c>Permanent.CanMove</c>
+/// exactly as AS-IS <c>CanNotMoveClass</c> does. Its joint predicate <c>f(candidate, causingSource)</c> is retained
+/// (the joint carrier the fixture/factory build via a single Func; not splittable into the kind-class's separate
+/// cardCondition/cardEffectCondition in general — true-scan-for-joint-predicates).</summary>
 public sealed class CanNotMoveEffect : ICardEffect, ICanNotMoveEffect
 {
     private readonly Func<CardSource, CardSource?, bool> _predicate;
@@ -1000,25 +935,9 @@ public sealed class CanNotMoveEffect : ICardEffect, ICanNotMoveEffect
         return false;
     }
 
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        // (joint-migration) canonical joint key — the move gate passes a null causing effect (AS-IS CanNotMove(top, null)).
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotMoveKey)] = _predicate,
-        };
-        if (_condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
-    }
+    // (이연④-f) ToBinding retired — see the class summary. No registry-half: the reflective LegacyBindingBridge
+    // lowering finds no ToBinding and the registrar skips registry registration; the live EffectList /
+    // ICanNotMoveEffect path (Permanent.CanMove) is the sole consumer.
 }
 
 

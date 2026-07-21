@@ -7,15 +7,17 @@
 // source.Owner == card.Owner.Enemy && source.IsOption) and CardEffectCommons.AddEffectToPlayer(
 // UntilOpponentTurnEnd, ..., None). [Security] does the same with UntilEachTurnEnd, SetIsSecurityEffect(true),
 // THEN AddThisCardToHand(card).
-// Substrate translation: the AS-IS raw `new CanNotPlayClass()` + `AddEffectToPlayer(... , timing: None)` has NO
-// working mirror path (AddEffectToPlayer / AddContinuousEffectToPlayer lower any effect via
-// LegacyBindingBridge.TryToBinding, which throws for a new-model kind-class — RD-P6C3-C1: no new-model
-// player-grant store). The mirror carrier of exactly this AS-IS CanNotPlayOption player grant is
-// `CardEffectCommons.AddCanNotPlayOptionToPlayer(effectDuration, card, cardCondition)` (region ① player-bucket
-// ContinuousCanNotPlayOptionEffect, playerScope:true, CanUse always true — scanned by CanNotPlayOptionScan,
-// expired by EffectDurationExpiry at the matching turn end), the documented E-3 mirror. IEnumerator->Task,
-// StartCoroutine->await; `card.Owner.Enemy` -> `CardEffectCommons.OpponentOf(card)`; `AddThisCardToHand(card,
-// activateClass)` -> mirror `AddThisCardToHand(card, card)` (BT9_109 convention).
+// (이연④-f) FLIP to the AS-IS idiom verbatim: `new CanNotPlayClass()` + SetUpICardEffect("...", (h) => true, card)
+// + SetUpCanNotPlayClass(cardCondition) + `CardEffectCommons.AddEffectToPlayer(duration, card, cardEffect,
+// timing: None)`. RD-P6C3-C1 is RESOLVED (R3-C2b-2): AddEffectToPlayer stores the kind-class in the OWNING
+// player's Until*Effects bucket (UntilOpponentTurnEnd [Main] / UntilEachTurnEnd [Security]), which
+// `Player.EffectList(None)` surfaces LIVE and `CanNotPlayOptionScan` region ① (the ICanNotPlayCardEffect
+// interface-scan) reads directly — no registry, no ToBinding. The bucket is cleared by the AS-IS turn-end reset
+// (HeadlessEndTurnCleanupFlow: the caster's UntilOpponentTurnEnd drops at the opponent's turn end; UntilEachTurnEnd
+// drops at any turn end). This replaces the former substrate carrier `AddCanNotPlayOptionToPlayer`
+// (ContinuousCanNotPlayOptionEffect registry-half), which is retired with the CanNotPlayOption registry teardown.
+// IEnumerator->Task, StartCoroutine->await; `card.Owner.Enemy` -> `CardEffectCommons.OpponentOf(card)`;
+// `AddThisCardToHand(card, activateClass)` -> mirror `AddThisCardToHand(card, card)` (BT9_109 convention).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX1.White;
 
 using System.Collections;
@@ -50,10 +52,14 @@ public sealed class EX1_072 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                CardEffectCommons.AddCanNotPlayOptionToPlayer(
+                CanNotPlayClass canNotPlayClass = new CanNotPlayClass();
+                canNotPlayClass.SetUpICardEffect("Can't play option", (hashtable) => true, card);
+                canNotPlayClass.SetUpCanNotPlayClass(cardCondition: CardCondition);
+                CardEffectCommons.AddEffectToPlayer(
                     effectDuration: EffectDuration.UntilOpponentTurnEnd,
                     card: card,
-                    cardCondition: CardCondition);
+                    cardEffect: canNotPlayClass,
+                    timing: EffectTiming.None);
 
                 await Task.CompletedTask;
 
@@ -92,10 +98,14 @@ public sealed class EX1_072 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                CardEffectCommons.AddCanNotPlayOptionToPlayer(
+                CanNotPlayClass canNotPlayClass = new CanNotPlayClass();
+                canNotPlayClass.SetUpICardEffect("Can't play option", (hashtable) => true, card);
+                canNotPlayClass.SetUpCanNotPlayClass(cardCondition: CardCondition);
+                CardEffectCommons.AddEffectToPlayer(
                     effectDuration: EffectDuration.UntilEachTurnEnd,
                     card: card,
-                    cardCondition: CardCondition);
+                    cardEffect: canNotPlayClass,
+                    timing: EffectTiming.None);
 
                 await CardEffectCommons.AddThisCardToHand(card, card);
 

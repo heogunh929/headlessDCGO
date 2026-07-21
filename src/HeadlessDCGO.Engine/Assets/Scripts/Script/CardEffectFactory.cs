@@ -1533,16 +1533,10 @@ public static partial class CardEffectFactory
         bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
     }
 
-    /// <summary>(E-3) <c>CanNotPlayOptionStaticEffect</c> — AS-IS <c>CanNotPlayClass</c>: a continuous
-    /// "an Option matching <paramref name="cardCondition"/> cannot be played" effect scanned by the option-play
-    /// legality gate (<see cref="HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan"/>).
-    /// <paramref name="cardCondition"/> = AS-IS <c>CanNotPlay</c> (WHICH option — owner / IsOption);
-    /// <paramref name="condition"/> = the effect's own CanUse gate. Registered as a FIELD static (subject to the
-    /// AS-IS stack-position membership); use <see cref="AddCanNotPlayOptionToPlayer"/> for the AS-IS
-    /// player-bucket (region ①) duration-bound form.</summary>
-    public static ICardEffect CanNotPlayOptionStaticEffect(
-        Func<CardSource, bool> cardCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousCanNotPlayOptionEffect(card, cardCondition, isInheritedEffect, condition);
+    // (이연④-f) CanNotPlayOptionStaticEffect (old-model ContinuousCanNotPlayOptionEffect factory) DELETED with the
+    // CanNotPlayOption registry teardown: every producer now emits the AS-IS kind-class `CanNotPlayClass`
+    // (ICanNotPlayCardEffect) read by CanNotPlayOptionScan's interface-scan half — BT8_057 (region ②) and the
+    // TfxOptionForbidsSelf fixture (region ③, the sole former caller of this factory) do so directly.
 
     /// <summary>(PRIM-W5 / 이연④-c) <c>ChangeCardNamesClass</c> — grants this card an additional name
     /// (<paramref name="addedName"/>), folded into <c>CardSource.CardNames</c>. NEW-MODEL flip: returns the AS-IS

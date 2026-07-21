@@ -16,10 +16,13 @@ using HeadlessDCGO.Engine.Headless.Services;
 ///
 /// (R1-d) 잔존 사유: the suspend/unsuspend and the effect-bearing select-by-skill restrictions were rehoused onto
 /// the mirror <c>Permanent</c> getters and their consumers rewired off this scan. What still reads this scan is
-/// NOT R1-d's: CannotMoveKey (move legal-action FLOW = R2/R3), ImmuneStackTrashingKey / CannotBeRemovedKey (the
-/// deletion / stack-mutation machine = R2), CannotDigivolveKey (AS-IS CardSource.CanNotEvolve = R1-e), the
-/// CannotAttack/Block family (attack/block flow = R2/R3), and the one effect-less legacy select path
-/// (SelectPermanentEffect.IsUntargetableBySkill, no ICardEffect object to feed Permanent.CanSelectBySkill).
+/// NOT R1-d's: ImmuneStackTrashingKey / CannotBeRemovedKey (the deletion / stack-mutation machine = R2),
+/// CannotDigivolveKey (AS-IS CardSource.CanNotEvolve = R1-e), the CannotAttack/Block family (attack/block flow =
+/// R2/R3), and the one effect-less legacy select path (SelectPermanentEffect.IsUntargetableBySkill, no ICardEffect
+/// object to feed Permanent.CanSelectBySkill).
+/// (이연④-f) CannotMoveKey is now DEAD (formerly a live reader): its sole reader (BT1_089's breeding→battle move gate)
+/// was re-pointed to the AS-IS interface-scan half (Permanent.CanMove — the ICanNotMoveEffect scan AS-IS BT1_089:56
+/// uses), and its sole producer CanNotMoveEffect no longer writes the CannotMoveKey binding (ToBinding retired).
 /// </summary>
 public static class RestrictionScan
 {
