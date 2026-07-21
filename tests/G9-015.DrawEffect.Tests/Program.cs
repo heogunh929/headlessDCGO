@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -5,10 +6,13 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// BT-PRE-A1 (G9-015): DrawEffect — the headless mirror of the original DrawClass ("draw N"). Resolved through
-// the activation flow (ActivatedEffectResolver), it stages a DrawCards sink mutation that moves the top N of
-// the controller's library to their hand. AS-IS guards: non-positive count is a no-op, and an empty / short
-// library draws only what is available (min). The TfxDraw fixture's [Main] returns DrawEffect(2).
+// BT-PRE-A1 (G9-015): the AS-IS DrawClass ("draw N") coroutine — the canonical draw the ported-card corpus uses
+// (BT1_046). The TfxDraw fixture's [Main] wraps `new DrawClass(...).Draw()` in an ActivateClass; resolved through
+// the activation flow (ActivatedEffectResolver → ActivateICardEffect), DrawClass moves the top N of the
+// controller's library to their hand. AS-IS guards: non-positive count is a no-op, and an empty / short library
+// draws only what is available (min).
+// (이연③-h) Re-pointed from the retired invented `DrawEffect` (the declarative stub is deleted) to the AS-IS
+// DrawClass idiom; the OptionSkill ActivateClass gates on DoneStartGame (CanTrigger), so Context() sets the phase.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -18,7 +22,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Draw 2 from a 5-card library: hand +2, library -2", DrawTwoFromFive),
     ("Draw 2 from a 1-card library: only 1 drawn (min guard)", DrawShortLibrary),
     ("Draw 2 from an empty library: no-op", DrawEmptyLibrary),
-    ("DrawEffect(0) is a no-op (non-positive count guard)", DrawZeroNoOp),
+    ("DrawClass(0) is a no-op (non-positive count guard)", DrawZeroNoOp),
 };
 
 var failures = new List<string>();
@@ -78,18 +82,14 @@ async Task DrawEmptyLibrary()
 async Task DrawZeroNoOp()
 {
     EngineContext context = Context();
-    var src = await PlaceFixture(context, P1, "ZERO");
+    await PlaceFixture(context, P1, "ZERO");
     await FillLibrary(context, P1, 3);
 
-    // DrawEffect(0).Apply must emit no mutation — assert via a direct sink flush.
-    var card = new CardSource(context, src, P1);
-    var sink = new HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink(
-        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
-    new DrawEffect(card, drawCount: 0, "Draw 0.").Apply(sink);
-    await sink.FlushAsync();
+    // AS-IS DrawClass.Draw() guards `if (_drawCount <= 0) yield break;` — a zero draw is a no-op.
+    await new DrawClass(context, P1, 0, null).Draw();
 
-    AssertEqual(0, HandCount(context, P1), "DrawEffect(0) drew nothing");
-    AssertEqual(3, LibraryCount(context, P1), "library untouched by DrawEffect(0)");
+    AssertEqual(0, HandCount(context, P1), "DrawClass(0) drew nothing");
+    AssertEqual(3, LibraryCount(context, P1), "library untouched by DrawClass(0)");
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -98,6 +98,7 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 915);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // past None -> DoneStartGame true (ICardEffect.CanTrigger gate)
     return context;
 }
 

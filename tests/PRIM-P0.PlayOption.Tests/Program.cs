@@ -49,6 +49,7 @@ async Task<EngineContext> Setup()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 33);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // past None -> DoneStartGame true (ICardEffect.CanTrigger gate)
     var cards = (CardDatabase)context.CardRepository;
 
     // The effect source (in Execution).

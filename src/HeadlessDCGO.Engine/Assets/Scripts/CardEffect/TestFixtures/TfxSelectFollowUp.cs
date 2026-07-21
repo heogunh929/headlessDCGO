@@ -10,7 +10,8 @@
 //     idiom, sibling enum value — ST3_09.cs precedent).
 //   * zone-card select: `GManager.instance.GetComponent<SelectCardEffect>()` + full 16-param SetUp + await
 //     Activate() — Mode.AddHand/Root.Trash per BT2_090.cs, Mode.Discard (BT10_084.cs) with Root.Library.
-// The "seq" draw tail keeps the real factory `CardEffectFactory.DrawCardsEffect` (not a retired helper).
+// (이연③-h) The "seq" draw tail is re-written from the retired invented `CardEffectFactory.DrawCardsEffect` to
+// the AS-IS `new DrawClass(...).Draw()` coroutine idiom (BT1_046), wrapped in an inline ActivateClass (DrawTail).
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 
@@ -130,12 +131,26 @@ public sealed class TfxSelectFollowUp : CEntity_Effect
             }
         }
 
+        // Inline AS-IS draw ActivateClass (BT1_046 idiom): the "seq" tail draws 1 via new DrawClass(...).Draw().
+        ActivateClass DrawTail()
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Draw 1", _ => true, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, "Draw 1 card.");
+            return activateClass;
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await new DrawClass(card.Context, card.Owner, 1, activateClass).Draw();
+            }
+        }
+
         switch (mode)
         {
             case "seq":
                 // Unconditional chain: select+suspend an opponent Digimon, THEN draw 1. Both steps in the list.
                 effects.Add(PermanentSelect(SelectPermanentEffect.Mode.Tap, "Suspend 1 of your opponent's Digimon."));
-                effects.Add(CardEffectFactory.DrawCardsEffect(card, 1));
+                effects.Add(DrawTail());
                 break;
             case "deck":
                 effects.Add(PermanentSelect(SelectPermanentEffect.Mode.PutLibraryBottom, "Return 1 of your opponent's Digimon to the bottom of the deck."));

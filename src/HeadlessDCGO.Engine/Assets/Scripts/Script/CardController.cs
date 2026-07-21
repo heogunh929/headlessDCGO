@@ -1204,6 +1204,23 @@ public class ITrashDigivolutionCards
             },
             EffectTiming.OnDigivolutionCardDiscarded).ConfigureAwait(false);
 
+        // (이연③-h / RD-S4-BT5_056 fix) Clear the in-flight willBeRemoveSources marker BEFORE the physical
+        // removal helper — AS-IS clears it at :5232 (AFTER the removal), but the Headless removal helper
+        // (TrashSpecificSourcesAsync) re-applies the AS-IS :5158-5160 defensive protection re-filter, and that
+        // filter reads the SAME willBeRemoveSources instance flag as trash-protection (the R1-e getter
+        // CardSource.CanNotTrashFromDigivolutionCards checks it). Leaving the marker set here made the class
+        // self-block: it protected the very sources it had just marked for removal, so
+        // IDigiBurst.DigiBurst() / BT5_056 / ST4_13 trashed NOTHING below the card layer (the latent gap
+        // PILOT-S4.Witness documented). The marker's AS-IS role — surviving the "would discard" cut-in window
+        // and defining trashDigivolutionCardsFixed — is fully served by this point (the fixed list is built and
+        // the OnDigivolutionCardDiscarded window has fired above), so clearing it here rather than at :5232 is a
+        // pure position adjustment. Real protections (TrashProtectedKey + live ICanNotTrashFromDigivolutionCards)
+        // are independent of the marker and still filter inside the helper.
+        foreach (CardSource cardSource in trashDigivolutionCardsFixed)
+        {
+            SetWillBeRemoveSources(context, cardSource.InstanceId, false);
+        }
+
         // AS-IS :5202-5234: OnDigivolutionCardDiscarded window + AceOverflow (over the ORIGINAL unfixed list,
         // :5219 — see the goal-3 memory quirk note) + physical removal loop — the substrate helper owns all
         // three for this exact shape.
@@ -1216,8 +1233,7 @@ public class ITrashDigivolutionCards
 
         foreach (CardSource cardSource in trashDigivolutionCardsFixed)
         {
-            // AS-IS :5232-5233 clear willBeRemoveSources; TrashedCards.Add.
-            SetWillBeRemoveSources(context, cardSource.InstanceId, false);
+            // AS-IS :5233 TrashedCards.Add (the willBeRemoveSources clear moved above the removal helper).
             TrashedCards.Add(cardSource);
         }
     }

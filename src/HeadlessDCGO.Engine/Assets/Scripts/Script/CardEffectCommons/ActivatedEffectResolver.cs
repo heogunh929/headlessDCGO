@@ -301,23 +301,10 @@ public static class ActivatedEffectResolver
                     return true;
                 }
             }
-            else if (effects[i] is DigiBurstActivatedEffect burst)
-            {
-                // (B-2) Mirror AS-IS IDigiBurst.CanDigiBurst / ST4_13's CanUseCondition (ST4_13.cs:37-48): a [Main]
-                // Digi-Burst is declarable only when (a) the card's own permanent is NOT stack-trash-immune
-                // (CanDigiBurst's FIRST check, CardController.cs:2141 — the immunity blocks the whole burst, not
-                // just the trash) and (b) it holds >= Count TRASHABLE digivolution sources — the SAME gate the
-                // resolver's DigiBurst case applies before paying. Without these the skill is offered even when it
-                // cannot pay, a phantom legal move AS-IS's CanDeclareSkillList never surfaces.
-                // (R3-W3c B6) rehomed from the ImmuneStackTrashingKey registry scan to the AS-IS-literal live getter
-                // Permanent.ImmuneFromStackTrashing(_cardEffect): the burst card's permanent, cause = the burst's
-                // own effect (collapsed to its source card via BareCauseEffect), exactly IDigiBurst.CanDigiBurst.
-                if (!new Permanent(context, burst.Card.InstanceId).ImmuneFromStackTrashing(BareCauseEffect.For(context, burst.Card.InstanceId))
-                    && CardEffectCommons.TrashableDigivolutionCount(burst.Card, burst.Card.InstanceId) >= burst.Count)
-                {
-                    return true;
-                }
-            }
+            // (이연③-h EXHAUSTED) the `else if (effects[i] is DigiBurstActivatedEffect burst)` declare-gate special
+            // case DELETED with the invented carrier — a [Main] Digi-Burst is now a plain ActivateClass whose
+            // CanUseCondition is `new IDigiBurst(...).CanDigiBurst()` (ST4_13 idiom), so the generic ActivateICardEffect
+            // branch above (CanUse(null) -> CanTrigger -> CanUseCondition -> CanDigiBurst) already gates it exactly.
             else
             {
                 // Other non-uniform IActivatedCardEffect: no ported OnDeclaration witness exists today. Mirror
@@ -573,82 +560,13 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case DigiBurstActivatedEffect burst:
-                {
-                    // (B-2 rework, AS-IS IDigiBurst.DigiBurst — CardController.cs:2135-2233) the full sequence:
-                    //   1. CanDigiBurst gate (:2135-2160): FIRST the permanent-scope
-                    //      `ImmuneFromStackTrashing(_cardEffect)` (:2141 — blocks the ENTIRE burst, not just the
-                    //      trash), THEN the permanent holds >= Count TRASHABLE sources (per-source
-                    //      !CanNotTrashFromDigivolutionCards).
-                    //   2. The CONTROLLER SELECTS which sources to discard (SelectCardEffect over
-                    //      _permanent.DigivolutionCards, exactly Count, canNoSelect:false, face-down :2171-2195)
-                    //      — NOT an automatic bottom-N.
-                    //   3. When >= 1 selected: the OnUseDigiburst window opens BEFORE the trash (:2228) — here the
-                    //      emit precedes the staged trash, so the queue drains them in the AS-IS relative order.
-                    //   4. ITrashDigivolutionCards trashes exactly the SELECTED cards (:2233).
-                    //   5. The body resolves after the pay.
-                    // Design item B2-UPTO: the AS-IS _upToMaxCount ("Digi-Burst up to N") variant — a
-                    // canEndNotMax select + `Some` gate — lands with its first ported witness; every current
-                    // witness (ST4_13) is a fixed count.
-                    IReadOnlyList<HeadlessEntityId> pool = CardEffectCommons.TrashableDigivolutionSourceIds(burst.Card, burst.Card.InstanceId);
-                    // (R3-W3c B6) rehomed to the AS-IS-literal live getter (see the CanDeclare pass above).
-                    if (!new Permanent(context, burst.Card.InstanceId).ImmuneFromStackTrashing(BareCauseEffect.For(context, burst.Card.InstanceId))
-                        && pool.Count >= burst.Count)
-                    {
-                        var candidates = pool
-                            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.DigivolutionCards, IsSelectable: true, ownerId: burst.Card.Controller))
-                            .ToList();
-                        var request = new ChoiceRequest(
-                            ChoiceType.Card, burst.Card.Controller, "Select digivolution cards to discard.",
-                            minCount: burst.Count, maxCount: burst.Count, canSkip: false, ChoiceZone.DigivolutionCards, candidates);
-                        ChoiceResult selection = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
-
-                        if (!selection.IsSkipped && selection.SelectedIds.Count >= 1)
-                        {
-                            EmitJournaled(context, TriggerTimings.OnUseDigiburst, burst.Card.Controller, burst.Card.InstanceId);
-
-                            sink.Apply(new EffectMutation(
-                                MatchStateMutationSink.TrashDigivolutionCardsKind, burst.Card.InstanceId,
-                                new Dictionary<string, object?>(StringComparer.Ordinal)
-                                {
-                                    [MatchStateMutationSink.SelectedCardIdsKey] = string.Join(",", selection.SelectedIds.Select(id => id.Value)),
-                                }));
-
-                            // (R6-Da'-4 / RD-P6B-6) the Digi-Burst body is either a CONTINUOUS keyword-static grant
-                            // ("This gains <keyword>") or an ACTIVATED body (draw/delete/trash). AS-IS a card's
-                            // Digi-Burst coroutine registers the continuous grant into the permanent's duration
-                            // bucket via CardEffectCommons.AddEffectToPermanent at the KEYWORD's live-read timing
-                            // (e.g. Pierce reads OnDetermineDoSecurityCheck — NewModelContinuousScan.HasPierce),
-                            // exactly the GainPierce/GainBlocker idiom; an activated body runs its coroutine. The
-                            // continuous case carries burst.GrantTiming (!= None), supplied by the card that knows
-                            // the keyword's timing. The former blanket `is IActivatedCardEffect or ActivateICardEffect
-                            // -> resolve now` MISROUTED a keyword-static ActivateClass (PierceSelfEffect builds an
-                            // ActivateClass) into the coroutine path, where its no-op ActivateCoroutine ran and the
-                            // grant was lost (RD-P6B-6). The old-model LegacyBindingBridge registry-lowering `else`
-                            // branch is deleted with the rest of the invented registry (a NEW-model ActivateClass has
-                            // no ToBinding — the branch was inert; census-0 old-model producer).
-                            if (burst.GrantTiming != EffectTiming.None)
-                            {
-                                // Journaled: a resumed replay must not re-add a second bucket delegate (the AS-IS
-                                // duration bucket is a LIST). AS-IS 1:1 — the self permanent's None-relative duration
-                                // bucket, read live by the keyword gate.
-                                RunJournaledImmediate(context, () => CardEffectCommons.AddEffectToPermanent(
-                                    targetPermanent: new Permanent(context, burst.Card.InstanceId),
-                                    effectDuration: EffectDuration.UntilOwnerTurnEnd, card: burst.Card,
-                                    cardEffect: burst.InnerEffect, timing: burst.GrantTiming));
-                            }
-                            else
-                            {
-                                resolved += await ResolveListAsync(
-                                    context, effectClass, burst.Card, players, sink, new[] { burst.InnerEffect }, cancellationToken,
-                                    hashtable: hashtable, timing: timing).ConfigureAwait(false);
-                            }
-                        }
-                    }
-
-                    resolved++;
-                    break;
-                }
+                // (이연③-h EXHAUSTED) `case DigiBurstActivatedEffect burst:` DELETED with the invented carrier — a
+                // Digi-Burst is now the literal AS-IS inline `new IDigiBurst(permanent, N, activateClass)` (ST4_13
+                // idiom) wrapped in a plain ActivateClass. The full AS-IS sequence (CanDigiBurst gate,
+                // controller-selected sources, OnUseDigiburst window emit + journaling, ITrashDigivolutionCards
+                // trash) lives in the IDigiBurst class (Script/CardController.cs region "Digi-Burst"); the inner
+                // body (draw / keyword-grant AddEffectToPermanent at the keyword's live-read timing) runs in the
+                // card's ActivateCoroutine after the pay. The ActivateICardEffect case above drives it.
 
                 case DnaFromHandOrTrashActivatedEffect dna:
                 {
@@ -823,13 +741,9 @@ public static class ActivatedEffectResolver
                 // already drives: CEntity_EffectController (register-before-body + IsSameEffect partition)
                 // + CEntityUseCycle (staged replay + mutation journal).
 
-                case DrawEffect draw:
-                {
-                    // (BT-PRE-A1) "draw N" — no choice; stage the DrawCards mutation on the shared sink.
-                    draw.Apply(sink);
-                    resolved++;
-                    break;
-                }
+                // (이연③-h EXHAUSTED) `case DrawEffect draw:` DELETED with the invented declarative stub — a draw is
+                // the AS-IS `new DrawClass(...).Draw()` coroutine (Script/CardController.cs) inline in the card/fixture
+                // ActivateClass body, run by the ActivateICardEffect case above (BT1_046 idiom).
 
                 // (이연③-f EXHAUSTED) `case SimplifiedRevealAndSelectEffect` DELETED — the invented declarative
                 // reveal-select carrier is retired (census-0). The AS-IS reveal-select is the coroutine-callable

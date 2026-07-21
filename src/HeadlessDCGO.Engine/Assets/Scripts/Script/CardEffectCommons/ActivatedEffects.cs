@@ -310,46 +310,16 @@ public sealed class ModeChoiceEffect : IActivatedCardEffect
 // green). No resolver switch case existed. G1R-001 row RETIRED with this deletion.
 
 
-/// <summary>(PRIM special-play) AS-IS <c>IDigiBurst</c>: a <c>[Digi-Burst N]</c> effect — trash N of THIS card's
-/// OWN digivolution sources as a cost, then resolve <see cref="InnerEffect"/>. Gated on the permanent holding at
-/// least <see cref="Count"/> digivolution cards (AS-IS <c>CanDigiBurst</c>). Resolved via the activation flow.</summary>
-public sealed class DigiBurstActivatedEffect : IActivatedCardEffect
-{
-    public DigiBurstActivatedEffect(
-        CardSource card, int count, ICardEffect innerEffect, string description,
-        EffectTiming grantTiming = EffectTiming.None)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(innerEffect);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Count = count < 1 ? 1 : count;
-        InnerEffect = innerEffect;
-        Description = description;
-        GrantTiming = grantTiming;
-    }
-
-    public CardSource Card { get; }
-
-    public int Count { get; }
-
-    public ICardEffect InnerEffect { get; }
-
-    public string Description { get; }
-
-    /// <summary>(R6-Da'-4 / RD-P6B-6) The live-read timing at which the Digi-Burst body is a CONTINUOUS
-    /// keyword-static grant ("This gains &lt;keyword&gt;") — e.g. <see cref="EffectTiming.OnDetermineDoSecurityCheck"/>
-    /// for Pierce (the timing <c>NewModelContinuousScan.HasPierce</c> scans). A non-<see cref="EffectTiming.None"/>
-    /// value means the resolver registers <see cref="InnerEffect"/> into the permanent's AS-IS duration bucket
-    /// (<see cref="CardEffectCommons.AddEffectToPermanent"/>) at this timing rather than resolving it as an
-    /// activated body — mirroring the AS-IS card idiom where the Digi-Burst coroutine calls a keyword Gain*
-    /// (GainPierce/GainBlocker) with the timing baked in. <see cref="EffectTiming.None"/> = an activated body
-    /// (draw/delete/trash), resolved via its coroutine.</summary>
-    public EffectTiming GrantTiming { get; }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Digi-Burst effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-h EXHAUSTED) invented `DigiBurstActivatedEffect` DELETED — the declarative Digi-Burst carrier is retired
+// (census-0 producer: the factory helper CardEffectFactory.DigiBurstEffect removed; the fixtures TfxDigiBurst /
+// TfxDigiBurstKeyword / TfxMainDigiBurstDraw re-ported to the literal AS-IS inline `new IDigiBurst(permanent, N,
+// activateClass)` idiom the printed-card corpus uses — ST4_13 / BT5_056: an ActivateClass whose CanUseCondition
+// is CanDigiBurst() and whose ActivateCoroutine awaits IDigiBurst.DigiBurst() then the inner draw/keyword-grant
+// body). The OnUseDigiburst window emit + journaling now fire from the IDigiBurst class itself
+// (Script/CardController.cs region "Digi-Burst"); the continuous keyword-grant routing is the direct
+// CardEffectCommons.AddEffectToPermanent(grantTiming) call in the card body (was the resolver's GrantTiming
+// branch). Both resolver switch cases (the CanDeclareAt declare-gate special case + the ResolveList resolve case)
+// removed too — the generic ActivateICardEffect CanUse(null)/ActivateEffectProcess path drives it.
 
 
 /// <summary>(PRIM special-play) AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c>
@@ -402,53 +372,14 @@ public sealed class DnaFromHandOrTrashActivatedEffect : IActivatedCardEffect
 // `card.Owner.AddMemory(N, activateClass)`, the AS-IS live memory path). Resolver case removed too.
 
 
-/// <summary>
-/// (BT-PRE-A1) Mirror of the original <c>DrawClass</c> (DCGO/Assets/Scripts/Script/CardController.cs):
-/// "draw <see cref="DrawCount"/> cards" from the top of the controller's library to their hand. The AS-IS
-/// <c>Draw()</c> guards drawCount &gt; 0 and an empty library (no-op), and draws min(count, available); those
-/// guards live in <c>ZoneMover.DrawAsync</c>, which this stages via the sink's <c>DrawCards</c> mutation so
-/// it flushes once with the rest of the activation (re-run safe under the deferred-choice cycle — a later
-/// effect suspending will NOT double-draw, since nothing flushes until resolution completes).
-/// </summary>
-public sealed class DrawEffect : IActivatedCardEffect
-{
-    public DrawEffect(CardSource card, int drawCount, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        DrawCount = drawCount;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public int DrawCount { get; }
-
-    public string Description { get; }
-
-    public void Apply(MatchStateMutationSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        // AS-IS DrawClass.Draw(): `if (_drawCount <= 0) yield break;` — emit nothing for a non-positive count.
-        if (DrawCount <= 0)
-        {
-            return;
-        }
-
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.DrawCardsKind,
-            Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.PlayerIdKey] = Card.Owner,
-                [MatchStateMutationSink.CountKey] = DrawCount,
-            }));
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Draw effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-h EXHAUSTED) invented `DrawEffect` (the declarative "draw N" sink-stub) DELETED — census-0 producer
+// (the factory helper CardEffectFactory.DrawCardsEffect removed; every consumer — the trigger/option/inner
+// draw fixtures TfxEndTurnDraw / TfxWhenDeclareDraw / TfxUnsuspendDraw / TfxDeadTimingDraw / TfxOptionDraw /
+// TfxWhenAttackDraw / TfxDraw / TfxSelectMode branches / TfxSelectFollowUp seq tail — re-pointed to the literal
+// AS-IS `new DrawClass(...).Draw()` coroutine idiom (BT1_046) the printed-card corpus uses, wrapped in an inline
+// ActivateClass). The AS-IS carrier for a draw is the real mirror DrawClass (Script/CardController.cs); this
+// invented declarative stub was never on any real card's path (real cards call DrawClass directly). Resolver
+// switch case removed too — the ActivateICardEffect case drives the DrawClass coroutine.
 
 
 // (이연③-f EXHAUSTED) invented declarative reveal effects `SimplifiedRevealAndSelectEffect` and

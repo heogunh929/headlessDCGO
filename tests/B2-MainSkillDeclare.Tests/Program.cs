@@ -108,6 +108,7 @@ async Task UnpayableDigiBurstNotOffered()
     // rather than surface a phantom ActivateMain that resolves to a no-op.
     EngineContext context = EngineContext.CreateDefault(randomSeed: 11);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // past None -> DoneStartGame true (ICardEffect.CanTrigger gate)
     var cards = (CardDatabase)context.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxMainDigiBurstDraw"), "TfxMainDigiBurstDraw", "DB",
         new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
@@ -128,6 +129,7 @@ async Task DigiBurstPaysWithSelectedSources()
     // erasing the player's choice over which inherited effects / levels survive in the stack.
     EngineContext context = EngineContext.CreateDefault(randomSeed: 23);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // past None -> DoneStartGame true (ICardEffect.CanTrigger gate)
     var cards = (CardDatabase)context.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxMainDigiBurstDraw"), "TfxMainDigiBurstDraw", "DB",
         new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));

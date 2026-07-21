@@ -78,7 +78,12 @@ async Task UnavailableModeOmitted()
 {
     (EngineContext context, HeadlessEntityId src) = await Setup(extraMode: false);
     var card = new CardSource(context, src, P1);
-    ICardEffect stub = CardEffectFactory.DrawCardsEffect(card, 1);
+    // (이연③-h) A never-resolved branch placeholder (this test only counts AvailableModes()/BuildRequest());
+    // the retired invented DrawCardsEffect stub is replaced by a trivial AS-IS ActivateClass.
+    var stubAC = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass();
+    stubAC.SetUpICardEffect("stub", _ => true, card);
+    stubAC.SetUpActivateClass(null, _ => System.Threading.Tasks.Task.CompletedTask, -1, false, "stub");
+    ICardEffect stub = stubAC;
 
     var effOff = new ModeChoiceEffect(card, "menu", new[]
     {
@@ -108,6 +113,7 @@ async Task<(EngineContext Context, HeadlessEntityId Src)> Setup(bool extraMode)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 917);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // past None -> DoneStartGame true (ICardEffect.CanTrigger gate)
     var cards = (CardDatabase)context.CardRepository;
 
     // The effect card (dispatches to the TfxSelectMode fixture by card number).

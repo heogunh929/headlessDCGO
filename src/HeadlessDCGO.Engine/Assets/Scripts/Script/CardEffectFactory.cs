@@ -41,11 +41,9 @@ public static partial class CardEffectFactory
 
     // (P4 slice) AddDigivolutionRequirementStaticEffect + AddSelfDigivolutionRequirementStaticEffect moved to CardEffectFactory/AddDigivolutionRequirement.cs (AS-IS 1:1)
 
-    /// <summary>(PRIM-W5) <c>DrawCardsEffect</c> — the declarative form of the AS-IS
-    /// <c>new DrawClass(owner, count, ...).Draw()</c> coroutine: the owner draws <paramref name="count"/>
-    /// cards. Use this in place of the original draw coroutine.</summary>
-    public static IActivatedCardEffect DrawCardsEffect(CardSource card, int count) =>
-        new DrawEffect(card, count, $"Draw {count} card(s).");
+    // (이연③-h EXHAUSTED) factory `DrawCardsEffect` DELETED — it produced the retired invented declarative
+    // DrawEffect stub. Draws are the AS-IS `new DrawClass(card.Context, card.Owner, count, activateClass).Draw()`
+    // coroutine (Script/CardController.cs) inline in the card/fixture body, the printed-card idiom (BT1_046).
 
     /// <summary>(G4) <c>DrawThenDiscardEffect</c> — atomic "draw <paramref name="drawAmount"/>, then discard
     /// <paramref name="trashAmount"/> from your hand" (AS-IS draw-then-discard coroutine). Wraps
@@ -1721,13 +1719,9 @@ public static partial class CardEffectFactory
     // is now also DELETED — its only remaining consumers were the stale ST2.Blue white-box casts, re-targeted onto
     // the live ActivateClass surface with the ST2.Blue disposal (suite 12/12 truthful green). G1R-001 row RETIRED.
 
-    /// <summary>(PRIM special-play) AS-IS <c>IDigiBurst</c> — <c>[Digi-Burst N] &lt;effect&gt;</c>: trash N of this
-    /// card's own digivolution sources as a cost, then resolve <paramref name="innerEffect"/>. Offered only when
-    /// the permanent holds &gt;= N sources. Wrap the card's Digi-Burst body as the inner effect.</summary>
-    public static ICardEffect DigiBurstEffect(
-        CardSource card, int count, ICardEffect innerEffect, string description,
-        EffectTiming grantTiming = EffectTiming.None) =>
-        new DigiBurstActivatedEffect(card, count, innerEffect, description, grantTiming);
+    // (이연③-h EXHAUSTED) factory `DigiBurstEffect` DELETED — it produced the retired invented
+    // DigiBurstActivatedEffect. Cards (ST4_13 / BT5_056) and fixtures (TfxDigiBurst / TfxDigiBurstKeyword /
+    // TfxMainDigiBurstDraw) inline the literal AS-IS `new IDigiBurst(permanent, N, activateClass)` idiom instead.
 
     // (R3-F1 fold) mirror-invented wrapper `UnsuspendSelfTriggerEffect` (returned the invented
     // TriggeredUnsuspendSelfEffect) DELETED — 0 live consumers remained (grep: no card / Tfx / test / engine call;
