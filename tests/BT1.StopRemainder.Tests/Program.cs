@@ -60,7 +60,11 @@ async Task Bt1_078_RevealDigivolve()
     var deep = Library(ctx, "deep", "Deep", level: 3, colors: new[] { "Green" });
 
     Script(ctx, ChoiceResult.Select(good));
-    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack);
+    // (이연③-e) BT1_078 is now the literal AS-IS inline [When Attacking] ActivateClass (the invented
+    // RevealSelectThenPlaySelectedEffect is retired), so its CanUse = CanTriggerOnAttack gate is live. Drive it
+    // the way the AS-IS attack window does — window-dispatched (the window already collected the skill after
+    // CanTrigger), which skips only the CanTrigger RE-check, exactly as MultipleSkills does.
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack, windowDispatched: true);
 
     AssertTrue(InZone(ctx, ChoiceZone.BattleArea, good), "the selected level-6 is the new battle-area top (digivolved)");
     AssertFalse(InZone(ctx, ChoiceZone.BattleArea, self), "BT1_078 is no longer a standalone top (became a source)");
@@ -79,7 +83,9 @@ async Task Bt1_078_SkipNoDigivolve()
     var b1 = Library(ctx, "b4a", "B4", level: 4, colors: new[] { "Green" });
 
     Script(ctx, ChoiceResult.Skip());
-    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack);
+    // (이연③-e) window-dispatched, as above — the negative path (no valid pick / skip) must still FIRE the
+    // reveal so all revealed cards route to the deck bottom.
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack, windowDispatched: true);
 
     AssertTrue(InZone(ctx, ChoiceZone.BattleArea, self), "BT1_078 stays the top (no digivolve)");
     AssertTrue(InZone(ctx, ChoiceZone.Library, good) && InZone(ctx, ChoiceZone.Library, b1), "all revealed cards went to the deck bottom");

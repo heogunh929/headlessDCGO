@@ -737,15 +737,9 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case RevealSelectThenPlaySelectedEffect revealPlay:
-                {
-                    // (BT1_078 / BT3_063 / BT3_070 / BT3_073) reveal top N -> optional select 1 -> remaining to
-                    // deck bottom -> play-as-new-permanent OR free-digivolve onto self (RevealPlayMode). Drives
-                    // the ChoiceProvider itself; the follow-up is a direct play/digivolve.
-                    await revealPlay.ResolveAsync(cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (이연③-e EXHAUSTED) invented `RevealSelectThenPlaySelectedEffect` case DELETED — BT1_078 is
+                // re-pointed to the literal AS-IS inline ActivateClass (coroutine-callable commons
+                // `SimplifiedRevealDeckTopCardsAndSelect` + `new PlayCardClass(...).PlayCard()` digivolve).
 
                 case ActivatedDrawThenDiscardEffect drawDiscard:
                 {

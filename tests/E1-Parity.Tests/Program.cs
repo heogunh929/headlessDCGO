@@ -11,10 +11,13 @@
 //     time the draw fires, the 2 non-selected revealed cards are already at the deck BOTTOM and the selected
 //     card has left the library, so the draw pulls the card BELOW the revealed batch.
 //
-// Headless mirror: RevealSelectThenPlaySelectedEffect (mode DigivolveOntoSelf), driven here through the real
-// BT1_078 card via ActivatedEffectResolver. The reveal peeks (RevealAndSelect / this effect only read the
-// library), cards move only when the choice resolves, the digivolve reuses FreeDigivolveHelpers.DigivolveFreeAsync,
-// and (E1-01, this pass) the isEvolution +1 draw is wired via DigivolveCommons.OnDigivolveCompletedAsync.
+// Headless mirror (이연③-e): BT1_078 is the literal AS-IS inline [When Attacking] ActivateClass — the
+// coroutine-callable commons CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect (Custom-mode capture,
+// remaining:DeckBottom) THEN new PlayCardClass(root:Library, payCost:false, targetPermanent: this card's own
+// permanent).PlayCard() — driven here through the real BT1_078 card via ActivatedEffectResolver
+// (window-dispatched, as the AS-IS attack window collects the skill). The reveal peeks (only reads the
+// library), cards move only when the choice resolves, and the digivolve's isEvolution +1 draw flows through
+// the mirrored PlayCardClass.PlayCard() isEvolution path.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -59,15 +62,13 @@ async Task Peek_RevealDoesNotMove()
     HeadlessEntityId[] before = LibrarySnapshot(ctx);
     AssertEqual(4, before.Length, "4 cards seeded on the library");
 
-    var effect = new RevealSelectThenPlaySelectedEffect(
-        new CardSource(ctx, self, P1),
-        revealCount: () => 3,
-        canSelect: id => id == good,       // (a) only needs a candidate so a choice opens; BT1_078's real gate is exercised in (b)-(e).
-        mode: RevealPlayMode.DigivolveOntoSelf,
-        description: "peek probe");
-
+    // (이연③-e) drive BT1_078's real inline [When Attacking] ActivateClass and STOP at the reveal-select
+    // choice. With the deferred provider and no scripted answer, the reveal's ChooseAsync suspends (throws
+    // DeferredChoicePendingException, re-thrown by the resolver's cycle wrapper) BEFORE any follow-up move —
+    // exactly the AS-IS IsBeingRevealed peek window. window-dispatched = the attack window already collected
+    // the [When Attacking] skill (skips only the CanTrigger re-check).
     bool suspended = false;
-    try { await effect.ResolveAsync(CancellationToken.None); }
+    try { await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack, windowDispatched: true); }
     catch (DeferredChoicePendingException) { suspended = true; }
     AssertTrue(suspended, "the reveal opened a pending select choice (deferred), i.e. it stopped at the peek window");
 
@@ -97,7 +98,8 @@ async Task SelectFreeDigivolveDrawBottom()
     int handBefore = ZoneCount(ctx, ChoiceZone.Hand);
 
     Script(ctx, ChoiceResult.Select(good));
-    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack);
+    // (이연③-e) window-dispatched: the AS-IS attack window collected the [When Attacking] skill.
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack, windowDispatched: true);
 
     // (b) free digivolve straight out of the library, cost NOT paid.
     AssertTrue(InZone(ctx, ChoiceZone.BattleArea, good), "the selected level-6 is the new battle-area top (digivolved from the library)");
@@ -130,7 +132,8 @@ async Task SkipAllToBottomNoDraw()
     int handBefore = ZoneCount(ctx, ChoiceZone.Hand);
 
     Script(ctx, ChoiceResult.Skip());
-    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack);
+    // (이연③-e) window-dispatched, as above.
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack, windowDispatched: true);
 
     AssertTrue(InZone(ctx, ChoiceZone.BattleArea, self), "no pick -> BT1_078 stays the top (no digivolve)");
     AssertEqual(5, ctx.MemoryController.Current.Current, "no memory paid");

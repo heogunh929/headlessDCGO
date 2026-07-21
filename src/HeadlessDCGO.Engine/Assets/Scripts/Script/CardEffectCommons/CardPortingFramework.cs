@@ -150,17 +150,8 @@ public enum CostReductionScope
     Digivolve,
 }
 
-/// <summary>The follow-up applied to the reveal-selected card in <see cref="RevealSelectThenPlaySelectedEffect"/>.</summary>
-public enum RevealPlayMode
-{
-    /// <summary>Costless single-target digivolve of the selected card onto THIS card's own permanent (AS-IS
-    /// PlayCardClass with targetPermanent: card.PermanentOfThisCard(), payCost:false, root:Library). BT1_078.</summary>
-    DigivolveOntoSelf,
-
-    /// <summary>Play the selected card as a NEW permanent, cost-free (AS-IS PlayPermanentCards(payCost:false,
-    /// isTapped:false, root:Library, activateETB:true)). BT3_063 / BT3_070 / BT3_073.</summary>
-    PlayAsNewPermanent,
-}
+// (이연③-e EXHAUSTED) invented `RevealPlayMode` enum DELETED alongside `RevealSelectThenPlaySelectedEffect` —
+// BT1_078 (the only carrier) is re-pointed to the literal AS-IS inline ActivateClass.
 
 /// <summary>Shared post-de-digivolve helpers for the G10 conditional-destroy effects.</summary>
 internal static class DeDigivolveDestroyHelpers

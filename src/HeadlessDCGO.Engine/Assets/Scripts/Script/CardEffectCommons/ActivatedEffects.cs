@@ -1355,126 +1355,13 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
 }
 
 
-/// <summary>(BT1_078 / BT3_063 / BT3_070 / BT3_073) Reveal the top <c>_revealCount()</c> library cards, optionally
-/// select 1 matching card (<c>_canSelect</c>), place the remaining revealed cards at the deck bottom, then apply
-/// the reveal follow-up (<see cref="RevealPlayMode"/>): DigivolveOntoSelf (BT1_078 — costless digivolve onto this
-/// card's own permanent) or PlayAsNewPermanent (BT3_063/070/073 — play the selected card as a new permanent,
-/// cost-free). 1:1 mirror of the AS-IS SimplifiedRevealDeckTopCardsAndSelect(revealCount, one Custom-mode select
-/// maxCount:1 canNoSelect:true, remaining:DeckBottom) followed by the per-card play/digivolve. The digivolve
-/// reuses <see cref="FreeDigivolveHelpers.DigivolveFreeAsync"/> (the newly-digivolved top registers its effects);
-/// the play reuses <see cref="CardEffectCommons.PlayPermanentCards"/> (root: Library, activateETB:true). The
-/// reveal count is a Func to support BT3_073's dynamic count (= the opponent's battle-area Digimon count,
-/// re-evaluated at resolve).</summary>
-public sealed class RevealSelectThenPlaySelectedEffect : IActivatedCardEffect
-{
-    private readonly Func<int> _revealCount;
-    private readonly Func<HeadlessEntityId, bool> _canSelect;
-    private readonly RevealPlayMode _mode;
-
-    public RevealSelectThenPlaySelectedEffect(
-        CardSource card, Func<int> revealCount, Func<HeadlessEntityId, bool> canSelect,
-        RevealPlayMode mode, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(revealCount);
-        ArgumentNullException.ThrowIfNull(canSelect);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        _revealCount = revealCount;
-        _canSelect = canSelect;
-        _mode = mode;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public async Task ResolveAsync(CancellationToken cancellationToken)
-    {
-        EngineContext context = Card.Context;
-        if (context.ZoneMover is not IZoneStateReader zones)
-        {
-            return;
-        }
-
-        HeadlessPlayerId owner = Card.Owner;
-        List<HeadlessEntityId> revealed = zones.GetCards(owner, ChoiceZone.Library).Take(Math.Max(0, _revealCount())).ToList();
-        if (revealed.Count == 0)
-        {
-            return; // AS-IS: nothing to reveal -> no-op (CanActivate already required >=1 library card).
-        }
-
-        HeadlessEntityId selected = default;
-        List<ChoiceCandidate> candidates = revealed.Where(_canSelect)
-            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.Library, IsSelectable: true, ownerId: owner))
-            .ToList();
-        if (candidates.Count > 0)
-        {
-            // AS-IS canNoSelect:true -> the pick is optional (skippable); maxCount 1.
-            var request = new ChoiceRequest(
-                ChoiceType.Card, owner, Description, minCount: 0, maxCount: 1, canSkip: true, ChoiceZone.Library, candidates);
-            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
-            if (!result.IsSkipped && result.SelectedIds.Count > 0)
-            {
-                selected = result.SelectedIds[0];
-            }
-        }
-
-        // AS-IS remaining-cards place: DeckBottom (every revealed card except the one selected to play/digivolve).
-        foreach (HeadlessEntityId id in revealed)
-        {
-            if (id != selected)
-            {
-                await context.ZoneMover.MoveToDeckBottomAsync(owner, id, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        if (selected.IsEmpty)
-        {
-            return;
-        }
-
-        switch (_mode)
-        {
-            case RevealPlayMode.DigivolveOntoSelf:
-            {
-                // AS-IS: costless single-target digivolve of the selected library card onto this card's own
-                // permanent (payCost:false, root:Library).
-                bool digivolved = await FreeDigivolveHelpers.DigivolveFreeAsync(
-                    context.CardInstanceRepository, context.ZoneMover, selected, Card.InstanceId,
-                    ChoiceZone.Library, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
-                if (digivolved)
-                {
-                    CardEffectRegistrar.RegisterCard(context, selected, owner);
-                    // (RD-1 / AS-IS CardController.cs:1526-1529) this effect-driven free digivolve IS isEvolution
-                    // (PlayCardClass with targetPermanent, root:Library) -> DigivolveCount_ThisTurn++ AND draw 1.
-                    // AS-IS reveal is PEEK-ONLY (RevealLibrary.cs:749-790 only sets IsBeingRevealed; the revealed
-                    // cards stay physically on the library top). By this point the non-selected revealed cards have
-                    // already been sent to the deck BOTTOM (loop above) and the selected card has left the library
-                    // via the digivolve, so the isEvolution draw hits the card BELOW the revealed batch -- exactly
-                    // as AS-IS. (The earlier deferral premised a card-REMOVAL reveal model that AS-IS never uses;
-                    // design item E1-01.)
-                    await DigivolveCommons.OnDigivolveCompletedAsync(context, owner, cancellationToken).ConfigureAwait(false);
-                }
-
-                break;
-            }
-
-            case RevealPlayMode.PlayAsNewPermanent:
-            {
-                // AS-IS: PlayPermanentCards(selected, payCost:false, isTapped:false, root:Library, activateETB:true).
-                await CardEffectCommons.PlayPermanentCards(
-                    new[] { new CardSource(context, selected, owner) }, Card, payCost: false, isTapped: false,
-                    root: ChoiceZone.Library, activateETB: true).ConfigureAwait(false);
-                break;
-            }
-        }
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Reveal-select-then-play effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-e EXHAUSTED) invented `RevealSelectThenPlaySelectedEffect` DELETED — the BT1_078 [When Attacking]
+// "reveal top 3 → optionally free-digivolve this card into a level-6 green Digimon among them → remaining to
+// deck bottom" carrier is retired. AS-IS drives it inline with the coroutine-callable commons:
+// `CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect`(revealCount:3, one Custom-mode maxCount:1
+// canNoSelect:true condition capturing the pick, remaining:DeckBottom) THEN `new PlayCardClass(selectedCard,
+// payCost:false, targetPermanent: ResolvePermanentOfThisCard(card), root:Library, activateETB:true).PlayCard()`;
+// BT1_078 was re-pointed to that inline ActivateClass. Resolver switch case + RevealPlayMode enum removed too.
 
 
 // (이연③-d EXHAUSTED) invented `SelectDigivolutionSourceToHandThenSelfFollowUpEffect` DELETED — the

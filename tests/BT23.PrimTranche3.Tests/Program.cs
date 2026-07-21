@@ -19,8 +19,8 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("G7: BT1_084 [When Attacking] return 1 Lv6 own-stack source to hand, then unsuspend self (이연③-d)", G7_ReturnSourceThenUnsuspend),
     ("G7: no matching Lv6 source -> effect no-ops (source stays, host stays suspended)", G7_NoMatchingSourceDoesNothing),
-    ("G1: reveal 3, play the matching card as a new permanent, remaining 2 -> deck bottom (BT3_063 shape)", G1_RevealThenPlayAsNewPermanent),
-    ("G1: revealCount is a Func evaluated at resolve (BT3_073 dynamic count)", G1_RevealCountIsDynamic),
+    // (이연③-e) two G1 entries RETIRED with the invented RevealSelectThenPlaySelectedEffect (PlayAsNewPermanent
+    // mode had no live card consumer — census-0; BT3_063/070/073 would use the commons directly if ported).
     ("G5: digivolve-from-hand onto Paildramon costs -2 (dispatch-first hand-card cost gate, BT3_031/111)", G5_CostGateAppliesFromHand),
     ("G5: gate does NOT apply when the target permanent's top is unmatched", G5_CostGateTargetMismatch),
     ("G5: gate does NOT apply when the card is not in hand (condition false)", G5_CostGateNotInHand),
@@ -93,62 +93,11 @@ async Task DriveOnAttack(EngineContext ctx, HeadlessEntityId host)
     }
 }
 
-// ---- G1 ----------------------------------------------------------------------
-
-async Task G1_RevealThenPlayAsNewPermanent()
-{
-    EngineContext ctx = NewContext();
-    HeadlessEntityId host = Battle(ctx, "HOST", "Host", cardType: "Digimon");
-    // Library top -> bottom: [match, a, b]. Only `match` is a playable Digimon the pick accepts.
-    HeadlessEntityId match = Library(ctx, "MATCH", cardType: "Digimon");
-    HeadlessEntityId a = Library(ctx, "AAA", cardType: "Option");
-    HeadlessEntityId b = Library(ctx, "BBB", cardType: "Option");
-
-    var card = new CardSource(ctx, host, P1);
-    var eff = new RevealSelectThenPlaySelectedEffect(
-        card,
-        revealCount: () => 3,
-        canSelect: id => new CardSource(ctx, id, P1).IsDigimon,
-        mode: RevealPlayMode.PlayAsNewPermanent,
-        description: "[On Deletion] reveal 3 -> play 1 matching -> remaining to deck bottom");
-
-    Script(ctx, ChoiceResult.Select(match));
-    await eff.ResolveAsync(CancellationToken.None);
-
-    AssertTrue(InZone(ctx, ChoiceZone.BattleArea, match), "the selected card was played as a new permanent");
-    AssertFalse(InZone(ctx, ChoiceZone.Library, match), "the played card left the library");
-    AssertTrue(InZone(ctx, ChoiceZone.Library, a) && InZone(ctx, ChoiceZone.Library, b),
-        "the 2 non-selected revealed cards remain in the deck (moved to bottom)");
-    AssertEqual(2, ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Library).Count,
-        "exactly the 2 unselected revealed cards remain in the library");
-}
-
-async Task G1_RevealCountIsDynamic()
-{
-    EngineContext ctx = NewContext();
-    HeadlessEntityId host = Battle(ctx, "HOST", "Host", cardType: "Digimon");
-    HeadlessEntityId c0 = Library(ctx, "C0", cardType: "Option");
-    HeadlessEntityId c1 = Library(ctx, "C1", cardType: "Option");
-    HeadlessEntityId c2 = Library(ctx, "C2", cardType: "Option");
-
-    // Dynamic count: set to 2 AFTER construction, proving the Func is evaluated at resolve, not at build.
-    int dynamic = 0;
-    var eff = new RevealSelectThenPlaySelectedEffect(
-        new CardSource(ctx, host, P1),
-        revealCount: () => dynamic,
-        canSelect: _ => false, // nothing selectable -> pure reveal + deck-bottom of revealed
-        mode: RevealPlayMode.PlayAsNewPermanent,
-        description: "dynamic reveal");
-    dynamic = 2;
-
-    await eff.ResolveAsync(CancellationToken.None);
-
-    // 2 revealed (c0, c1) go to deck bottom; c2 was never revealed. All 3 remain in library, count unchanged.
-    AssertEqual(3, ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Library).Count,
-        "no card selected -> library count unchanged (only order changed for the 2 revealed)");
-    // The unrevealed 3rd card (c2) must still be present.
-    AssertTrue(InZone(ctx, ChoiceZone.Library, c2), "the 3rd library card was never revealed (dynamic count = 2)");
-}
+// ---- G1 (RETIRED 이연③-e) ------------------------------------------------
+// The two G1 primitive tests drove the invented RevealSelectThenPlaySelectedEffect's PlayAsNewPermanent
+// mode directly. That class is deleted (BT1_078 re-ported to the literal AS-IS inline ActivateClass +
+// coroutine-callable commons); the PlayAsNewPermanent mode had no live card consumer, so its primitive
+// tests are retired rather than re-pointed.
 
 // ---- G5 ----------------------------------------------------------------------
 
