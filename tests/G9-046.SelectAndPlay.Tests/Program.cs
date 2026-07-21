@@ -15,8 +15,16 @@ using HeadlessDCGO.Engine.Headless.Services;
 // (Root.Trash/Hand) flow, covered live by the re-ported printed-card corpus and its suites — e.g. BT9_081
 // ([On Play] play from trash: SelectCardEffect Root.Trash + PlayPermanentCards), BT2_090 (zone-card select
 // from trash, SelectCardEffect Mode.AddHand/Root.Trash — CardEffect.BT2 batch tests), and the BT1_044
-// play-from-under cases RETAINED below (ActivatedPlayFromUnderEffect candidates/gate). The DeDigivolve and
-// BT1_044 cases remain (their symbols carry over to Da'-5 / A6 respectively).
+// play-from-under cases RETAINED below (ActivatedPlayFromUnderEffect candidates/gate). The BT1_044 cases
+// remain (symbols carry over to A6).
+// (R6-Da'-5 WHITEBOX DISPOSAL) The DeDigivolve case is REMOVED with the deletion of the invented body
+// `ActivatedSelectAndDeDigivolveEffect` + its factory helper `CardEffectFactory.SelectAndDeDigivolveEffect`
+// (census-0 producer; this test was the body's only consumer, a white-box `.Apply(sink, …)` call that never
+// touched the resolver switch). REAL-RULE COVERAGE EVIDENCE: the de-digivolve mutation surface it pinned is the
+// shared `MatchStateMutationSink.DeDigivolveKind` (host-stack clamp + de-digivolve immunity), covered live by
+// `CardEffectCommons.DeDigivolvePermanent` (C5-Witness suite, EX8_051 ESS "<De-Digivolve 1>") and the
+// SelectDeDigivolveThenConditionalDestroyEffect / MassDeDigivolveThenConditionalDestroyEffect primitives
+// (BT23.PrimTranche4 — BT3_107 / BT3_112).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -24,7 +32,6 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("AddThisCardToHandEffect -> self returns to hand", SelfReturn),
-    ("SelectAndDeDigivolveEffect -> target's top digivolution card removed", DeDigivolve),
     ("BT1_044: candidates = own-stack under-cards with Level <= 4 ONLY (Lv5 / other-stack excluded)", Bt1044Candidates),
     ("BT1_044: canActivate false when the own stack has no Lv<=4 under-card", Bt1044NoCandidateGate),
 };
@@ -51,29 +58,6 @@ async Task SelfReturn()
     var reader = (IZoneStateReader)ctx.ZoneMover;
     AssertTrue(reader.GetCards(P1, ChoiceZone.Hand).Contains(self), "self returned to hand");
     AssertTrue(!reader.GetCards(P1, ChoiceZone.BattleArea).Contains(self), "self left battle area");
-}
-
-async Task DeDigivolve()
-{
-    EngineContext ctx = Ctx();
-    var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
-    var target = await Place(ctx, P1, "TGT", ChoiceZone.BattleArea);
-    var under = await Place(ctx, P1, "UNDER", ChoiceZone.None);
-    // Give the target a 1-card digivolution stack.
-    ctx.CardInstanceRepository.TryGetInstance(target, out CardInstanceRecord? r);
-    ctx.CardInstanceRepository.Upsert(r! with { Metadata = new Dictionary<string, object?>(r!.Metadata, StringComparer.Ordinal) { ["sourceIds"] = new[] { under.Value } } });
-
-    var eff = (ActivatedSelectAndDeDigivolveEffect)CardEffectFactory.SelectAndDeDigivolveEffect(
-        new CardSource(ctx, src, P1), id => id.Value.Contains("TGT"), 1, 1, false, "de-digivolve");
-    var sink = Sink(ctx);
-    eff.Apply(sink, new[] { target });
-    await sink.FlushAsync();
-
-    // The top card was removed; the target no longer battles (peeled off the stack).
-    var reader = (IZoneStateReader)ctx.ZoneMover;
-    bool targetPeeled = !reader.GetCards(P1, ChoiceZone.BattleArea).Contains(target);
-    bool underSurfaced = reader.GetCards(P1, ChoiceZone.BattleArea).Contains(under);
-    AssertTrue(targetPeeled || underSurfaced, "top card removed / under-card surfaced (de-digivolved)");
 }
 
 // (R6-Da'-1 marking — A6 disposal pending) The two BT1_044 cases below are STALE RED: BT1_044 was re-ported

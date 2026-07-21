@@ -20,8 +20,11 @@ var ledger = new (string Symbol, int Baseline, string Batch)[]
     ("ActivatedSelectEffect", 22, "Da'-5 / corpus deletion (EX8_074 RD-R6-07 STOP + fixtures + white-box casts)"),
     ("ActivatedSelectBounceAndDiscardSourcesEffect", 7, "corpus deletion R6-Db (re-target C3-Witness case (9) first)"),
     ("ActivatedSelectTrashDigivolutionEffect", 6, "A6 (deleted with the ST2.Blue disposal)"),
-    ("SelectAndDeDigivolveEffect", 4, "Da'-5 (helper dies with the body)"),
-    ("ActivatedSelectAndDeDigivolveEffect", 7, "Da'-5 (resolver-switch collapse)"),
+    // (R6-Da'-5) `SelectAndDeDigivolveEffect` (factory helper) + `ActivatedSelectAndDeDigivolveEffect` (body) rows
+    // RETIRED — both symbols were DELETED in their owning batch (Da'-5): census-0 producer (only the [Obsolete]
+    // factory helper constructed the body, only the G9-046 DeDigivolve white-box test consumed the helper). The
+    // resolver-switch `case ActivatedSelectAndDeDigivolveEffect` collapsed with them. De-digivolve is covered live
+    // by CardEffectCommons.DeDigivolvePermanent + the SelectDeDigivolve / MassDeDigivolve primitives.
 };
 
 string root = FindRepoRoot();

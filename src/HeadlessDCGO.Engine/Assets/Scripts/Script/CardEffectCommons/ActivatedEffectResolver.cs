@@ -915,25 +915,13 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ActivatedSelectAndDeDigivolveEffect selectDeDigivolve:
-                {
-                    // Select up to maxCount matching permanents, then de-digivolve each by `count` — same
-                    // BuildRequest -> ChoiceProvider -> Apply shape as the other interactive cases. No ported
-                    // caller today; wired so the factory (CardEffectFactory.SelectAndDeDigivolveEffect) is not a
-                    // silent no-op when one lands (same missing-case class as ActivatedMemoryEffect above).
-                    ChoiceRequest ddRequest = selectDeDigivolve.BuildRequest(players);
-                    if (ddRequest.Candidates.Count > 0)
-                    {
-                        ChoiceResult ddResult = await context.ChoiceProvider.ChooseAsync(ddRequest, cancellationToken).ConfigureAwait(false);
-                        if (!ddResult.IsSkipped && ddResult.SelectedIds.Count > 0)
-                        {
-                            selectDeDigivolve.Apply(sink, ddResult.SelectedIds);
-                        }
-                    }
-
-                    resolved++;
-                    break;
-                }
+                // (R6-Da'-5) `case ActivatedSelectAndDeDigivolveEffect` DELETED — the producer was census-0 (no
+                // printed card creates one: the sole construction was the [Obsolete] factory helper
+                // CardEffectFactory.SelectAndDeDigivolveEffect, whose only consumer was the G9-046 DeDigivolve
+                // white-box test). The de-digivolve RULE surface is the shared DeDigivolveKind sink mutation,
+                // covered live by CardEffectCommons.DeDigivolvePermanent (C5-witness, EX8_051 ESS) and the
+                // SelectDeDigivolveThenConditionalDestroyEffect / MassDeDigivolveThenConditionalDestroyEffect
+                // primitives (BT3_107 / BT3_112). Body class + factory helper deleted with the case.
 
                 case ActivatedEffect uniform:
                 {

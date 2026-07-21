@@ -4449,8 +4449,8 @@ public static partial class CardEffectCommons
     /// <summary>(C5-witness) Stage a De-Digivolve of <paramref name="count"/> on <paramref name="host"/> (AS-IS
     /// <c>new IDegeneration(permanent, count, activateClass).Degeneration()</c>) via the sink — the per-target
     /// follow-up for select bodies (e.g. EX8_051 ESS "&lt;De-Digivolve 1&gt; 1 of your opponent's Digimon").
-    /// The sink's DeDigivolve consumer clamps to the host's stack and honours de-digivolve immunity, mirroring
-    /// <see cref="ActivatedSelectAndDeDigivolveEffect"/>'s mutation.</summary>
+    /// The sink's DeDigivolve consumer clamps to the host's stack and honours de-digivolve immunity — the
+    /// canonical de-digivolve mutation (the invented ActivatedSelectAndDeDigivolveEffect was retired R6-Da'-5).</summary>
     public static void DeDigivolvePermanent(MatchStateMutationSink sink, CardSource card, HeadlessEntityId host, int count)
     {
         ArgumentNullException.ThrowIfNull(sink);

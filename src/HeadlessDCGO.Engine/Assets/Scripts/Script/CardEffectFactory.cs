@@ -1238,16 +1238,10 @@ public static partial class CardEffectFactory
     public static IActivatedCardEffect AddThisCardToHandEffect(CardSource card) =>
         new ReturnThisCardToHandEffect(card, "Return this card to the hand.");
 
-    /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.DigivolveIntoHandOrTrashCard(..)</c>:
-    /// select up to <paramref name="maxCount"/> battle-area Digimon matching <paramref name="canTarget"/> and
-    /// de-digivolve each by <paramref name="count"/> (remove its top digivolution card[s]).</summary>
-    // (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried to Da'-5 (resolver-switch collapse) — the
-    // body class keeps a resolver case (ActivatedEffectResolver ActivatedSelectAndDeDigivolveEffect); helper +
-    // body die together there. Remaining consumer: the G9-046 DeDigivolve case. Do NOT wire new consumers.
-    [Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(Da'-5, body와 동시 소멸) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
-    public static ICardEffect SelectAndDeDigivolveEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int count, bool canEndNotMax, string description) =>
-        new ActivatedSelectAndDeDigivolveEffect(card, canTarget, maxCount, count, canEndNotMax, description);
+    // (R6-Da'-5) factory helper `SelectAndDeDigivolveEffect` DELETED with its invented body
+    // `ActivatedSelectAndDeDigivolveEffect` (census-0 producer; only consumer was the G9-046 DeDigivolve
+    // white-box test). De-digivolve is available live via CardEffectCommons.DeDigivolvePermanent (C5-witness)
+    // and the SelectDeDigivolve / MassDeDigivolveThenConditionalDestroy primitives.
 
     /// <summary>(PRIM-W5) Mirror of the AS-IS <c>CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect</c>:
     /// reveal the top <paramref name="revealCount"/> cards of the owner's deck, select per

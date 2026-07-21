@@ -1977,87 +1977,12 @@ public sealed class ReturnThisCardToHandEffect : IActivatedCardEffect
 }
 
 
-/// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.DigivolveIntoHandOrTrashCard(..)</c>
-/// coroutine: select up to <paramref name="maxCount"/> battle-area Digimon matching <c>canTarget</c> and
-/// de-digivolve each by <c>count</c> (remove its top digivolution cards). Wraps the engine's
-/// <see cref="DeDigivolveHelpers"/> primitive via the DeDigivolve mutation.</summary>
-// (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried to Da'-5 (resolver-switch collapse) — this body
-// holds a resolver case (ActivatedEffectResolver :~928) and dies with that switch. Remaining consumers: the
-// factory helper (same carry-over) + the G9-046 DeDigivolve case. Do NOT wire new consumers.
-[Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(Da'-5, resolver switch와 동시 소멸) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
-public sealed class ActivatedSelectAndDeDigivolveEffect : IActivatedCardEffect
-{
-    private readonly Func<HeadlessEntityId, bool> _canTarget;
-    private readonly int _maxCount;
-    private readonly int _count;
-    private readonly bool _canEndNotMax;
-
-    public ActivatedSelectAndDeDigivolveEffect(CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int count, bool canEndNotMax, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canTarget);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        _canTarget = canTarget;
-        _maxCount = maxCount;
-        _count = count;
-        _canEndNotMax = canEndNotMax;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    private IEnumerable<HeadlessEntityId> Candidates()
-    {
-        var zones = (IZoneStateReader)Card.Context.ZoneMover;
-        foreach (HeadlessPlayerId player in Card.Context.TurnController.Current.PlayerOrder)
-        {
-            foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea))
-            {
-                if (_canTarget(id))
-                {
-                    yield return id;
-                }
-            }
-        }
-    }
-
-    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players)
-    {
-        var candidates = Candidates()
-            .Select(id => EffectChoiceHelpers.Candidate(id, id.Value, ChoiceZone.BattleArea, isSelectable: true, Card.Owner))
-            .ToList();
-        int max = Math.Min(_maxCount, candidates.Count);
-        return EffectChoiceHelpers.CreatePermanentRequest(Card.Owner, Description, minCount: _canEndNotMax ? 0 : max, maxCount: max, canSkip: _canEndNotMax, candidates);
-    }
-
-    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        ArgumentNullException.ThrowIfNull(selected);
-        foreach (HeadlessEntityId id in selected)
-        {
-            if (id.IsEmpty)
-            {
-                continue;
-            }
-
-            sink.Apply(new EffectMutation(
-                MatchStateMutationSink.DeDigivolveKind,
-                Card.InstanceId,
-                new Dictionary<string, object?>(StringComparer.Ordinal)
-                {
-                    [MatchStateMutationSink.TargetEntityIdKey] = id.Value,
-                    [MatchStateMutationSink.CountKey] = _count,
-                }));
-        }
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Select-and-de-digivolve effect is resolved via the activation flow, not registered: {Description}");
-}
+// (R6-Da'-5) invented body `ActivatedSelectAndDeDigivolveEffect` DELETED — census-0 producer (only the
+// [Obsolete] factory helper `CardEffectFactory.SelectAndDeDigivolveEffect` constructed one, and its only
+// consumer was the G9-046 DeDigivolve white-box test). Its resolver case is deleted with it. The de-digivolve
+// RULE surface is the shared `MatchStateMutationSink.DeDigivolveKind` mutation, covered live by
+// `CardEffectCommons.DeDigivolvePermanent` (C5-witness, EX8_051 ESS) and the SelectDeDigivolve /
+// MassDeDigivolveThenConditionalDestroy primitives (BT3_107 / BT3_112).
 
 
 // (R6-Da'-1) invented body `ActivatedSelectAndPlayEffect` DELETED — 0 consumers after the factory helper
