@@ -627,16 +627,17 @@ public class IDigiBurst
     // doubled. Outside a cycle this is a plain emit.
     private static void EmitJournaled(EngineContext context, string timing, HeadlessPlayerId actor, HeadlessEntityId subject)
     {
-        OnceFlagController.MutationReplay replay = context.OnceFlags.BeginMutationApply();
-        if (replay == OnceFlagController.MutationReplay.Skip)
+        // (R6-Da'-6 D1=A) journal moved to CEntityUseCycle (lockstep with the OnceFlags uniform-cycle).
+        CEntityUseCycle.MutationReplay replay = CEntityUseCycle.For(context).BeginMutationApply();
+        if (replay == CEntityUseCycle.MutationReplay.Skip)
         {
             return;
         }
 
         TriggerEventEmitter.Emit(context.GameEventQueue, timing, actor: actor, subject: subject);
-        if (replay == OnceFlagController.MutationReplay.Fresh)
+        if (replay == CEntityUseCycle.MutationReplay.Fresh)
         {
-            context.OnceFlags.RecordFreshMutation(purelyImmediate: true);
+            CEntityUseCycle.For(context).RecordFreshMutation(purelyImmediate: true);
         }
     }
 }

@@ -493,9 +493,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // already mutated game state and must NOT re-apply (double memory / double DP / double timing events); a
         // call that staged pending work must re-execute so this FRESH sink re-stages the thunks the suspend
         // discarded. Fresh calls beyond the journal execute and record their classification.
-        OnceFlagController.MutationReplay replay =
-            _context?.OnceFlags.BeginMutationApply() ?? OnceFlagController.MutationReplay.None;
-        if (replay == OnceFlagController.MutationReplay.Skip)
+        // (R6-Da'-6 D1=A) journal moved from OnceFlagController to CEntityUseCycle (the surviving cycle); the two
+        // cycles run in lockstep so the gate is behaviour-identical.
+        CEntityUseCycle.MutationReplay replay =
+            _context is null ? CEntityUseCycle.MutationReplay.None : CEntityUseCycle.For(_context).BeginMutationApply();
+        if (replay == CEntityUseCycle.MutationReplay.Skip)
         {
             _applied.Add(new AppliedMutation(mutation.Kind, ResolveTargetId(mutation), "replayed"));
             return;
@@ -503,9 +505,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         int pendingBefore = _pendingAsync.Count;
         ApplyCore(mutation);
-        if (replay == OnceFlagController.MutationReplay.Fresh)
+        if (replay == CEntityUseCycle.MutationReplay.Fresh)
         {
-            _context!.OnceFlags.RecordFreshMutation(purelyImmediate: _pendingAsync.Count == pendingBefore);
+            CEntityUseCycle.For(_context!).RecordFreshMutation(purelyImmediate: _pendingAsync.Count == pendingBefore);
         }
     }
 

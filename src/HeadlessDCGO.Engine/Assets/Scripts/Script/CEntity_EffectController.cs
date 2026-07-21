@@ -439,6 +439,24 @@ public sealed class CEntityUseCycle
     private bool _cycleSuspended;
     private bool _invocationActive;
 
+    // (R6-Da'-6, D1=A) The MUTATION replay journal for the SAME cycle — moved here from
+    // <c>OnceFlagController</c> so the model-independent shared substrate (consumed by EVERY resolution path,
+    // uniform and new-model alike) lives on the ONE surviving cycle instead of the retiring uniform-cap holder.
+    // Behaviour is identical because this cycle is driven in EXACT lockstep with the OnceFlags uniform-cycle
+    // (ActivatedEffectResolver.ResolveWithinCycleAsync :508↔:513 / :522↔:523 / :531↔:532 / :538↔:539), so the
+    // <c>_cycleOpen</c>/<c>_invocationActive</c> flags the journal gates on are the same at every point.
+    //
+    // The sink applies most non-zone-move mutations IMMEDIATELY (metadata flags, memory, DP) and defers zone moves
+    // to FlushAsync — so across a suspend the deferred half is discarded-and-restaged by the replay (correct), but
+    // the immediate half is ALREADY in game state and a naive replay re-applies it (double memory / double DP /
+    // double timing events). The journal records, per Apply call of the original run, whether the call was PURELY
+    // IMMEDIATE (true → the replay SKIPS the whole call: its effects persist in state) or staged pending work
+    // (false → the replay re-executes it so the fresh sink re-stages the discarded thunks; any immediate
+    // side-effects of such a MIXED call still replay — a known residual, status quo ante). Fresh calls beyond the
+    // journal execute and record. Journal entries are deterministic across replays because the answer replay is.
+    private readonly List<bool> _mutationJournal = new();
+    private int _mutationCursor;
+
     private sealed class StagedUse
     {
         public StagedUse(ICardEffect effect, Action commit)
@@ -450,6 +468,23 @@ public sealed class CEntityUseCycle
         public ICardEffect Effect { get; }
 
         public Action Commit { get; }
+    }
+
+    /// <summary>Sink-side replay decision for one <c>Apply</c> call (see the mutation-journal remarks). Moved from
+    /// <c>OnceFlagController.MutationReplay</c> (R6-Da'-6 D1=A); identical values.</summary>
+    public enum MutationReplay
+    {
+        /// <summary>No open cycle — apply normally, no journaling.</summary>
+        None,
+
+        /// <summary>Replaying a purely-immediate call — SKIP it (its effects already persist in game state).</summary>
+        Skip,
+
+        /// <summary>Replaying a call that staged pending work — re-execute it (the fresh sink must re-stage).</summary>
+        Execute,
+
+        /// <summary>Beyond the journal — execute and report back via <see cref="RecordFreshMutation"/>.</summary>
+        Fresh,
     }
 
     /// <summary>Open (or resume) the transaction. Returns <c>true</c> when this invocation OWNS the cycle — a fresh
@@ -472,11 +507,45 @@ public sealed class CEntityUseCycle
         {
             _cycleSuspended = false;
             _cursor = 0;
+            _mutationCursor = 0;
             _invocationActive = true;
             return true;
         }
 
         return false;
+    }
+
+    /// <summary>Consulted by the sink at the top of each <c>Apply</c> call while a cycle is executing (moved from
+    /// <c>OnceFlagController.BeginMutationApply</c>, R6-Da'-6 D1=A). Gates on the SAME cycle open/active state the
+    /// uniform cap transaction does — lockstep-identical by construction.</summary>
+    public MutationReplay BeginMutationApply()
+    {
+        if (!_cycleOpen || !_invocationActive)
+        {
+            return MutationReplay.None;
+        }
+
+        if (_mutationCursor < _mutationJournal.Count)
+        {
+            bool purelyImmediate = _mutationJournal[_mutationCursor];
+            _mutationCursor++;
+            return purelyImmediate ? MutationReplay.Skip : MutationReplay.Execute;
+        }
+
+        return MutationReplay.Fresh;
+    }
+
+    /// <summary>Record a FRESH <c>Apply</c> call's classification (<paramref name="purelyImmediate"/> = it staged
+    /// no pending thunk, so a replay can skip it wholesale). Moved from <c>OnceFlagController.RecordFreshMutation</c>.</summary>
+    public void RecordFreshMutation(bool purelyImmediate)
+    {
+        if (!_cycleOpen || !_invocationActive)
+        {
+            return;
+        }
+
+        _mutationJournal.Add(purelyImmediate);
+        _mutationCursor = _mutationJournal.Count;
     }
 
     /// <summary>Mark the owning invocation suspended (an agent choice is pending). Staged registers stay staged;
@@ -525,6 +594,8 @@ public sealed class CEntityUseCycle
     {
         _pending.Clear();
         _cursor = 0;
+        _mutationJournal.Clear();
+        _mutationCursor = 0;
         _cycleOpen = false;
         _cycleSuspended = false;
         _invocationActive = false;

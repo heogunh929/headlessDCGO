@@ -1167,16 +1167,17 @@ public static class ActivatedEffectResolver
     /// wrapped by the async overload below).</summary>
     private static void RunJournaledImmediate(EngineContext context, Action action)
     {
-        OnceFlagController.MutationReplay replay = context.OnceFlags.BeginMutationApply();
-        if (replay == OnceFlagController.MutationReplay.Skip)
+        // (R6-Da'-6 D1=A) journal moved to CEntityUseCycle (lockstep with the OnceFlags uniform-cycle).
+        CEntityUseCycle.MutationReplay replay = CEntityUseCycle.For(context).BeginMutationApply();
+        if (replay == CEntityUseCycle.MutationReplay.Skip)
         {
             return;
         }
 
         action();
-        if (replay == OnceFlagController.MutationReplay.Fresh)
+        if (replay == CEntityUseCycle.MutationReplay.Fresh)
         {
-            context.OnceFlags.RecordFreshMutation(purelyImmediate: true);
+            CEntityUseCycle.For(context).RecordFreshMutation(purelyImmediate: true);
         }
     }
 
@@ -1184,16 +1185,17 @@ public static class ActivatedEffectResolver
     /// mutations (ZoneMover moves, FuseAsync).</summary>
     private static async Task RunJournaledImmediateAsync(EngineContext context, Func<Task> action)
     {
-        OnceFlagController.MutationReplay replay = context.OnceFlags.BeginMutationApply();
-        if (replay == OnceFlagController.MutationReplay.Skip)
+        // (R6-Da'-6 D1=A) journal moved to CEntityUseCycle (lockstep with the OnceFlags uniform-cycle).
+        CEntityUseCycle.MutationReplay replay = CEntityUseCycle.For(context).BeginMutationApply();
+        if (replay == CEntityUseCycle.MutationReplay.Skip)
         {
             return;
         }
 
         await action().ConfigureAwait(false);
-        if (replay == OnceFlagController.MutationReplay.Fresh)
+        if (replay == CEntityUseCycle.MutationReplay.Fresh)
         {
-            context.OnceFlags.RecordFreshMutation(purelyImmediate: true);
+            CEntityUseCycle.For(context).RecordFreshMutation(purelyImmediate: true);
         }
     }
 
