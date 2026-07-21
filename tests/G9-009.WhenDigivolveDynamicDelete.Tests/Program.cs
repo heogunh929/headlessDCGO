@@ -21,7 +21,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Each other suspended Digimon adds 3000: with 1 suspended, the 10000 opponent IS deletable", PlusThreePerSuspended),
     ("Only the opponent's Digimon are delete candidates (your own are not)", OnlyOpponentDeletable),
     ("E2E: suspend 1 then delete — suspending raises the cap so the 10000 opponent is deleted", SuspendThenDeleteE2E),
-    ("EX8-2 brick: ReuseWhenDigivolvingEffect re-runs the [When Digivolving] suspend+delete", ReuseWhenDigivolving),
+    // (이연③-b RETIRED) the "ReuseWhenDigivolvingEffect re-runs [When Digivolving]" case was removed with the
+    // retired marker class. The re-activation rule is covered live by G9-012.LiveAllTurnsReactivation (real
+    // EX8_074 through the play-window pump). This suite keeps the WhenDigivolving suspend+delete assertions.
 };
 
 var failures = new List<string>();
@@ -93,25 +95,8 @@ async Task SuspendThenDeleteE2E()
     AssertTrue(InZone(context, P2, ChoiceZone.Trash, big), "the 10000 opponent was deleted (cap was raised to 11000 by the suspend)");
 }
 
-async Task ReuseWhenDigivolving()
-{
-    EngineContext context = Context();
-    var self = await PlaceDigimon(context, P1, "SELF", dp: 5000, suspended: false, cardNumber: "TfxWhenDigivolveDelete");
-    var ally = await PlaceDigimon(context, P1, "ALLY", dp: 5000, suspended: false);
-    var foe = await PlaceDigimon(context, P2, "FOE", dp: 7000, suspended: false); // <= 8000, deletable
-
-    // Resolving the OptionSkill entry (which returns ReuseWhenDigivolvingEffect) must re-run the card's
-    // [When Digivolving] effects: suspend ALLY, then delete FOE.
-    var provider = (ScriptedChoiceProvider)context.ChoiceProvider;
-    provider.Enqueue(ChoiceResult.Select(ally));
-    provider.Enqueue(ChoiceResult.Select(foe));
-
-    int resolved = await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OptionSkill);
-
-    AssertTrue(resolved >= 1, "the reuse effect resolved");
-    AssertTrue(IsSuspended(context, ally), "the re-run [When Digivolving] suspended the ally");
-    AssertTrue(InZone(context, P2, ChoiceZone.Trash, foe), "the re-run [When Digivolving] deleted the opponent");
-}
+// (이연③-b RETIRED) `ReuseWhenDigivolving()` test removed with the retired marker class — see the array
+// comment above; the re-activation rule is covered live by G9-012.LiveAllTurnsReactivation.
 
 // --- Helpers -------------------------------------------------------------
 

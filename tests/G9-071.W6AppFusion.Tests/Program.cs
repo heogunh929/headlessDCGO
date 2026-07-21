@@ -24,11 +24,16 @@ using HeadlessDCGO.Engine.Headless.State;
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
+// (이연③-b) The `Arts` case was RETIRED with the invented `ArtsDigivolveSelfEffect` (an orphaned duplicate with
+// no production call-site). The AS-IS canonical Arts surface is CardEffectFactory.ArtsDigivolveEffect →
+// OptionResolutionClass → PlayCardClass (RD-P6C2-10 resolved; live on BT9_109 / BT25_104 / BT25_092 / BT25_089),
+// and the cost-free digivolve RULE (attach on top, target folds as a source, no cost, WhenDigivolving) is covered
+// GREEN by G3.5-D6.FreeDigivolve (4/4). The two App-Fusion cases below remain: they are the pre-existing STALE
+// FIXTURE reds (fixture obsolescence, not an engine gap — see the header), tracked in the fail-set unchanged.
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("a matching host (top=A, link=B) offers the App-Fusion digivolve; same-name pair (i=j) does not", Enumeration),
     ("executing: link material joins the fused sources; the fused card tops the host; evolution trigger fires", Execution),
-    ("(W6-A2) Arts Digivolve: cost-free evolution out of the executing area onto a qualifying Digimon", Arts),
 };
 
 var failures = new List<string>();
@@ -101,44 +106,9 @@ async Task Execution()
         "no dangling link entries");
 }
 
-async Task Arts()
-{
-    EngineContext ctx = Ctx();
-    ctx.MemoryController.Set(0);   // cost-free: memory must not move
-    var option = await Put(ctx, P1, "ARTSOPT", ChoiceZone.Execution, name: "ArtsOption");
-    var target = await Put(ctx, P1, "TGT", ChoiceZone.BattleArea, name: "Rookie");
-    // definition must satisfy the normal digivolution requirement onto the target: reuse a permissive
-    // evolution condition by matching levels (option level 5 onto level-4 target via engine cost gate).
-    var cards = (CardDatabase)ctx.CardRepository;
-    ctx.CardInstanceRepository.TryGetInstance(option, out CardInstanceRecord? optRec);
-    // (RD-R3-01) no EvolutionCondition: the cost seat now parses condition tokens for real (the old
-    // "level=4" pseudo-token only passed because the requirement table degraded to the Any fallback).
-    // EvolutionCost 0 alone IS the permissive any-target path this fixture wants (cost-free Arts digivolve).
-    cards.Upsert(new CardRecord(optRec!.DefinitionId, "ARTSOPT", "ArtsOption",
-        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 6000, ["level"] = 5 },
-        CardType: "Digimon", EvolutionCost: 0));
-
-    var provider = (ScriptedChoiceProvider)ctx.ChoiceProvider;
-    provider.Enqueue(ChoiceResult.Select(target));
-    // MIGRATION-NOTE (P7 test-fix): CardEffectFactory.ArtsDigivolveEffect (KeyWordEffects/ArtsDigivolve.cs) was
-    // re-pointed by the kind-class rebuild to construct/return the NEW-model OptionResolutionClass, whose
-    // CanResolveCondition/ResolutionCoroutine both throw NotSupportedException (design item RD-P6C2-10,
-    // docs/audit/rebuild_p6_cluster2_notes.md: "AS-IS CanPlayCardTargetFrame/PermanentFrame/ContinuousController/
-    // PlayCardClass have no mirror"), so it can no longer be cast to the OLD-model action class
-    // ArtsDigivolveSelfEffect (CardEffectCommons/ActivatedEffects.cs) this test exercises. ArtsDigivolveSelfEffect
-    // itself is fully functional (candidate scan via TryGetEvolutionCost/ContinuousRestrictionGate, no dependency
-    // on the un-bindable kind-class layer) and has no other production call site since the flip, so it is
-    // constructed directly here in place of the orphaned factory.
-    var effect = new ArtsDigivolveSelfEffect(V(ctx, option));
-    await effect.ResolveAsync(CancellationToken.None);
-
-    var zones = (IZoneStateReader)ctx.ZoneMover;
-    AssertTrue(zones.GetCards(P1, ChoiceZone.BattleArea).Contains(option), "the option digivolved onto the field");
-    ctx.CardInstanceRepository.TryGetInstance(option, out CardInstanceRecord? rec);
-    var sources = (rec!.Metadata[DigivolutionStackReader.SourceIdsKey] as IEnumerable<string>)?.ToArray() ?? Array.Empty<string>();
-    AssertTrue(sources.Contains(target.Value), "the target folded under as a source");
-    AssertTrue(ctx.MemoryController.Current.Current == 0, "cost-free (AS-IS payCost:false)");
-}
+// (이연③-b RETIRED) `Arts()` removed with the invented `ArtsDigivolveSelfEffect` — see the tests-array comment
+// above; the cost-free digivolve rule is covered green by G3.5-D6.FreeDigivolve and the canonical
+// CardEffectFactory.ArtsDigivolveEffect path is live on BT9_109 / BT25_104 / BT25_092 / BT25_089.
 
 // --- Harness ---
 

@@ -110,15 +110,11 @@ public sealed class TfxWhenDigivolveDelete : CEntity_Effect
             bool CanUseConditionTrue(Hashtable hashtable) => true;
         }
 
-        // (EX8-2 brick) An entry point that re-activates the above [When Digivolving] effects, exercising
-        // ReuseWhenDigivolvingEffect. (Placed under OptionSkill only so a test can drive it via
-        // ActivatedEffectResolver; the real EX8_074 offers this through a once-per-turn on-play trigger.)
-        // UNCHANGED: ReuseWhenDigivolvingEffect is not an `ActivatedEffect` wrapper — it is its own dedicated
-        // marker kind class, out of scope for this old-model -> new-model shell conversion.
-        if (timing == EffectTiming.OptionSkill)
-        {
-            cardEffects.Add(new ReuseWhenDigivolvingEffect("Activate this Digimon's [When Digivolving] effects."));
-        }
+        // (이연③-b RETIRED) the OptionSkill branch that constructed `ReuseWhenDigivolvingEffect` was removed:
+        // that mirror-invented "[All Turns] re-activate [When Digivolving]" marker is retired. The real card
+        // EX8_074 delivers the re-activation through the AS-IS OnEnterFieldAnyone + play-window broadcast
+        // (region #6), covered live by G9-012.LiveAllTurnsReactivation. This fixture keeps ONLY its
+        // WhenDigivolving suspend+delete shape (shared infra for EX8_074), driven by G9-009 #1-#4.
 
         return cardEffects;
     }

@@ -70,6 +70,10 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 917);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (이연③-b re-target) TfxDestroy now drives the AS-IS DeleteKind sink through a new-model ActivateClass,
+    // whose base ICardEffect.CanTrigger gates on DoneStartGame. Advancing past Setup is a harness correctness
+    // fix (an effect-driven delete is by definition mid-game), not a behavior change.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 

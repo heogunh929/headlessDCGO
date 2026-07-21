@@ -867,13 +867,10 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ArtsDigivolveSelfEffect arts:
-                {
-                    // (W6-A2) Arts Digivolve: cost-free evolution out of the executing area.
-                    await arts.ResolveAsync(cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (이연③-b RETIRED) `case ArtsDigivolveSelfEffect` DELETED — the orphaned invented Arts-Digivolve
+                // self duplicate is retired. The live surface is CardEffectFactory.ArtsDigivolveEffect →
+                // OptionResolutionClass → PlayCardClass (RD-P6C2-10 resolved; real cards BT9_109/BT25_104/092/089),
+                // the cost-free digivolve rule covered by G3.5-D6.FreeDigivolve. Class removed.
 
                 case SelectAndDigivolveEffect selectDigivolve:
                 {
@@ -892,14 +889,9 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case DestroyPermanentsEffect destroy:
-                {
-                    // (BT-PRE-A3) direct-delete a pre-computed target list — no choice; the sink's centralised
-                    // immunity / deletion-prevention gates filter.
-                    destroy.Apply(sink);
-                    resolved++;
-                    break;
-                }
+                // (이연③-b RE-TARGETED) `case DestroyPermanentsEffect` DELETED — TfxDestroy drives the AS-IS
+                // DeleteKind sink path (NewSink + CardEffectCommons.DestroyPermanent per target + FlushAsync, the
+                // centralised immunity gate filtering) through an inline ActivateClass. Class removed.
 
                 case TrashSelfThenGainMemoryDelayEffect delayGain:
                 {
@@ -918,30 +910,17 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case LinkSelfEffect link:
-                {
-                    // (PRIM-W2) <Link>: choose a host + attach this card as a link card (LinkHelpers).
-                    await link.ResolveAsync(cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (이연③-b RETIRED) `case LinkSelfEffect` DELETED — the orphaned invented <Link> self-play
+                // duplicate is retired. The live <Link> surface is CardEffectFactory.LinkEffect → ActivateClass
+                // → ILinkCard.LinkCard() (RD-P6C2-7 resolved), covered by G9-031.LinkSecurity. Class removed.
 
-                case HatchDigiEggEffect hatch:
-                {
-                    // (BT-PRE-A4) CanHatch-gated digi-egg hatch — no choice; a direct ZoneMover move (no sink
-                    // kind for hatch), re-run safe via the empty-breeding-area guard.
-                    await hatch.ResolveAsync(cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (이연③-b RE-TARGETED) `case HatchDigiEggEffect` DELETED — TfxHatch drives the AS-IS hatch
+                // (empty-breeding + available-egg guard → ZoneMover.HatchDigitamaAsync, BT1_089 idiom) through an
+                // inline ActivateClass, resolved by the ActivateICardEffect case above. Class removed.
 
-                case PlayCardEffect playCard:
-                {
-                    // (BT-PRE-A5) cost-free play of a pre-selected card — no choice; stage the PlayCard mutation.
-                    playCard.Apply(sink);
-                    resolved++;
-                    break;
-                }
+                // (이연③-b RE-TARGETED) `case PlayCardEffect` DELETED — TfxPlayCard drives the AS-IS PlayCardKind
+                // sink path (NewSink + PlayCardKind → ApplyPlayCard → PlayCardClass.PlayCard() + FlushAsync)
+                // through an inline ActivateClass. Class removed.
 
                 // (이연③-A DEAD) `case PlayThisCardToBattleEffect` DELETED — the mirror-invented Tamer
                 // [Security] "play this Tamer" carrier was census-0 at HEAD (all producers re-pointed to the
@@ -973,18 +952,10 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ReuseWhenDigivolvingEffect:
-                {
-                    // (EX8-2 brick) "[All Turns] activate this card's [When Digivolving] effects" — resolve the
-                    // card's WhenDigivolving activated effects, recursively, through the same sink / choice
-                    // provider (same shape as ReuseMainOptionEffect, different timing).
-                    resolved += await ResolveListAsync(
-                        context, effectClass, card, players, sink,
-                        effectClass.CardEffects(EffectTiming.WhenDigivolving, card), cancellationToken,
-                        hashtable: CardEffectCommons.WhenDigivolvingCheckHashtableOfCard(card),
-                        timing: EffectTiming.WhenDigivolving).ConfigureAwait(false);
-                    break;
-                }
+                // (이연③-b RETIRED) `case ReuseWhenDigivolvingEffect` DELETED — the test-only "[All Turns]
+                // re-activate [When Digivolving]" marker is retired. The AS-IS delivery (EX8_074 region #6:
+                // OnEnterFieldAnyone + the play-window StackSkillInfos broadcast) is live and covered by
+                // G9-012.LiveAllTurnsReactivation. Class removed in ActivatedEffects.cs.
 
                 // DeferredCardEffect / non-activated effects: not resolved here.
             }

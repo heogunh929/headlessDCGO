@@ -80,6 +80,10 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 918);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (이연③-b re-target) TfxHatch now drives the AS-IS hatch through a new-model ActivateClass, whose base
+    // ICardEffect.CanTrigger gates on DoneStartGame (no effect triggers before start-game). Advancing past
+    // Setup is a harness correctness fix (the [Main] hatch is by definition mid-game), not a behavior change.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 

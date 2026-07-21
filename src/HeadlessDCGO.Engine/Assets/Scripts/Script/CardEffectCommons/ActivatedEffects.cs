@@ -14,69 +14,15 @@ using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectF
 using ChangeCostClass = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ChangeCostClass;
 
 
-/// <summary>(W6-A2) Mirror of the AS-IS Arts-Digivolve resolution (an <c>OptionResolutionClass</c>): from
-/// the executing area, pick an owner Digimon this card can legally digivolve onto (normal requirement,
-/// cost unpaid) and stack this card on top (WhenDigivolving fires; effects auto-register).</summary>
-public sealed class ArtsDigivolveSelfEffect : IActivatedCardEffect
-{
-    public ArtsDigivolveSelfEffect(CardSource card)
-    {
-        Card = card ?? throw new ArgumentNullException(nameof(card));
-    }
-
-    public CardSource Card { get; }
-
-    public async Task ResolveAsync(CancellationToken cancellationToken)
-    {
-        EngineContext context = Card.Context;
-        if (context.ZoneMover is not IZoneStateReader zones)
-        {
-            return;
-        }
-
-        List<ChoiceCandidate> candidates = zones.GetCards(Card.Owner, ChoiceZone.BattleArea)
-            .Where(id => Headless.Runtime.DigivolveAction.TryGetEvolutionCost(context, Card.InstanceId, id, out _, out _))
-            // AS-IS CanPlayCardTargetFrame includes the CanNotEvolve gate — same restriction as the
-            // normal digivolve path.
-            .Where(id => !Headless.Runtime.ContinuousRestrictionGate.EvaluateDigivolve(context, id).IsRestricted)
-            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.BattleArea, IsSelectable: true, ownerId: Card.Owner))
-            .ToList();
-        if (candidates.Count == 0)
-        {
-            return;   // AS-IS CanResolveCondition: no qualifying Digimon -> no resolution.
-        }
-
-        var request = new ChoiceRequest(
-            ChoiceType.Card, Card.Owner, "Arts Digivolve: choose a Digimon to digivolve onto.",
-            minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.BattleArea, candidates);
-        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
-        if (result.SelectedIds.Count == 0)
-        {
-            return;
-        }
-
-        HeadlessEntityId targetId = result.SelectedIds[0];
-        ChoiceZone fromZone = zones.GetCards(Card.Owner, ChoiceZone.Execution).Contains(Card.InstanceId)
-            ? ChoiceZone.Execution
-            : ChoiceZone.Hand;
-
-        // The AS-IS PlayCardClass(payCost:false, root:Execution, target) evolution placement, in order:
-        // target off its spot -> this card onto it -> the target stack folds under -> WhenDigivolving.
-        // (RD-R3-02) top-swap continuity markers — the permanent persists; AttachTargetAsSource ReKeys.
-        await context.ZoneMover.MoveAsync(
-            new ZoneMoveRequest(Card.Owner, targetId, ChoiceZone.BattleArea, ChoiceZone.None,
-                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
-        await context.ZoneMover.MoveAsync(
-            new ZoneMoveRequest(Card.Owner, Card.InstanceId, fromZone, ChoiceZone.BattleArea,
-                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
-        Headless.Runtime.DigivolveAction.AttachTargetAsSource(context.CardInstanceRepository, Card.InstanceId, targetId);
-        TriggerEventEmitter.Emit(context.GameEventQueue, Headless.Effects.TriggerTimings.WhenDigivolving, actor: Card.Owner, subject: Card.InstanceId);
-        CardEffectRegistrar.RegisterCard(context, Card.InstanceId, Card.Owner);
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException("Arts Digivolve is resolved via the activation flow, not registered.");
-}
+// (이연③-b RETIRED) `ArtsDigivolveSelfEffect` DELETED — the mirror-invented Arts-Digivolve self-resolution was
+// an orphaned DUPLICATE with no production call-site (the factory was re-pointed off it at the P6 kind-class
+// flip). The AS-IS Arts-Digivolve surface is now live and resolved: `CardEffectFactory.ArtsDigivolveEffect`
+// (KeyWordEffects/ArtsDigivolve.cs, RD-P6C2-10 RESOLVED) returns an OptionResolutionClass whose ResolutionCoroutine
+// runs SelectPermanentEffect + `new PlayCardClass(payCost:false, root:Execution, target, activateETB).PlayCard()`
+// — used live by the real Arts cards BT9_109 / BT25_104 / BT25_092 / BT25_089. The cost-free digivolve RULE
+// (attach on top, target folds as a source, no cost, WhenDigivolving fires) is covered GREEN by
+// G3.5-D6.FreeDigivolve (4/4). Class + resolver switch case removed; G9-071's invented-duplicate Arts witness
+// retired onto that coverage.
 
 
 /// <summary>(PRIM-P0-flow B.O.3) The headless mirror of the AS-IS <c>DigivolveIntoHandOrTrashCard</c> (309
@@ -204,81 +150,19 @@ public sealed class SelectAndDigivolveEffect : IActivatedCardEffect
 }
 
 
-/// <summary>(PRIM-W2) Mirror of the original <c>&lt;Link&gt;</c> activation (<c>CardEffectFactory.LinkEffect</c>):
-/// attach THIS card as a link card to a chosen own battle-area Digimon, paying the link cost. Drives the
-/// host choice through the activation <c>ChoiceProvider</c> and attaches via
-/// <see cref="Runtime.LinkHelpers.AddLinkCardAsync"/> (which emits the WhenLinked window / trims the host's
-/// link max). Bounded to the self-play synchronous flow; the link CONDITION (which hosts are valid) is a
-/// per-card predicate.</summary>
-public sealed class LinkSelfEffect : IActivatedCardEffect
-{
-    public LinkSelfEffect(CardSource card, int linkCost, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        LinkCost = linkCost;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public int LinkCost { get; }
-
-    public string Description { get; }
-
-    public async Task ResolveAsync(CancellationToken cancellationToken)
-    {
-        EngineContext context = Card.Context;
-        if (context.ZoneMover is not IZoneStateReader zones)
-        {
-            return;
-        }
-
-        // (W6-L) AS-IS LinkEffect's CanSelectPermanentCondition: owner battle-area Digimon, not this
-        // card's own permanent, AND the declared linkCondition.digimonCondition (Link.cs:18).
-        LinkCondition? linkCondition = Card.LinkConditionOf();
-        List<ChoiceCandidate> candidates = zones.GetCards(Card.Owner, ChoiceZone.BattleArea)
-            .Where(id => id != Card.InstanceId && CardEffectCommons.IsOwnerBattleAreaDigimon(Card, id))
-            .Where(id => linkCondition is null || linkCondition.digimonCondition(new Permanent(context, id, Card.Owner)))
-            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.BattleArea, IsSelectable: true, ownerId: Card.Owner))
-            .ToList();
-        if (candidates.Count == 0)
-        {
-            return; // no valid host.
-        }
-
-        var request = new ChoiceRequest(
-            ChoiceType.Card, Card.Owner, Description, minCount: 0, maxCount: 1, canSkip: true, ChoiceZone.BattleArea, candidates);
-        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
-        if (result.IsSkipped || result.SelectedIds.Count == 0)
-        {
-            return;
-        }
-
-        // (M-4) fold continuous linkCostDelta reductions (GrantedReduceLinkCost) into the paid cost.
-        int effectiveLinkCost = LinkHelpers.ResolveLinkCost(context, Card.InstanceId, LinkCost);
-        if (effectiveLinkCost > 0)
-        {
-            context.MemoryController.Pay(effectiveLinkCost);
-        }
-
-        ChoiceZone from = zones.GetCards(Card.Owner, ChoiceZone.Hand).Contains(Card.InstanceId) ? ChoiceZone.Hand : ChoiceZone.BattleArea;
-        await LinkHelpers.AddLinkCardAsync(
-            context.CardInstanceRepository, context.ZoneMover, result.SelectedIds[0], Card.InstanceId, from, context.GameEventQueue, cancellationToken, context,
-            // (G-Link P2 risk-1) this effect IS the cause — its source card is the host; thread it to WhenLinked.
-            causeSourceId: Card.InstanceId)
-            .ConfigureAwait(false);
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Link effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-b RETIRED) `LinkSelfEffect` DELETED — the mirror-invented <Link> self-play activation was an orphaned
+// DUPLICATE with no production call-site (the factory was re-pointed off it at the P6 kind-class flip). The AS-IS
+// <Link> surface is now live and resolved: `CardEffectFactory.LinkEffect` (KeyWordEffects/Link.cs, RD-P6C2-7
+// RESOLVED) returns an ActivateClass whose coroutine attaches via `new ILinkCard(...).LinkCard()`. That canonical
+// path is covered GREEN by G9-031.LinkSecurity (LinkAttaches: real K:Link card EX10_029, declared LinkCondition
+// cost 2, attach + memory 5→3). Class + resolver switch case removed; G9-070's invented-duplicate LinkFlow witness
+// retired onto that coverage (its DeclarationReadable case — the synthetic-card LinkCondition observability
+// stage-B gap — stays as-is).
 
 
 // (uniform-사멸 flip) `LinkFromHandOrSourcesToSelfBody` DELETED — consumer-0 invented IEffectBody (the
-// interface died with the uniform ActivatedEffect corpus; the live <Link> surface is LinkSelfEffect +
-// LinkHelpers).
+// interface died with the uniform ActivatedEffect corpus; the live <Link> surface is
+// CardEffectFactory.LinkEffect + LinkHelpers).
 
 
 
@@ -299,28 +183,13 @@ public sealed class ReuseMainOptionEffect : IActivatedCardEffect
 }
 
 
-/// <summary>
-/// (EX8-2 brick) Re-activates THIS card's <see cref="EffectTiming.WhenDigivolving"/> effects through the
-/// choice flow — the headless analog of the original "[All Turns] you may activate 1 of this Digimon's
-/// [When Digivolving] effects" (EX8_074 region "All Turns"). Structural twin of
-/// <see cref="ReuseMainOptionEffect"/> (which re-runs [Main]/OptionSkill): when resolved,
-/// <see cref="ActivatedEffectResolver"/> recursively resolves <c>CardEffects(WhenDigivolving)</c> on the same
-/// sink / choice provider. The once-per-turn, "when any Digimon is played" TRIGGER that OFFERS this effect
-/// is the remaining EX8-2 integration (see docs/audit/ex8_074_remaining_goals.md §EX8-2).
-/// </summary>
-public sealed class ReuseWhenDigivolvingEffect : IActivatedCardEffect
-{
-    public ReuseWhenDigivolvingEffect(string description)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Description = description;
-    }
-
-    public string Description { get; }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Reuse-when-digivolving effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-b RETIRED) `ReuseWhenDigivolvingEffect` DELETED — the mirror-invented "[All Turns] re-activate this
+// card's [When Digivolving] effects" carrier was test-only (only TfxWhenDigivolveDelete's OptionSkill branch
+// constructed it). EX8_074 (the real card) already superseded it: region #6 delivers the SAME re-activation
+// through the AS-IS OnEnterFieldAnyone + play-window broadcast (StackSkillInfos) path, NOT this bespoke marker
+// (EX8_074.cs #6 comment: "no-ops for this card once ReuseWhenDigivolvingEffect is gone"). The live rule is
+// covered by G9-012.LiveAllTurnsReactivation (real EX8_074 through the pump, 3/3 green). Class + resolver
+// switch case + the Tfx OptionSkill branch + G9-009 test #5 removed together.
 
 
 /// <summary>Placeholder for an original effect whose subsystem is not yet ported. Returned so a ported
@@ -1082,44 +951,13 @@ public sealed class RevealMultiSelectEffect : IActivatedCardEffect
 /// (skill-destroy immunity) is not modeled engine-wide (<c>CanNotBeDestroyedBySkillClass</c> is an unported
 /// skeleton — no card sets it), so it is a documented engine gap, not re-implemented in this predicate.
 /// </summary>
-public sealed class DestroyPermanentsEffect : IActivatedCardEffect
-{
-    private readonly IReadOnlyList<HeadlessEntityId> _targets;
-
-    public DestroyPermanentsEffect(CardSource card, IReadOnlyList<HeadlessEntityId> targets, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(targets);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        _targets = targets;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public void Apply(MatchStateMutationSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        foreach (HeadlessEntityId target in _targets)
-        {
-            if (target.IsEmpty)
-            {
-                continue;
-            }
-
-            sink.Apply(new EffectMutation(
-                MatchStateMutationSink.DeleteKind,
-                Card.InstanceId,
-                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target }));
-        }
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Destroy-permanents effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-b RE-TARGETED) `DestroyPermanentsEffect` DELETED — the test-only IActivatedCardEffect wrapper for
+// "directly delete a pre-computed list" is retired. The AS-IS delete path is the DeleteKind sink mutation
+// through the centralised immunity / deletion-prevention gate — live via `CardEffectCommons.DestroyPermanent`
+// (the AS-IS DestroyPermanentsClass(target).Destroy() sink helper) and SelectPermanentEffect Mode.Destroy. Its
+// sole consumer, TfxDestroy, was re-pointed to that AS-IS sink path inline (NewSink + DestroyPermanent +
+// FlushAsync) through an ActivateClass coroutine — G9-017 assertions (delete-all + cannotBeDeleted immunity)
+// preserved. Class + resolver switch case removed.
 
 
 /// <summary>(PRIM-W2) Mirror of the original <c>DeckBottomBounceClass</c> (CardController.cs): return a
@@ -1344,103 +1182,19 @@ public sealed class MaterialSaveActivatedEffect : IActivatedCardEffect
 }
 
 
-/// <summary>
-/// (BT-PRE-A4) Mirror of the original <c>HatchDigiEggClass</c>
-/// (DCGO/Assets/Scripts/Script/CardController.cs): if the controller <c>CanHatch</c> (an empty breeding area
-/// and an available digi-egg), move the top digi-egg from the digitama library into the breeding area. The
-/// AS-IS <c>CanHatch</c> guard is mirrored explicitly here — the raw <c>ZoneMover.HatchDigitamaAsync</c> only
-/// checks for an available egg, NOT the empty-breeding-area rule (that lives on the legal-action dispatcher),
-/// so the effect re-checks it (also keeping this re-run safe: a second pass finds the breeding area occupied
-/// and no-ops).
-/// </summary>
-public sealed class HatchDigiEggEffect : IActivatedCardEffect
-{
-    public HatchDigiEggEffect(CardSource card, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public async Task ResolveAsync(CancellationToken cancellationToken)
-    {
-        EngineContext context = Card.Context;
-        if (context.ZoneMover is not IZoneStateReader zones)
-        {
-            return;
-        }
-
-        HeadlessPlayerId player = Card.Owner;
-        // AS-IS CanHatch: an empty breeding area AND an available digi-egg.
-        if (zones.GetCards(player, ChoiceZone.BreedingArea).Count > 0
-            || zones.GetCards(player, ChoiceZone.DigitamaLibrary).Count == 0)
-        {
-            return;
-        }
-
-        await context.ZoneMover.HatchDigitamaAsync(player, cancellationToken).ConfigureAwait(false);
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Hatch effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-b RE-TARGETED) `HatchDigiEggEffect` DELETED — the test-only IActivatedCardEffect wrapper for the
+// CanHatch-gated digi-egg hatch is retired. The AS-IS hatch path (the empty-breeding + available-egg guard
+// then `ZoneMover.HatchDigitamaAsync`) is live in BT1_089 (its [Main] hatch branch) and TurnStateMachine's
+// breeding-phase hatch. Its sole consumer, TfxHatch, was re-pointed to that AS-IS path inline via an
+// ActivateClass coroutine (BT1_089 idiom) — G9-018 assertions preserved. Class + resolver switch case removed.
 
 
-/// <summary>
-/// (BT-PRE-A5) Mirror of the original <c>PlayCardClass</c>
-/// (DCGO/Assets/Scripts/Script/CardController.cs) for the SIMPLE cost-free play the BT sets actually use
-/// (BT1_078: <c>payCost: false, root: Library</c>): play <see cref="TargetCardId"/> from <see cref="FromZone"/>
-/// onto the battle area at no cost. Staged as a <c>PlayCard</c> sink mutation (the same PlayCard sink seam,
-/// generalised to an arbitrary target). The original's
-/// jogress / burst / app-fusion / targetPermanent / isTapped / <c>payCost:true</c> branches are NOT modeled
-/// here (out of BT-PRE scope — no such mechanism is invented until a card needs it).
-/// </summary>
-public sealed class PlayCardEffect : IActivatedCardEffect
-{
-    public PlayCardEffect(CardSource card, HeadlessEntityId targetCardId, ChoiceZone fromZone, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        TargetCardId = targetCardId;
-        FromZone = fromZone;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public HeadlessEntityId TargetCardId { get; }
-
-    public ChoiceZone FromZone { get; }
-
-    public string Description { get; }
-
-    public void Apply(MatchStateMutationSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        if (TargetCardId.IsEmpty)
-        {
-            return;
-        }
-
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.PlayCardKind,
-            Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.TargetEntityIdKey] = TargetCardId.Value,
-                [MatchStateMutationSink.FromZoneKey] = FromZone.ToString(),
-            }));
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Play-card effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-b RE-TARGETED) `PlayCardEffect` DELETED — the test-only IActivatedCardEffect wrapper for a simple
+// cost-free play is retired (sibling `PlayThisCardToBattleEffect` was likewise soaked, 이연③-A). The AS-IS
+// play path is the PlayCardKind sink mutation, whose handler routes through PlayCardClass.PlayCard()
+// (MatchStateMutationSink.ApplyPlayCard, :421-425) — the mechanism live cards use. Its sole consumer,
+// TfxPlayCard, was re-pointed to that AS-IS sink path inline (NewSink + PlayCardKind + FlushAsync) through an
+// ActivateClass coroutine — G9-019 assertions preserved. Class + resolver switch case removed.
 
 
 /// <summary>(PRIM-W5) Return this card to the owner's hand (AS-IS <c>AddThisCardToHand</c>).</summary>
