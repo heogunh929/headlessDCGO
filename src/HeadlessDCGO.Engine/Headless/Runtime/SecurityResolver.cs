@@ -236,13 +236,36 @@ public sealed class SecurityResolver
                 if (outcome == SecurityBattleOutcome.AttackerDeleted)
                 {
                     attackerDeletedBySecurity = true;
+                    // (B군 2R A1b / RD-R6-02) AS-IS runs the per-card UntilSecurityCheckEnd reset (CardController.cs:4206)
+                    // AFTER the security-Digimon battle, BEFORE the next-loop StopSecurityCheck ends the check — so the
+                    // reset fires even on the iteration whose battle deleted the attacker. Clear before breaking.
+                    ResetUntilSecurityCheckEndBuckets(context);
                     // AS-IS StopSecurityCheck: with the attacker gone, no further security is checked.
                     break;
                 }
             }
+
+            // (B군 2R A1b / RD-R6-02) AS-IS per-security-card reset of the UntilSecurityCheckEnd bucket
+            // (CardController.cs:4206-4210) — end of each fully-processed check iteration (window + [Security] effect +
+            // security-Digimon battle all done). The early-return deferred/interactive paths above park before AS-IS
+            // reaches :4206, so they intentionally skip this (the resumed FinalizeDeferredSecurityCheckAsync path runs it).
+            ResetUntilSecurityCheckEndBuckets(context);
         }
 
         return new SecurityCheckLoopResult(checkedCards, movementResults, securityDigimonBattles, attackerDeletedBySecurity);
+    }
+
+    /// <summary>(B군 2R A1b / RD-R6-02) AS-IS per-security-card reset of the UntilSecurityCheckEnd BUCKET
+    /// (CardController.cs:4206-4210, "reset effect until end of security check"): after a checked card is fully
+    /// processed both players drop <c>UntilSecurityCheckEndEffects</c>. There is NO registry carrier for this
+    /// duration (no <c>EffectDuration.UntilSecurityCheckEnd</c>), so the bucket is the sole carrier — this reset is
+    /// the ONLY expiry point. Reassigning a fresh list = AS-IS <c>= new List&lt;Func&lt;EffectTiming, ICardEffect&gt;&gt;()</c>.</summary>
+    private static void ResetUntilSecurityCheckEndBuckets(EngineContext context)
+    {
+        foreach (HeadlessPlayerId playerId in context.TurnController.Current.PlayerOrder)
+        {
+            new Player(context, playerId).UntilSecurityCheckEndEffects = new();
+        }
     }
 
     // --- (C-5/VR-6) deferred security-battle park/resume ----------------------------------------------
