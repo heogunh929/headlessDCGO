@@ -4406,6 +4406,21 @@ public static partial class CardEffectCommons
             new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target.Value }));
     }
 
+    /// <summary>Stage a deck-bottom return (AS-IS <c>DeckBottomBounceClass(target).DeckBounce()</c>) on
+    /// <paramref name="target"/> via the sink — the per-target action for no-select "return a pre-computed list
+    /// to the bottom of the deck" bodies (e.g. AD1_025's shared OP/WD arm). The sink's ReturnToDeckBottomKind
+    /// handler applies the AS-IS gates (CannotReturnToLibrary / CanNotBeRemoved) and opens the DeckBounce leave
+    /// window (source = <paramref name="card"/>), mirroring <see cref="DestroyPermanent"/> for the delete case.</summary>
+    public static void ReturnToDeckBottom(MatchStateMutationSink sink, CardSource card, HeadlessEntityId target)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(card);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.ReturnToDeckBottomKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target.Value }));
+    }
+
     /// <summary>Stage an unsuspend of <paramref name="card"/>'s own permanent (AS-IS
     /// <c>IUnsuspendPermanents(self).Unsuspend()</c>) via the sink — the reusable self follow-up for
     /// own-stack-return effects (BT1_084 br2). The sink's centralised gates filter.</summary>
@@ -4588,20 +4603,17 @@ public static partial class CardEffectCommons
     /// mirrors the AS-IS <c>afterMainEffect</c> callback (a follow-up run AFTER the reused [Main], in order —
     /// AS-IS ActivateMainOfOptionSide sequences main-then-after inside ONE coroutine): the follow-up effect is
     /// appended to the SecuritySkill list so the sequential ResolveListAsync pass runs it right after the reused
-    /// [Main] (e.g. <see cref="AddThisCardToHandEffect"/> for "then, add this card to your hand", ST4_15 — the
-    /// same effect kind the EX1_072/BT9_109 [Security] add-to-hand path uses). (uniform-사멸 flip) Replaces the
-    /// former gate-free uniform <c>ActivatedEffect</c> body-carrier — the last non-fixture uniform producer.</summary>
+    /// [Main] (ST4_15 — "then, add this card to your hand" via <c>AddThisCardToHand</c>, the same live self-bounce
+    /// the ST3_13 / BT9_109 [Security] path calls inline). (이연③-d) <paramref name="afterMainEffect"/> now mirrors
+    /// AS-IS's own callback shape exactly — <c>Func&lt;ICardEffect, IEnumerator&gt;</c> → <c>Func&lt;ICardEffect,
+    /// Task&gt;</c> (AS-IS AddActivateMainOptionSecurityEffect, CardEffectCommons.cs:723) — carried on
+    /// <see cref="ReuseMainOptionEffect"/> and run by the resolver after the reused [Main], retiring the invented
+    /// AddThisCardToHandEffect composite that was formerly appended as a separate effect.</summary>
     public static void AddActivateMainOptionSecurityEffect(
-        CardSource card, ref List<ICardEffect> cardEffects, string effectName, ICardEffect? afterMainEffect = null)
+        CardSource card, ref List<ICardEffect> cardEffects, string effectName, Func<ICardEffect, Task>? afterMainEffect = null)
     {
         ArgumentNullException.ThrowIfNull(cardEffects);
-        cardEffects.Add(new ReuseMainOptionEffect(effectName));
-        if (afterMainEffect is not null)
-        {
-            // The follow-up effect: resolved right after the reused [Main] in the same ResolveListAsync pass
-            // (SecuritySkill flow), matching the AS-IS sequential callback.
-            cardEffects.Add(afterMainEffect);
-        }
+        cardEffects.Add(new ReuseMainOptionEffect(effectName, afterMainEffect));
     }
 
     /// <summary>Mirror of the original <c>Permanent.HasNoDigivolutionCards</c> (entity-id form): the

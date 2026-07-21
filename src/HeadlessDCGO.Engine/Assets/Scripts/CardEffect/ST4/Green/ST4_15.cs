@@ -81,11 +81,19 @@ public sealed class ST4_15 : CEntity_Effect
         if (timing == EffectTiming.SecuritySkill)
         {
             // [Security] reuse [Main] (suspend 1 opponent Digimon), THEN add this card to hand — the AS-IS
-            // afterMainEffect callback, mirrored via the sequential follow-up effect (AddThisCardToHandEffect).
+            // afterMainEffect callback, VERBATIM: `IEnumerator AfterMainEffect(ICardEffect activateClass) =>
+            // AddThisCardToHand(card, activateClass)` (substrate IEnumerator->Task; the mirror
+            // `AddThisCardToHand(card1, sourceCard)` takes sourceCard = the cause card = `card`, the ST3_13
+            // convention since SetUpICardEffect sets EffectSourceCard = card).
             CardEffectCommons.AddActivateMainOptionSecurityEffect(
                 card: card, cardEffects: ref cardEffects,
                 effectName: "Suspend 1 Digimon and add this card to hand",
-                afterMainEffect: new AddThisCardToHandEffect(card, "Then, add this card to your hand."));
+                afterMainEffect: AfterMainEffect);
+
+            async Task AfterMainEffect(ICardEffect activateClass)
+            {
+                await CardEffectCommons.AddThisCardToHand(card, card);
+            }
         }
 
         return cardEffects;

@@ -17,8 +17,8 @@ HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("G7: return 1 Lv6 own-stack source to hand, then self GainCanNotBeBlocked (BT3_112 br2 follow-up)", G7_ReturnSourceThenUnblockable),
-    ("G7: skipping the optional pick leaves the source in the stack and grants nothing", G7_SkipDoesNothing),
+    ("G7: BT1_084 [When Attacking] return 1 Lv6 own-stack source to hand, then unsuspend self (이연③-d)", G7_ReturnSourceThenUnsuspend),
+    ("G7: no matching Lv6 source -> effect no-ops (source stays, host stays suspended)", G7_NoMatchingSourceDoesNothing),
     ("G1: reveal 3, play the matching card as a new permanent, remaining 2 -> deck bottom (BT3_063 shape)", G1_RevealThenPlayAsNewPermanent),
     ("G1: revealCount is a Func evaluated at resolve (BT3_073 dynamic count)", G1_RevealCountIsDynamic),
     ("G5: digivolve-from-hand onto Paildramon costs -2 (dispatch-first hand-card cost gate, BT3_031/111)", G5_CostGateAppliesFromHand),
@@ -37,53 +37,60 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 // ---- G7 ----------------------------------------------------------------------
 
-async Task G7_ReturnSourceThenUnblockable()
+// (이연③-d) G7 now witnesses BT1_084's REAL [When Attacking] effect (the invented
+// SelectDigivolutionSourceToHandThenSelfFollowUpEffect was retired; the BT3_112-style GainCanNotBeBlocked
+// follow-up variant had no live card consumer). AS-IS inline: SelectCardEffect(AddHand, Custom root over the
+// permanent's DigivolutionCards) returns the picked Lv6 source to hand, THEN IUnsuspendPermanents unsuspends the
+// host. Driven by activating BT1_084's OnAllyAttack ActivateClass under an ambient scope with a scripted pick.
+async Task G7_ReturnSourceThenUnsuspend()
 {
     EngineContext ctx = NewContext();
-    // Host Digimon on the battle area with one Lv6 Digimon digivolution source under it.
-    HeadlessEntityId host = Battle(ctx, "HOST", "Host", cardType: "Digimon");
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    // Host Digimon on the battle area, SUSPENDED, with one Lv6 Digimon digivolution source under it.
+    HeadlessEntityId host = Battle(ctx, "BT1_084", "Host", cardType: "Digimon");
+    Suspend(ctx, host, true);
     HeadlessEntityId src = Source(ctx, "SRC6", level: 6);
     SetSources(ctx, host, src);
-
-    var card = new CardSource(ctx, host, P1);
-    var eff = new SelectDigivolutionSourceToHandThenSelfFollowUpEffect(
-        card,
-        canSelect: cs => cs.IsDigimon && cs.Level == 6 && cs.HasLevel,
-        isOptional: true,
-        onSelected: sink => CardEffectCommons.GainCanNotBeBlocked(
-            new Permanent(ctx, host, P1), defenderCondition: null, EffectDuration.UntilEachTurnEnd, card),
-        description: "[When Attacking] return 1 Lv6 source to hand -> this Digimon becomes unblockable");
 
     Script(ctx, ChoiceResult.Select(src));
-    await eff.ResolveAsync(NewSink(ctx), CancellationToken.None);
+    await DriveOnAttack(ctx, host);
 
-    AssertTrue(InZone(ctx, ChoiceZone.Hand, src), "the picked Lv6 source returned to hand");
-    AssertTrue(ContinuousRestrictionGate.EvaluateBeBlocked(ctx, host).IsRestricted,
-        "the self follow-up granted CanNotBeBlocked (unblockable) to the host");
+    AssertTrue(InZone(ctx, ChoiceZone.Hand, src), "the picked Lv6 source returned to hand (SelectCardEffect AddHand)");
+    AssertFalse(IsSuspended(ctx, host), "the host was unsuspended (IUnsuspendPermanents)");
 }
 
-async Task G7_SkipDoesNothing()
+async Task G7_NoMatchingSourceDoesNothing()
 {
     EngineContext ctx = NewContext();
-    HeadlessEntityId host = Battle(ctx, "HOST", "Host", cardType: "Digimon");
-    HeadlessEntityId src = Source(ctx, "SRC6", level: 6);
-    SetSources(ctx, host, src);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    HeadlessEntityId host = Battle(ctx, "BT1_084", "Host", cardType: "Digimon");
+    Suspend(ctx, host, true);
+    // Only a Lv5 source under the host -> CanActivate false (no Lv6 source) -> effect no-ops.
+    HeadlessEntityId src5 = Source(ctx, "SRC5", level: 5);
+    SetSources(ctx, host, src5);
 
+    await DriveOnAttack(ctx, host);
+
+    AssertFalse(InZone(ctx, ChoiceZone.Hand, src5), "no Lv6 source -> nothing returned to hand");
+    AssertTrue(IsSuspended(ctx, host), "no activation -> host stays suspended");
+}
+
+// Build BT1_084's OnAllyAttack ActivateClass and run its body (the CanActivate execution gate + Activate), under
+// an ambient match scope (GManager/SelectCardEffect), the way the attack window drives it.
+async Task DriveOnAttack(EngineContext ctx, HeadlessEntityId host)
+{
+    using var scope = AmbientMatchContext.Enter(ctx);
     var card = new CardSource(ctx, host, P1);
-    var eff = new SelectDigivolutionSourceToHandThenSelfFollowUpEffect(
-        card,
-        canSelect: cs => cs.IsDigimon && cs.Level == 6 && cs.HasLevel,
-        isOptional: true,
-        onSelected: sink => CardEffectCommons.GainCanNotBeBlocked(
-            new Permanent(ctx, host, P1), defenderCondition: null, EffectDuration.UntilEachTurnEnd, card),
-        description: "optional");
-
-    Script(ctx, ChoiceResult.Skip());
-    await eff.ResolveAsync(NewSink(ctx), CancellationToken.None);
-
-    AssertFalse(InZone(ctx, ChoiceZone.Hand, src), "skipping returns nothing to hand");
-    AssertFalse(ContinuousRestrictionGate.EvaluateBeBlocked(ctx, host).IsRestricted,
-        "skipping applies no follow-up grant");
+    var effects = new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.White.BT1_084()
+        .CardEffects(EffectTiming.OnAllyAttack, card);
+    var ht = new System.Collections.Hashtable();
+    foreach (ICardEffect e in effects)
+    {
+        if (e is ActivateICardEffect ae && e.CanActivate(ht))
+        {
+            await ae.Activate(ht);
+        }
+    }
 }
 
 // ---- G1 ----------------------------------------------------------------------
@@ -239,6 +246,17 @@ HeadlessEntityId Source(EngineContext ctx, string number, int level)
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId(number), P1));
     return id;
 }
+
+void Suspend(EngineContext ctx, HeadlessEntityId id, bool suspended)
+{
+    ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec);
+    var meta = new Dictionary<string, object?>(rec!.Metadata, StringComparer.Ordinal) { ["isSuspended"] = suspended };
+    ctx.CardInstanceRepository.Upsert(rec with { Metadata = meta });
+}
+
+bool IsSuspended(EngineContext ctx, HeadlessEntityId id) =>
+    ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null
+    && r.Metadata.TryGetValue("isSuspended", out object? v) && v is true;
 
 void SetSources(EngineContext ctx, HeadlessEntityId host, params HeadlessEntityId[] sources)
 {

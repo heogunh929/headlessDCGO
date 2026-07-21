@@ -171,12 +171,20 @@ public sealed class SelectAndDigivolveEffect : IActivatedCardEffect
 /// auto-registered (security timing is excluded from <see cref="CardEffectRegistrar.AllTimings"/>).</summary>
 public sealed class ReuseMainOptionEffect : IActivatedCardEffect
 {
-    public ReuseMainOptionEffect(string description)
+    public ReuseMainOptionEffect(string description, Func<ICardEffect, Task>? afterMainEffect = null)
     {
         Description = description;
+        AfterMainEffect = afterMainEffect;
     }
 
     public string Description { get; }
+
+    /// <summary>(이연③-d) AS-IS <c>ActivateMainOptionSecurityEffect</c>'s <c>afterMainEffect</c> callback
+    /// (CardEffectFactory.cs:551 — <c>Func&lt;ICardEffect, IEnumerator&gt;</c>, substrate <c>Task</c>): the
+    /// follow-up coroutine run AFTER the reused [Main] inside the SAME activation (e.g. ST4_15's "Then, add this
+    /// card to your hand" → <c>CardEffectCommons.AddThisCardToHand</c>). Retires the invented
+    /// <c>AddThisCardToHandEffect</c> composite that was formerly appended as a separate effect.</summary>
+    public Func<ICardEffect, Task>? AfterMainEffect { get; }
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Reuse-main security effect is resolved via the activation flow, not registered: {Description}");
@@ -290,71 +298,13 @@ public sealed class ModeChoiceEffect : IActivatedCardEffect
 // bounce). G1R-001 row retired.
 
 
-/// <summary>(PRIM-P0 B.O.4) A non-interactive one-shot before-pay cost reduction: when this card is being
-/// played/digivolved and <see cref="_condition"/> holds, register a one-shot <c>playCostDelta = -amount</c>
-/// self modifier tagged <see cref="EffectDuration.UntilCalculateFixedCost"/> (cleared once the cost is locked).
-/// The headless mirror of the AS-IS <c>BeforePayCost</c> ActivateClass that does
-/// <c>card.Owner.UntilCalculateFixedCostEffect.Add(_ =&gt; changeCostClass)</c> (e.g. BT18_057). Non-interactive
-/// counterpart of <see cref="SuspendCostReductionEffect"/>. Reduces THIS play's own cost. See
-/// docs/porting/cost_modification_design.md.</summary>
-public sealed class BeforePayCostReductionEffect : IActivatedCardEffect
-{
-    private readonly Func<int> _amount;
-    private readonly Func<bool>? _condition;
-
-    public BeforePayCostReductionEffect(CardSource card, Func<int> amount, Func<bool>? condition, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(amount);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        _amount = amount;
-        _condition = condition;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    /// <summary>Register the one-shot reduction if the condition holds and the amount is positive.</summary>
-    public void Apply()
-    {
-        if (_condition is not null && !_condition())
-        {
-            return;
-        }
-
-        int amount = _amount();
-        if (amount <= 0)
-        {
-            return;
-        }
-
-        // (R6-Da'-3) AS-IS BeforePayCost ActivateClass: card.Owner.UntilCalculateFixedCostEffect.Add(_ =>
-        // changeCostClass). Register a ONE-SHOT self cost-reduction ChangeCostClass into the OWNER's
-        // UntilCalculateFixedCost bucket (cleared once the play's cost is locked — EffectDurationExpiry.
-        // ExpireFixedCostCalc / PlayCardAction). Gated ONLY on `cardSource == this card` (no target-permanent
-        // restriction) so it reduces THIS card's cost whether paid as a play OR a digivolution — a given action
-        // pays exactly one, so it fires exactly once. Read back by CardSource.GetPayingCostWithBaseCost's
-        // GetChangedPayingCost fold. Replaces the INVENTED EffectRegistry NumericModifier binding (which reduced
-        // both metrics via separate PlayCost/DigivolutionCost delta keys but bypassed the AS-IS CanUse gate).
-        int reduce = amount;
-        var changeCostClass = new ChangeCostClass();
-        changeCostClass.SetUpICardEffect($"Cost -{reduce}", _ => true, Card);
-        changeCostClass.SetUpChangeCostClass(
-            changeCostFunc: (cs, cost, root, targetPermanents) => cost - reduce,
-            cardSourceCondition: cs => cs == Card,
-            rootCondition: root => true,
-            isUpDown: () => true,
-            isCheckAvailability: () => false,
-            isChangePayingCost: () => true);
-        new Player(Card.Context, Card.Owner).UntilCalculateFixedCostEffect.Add(_ => changeCostClass);
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Before-pay cost reduction is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-d EXHAUSTED) invented `BeforePayCostReductionEffect` DELETED — the non-interactive one-shot before-pay
+// cost reducer is retired. Its body (a self ChangeCostClass registered into the owner's
+// UntilCalculateFixedCostEffect bucket) IS the AS-IS BeforePayCost ActivateClass idiom (BT18_057 / EX8_074
+// region #1), so its sole producer — the TfxBeforePayCostReduction fixture — was re-pointed to that inline
+// `[BeforePayCost] new ActivateClass()` shape verbatim, run by the resolver's ActivateICardEffect case during the
+// PlayCard/Digivolve BeforePayCost window. Real cards (BT2_023 / BT2_045 / BT2_050) already use the inline
+// ChangeCostClass shape. Factory helpers + resolver switch case removed too.
 
 
 
@@ -463,39 +413,9 @@ public sealed class DnaFromHandOrTrashActivatedEffect : IActivatedCardEffect
 }
 
 
-/// <summary>
-/// An activated "gain/lose N memory" effect for player-activated skills (Option [Main] / [Security], e.g.
-/// ST2_13). Resolved imperatively; <see cref="Apply"/> emits an AddMemory mutation.
-/// </summary>
-public sealed class ActivatedMemoryEffect : IActivatedCardEffect
-{
-    public ActivatedMemoryEffect(CardSource card, int amount, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Amount = amount;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public int Amount { get; }
-
-    public string Description { get; }
-
-    public void Apply(MatchStateMutationSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.AddMemoryKind,
-            Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount }));
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Activated memory effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-d EXHAUSTED) invented `ActivatedMemoryEffect` DELETED — census-0 producer (factory
+// GainMemoryActivatedEffect removed; BT2_087 / ST2_13 re-ported to inline `new ActivateClass()` +
+// `card.Owner.AddMemory(N, activateClass)`, the AS-IS live memory path). Resolver case removed too.
 
 
 /// <summary>
@@ -960,48 +880,13 @@ public sealed class RevealMultiSelectEffect : IActivatedCardEffect
 // preserved. Class + resolver switch case removed.
 
 
-/// <summary>(PRIM-W2) Mirror of the original <c>DeckBottomBounceClass</c> (CardController.cs): return a
-/// pre-computed list of permanents to the bottom of their owners' decks. Each target is staged as a
-/// <c>ReturnToDeckBottom</c> sink mutation; the sink's centralised immunity gate filters (source = this
-/// card), mirroring <see cref="DestroyPermanentsEffect"/> for the delete case.</summary>
-public sealed class DeckBottomBounceEffect : IActivatedCardEffect
-{
-    private readonly IReadOnlyList<HeadlessEntityId> _targets;
-
-    public DeckBottomBounceEffect(CardSource card, IReadOnlyList<HeadlessEntityId> targets, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(targets);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        _targets = targets;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public void Apply(MatchStateMutationSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        foreach (HeadlessEntityId target in _targets)
-        {
-            if (target.IsEmpty)
-            {
-                continue;
-            }
-
-            sink.Apply(new EffectMutation(
-                MatchStateMutationSink.ReturnToDeckBottomKind,
-                Card.InstanceId,
-                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target }));
-        }
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Deck-bottom-bounce effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-d EXHAUSTED) invented `DeckBottomBounceEffect` DELETED — the test-only IActivatedCardEffect wrapper
+// for "return a pre-computed list to the deck bottom" is retired. The AS-IS bounce path is the
+// ReturnToDeckBottomKind sink mutation through the centralised gate + DeckBounce leave window — live via
+// `CardEffectCommons.ReturnToDeckBottom` (the AS-IS DeckBottomBounceClass(target).DeckBounce() per-target sink
+// helper, parallel to DestroyPermanent/SuspendPermanent). Its sole non-test producer, AD1_025's shared OP/WD
+// arm, was re-pointed to that helper inline (fresh sink + per-target ReturnToDeckBottom + FlushAsync). Resolver
+// switch case removed too.
 
 
 /// <summary>(PRIM-W3) Mirror of AS-IS <c>ReturnToLibraryBottomDigivolutionCardsClass</c> — returns the host's
@@ -1311,36 +1196,11 @@ public sealed class PlayOptionCardEffect : IActivatedCardEffect
 // the permanent bucket at reset.
 
 
-/// <summary>
-/// An activated "add this card to its owner's hand" effect (Option/Security self-bounce, e.g. ST3_13 /
-/// ST3_14 [Security]). <see cref="Apply"/> emits a ReturnToHand mutation on the source card.
-/// </summary>
-public sealed class AddThisCardToHandEffect : IActivatedCardEffect
-{
-    public AddThisCardToHandEffect(CardSource card, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public void Apply(MatchStateMutationSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.ReturnToHandKind,
-            Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value }));
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Add-to-hand effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-d EXHAUSTED) invented `AddThisCardToHandEffect` composite DELETED — its sole live producer was
+// ST4_15's [Security] afterMainEffect follow-up, re-pointed to the AS-IS callback shape: the [Main]-reuse
+// carrier (ReuseMainOptionEffect) now holds AS-IS's `afterMainEffect` (Func<ICardEffect,Task>) and ST4_15
+// passes a local coroutine calling `CardEffectCommons.AddThisCardToHand(card, card)` verbatim (the same live
+// self-bounce path ST3_13 / BT9_109 [Security] already drive). Resolver case removed too.
 
 
 // (이연③-A DEAD) The mirror-invented `PlayThisCardToBattleEffect` (Tamer [Security] "Play this Tamer",
@@ -1357,55 +1217,12 @@ public sealed class AddThisCardToHandEffect : IActivatedCardEffect
 // (UntilEndBattleEffects.Add → OnEndBattle → cost-free play). RD-P6C3-B2 RESOLVED. G1R-001 ledger → 0 rows.
 
 
-/// <summary>(PRIM-W2 #9) AS-IS <c>Gain2MemoryOptionDelayEffect</c> — the [Main] &lt;Delay&gt; activation: TRASH
-/// this card's own battle-area permanent (the Delay option), and ONLY IF it was actually trashed, gain
-/// <see cref="Amount"/> memory. Mirrors AS-IS (DeletePeremanentAndProcessAccordingToResult(self) → successProcess
-/// AddMemory). Replaces the former stub that mapped it to an UNCONDITIONAL start-of-turn memory gain (wrong
-/// trigger AND no self-trash cost).</summary>
-public sealed class TrashSelfThenGainMemoryDelayEffect : IActivatedCardEffect
-{
-    public TrashSelfThenGainMemoryDelayEffect(CardSource card, int amount)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        Card = card;
-        Amount = amount;
-    }
-
-    public CardSource Card { get; }
-
-    public int Amount { get; }
-
-    public async Task ResolveAsync(CancellationToken cancellationToken)
-    {
-        // AS-IS card.PermanentOfThisCard(): only a battle-area permanent (the placed Delay option) can be
-        // trashed to activate — no permanent means nothing trashed, hence no gain.
-        if (!((IZoneStateReader)Card.Context.ZoneMover).GetCards(Card.Owner, ChoiceZone.BattleArea).Contains(Card.InstanceId))
-        {
-            return;
-        }
-
-        var permanent = new Permanent(Card.Context, Card.InstanceId, Card.Owner);
-        await CardEffectCommons.DeletePeremanentAndProcessAccordingToResult(
-            new[] { permanent },
-            Card,
-            successProcess: async _ =>
-            {
-                // The self-trash succeeded — gain the memory (turn-relative sign applied by the sink).
-                var sink = new MatchStateMutationSink(
-                    Card.Context.CardInstanceRepository, Card.Context.LogSink, Card.Context.ZoneMover,
-                    Card.Context.MemoryController, Card.Context.EffectRegistry, Card.Context.GameEventQueue, context: Card.Context);
-                sink.Apply(new EffectMutation(
-                    MatchStateMutationSink.AddMemoryKind, Card.InstanceId,
-                    new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount }));
-                await sink.FlushAsync().ConfigureAwait(false);
-            },
-            failureProcess: null,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException("Delay-option trash-self-then-gain effect is resolved via the activation flow, not registered.");
-}
+// (이연③-d EXHAUSTED) invented `TrashSelfThenGainMemoryDelayEffect` DELETED — the [Main] <Delay> "trash self
+// then gain 2 memory" carrier is retired. AS-IS `Gain2MemoryOptionDelayEffect` (CardEffectFactory.cs:470) is a
+// REAL AS-IS factory returning an inline ActivateClass (CanUse = CanDeclareOptionDelayEffect; ActivateCoroutine =
+// DeletePeremanentAndProcessAccordingToResult(self) → successProcess AddMemory(2)); the mirror factory was
+// re-pointed to that AS-IS ActivateClass verbatim, resolved by the ActivateICardEffect case. Resolver switch
+// case removed too.
 
 
 /// <summary>
@@ -1660,78 +1477,11 @@ public sealed class RevealSelectThenPlaySelectedEffect : IActivatedCardEffect
 }
 
 
-/// <summary>(BT1_084 [When Attacking]) Select exactly 1 matching card (<c>_canSelect</c>) from THIS card's own
-/// permanent's digivolution-source stack, return it to the owner's hand, then unsuspend this card. 1:1 mirror
-/// of AS-IS SelectCardEffect(root: Custom over selectedPermanent.DigivolutionCards, mode: AddHand, maxCount:
-/// Min(1, matching), canNoSelect:()=>false) THEN a per-card self follow-up. The specific-source return reuses
-/// <see cref="DigivolutionStackHelpers.PlaySpecificSourceAsync"/> (destination Hand); the follow-up
-/// (<paramref name="onSelected"/>) runs afterwards — BT1_084 stages a self-unsuspend on the sink
-/// (<see cref="CardEffectCommons.UnsuspendSelf"/>), BT3_112 applies a self GainCanNotBeBlocked (Unblockable)
-/// grant to the registry. Both honour the sink/registry immunity + restriction gates.</summary>
-public sealed class SelectDigivolutionSourceToHandThenSelfFollowUpEffect : IActivatedCardEffect
-{
-    private readonly Func<CardSource, bool> _canSelect;
-    private readonly bool _isOptional;
-    private readonly Action<MatchStateMutationSink> _onSelected;
-
-    public SelectDigivolutionSourceToHandThenSelfFollowUpEffect(
-        CardSource card, Func<CardSource, bool> canSelect, bool isOptional,
-        Action<MatchStateMutationSink> onSelected, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canSelect);
-        ArgumentNullException.ThrowIfNull(onSelected);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        _canSelect = canSelect;
-        _isOptional = isOptional;
-        _onSelected = onSelected;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public async Task ResolveAsync(MatchStateMutationSink sink, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        EngineContext context = Card.Context;
-
-        var permanent = new Permanent(context, Card.InstanceId, Card.Owner);
-        List<HeadlessEntityId> matching = permanent.DigivolutionCards
-            .Where(c => _canSelect(c))
-            .Select(c => c.InstanceId)
-            .ToList();
-        if (matching.Count == 0)
-        {
-            return; // AS-IS: CanActivate already ensured >=1; defensive.
-        }
-
-        var candidates = matching
-            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.DigivolutionCards, IsSelectable: true, ownerId: Card.Owner))
-            .ToList();
-        // AS-IS canNoSelect:() => false is the pick's rule ONCE the "you can" is activated; in the auto-firing
-        // subject-scoped bridge, the activation optionality (isOptional) is modeled as a skippable request —
-        // skipping = declining to activate; selecting = the mandatory pick of exactly 1.
-        var request = new ChoiceRequest(
-            ChoiceType.Card, Card.Owner, Description, minCount: _isOptional ? 0 : 1, maxCount: 1, canSkip: _isOptional, ChoiceZone.DigivolutionCards, candidates);
-        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
-        if (result.IsSkipped || result.SelectedIds.Count == 0)
-        {
-            return;
-        }
-
-        HeadlessEntityId sourceId = result.SelectedIds[0];
-        await DigivolutionStackHelpers.PlaySpecificSourceAsync(
-            context.CardInstanceRepository, context.ZoneMover, Card.InstanceId, sourceId, ChoiceZone.Hand, cancellationToken).ConfigureAwait(false);
-
-        _onSelected(sink);
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Select-digivolution-source-to-hand-then-self-follow-up effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-d EXHAUSTED) invented `SelectDigivolutionSourceToHandThenSelfFollowUpEffect` DELETED — the
+// BT1_084 [When Attacking] "return 1 level-6 digivolution source to hand to unsuspend this Digimon" carrier is
+// retired. AS-IS drives it inline with live components: SelectCardEffect(mode: AddHand, root: Custom over the
+// permanent's DigivolutionCards) THEN `new IUnsuspendPermanents(self).Unsuspend()` (BT9_043 / BT9_081 idiom);
+// BT1_084 branch 2 was re-pointed to that inline ActivateClass. Resolver switch case removed too.
 
 
 /// <summary>(G8 / BT3_019 [When Digivolving]) OPTIONAL select 1 hand card matching <c>_canTarget</c>, place it
@@ -2214,85 +1964,12 @@ public sealed class ActivatedSelectAndPlayFromZonesEffect : IActivatedCardEffect
 }
 
 
-/// <summary>(BT1_087 [On Play]) Look at your security stack, select exactly 1 card in it and add it to your
-/// hand; if that card has <c>_recoveryColor</c>, &lt;Recovery +1 (Deck)&gt;; then shuffle your security stack.
-/// 1:1 mirror of AS-IS SelectCardEffect(root:Security, mode:AddHand, maxCount:Min(1,count), canNoSelect:()=>
-/// false) with an AfterSelect color-gated IRecovery(owner,1) keyed off the SPECIFIC selected card, followed by
-/// an unconditional RandomUtility.ShuffledDeckCards(SecurityCards). Add-to-hand / recovery / shuffle are staged
-/// on the sink so they flush in that AS-IS order (the recovered card is shuffled in).</summary>
-public sealed class SecuritySelectToHandColorRecoveryShuffleEffect : IActivatedCardEffect
-{
-    private readonly string _recoveryColor;
-
-    public SecuritySelectToHandColorRecoveryShuffleEffect(CardSource card, string recoveryColor, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(recoveryColor);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        _recoveryColor = recoveryColor;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public async Task ResolveAsync(MatchStateMutationSink sink, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        EngineContext context = Card.Context;
-        if (context.ZoneMover is not IZoneStateReader zones)
-        {
-            return;
-        }
-
-        HeadlessPlayerId owner = Card.Owner;
-        List<HeadlessEntityId> security = zones.GetCards(owner, ChoiceZone.Security).ToList();
-        if (security.Count == 0)
-        {
-            return; // AS-IS: CanActivate already required >=1 security card; defensive.
-        }
-
-        var candidates = security
-            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.Security, IsSelectable: true, ownerId: owner))
-            .ToList();
-        // AS-IS canNoSelect:() => false -> mandatory pick of exactly 1.
-        var request = new ChoiceRequest(
-            ChoiceType.Card, owner, Description, minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.Security, candidates);
-        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
-        if (result.IsSkipped || result.SelectedIds.Count == 0)
-        {
-            return;
-        }
-
-        HeadlessEntityId selected = result.SelectedIds[0];
-        // Add the selected security card to hand (moves it out of the security stack).
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.ReturnToHandKind, Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = selected.Value }));
-
-        // If the added card matches the recovery color, <Recovery +1 (Deck)> (top library card -> security top).
-        if (new CardSource(context, selected, owner).HasCardColor(_recoveryColor))
-        {
-            sink.Apply(new EffectMutation(
-                MatchStateMutationSink.RecoverKind, Card.InstanceId,
-                new Dictionary<string, object?>(StringComparer.Ordinal)
-                {
-                    [MatchStateMutationSink.PlayerIdKey] = owner.Value,
-                    [MatchStateMutationSink.CountKey] = 1,
-                }));
-        }
-
-        // Then shuffle the security stack (deferred; flushes after the add-to-hand + recovery moves).
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.ShuffleSecurityKind, Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.PlayerIdKey] = owner.Value }));
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Security-select color-recovery-shuffle effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-d EXHAUSTED) invented `SecuritySelectToHandColorRecoveryShuffleEffect` DELETED — the BT1_087 [On Play]
+// "reveal 1 security card to hand, color-gated Recovery, then shuffle security" carrier is retired. AS-IS drives
+// it inline with live components: SelectCardEffect(mode: AddHand, root: Security) + a color-gated
+// `new IRecovery(owner,1).Recovery()` + `IZoneMover.ShuffleSecurityAsync` (the AS-IS AddHand-from-security
+// removal makes AS-IS's redundant afterSelect IReduceSecurity unneeded on the mirror). BT1_087 was re-pointed to
+// that inline ActivateClass. Resolver switch case removed too.
 
 
 /// <summary>(G4) Atomic "draw N, THEN discard M from your hand" — the AS-IS DrawClass→then→discard coroutine.

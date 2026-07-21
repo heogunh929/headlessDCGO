@@ -98,19 +98,92 @@ public sealed class BT1_084 : CEntity_Effect
         }
 
         // [When Attacking] "You can unsuspend this Digimon by returning 1 of this Digimon's level 6
-        // digivolution cards to your hand." Already ported (branch 2) as SelectDigivolutionSourceToHandThenSelf
-        // FollowUpEffect — NOT an ActivatedEffect, so out of the P8/R6-A ActivateClass conversion scope; kept verbatim.
+        // digivolution cards to your hand." (이연③-d) Re-ported the invented
+        // SelectDigivolutionSourceToHandThenSelfFollowUpEffect -> the literal AS-IS inline ActivateClass:
+        // SelectCardEffect(mode: AddHand, root: Custom over this permanent's DigivolutionCards, canNoSelect:false,
+        // maxCount 1) THEN `new IUnsuspendPermanents(self).Unsuspend()` — both live mirror components (BT9_043 /
+        // BT9_081 idiom). Substrate: IEnumerator->Task, StartCoroutine->await; `card.PermanentOfThisCard()` ->
+        // `ICardEffect.ResolvePermanentOfThisCard(card)` (returns the mirror Permanent whose DigivolutionCards is
+        // the List<CardSource> customRootCardList / IUnsuspendPermanents target).
         if (timing == EffectTiming.OnAllyAttack)
         {
-            bool CanSelectCardCondition(CardSource cardSource) =>
-                cardSource.IsDigimon && cardSource.Level == 6 && cardSource.HasLevel;
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Return 1 digivolution card to unsuspend this Digimon", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
+            cardEffects.Add(activateClass);
 
-            cardEffects.Add(new SelectDigivolutionSourceToHandThenSelfFollowUpEffect(
-                card,
-                canSelect: CanSelectCardCondition,
-                isOptional: true,
-                onSelected: sink => CardEffectCommons.UnsuspendSelf(sink, card),
-                description: "[When Attacking] You can unsuspend this Digimon by returning 1 of this Digimon's level 6 digivolution cards to your hand."));
+            string EffectDiscription()
+            {
+                return "[When Attacking] You can unsuspend this Digimon by returning 1 of this Digimon's level 6 digivolution cards to your hand.";
+            }
+
+            bool CanSelectCardCondition(CardSource cardSource)
+            {
+                if (cardSource.IsDigimon)
+                {
+                    if (cardSource.Level == 6)
+                    {
+                        if (cardSource.HasLevel)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Count(CanSelectCardCondition) >= 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+
+                if (selectedPermanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1)
+                {
+                    int maxCount = Math.Min(1, selectedPermanent.DigivolutionCards.Count(CanSelectCardCondition));
+
+                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+                    selectCardEffect.SetUp(
+                                canTargetCondition: CanSelectCardCondition,
+                                canTargetCondition_ByPreSelecetedList: null,
+                                canEndSelectCondition: null,
+                                canNoSelect: () => false,
+                                selectCardCoroutine: null,
+                                afterSelectCardCoroutine: null,
+                                message: "Select 1 digivolution card to add to your hand.",
+                                maxCount: maxCount,
+                                canEndNotMax: false,
+                                isShowOpponent: true,
+                                mode: SelectCardEffect.Mode.AddHand,
+                                root: SelectCardEffect.Root.Custom,
+                                customRootCardList: selectedPermanent.DigivolutionCards.ToList(),
+                                canLookReverseCard: true,
+                                selectPlayer: card.Owner,
+                                cardEffect: activateClass);
+
+                    await selectCardEffect.Activate();
+
+                    await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend();
+                }
+            }
         }
 
         return cardEffects;

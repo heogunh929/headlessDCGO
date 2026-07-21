@@ -10,7 +10,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 //  - ArmorPurgeEffect -> Batch2 keyword grant (HasKeyword).
 //  - CanNotAttackSelfStaticEffect -> ContinuousSelfRestrictionEffect(CannotAttack) that
 //    ContinuousRestrictionGate.EvaluateAttack (AttackPermanentAction) consults.
-//  - DeckBottomBounceEffect -> direct ReturnToDeckBottom of a target list.
+//  - CardEffectCommons.ReturnToDeckBottom -> direct deck-bottom return of a target (AS-IS DeckBounce sink helper).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -19,7 +19,7 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("ArmorPurgeEffect -> gate sees Armor Purge live", ArmorPurgeGrants),
     ("CanNotAttackSelfStaticEffect -> attack is restricted", CanNotAttackRestricts),
-    ("DeckBottomBounceEffect -> targets return to the deck (library)", BounceToDeck),
+    ("ReturnToDeckBottom (AS-IS DeckBounce sink helper) -> targets return to the deck (library)", BounceToDeck),
 };
 
 var failures = new List<string>();
@@ -81,7 +81,9 @@ async Task BounceToDeck()
 
     var sink = new MatchStateMutationSink(
         context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
-    new DeckBottomBounceEffect(new CardSource(context, src, P1), new[] { foe }, "Return to deck bottom.").Apply(sink);
+    // (이연③-d) re-targeted the retired invented DeckBottomBounceEffect → the AS-IS
+    // DeckBottomBounceClass(target).DeckBounce() sink helper (CardEffectCommons.ReturnToDeckBottom).
+    CardEffectCommons.ReturnToDeckBottom(sink, new CardSource(context, src, P1), foe);
     await sink.FlushAsync();
 
     var zones = (IZoneStateReader)context.ZoneMover;

@@ -333,7 +333,43 @@ bool ReadSuspended(EngineContext ctx, string instanceId) =>
     int resolved = ActivatedEffectResolver.ResolveAsync(ctx, st3, P1, EffectTiming.SecuritySkill).GetAwaiter().GetResult();
     Check(resolved > 0, "ST3_13 [Security] (P2-2): activated effects resolved via ResolveAsync");
     Check(((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Hand).Contains(st3),
-        "ST3_13 [Security] (P2-2): add-this-card-to-hand restored through the RESOLVER path (AddThisCardToHandEffect case)");
+        "ST3_13 [Security] (P2-2): add-this-card-to-hand restored through the RESOLVER path (inline AddThisCardToHand coroutine)");
+}
+
+// =========================================================================================================
+// (8) 이연③-d: ST4_15 [Security] = reuse [Main] (suspend 1 opponent Digimon) THEN add this card to hand. The
+//     afterMainEffect callback (AS-IS ActivateMainOptionSecurityEffect.afterMainEffect, Func<ICardEffect,Task>,
+//     carried on ReuseMainOptionEffect) REPLACES the retired invented AddThisCardToHandEffect composite. Both
+//     arms must fire in one activation; the unchosen opponent Digimon stays unsuspended (negative control).
+// =========================================================================================================
+{
+    EngineContext ctx = NewCtx(turnPlayer: P2, seed: 8582);
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId("DEF:ST4_15");
+    cards.Upsert(new CardRecord(defId, "ST4_15", "ST4_15", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Option"));
+    var opt = new HeadlessEntityId("1:ST4_15:sec");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(opt, defId, P1, Metadata: new Dictionary<string, object?>()));
+    ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, opt, ChoiceZone.None, ChoiceZone.Security)).GetAwaiter().GetResult();
+
+    HeadlessEntityId b1 = PlaceDigimon(ctx, P2, "S1DIGI", suspended: false, "s1");
+    HeadlessEntityId b2 = PlaceDigimon(ctx, P2, "S2DIGI", suspended: false, "s2");
+
+    bool IsSusp(HeadlessEntityId id) =>
+        ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null
+        && r.Metadata.TryGetValue("isSuspended", out object? v) && v is true;
+
+    Check(!((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Hand).Contains(opt),
+        "ST4_15 [Security] (P2-3): (pre) card is not yet in hand");
+    Check(!IsSusp(b1) && !IsSusp(b2), "ST4_15 [Security] (P2-3): (pre) both opponent Digimon unsuspended");
+
+    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(b1));
+
+    int resolved = ActivatedEffectResolver.ResolveAsync(ctx, opt, P1, EffectTiming.SecuritySkill).GetAwaiter().GetResult();
+    Check(resolved > 0, "ST4_15 [Security] (P2-3): reused [Main] effect resolved via ResolveAsync");
+    Check(IsSusp(b1), "ST4_15 [Security] (P2-3): chosen opponent Digimon suspended by the reused [Main]");
+    Check(!IsSusp(b2), "ST4_15 [Security] (P2-3): unchosen opponent Digimon stays unsuspended (negative control)");
+    Check(((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Hand).Contains(opt),
+        "ST4_15 [Security] (P2-3): afterMainEffect added this card to hand (replaces retired AddThisCardToHandEffect)");
 }
 
 if (failures > 0) { Console.Error.WriteLine($"\n{failures} test(s) failed."); Environment.Exit(1); }

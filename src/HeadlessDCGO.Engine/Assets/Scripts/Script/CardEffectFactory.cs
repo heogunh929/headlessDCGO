@@ -181,11 +181,55 @@ public static partial class CardEffectFactory
         return activateClass;
     }
 
-    /// <summary>(PRIM-W2 #9) AS-IS <c>Gain2MemoryOptionDelayEffect(card)</c> — a [Main] &lt;Delay&gt; option: TRASH
-    /// this card's own battle-area permanent to activate, and ONLY IF trashed, gain 2 memory. 1:1 via
-    /// <see cref="TrashSelfThenGainMemoryDelayEffect"/> (was wrongly an unconditional start-of-turn gain).</summary>
-    public static ICardEffect Gain2MemoryOptionDelayEffect(CardSource card) =>
-        new TrashSelfThenGainMemoryDelayEffect(card, amount: 2);
+    /// <summary>(이연③-d) AS-IS <c>Gain2MemoryOptionDelayEffect(card)</c> (CardEffectFactory.cs:470) — a [Main]
+    /// &lt;Delay&gt; option: TRASH this card's own battle-area permanent to activate, and ONLY IF trashed, gain 2
+    /// memory. Re-ported to the AS-IS inline <c>ActivateClass</c> verbatim (retires the invented
+    /// TrashSelfThenGainMemoryDelayEffect). Substrate: IEnumerator->Task, StartCoroutine->await;
+    /// <c>card.PermanentOfThisCard()</c> (a PermanentView on the mirror) -> the target <c>Permanent</c>
+    /// reconstructed at the card's own instance (the DeletePeremanent target list takes Permanent);
+    /// <c>card.Owner.AddMemory(2, activateClass)</c> -> the HeadlessPlayerId extension.</summary>
+    public static ICardEffect Gain2MemoryOptionDelayEffect(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Memory +2", CanUseCondition, card);
+        activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+
+        string EffectDiscription()
+        {
+            return "[Main] <Delay> (Trash this card in your battle area to activate the effect below. You can't activate this effect the turn this card enters play.) - Gain 2 memory.";
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.CanDeclareOptionDelayEffect(card);
+        }
+
+        async Task ActivateCoroutine(Hashtable _hashtable)
+        {
+            bool deleted = false;
+
+            await CardEffectCommons.DeletePeremanentAndProcessAccordingToResult(
+                targetPermanents: new List<Permanent>() { new Permanent(card.Context, card.InstanceId, card.Owner) },
+                sourceCard: card,
+                successProcess: SuccessProcess,
+                failureProcess: null);
+
+            Task SuccessProcess(IReadOnlyList<Permanent> _permanents)
+            {
+                deleted = true;
+                return Task.CompletedTask;
+            }
+
+            if (deleted)
+            {
+                await card.Owner.AddMemory(2, activateClass);
+            }
+        }
+
+        return activateClass;
+    }
 
     // (P4 slice) CanNotBeBlockedStaticSelfEffect moved to CardEffectFactory/CanNotBeBlocked.cs (AS-IS 1:1)
 
@@ -1379,15 +1423,10 @@ public static partial class CardEffectFactory
         Func<HeadlessEntityId, bool> targetPredicate, DigivolveCost cost, int costAmount, string description) =>
         new SelectAndDigivolveEffect(card, sourceZone, sourcePredicate, targetPredicate, cost, costAmount, description);
 
-    /// <summary>(PRIM-P0 B.O.4) A one-shot before-pay reduction of THIS card's own play/digivolve cost by
-    /// <paramref name="amount"/> when <paramref name="condition"/> holds (AS-IS BeforePayCost ActivateClass →
-    /// UntilCalculateFixedCostEffect.Add). Non-interactive.</summary>
-    public static ICardEffect BeforePayCostReductionEffect(CardSource card, int amount, Func<bool>? condition, string description) =>
-        new BeforePayCostReductionEffect(card, () => amount, condition, description);
-
-    /// <summary>(PRIM-P0 B.O.4) As above with a dynamic reduction amount (e.g. -1 per matching card).</summary>
-    public static ICardEffect BeforePayCostReductionEffect(CardSource card, Func<int> amount, Func<bool>? condition, string description) =>
-        new BeforePayCostReductionEffect(card, amount, condition, description);
+    // (이연③-d EXHAUSTED) invented `BeforePayCostReductionEffect` factory helpers (both overloads) DELETED —
+    // the AS-IS BeforePayCost cost reduction is the inline `[BeforePayCost] ActivateClass` that registers a self
+    // ChangeCostClass into UntilCalculateFixedCostEffect.Add (BT18_057 / EX8_074 / BT2_023 idiom). Sole producer
+    // (TfxBeforePayCostReduction fixture) re-pointed to that inline shape; class + resolver case removed.
 
     /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.AddThisCardToHand(..)</c> — return
     /// this card to the owner's hand.</summary>
@@ -1708,10 +1747,9 @@ public static partial class CardEffectFactory
     // its former card ST2_11 was re-ported). No AS-IS same-named helper exists to fold into, so removal (not a
     // fold) zeroes the TriggeredUnsuspendSelfEffect reference. Class removed from TriggeredEffects.cs.
 
-    /// <summary>An activated "gain/lose <paramref name="amount"/> memory" skill (Option [Main] / [Security],
-    /// e.g. ST2_13).</summary>
-    public static ICardEffect GainMemoryActivatedEffect(CardSource card, int amount, string description) =>
-        new ActivatedMemoryEffect(card, amount, description);
+    // (이연③-d) invented helper `GainMemoryActivatedEffect` (returned the invented ActivatedMemoryEffect)
+    // DELETED — 0 live callers (grep: every former card, e.g. BT2_087 / ST2_13, re-ported to the AS-IS inline
+    // `new ActivateClass()` + `card.Owner.AddMemory(N, activateClass)` idiom). Class removed from ActivatedEffects.cs.
 
     // (R6-Da'-1) invented helpers `SelectAndBounceEffect` (4-arg) / `SelectAndBounceWithSourceDiscardEffect`
     // DELETED — 0 call-sites (former cards ST2_16/BT2_095/ST4_16 were re-ported to the AS-IS inline

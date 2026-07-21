@@ -138,15 +138,21 @@ public sealed class AD1_025 : CEntity_Effect
             }
 
             // AS-IS :95 new DeckBottomBounceClass(bottomDeckTargets, ...).DeckBounce(). Mirror: stage the pre-computed
-            // list via the ported DeckBottomBounceEffect on a fresh MatchStateMutationSink and FLUSH — the flush is the
-            // commit boundary so the SelectPermanent below re-scans the POST-bounce board (AS-IS re-reads
-            // GetBattleAreaDigimons after DeckBounce). Fresh-sink-then-flush = the TrashSelfThenGainMemoryDelayEffect idiom.
+            // list via the AS-IS `DeckBottomBounceClass(target).DeckBounce()` sink helper
+            // (CardEffectCommons.ReturnToDeckBottom, one per target — the DestroyPermanent per-target idiom) on a
+            // fresh MatchStateMutationSink and FLUSH — the flush is the commit boundary so the SelectPermanent
+            // below re-scans the POST-bounce board (AS-IS re-reads GetBattleAreaDigimons after DeckBounce). The
+            // sink's ReturnToDeckBottomKind handler applies the AS-IS gates + opens the DeckBounce leave window.
             if (bottomDeckTargets.Count >= 1)
             {
                 var bounceSink = new MatchStateMutationSink(
                     context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
                     context.EffectRegistry, context.GameEventQueue, context: context);
-                new DeckBottomBounceEffect(card, bottomDeckTargets, SharedEffectName).Apply(bounceSink);
+                foreach (HeadlessEntityId bounceTarget in bottomDeckTargets)
+                {
+                    CardEffectCommons.ReturnToDeckBottom(bounceSink, card, bounceTarget);
+                }
+
                 await bounceSink.FlushAsync().ConfigureAwait(false);
             }
 

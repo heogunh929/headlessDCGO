@@ -798,50 +798,29 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case SelectDigivolutionSourceToHandThenSelfFollowUpEffect sourceToHand:
-                {
-                    // (BT1_084 br2 / BT3_112 br2) select 1 source from this card's own stack -> hand -> self
-                    // follow-up. Drives the ChoiceProvider + a direct source-return move; the follow-up
-                    // (unsuspend via sink / GainCanNotBeBlocked via registry) runs after the return.
-                    await sourceToHand.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (이연③-d EXHAUSTED) `case SelectDigivolutionSourceToHandThenSelfFollowUpEffect` DELETED — the
+                // invented select-source-to-hand-then-self carrier is retired. BT1_084 [When Attacking] drives the
+                // AS-IS inline SelectCardEffect(AddHand, Custom root) + IUnsuspendPermanents, run by the
+                // ActivateICardEffect case.
 
-                case SecuritySelectToHandColorRecoveryShuffleEffect securitySelect:
-                {
-                    // (BT1_087) select 1 security card -> hand, color-gated Recovery+1, then shuffle security.
-                    // Drives the ChoiceProvider; the add-to-hand / recovery / shuffle stage on the sink in order.
-                    await securitySelect.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (이연③-d EXHAUSTED) `case SecuritySelectToHandColorRecoveryShuffleEffect` DELETED — the invented
+                // security-select-recovery-shuffle carrier is retired. BT1_087 [On Play] drives the AS-IS inline
+                // SelectCardEffect(AddHand, Security) + IRecovery + ShuffleSecurityAsync, run by the
+                // ActivateICardEffect case.
 
                 // (R6-Da'-3) `case ActivatedTargetRestrictionEffect` DELETED — the producer was census-0 (no printed
                 // card creates one: ST2_14 / ST4_12 / BT1_113 are all re-ported to the inline AS-IS ActivateClass +
                 // SelectPermanentEffect(Mode.Custom) driving GainCanNotAttack/GainCanNotBlock per pick, and the
                 // CardEffectFactory.SelectAndRestrictEffect helper had no live caller). Class + factory deleted.
 
-                case ActivatedMemoryEffect memory:
-                {
-                    // (BT2_087) direct memory gain/loss — no choice; stage on the shared sink. Formerly missing
-                    // from this switch: the effect fell through to the silent default and BT2_087's
-                    // [Start of Your Turn] +1 memory was a NO-OP (2026-07-11 re-review finding).
-                    memory.Apply(sink);
-                    resolved++;
-                    break;
-                }
+                // (이연③-d EXHAUSTED) `case ActivatedMemoryEffect` DELETED — the invented direct-memory carrier is
+                // retired (census-0 producer: BT2_087 / ST2_13 re-ported to inline `new ActivateClass()` +
+                // `card.Owner.AddMemory(N, activateClass)`, the AS-IS live memory path). Class removed.
 
-                case AddThisCardToHandEffect addHand:
-                {
-                    // (E-3) "Then, add this card to its owner's hand" (AS-IS AddThisCardToHand) — no choice; stage
-                    // the ReturnToHand mutation on the shared sink. Formerly missing from this switch: the effect
-                    // fell through to the silent default (same missing-case class as ActivatedMemoryEffect above),
-                    // so EX1_072's [Security] add-to-hand and BT9_109's [Security] add-to-hand were both no-ops.
-                    addHand.Apply(sink);
-                    resolved++;
-                    break;
-                }
+                // (이연③-d EXHAUSTED) `case AddThisCardToHandEffect` DELETED — the invented add-to-hand composite is
+                // retired. Its one live producer (ST4_15 [Security] afterMainEffect) now runs the AS-IS
+                // `AddThisCardToHand` coroutine through ReuseMainOptionEffect.AfterMainEffect (below); every other
+                // [Security] add-to-hand (ST3_13 / BT9_109) already calls the live coroutine inline.
 
                 // (uniform-사멸 flip) `case ActivatedEffect uniform:` DELETED — the invented uniform kind died
                 // consumer-0 (fixtures re-written to the AS-IS inline ActivateClass; the last producer, the
@@ -893,22 +872,13 @@ public static class ActivatedEffectResolver
                 // DeleteKind sink path (NewSink + CardEffectCommons.DestroyPermanent per target + FlushAsync, the
                 // centralised immunity gate filtering) through an inline ActivateClass. Class removed.
 
-                case TrashSelfThenGainMemoryDelayEffect delayGain:
-                {
-                    // (#9) [Main] <Delay>: trash this card's own permanent, then gain memory ONLY if it was
-                    // trashed (self-contained delete + success branch); does not use the shared sink.
-                    await delayGain.ResolveAsync(cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (이연③-d EXHAUSTED) `case TrashSelfThenGainMemoryDelayEffect` DELETED — the invented [Main] <Delay>
+                // trash-self-then-gain carrier is retired. AS-IS Gain2MemoryOptionDelayEffect is now an inline
+                // ActivateClass (LM_047 OnDeclaration), run by the ActivateICardEffect case.
 
-                case DeckBottomBounceEffect bounce:
-                {
-                    // (PRIM-W2) direct-return a pre-computed target list to the deck bottom — no choice.
-                    bounce.Apply(sink);
-                    resolved++;
-                    break;
-                }
+                // (이연③-d EXHAUSTED) `case DeckBottomBounceEffect` DELETED — the invented deck-bottom-bounce carrier
+                // is retired. The AS-IS bounce is the ReturnToDeckBottomKind sink mutation
+                // (CardEffectCommons.ReturnToDeckBottom), driven inline by AD1_025's shared OP/WD arm.
 
                 // (이연③-b RETIRED) `case LinkSelfEffect` DELETED — the orphaned invented <Link> self-play
                 // duplicate is retired. The live <Link> surface is CardEffectFactory.LinkEffect → ActivateClass
@@ -930,15 +900,12 @@ public static class ActivatedEffectResolver
                 // [Security] end-of-battle carrier is retired; the AS-IS UntilEndBattleEffects idiom is landed in
                 // CardEffectFactory.PlaySelfDigimonAfterBattleSecurityEffect (resolved via the ActivateClass flow).
 
-                case BeforePayCostReductionEffect beforePayReduce:
-                {
-                    // (PRIM-P0 B.O.4) non-interactive one-shot before-pay reduction of this play's own cost.
-                    beforePayReduce.Apply();
-                    resolved++;
-                    break;
-                }
+                // (이연③-d EXHAUSTED) `case BeforePayCostReductionEffect` DELETED — the invented before-pay reducer
+                // is retired. The AS-IS BeforePayCost ActivateClass (registers a self ChangeCostClass into
+                // UntilCalculateFixedCostEffect) is now inline (TfxBeforePayCostReduction), run by the
+                // ActivateICardEffect case during the BeforePayCost window.
 
-                case ReuseMainOptionEffect:
+                case ReuseMainOptionEffect reuse:
                 {
                     // (G8-004 / #13) "[Security] activate this card's [Main] effect" — resolve ONLY the card's
                     // [Main]-tagged OptionSkill effect (AS-IS OptionMainEffect), not every OptionSkill effect,
@@ -949,6 +916,15 @@ public static class ActivatedEffectResolver
                         cancellationToken,
                         hashtable: CardEffectCommons.OptionMainCheckHashtable(card),
                         timing: EffectTiming.OptionSkill).ConfigureAwait(false);
+
+                    // (이연③-d) AS-IS ActivateMainOptionSecurityEffect.ActivateCoroutine: after the reused [Main],
+                    // run the afterMainEffect callback in the SAME activation (CardEffectFactory.cs:579-582).
+                    // ST4_15 [Security] threads "Then, add this card to your hand" here.
+                    if (reuse.AfterMainEffect is not null)
+                    {
+                        await reuse.AfterMainEffect(reuse).ConfigureAwait(false);
+                    }
+
                     break;
                 }
 

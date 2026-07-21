@@ -32,8 +32,8 @@ async Task TrashAndGain()
     ctx.MemoryController.Set(0);
     var card = await Place(ctx, ChoiceZone.BattleArea);
 
-    var eff = (TrashSelfThenGainMemoryDelayEffect)CardEffectFactory.Gain2MemoryOptionDelayEffect(new CardSource(ctx, card, P1));
-    await eff.ResolveAsync(CancellationToken.None);
+    // (이연③-d) drive the AS-IS inline ActivateClass (retires the invented TrashSelfThenGainMemoryDelayEffect cast).
+    await Drive(ctx, CardEffectFactory.Gain2MemoryOptionDelayEffect(new CardSource(ctx, card, P1)));
 
     AssertTrue(!((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(card), "the Delay option was trashed (left the battle area)");
     AssertEqual(2, ctx.MemoryController.Current.Current, "gained 2 memory after the self-trash succeeded");
@@ -46,18 +46,33 @@ async Task NoTrashNoGain()
     // Card is in HAND, not on the battle area — there is no own permanent to trash.
     var card = await Place(ctx, ChoiceZone.Hand);
 
-    var eff = (TrashSelfThenGainMemoryDelayEffect)CardEffectFactory.Gain2MemoryOptionDelayEffect(new CardSource(ctx, card, P1));
-    await eff.ResolveAsync(CancellationToken.None);
+    // (이연③-d) the AS-IS CanDeclareOptionDelayEffect gate (on battle area) blocks activation from hand — nothing trashed, no gain.
+    await Drive(ctx, CardEffectFactory.Gain2MemoryOptionDelayEffect(new CardSource(ctx, card, P1)));
 
     AssertEqual(0, ctx.MemoryController.Current.Current, "no memory gained when there was nothing to trash");
 }
 
 // --- Helpers ---
 
+// (이연③-d) Drive the AS-IS [Main] <Delay> ActivateClass the way the live window does: under an ambient match
+// scope, gate on CanTrigger (CanUse = CanDeclareOptionDelayEffect) then Activate (the self-trash + gain coroutine).
+async Task Drive(EngineContext ctx, ICardEffect effect)
+{
+    using var scope = AmbientMatchContext.Enter(ctx);
+    var ht = new System.Collections.Hashtable();
+    if (effect is ActivateICardEffect ae && effect.CanTrigger(ht) && effect.CanActivate(ht))
+    {
+        await ae.Activate(ht);
+    }
+}
+
 EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 909);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (이연③-d) past Setup -> DoneStartGame true, so the ActivateClass CanTrigger/CanActivate window gate passes
+    // (the AS-IS live-window drive now used instead of the retired direct ResolveAsync cast).
+    ctx.TurnController.SetPhase(HeadlessDCGO.Engine.Headless.Runtime.HeadlessPhase.Main);
     return ctx;
 }
 
