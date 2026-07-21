@@ -253,3 +253,26 @@ per-card 리셋 1건뿐. 최대 난점은 회계가 아니라 `OnceFlagControlle
 - **D5 = 적대 권고 표본 채택(선정 위임)**: executed-composite AD1_024·BT14_029 + refund 대표 1~2장(~38장 중 적대 선정). Da′-2 직접-new 11장은 카드별 행동 witness.
 
 실행 순서(확정): A1b(버킷 모델, 실행 중) → Da′-0 배선검증 → Da′-1 factory flip → Da′-2 직접-new 11장 → Da′-3 granted-continuous(버킷 합류 확인 후) → Da′-4 DigiBurst/hasReboot → Da′-5 switch 붕괴 → Da′-6 OnceFlags 통합-소멸(적대리뷰) → corpus 삭제(R6-Db 동승) → W3c-final.
+
+---
+
+## §9. R6-Da′-1 집행 원장 (2026-07-21 — 재스코프 확정분)
+
+### 화이트박스 처분
+- **G9-045.SelectActions.Tests = 은퇴(디렉터리 삭제)**. 전 단언(3건)이 발명 Body-표면(`ActivatedEffect.Body.Apply` 직접 호출) 검증이었음. **실룰 커버 증빙**: suspend/unsuspend/bounce의 실제 룰 표면은 `SelectPermanentEffect` Mode.Tap/UnTap/Bounce의 AS-IS 배치(`SuspendPermanentsClass.Tap()`/`IUnsuspendPermanents`/sink bounce)이며, (a) 이관된 `TfxSelectFollowUp` "seq"(Mode.Tap 인라인)를 PRIM-P0가 behavioral로 검증, (b) 인쇄-카드 스위트(ST4_15=Tap, BT2_095=Bounce, ST2_11=UnTap 계열)와 G9-009(Mode.Tap+Destroy resolver-driven E2E)가 동일 배치를 커버.
+- **G9-046.SelectAndPlay.Tests = 존치+SelectAndPlay 케이스 3건만 제거**(PlayFrom(Trash)/PlayFrom(Hand)/CandidateFilter — 삭제된 `ActivatedSelectAndPlayEffect` body 표면). 커버 증빙은 테스트 파일 헤더에 기재(BT9_081/BT2_090/BT1_044 잔존 케이스). DeDigivolve(Da′-5 대기)·BT1_044(stale red, A6 처분 대기) 케이스 유지.
+
+### 소비 스위트 하네스 교정 (단언 무변경)
+- PRIM-P0: `SetPhase(HeadlessPhase.Main)` 추가 — 신모델 `ICardEffect.CanTrigger`의 AS-IS DoneStartGame 게이트(구모델 헬퍼는 미소비) 통과용. G9-009 F4-companion 판례 그대로.
+- G12-004: P1 두 번째 디지몬 추가 — AS-IS forced-selection(정확-max 풀은 무선택 자동확정, SelectPermanentEffect.Activate)이 단일 후보에서 choice를 생략하므로, deferred 경로 검증에 실제 choice가 필요.
+
+### 이월(이번 삭제 제외) + 은퇴-가드
+F1/F2/F3 갈림길 결정(2026-07-21 코디네이터 확정)에 따라 아래는 존치·`[Obsolete]`(RD-RETIRE-DA1, warning) 부착·G1R-001 원장 핀:
+| 심볼 | 이월 사유 | 소속 배치 |
+|---|---|---|
+| `AsUniformActivated` | 버프 6좌석 등 잔여 factory 소비 | Da′-3/6 |
+| `ActivatedSelectEffect` | EX8_074 RD-R6-07 STOP + 픽스처 3 + ActivatedEffects 내부 사용 | Da′-5/corpus 삭제 |
+| `ActivatedSelectBounceAndDiscardSourcesEffect` | C3-Witness 케이스(9) green 소비 — corpus 삭제 시 재조준 필요 | corpus 삭제(R6-Db) |
+| `ActivatedSelectTrashDigivolutionEffect` | ST2.Blue stale 캐스트 3좌석 — ST2.Blue 처분과 동시 삭제 | A6 |
+| `SelectAndDeDigivolveEffect`(헬퍼) | G9-046 DeDigivolve 케이스 소비 — body와 동시 소멸 | Da′-5 |
+| `ActivatedSelectAndDeDigivolveEffect`(body) | resolver switch case(:928) 보유 | Da′-5 |

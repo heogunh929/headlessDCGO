@@ -5,7 +5,4 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\HeadlessDCGO.Engine\HeadlessDCGO.Engine.csproj" />
-  </ItemGroup>
 </Project>

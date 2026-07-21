@@ -29,6 +29,10 @@ public static partial class CardEffectFactory
     /// the timing block the card registers the effect under carries the AS-IS timing; a broadcast trigger
     /// passes its own timing/gate. 1:1 mirror of the AS-IS <c>ActivateClass</c>
     /// (SetUpActivateClass(canActivate, coroutine, maxCountPerTurn, isOptional, description)).</summary>
+    // (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried to Da'-3/6 — the remaining consumers are the
+    // buff/restriction factory seats (SelectAndBuffDp/SAttack, PlayerScope*, TrashDigivolution retained bodies)
+    // that flip with the granted-continuous/OnceFlags batches. Do NOT wire new consumers.
+    [Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(Da'-3/6) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
     internal static ActivatedEffect AsUniformActivated(
         CardSource card,
         IEffectBody body,
@@ -1195,15 +1199,9 @@ public static partial class CardEffectFactory
         return activateClass;
     }
 
-    /// <summary>An activated "select up to <paramref name="maxCount"/> matching permanents and delete them"
-    /// effect (Option [Main] delete skill, e.g. ST1_16 / ST1_15).</summary>
-    public static ICardEffect SelectAndDestroyEffect(
-        CardSource card,
-        Func<HeadlessEntityId, bool> canTarget,
-        int maxCount,
-        bool canEndNotMax,
-        string description) =>
-        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.Destroy, description), description);
+    // (R6-Da'-1) invented helper `SelectAndDestroyEffect` DELETED — 0 consumers after the TfxSecuritySelect
+    // inline-migration (the card corpus was already re-ported to the AS-IS inline ActivateClass +
+    // SelectPermanentEffect Mode.Destroy idiom — ST1_15/ST1_16/BT2_013/BT2_091/BT2_110).
 
     /// <summary>(PRIM-P0-flow) An activated "choose one of the following modes" menu (AS-IS UserSelectionManager
     /// SetBool/IntSelection). Each mode is a labeled branch effect; a mode with an availability predicate that
@@ -1211,45 +1209,12 @@ public static partial class CardEffectFactory
     public static ICardEffect SelectModeEffect(CardSource card, string description, params ModeChoiceEffect.Mode[] modes) =>
         new ModeChoiceEffect(card, description, modes);
 
-    /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>new SuspendPermanentsClass(perms, ..).Tap()</c>
-    /// coroutine: select up to <paramref name="maxCount"/> matching permanents and suspend them.</summary>
-    public static ICardEffect SelectAndSuspendEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.Tap, description), description);
-
-    /// <summary>(PRIM-W5) Declarative form of the AS-IS unsuspend coroutine: select up to
-    /// <paramref name="maxCount"/> matching permanents and unsuspend them.</summary>
-    public static ICardEffect SelectAndUnsuspendEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.UnTap, description), description);
-
-    /// <summary>(PRIM-W5) Declarative form of the AS-IS bounce coroutine: select up to
-    /// <paramref name="maxCount"/> matching permanents and return them to hand.</summary>
-    public static ICardEffect SelectAndBounceEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.Bounce, description), description);
-
-    /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> matching permanents and return
-    /// them to the owner's deck (top or bottom). AS-IS SelectPermanentEffect.Mode PutLibraryTop/Bottom.</summary>
-    public static ICardEffect SelectAndReturnToDeckEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool toTop, bool canEndNotMax, string description) =>
-        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax,
-            toTop ? SelectPermanentEffect.Mode.PutLibraryTop : SelectPermanentEffect.Mode.PutLibraryBottom, description), description);
-
-    /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> matching permanents and place
-    /// them into the owner's security (top or bottom). AS-IS SelectPermanentEffect.Mode PutSecurityTop/Bottom.</summary>
-    public static ICardEffect SelectAndPutSecurityEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool toTop, bool canEndNotMax, string description) =>
-        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax,
-            toTop ? SelectPermanentEffect.Mode.PutSecurityTop : SelectPermanentEffect.Mode.PutSecurityBottom, description), description);
-
-    /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.PlayPermanentCards(.., root)</c>
-    /// coroutine: select up to <paramref name="maxCount"/> of the owner's cards in <paramref name="fromZone"/>
-    /// (Trash / Hand) matching <paramref name="canTarget"/> and play each onto the battle area (cost-free).
-    /// The AS-IS <c>SelectCardEffect.Root</c> maps to <paramref name="fromZone"/>.</summary>
-    public static ICardEffect SelectAndPlayFromZoneEffect(
-        CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        AsUniformActivated(card, new ActivatedSelectAndPlayEffect(card, fromZone, canTarget, maxCount, canEndNotMax, description), description);
+    // (R6-Da'-1) invented helpers `SelectAndSuspendEffect` / `SelectAndUnsuspendEffect` / `SelectAndBounceEffect`
+    // (5-arg) / `SelectAndReturnToDeckEffect` / `SelectAndPutSecurityEffect` / `SelectAndPlayFromZoneEffect`
+    // DELETED — 0 consumers after the TfxSelectFollowUp inline-migration (AS-IS inline ActivateClass +
+    // SelectPermanentEffect Mode.Tap/UnTap/Bounce/PutLibrary*/PutSecurity* — ST4_15/BT2_095/BT2_102 idiom) and
+    // the G9-046 SelectAndPlay-case removal (real-rule coverage: BT9_081 SelectCardEffect Root.Trash +
+    // PlayPermanentCards; see the G9-046 header).
 
     /// <summary>(PRIM-P0 B.O.5) AS-IS <c>CardEffectCommons.PlayOptionCards</c>: select up to
     /// <paramref name="maxCount"/> of the owner's Option cards in <paramref name="sourceZone"/> and play each as a
@@ -1258,30 +1223,10 @@ public static partial class CardEffectFactory
         CardSource card, ChoiceZone sourceZone, Func<HeadlessEntityId, bool> optionPredicate, int maxCount, bool canEndNotMax, string description) =>
         new PlayOptionCardEffect(card, sourceZone, optionPredicate, maxCount, canEndNotMax, description);
 
-    /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> of the owner's cards in
-    /// <paramref name="fromZone"/> (Trash / Library / Security …) matching <paramref name="canTarget"/> and add
-    /// each to the owner's hand. AS-IS SelectCardEffect.Mode AddHand.</summary>
-    public static ICardEffect SelectAndAddToHandFromZoneEffect(
-        CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description,
-        Action<CardSource, MatchStateMutationSink>? onSelectedAny = null) =>
-        AsUniformActivated(card, new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.ReturnToHandKind, description, onSelectedAny), description);
-
-    /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> of the owner's cards in
-    /// <paramref name="fromZone"/> matching <paramref name="canTarget"/> and trash each. AS-IS
-    /// SelectCardEffect.Mode Discard.</summary>
-    public static ICardEffect SelectAndTrashFromZoneEffect(
-        CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        AsUniformActivated(card, new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.TrashCardKind, description), description);
-
-    /// <summary>(G16) Select up to <paramref name="maxCount"/> of the owner's CARDS in <paramref name="fromZone"/>
-    /// (e.g. Trash) matching <paramref name="canTarget"/> and place each on TOP of the owner's security stack,
-    /// FACE-DOWN — the AS-IS "place 1 &lt;X&gt; card from trash face-down on top of security" (IAddSecurity).
-    /// Distinct from <c>SelectAndPutSecurityEffect</c> (which targets battle-area PERMANENTS, Mode PutSecurity);
-    /// this routes a zone card via <see cref="MatchStateMutationSink.AddToSecurityKind"/> (its defaults =
-    /// face-down + top, matching the AS-IS).</summary>
-    public static ICardEffect SelectAndPutSecurityFromZoneEffect(
-        CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        AsUniformActivated(card, new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.AddToSecurityKind, description), description);
+    // (R6-Da'-1) invented helpers `SelectAndAddToHandFromZoneEffect` / `SelectAndTrashFromZoneEffect` /
+    // `SelectAndPutSecurityFromZoneEffect` DELETED — 0 consumers after the TfxSelectFollowUp inline-migration
+    // (AS-IS inline ActivateClass + SelectCardEffect full SetUp, Mode.AddHand/Discard over Root.Trash/Library —
+    // BT2_090/BT10_084 idiom; the invented body `ActivatedSelectFromZoneEffect` is deleted with them).
 
     /// <summary>(PRIM-P0-flow B.O.3) AS-IS <c>DigivolveIntoHandOrTrashCard</c>: select 1 of the owner's Digimon
     /// (<paramref name="targetPredicate"/>) and a source card in <paramref name="sourceZone"/> (Hand / Trash,
@@ -1310,6 +1255,10 @@ public static partial class CardEffectFactory
     /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.DigivolveIntoHandOrTrashCard(..)</c>:
     /// select up to <paramref name="maxCount"/> battle-area Digimon matching <paramref name="canTarget"/> and
     /// de-digivolve each by <paramref name="count"/> (remove its top digivolution card[s]).</summary>
+    // (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried to Da'-5 (resolver-switch collapse) — the
+    // body class keeps a resolver case (ActivatedEffectResolver ActivatedSelectAndDeDigivolveEffect); helper +
+    // body die together there. Remaining consumer: the G9-046 DeDigivolve case. Do NOT wire new consumers.
+    [Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(Da'-5, body와 동시 소멸) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
     public static ICardEffect SelectAndDeDigivolveEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int count, bool canEndNotMax, string description) =>
         new ActivatedSelectAndDeDigivolveEffect(card, canTarget, maxCount, count, canEndNotMax, description);
@@ -1616,12 +1565,10 @@ public static partial class CardEffectFactory
         CardSource card, int changeValue, EffectDuration duration, string description) =>
         AsUniformActivated(card, new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.DpDeltaKey, changeValue, duration, scopeCardType: "Digimon", description, scopeZone: "Security"), description);
 
-    /// <summary>An activated "select up to <paramref name="maxCount"/> opponent Digimon and trash
-    /// <paramref name="trashCount"/> of each host's digivolution cards from the bottom/top" effect
-    /// (e.g. ST2_03 / ST2_06 / ST2_09).</summary>
-    public static ICardEffect SelectAndTrashDigivolutionEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int trashCount, bool fromBottom, string description) =>
-        AsUniformActivated(card, new ActivatedSelectTrashDigivolutionEffect(card, canTarget, maxCount, trashCount, fromBottom, description), description);
+    // (R6-Da'-1) invented helper `SelectAndTrashDigivolutionEffect` DELETED — 0 call-sites (its former cards
+    // ST2_03/ST2_06/ST2_09 were re-ported to the AS-IS inline ActivateClass + SelectPermanentEffect Mode.Custom
+    // + TrashDigivolutionCardsFromTopOrBottom idiom). Its body class `ActivatedSelectTrashDigivolutionEffect`
+    // is RETAINED (carried over — ST2.Blue stale casts, deleted together with the ST2.Blue disposal, A6).
 
     /// <summary>(PRIM special-play) AS-IS <c>IDigiBurst</c> — <c>[Digi-Burst N] &lt;effect&gt;</c>: trash N of this
     /// card's own digivolution sources as a cost, then resolve <paramref name="innerEffect"/>. Offered only when
@@ -1639,20 +1586,12 @@ public static partial class CardEffectFactory
     public static ICardEffect GainMemoryActivatedEffect(CardSource card, int amount, string description) =>
         new ActivatedMemoryEffect(card, amount, description);
 
-    /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and return each to its owner's
-    /// hand" effect (Option [Main] bounce, e.g. ST2_16).</summary>
-    public static ICardEffect SelectAndBounceEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string description) =>
-        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Bounce, description), description);
-
-    /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon, return each to its owner's
-    /// hand, AND trash all of that Digimon's digivolution cards" effect (Option [Main] bounce, e.g. ST4_16).
-    /// AS-IS <c>HandBounceClaass.Bounce()</c> unconditionally runs <c>permanent.DiscardEvoRoots()</c>
-    /// immediately before the top card leaves the field for EVERY hand-bounce (Permanent.cs:106) — see
-    /// <see cref="ActivatedSelectBounceAndDiscardSourcesEffect"/>.</summary>
-    public static ICardEffect SelectAndBounceWithSourceDiscardEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string description) =>
-        AsUniformActivated(card, new ActivatedSelectBounceAndDiscardSourcesEffect(card, canTarget, maxCount, description), description);
+    // (R6-Da'-1) invented helpers `SelectAndBounceEffect` (4-arg) / `SelectAndBounceWithSourceDiscardEffect`
+    // DELETED — 0 call-sites (former cards ST2_16/BT2_095/ST4_16 were re-ported to the AS-IS inline
+    // ActivateClass + SelectPermanentEffect Mode.Bounce idiom; the AS-IS unconditional
+    // `permanent.DiscardEvoRoots()` on every hand-bounce lives in the sink bounce route). The body class
+    // `ActivatedSelectBounceAndDiscardSourcesEffect` is RETAINED (carried over — C3-Witness case (9) green
+    // consumer; re-target that witness before the corpus deletion, R6-Db).
 
     /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and make each unable to attack
     /// and/or block for <paramref name="duration"/>" effect (e.g. ST2_14).</summary>

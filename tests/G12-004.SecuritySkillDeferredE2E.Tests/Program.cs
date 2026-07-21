@@ -61,6 +61,12 @@ async Task SecurityDeferredE2E()
 
     // The attacker / select target: a P1 Digimon (the opponent of the security player P2).
     var target = await PlaceFoe(context, "ATK");
+    // (R6-Da'-1 companion) A SECOND P1 Digimon so the [Security] select pool (2) exceeds maxCount (1) and a
+    // REAL choice is issued. The fixture's inline AS-IS select flow includes the AS-IS forced-selection
+    // shortcut (SelectPermanentEffect.cs Activate: an exactly-max pool auto-selects with NO player choice) —
+    // the retired old-model body always issued a ChoiceRequest, which is what this scenario's single-candidate
+    // setup relied on. The deferred suspend/resume path THIS test exists to exercise needs a real choice.
+    _ = await PlaceFoe(context, "BYSTANDER");
 
     // 1) Run the security check. The revealed [Security] effect asks P2 to choose -> the deferred provider
     //    suspends it; SecurityResolver records the activation and stops with the choice pending.

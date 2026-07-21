@@ -6,17 +6,23 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// PRIM-W5 (G9-046): SelectAndPlayFromZoneEffect — declarative form of PlayPermanentCards(root). Select a
-// card in a zone (Trash / Hand) and play it onto the battle area (cost-free).
+// PRIM-W5 (G9-046): select-and-play / de-digivolve / play-from-under primitives.
+// (R6-Da'-1 WHITEBOX DISPOSAL) The three SelectAndPlayFromZoneEffect cases (PlayFrom(Trash)/PlayFrom(Hand)/
+// CandidateFilter) are REMOVED with the deletion of the invented helper `CardEffectFactory.
+// SelectAndPlayFromZoneEffect` and its invented body `ActivatedSelectAndPlayEffect` (0 consumers after the
+// R6-Da'-1 fixture inline-migration). REAL-RULE COVERAGE EVIDENCE: the play-from-zone rule surface those
+// cases exercised is the AS-IS `CardEffectCommons.PlayPermanentCards(..., root)` / `SelectCardEffect`
+// (Root.Trash/Hand) flow, covered live by the re-ported printed-card corpus and its suites — e.g. BT9_081
+// ([On Play] play from trash: SelectCardEffect Root.Trash + PlayPermanentCards), BT2_090 (zone-card select
+// from trash, SelectCardEffect Mode.AddHand/Root.Trash — CardEffect.BT2 batch tests), and the BT1_044
+// play-from-under cases RETAINED below (ActivatedPlayFromUnderEffect candidates/gate). The DeDigivolve and
+// BT1_044 cases remain (their symbols carry over to Da'-5 / A6 respectively).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("Play a selected Trash card onto the battle area", () => PlayFrom(ChoiceZone.Trash)),
-    ("Play a selected Hand card onto the battle area", () => PlayFrom(ChoiceZone.Hand)),
-    ("BuildRequest offers only matching candidates in the zone", CandidateFilter),
     ("AddThisCardToHandEffect -> self returns to hand", SelfReturn),
     ("SelectAndDeDigivolveEffect -> target's top digivolution card removed", DeDigivolve),
     ("BT1_044: candidates = own-stack under-cards with Level <= 4 ONLY (Lv5 / other-stack excluded)", Bt1044Candidates),
@@ -33,35 +39,6 @@ if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} failed.")
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 // --- Tests ---------------------------------------------------------------
-
-async Task PlayFrom(ChoiceZone zone)
-{
-    EngineContext ctx = Ctx();
-    var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
-    var card = await Place(ctx, P1, "PLAYME", zone);
-    var eff = (ActivatedSelectAndPlayEffect)((ActivatedEffect)CardEffectFactory.SelectAndPlayFromZoneEffect(
-        new CardSource(ctx, src, P1), zone, _ => true, 1, false, $"play from {zone}")).Body;
-    var sink = Sink(ctx);
-    eff.Apply(sink, new[] { card });
-    await sink.FlushAsync();
-    var reader = (IZoneStateReader)ctx.ZoneMover;
-    AssertTrue(reader.GetCards(P1, ChoiceZone.BattleArea).Contains(card), "played card is on the battle area");
-    AssertTrue(!reader.GetCards(P1, zone).Contains(card), $"played card left {zone}");
-}
-
-async Task CandidateFilter()
-{
-    EngineContext ctx = Ctx();
-    var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
-    var match = await Place(ctx, P1, "MATCH", ChoiceZone.Trash);
-    var nomatch = await Place(ctx, P1, "OTHER", ChoiceZone.Trash);
-    var eff = (ActivatedSelectAndPlayEffect)((ActivatedEffect)CardEffectFactory.SelectAndPlayFromZoneEffect(
-        new CardSource(ctx, src, P1), ChoiceZone.Trash, id => id.Value.Contains("MATCH"), 1, false, "play match")).Body;
-    var req = eff.BuildRequest(new[] { P1, P2 });
-    // Only the MATCH trash card passes the canTarget filter (NOMATCH is excluded).
-    AssertTrue(req.Candidates.Count == 1, $"exactly one candidate offered (got {req.Candidates.Count})");
-    _ = (match, nomatch);
-}
 
 async Task SelfReturn()
 {
@@ -99,6 +76,11 @@ async Task DeDigivolve()
     AssertTrue(targetPeeled || underSurfaced, "top card removed / under-card surfaced (de-digivolved)");
 }
 
+// (R6-Da'-1 marking — A6 disposal pending) The two BT1_044 cases below are STALE RED: BT1_044 was re-ported
+// to the inline AS-IS ActivateClass idiom, so the `(ActivatedEffect)` white-box cast throws
+// InvalidCastException (pre-existing before R6-Da'-1; measured red at the batch baseline). Kept UNTOUCHED per
+// the R6-Da'-1 rescope decision — they are disposed with the A6 test-pin disposal batch (re-target onto the
+// ActivateClass surface or retire with coverage evidence there).
 // (P1 remediation) AS-IS BT1_044.cs:27-44/55/89 — the [When Attacking] play-from-under candidates are the
 // digivolution cards of THIS card's own permanent ONLY (card.PermanentOfThisCard().DigivolutionCards), each
 // gated by IsDigimon + CanPlayAsNewPermanent(payCost:false) + Level <= 4 + HasLevel. A prior port wrapped a

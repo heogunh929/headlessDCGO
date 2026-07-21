@@ -515,6 +515,11 @@ public sealed class ModeChoiceEffect : IActivatedCardEffect
 /// SelectPermanentEffect tests do, until that integration lands. They are not auto-registered (their
 /// OptionSkill / SecuritySkill timing is excluded from <see cref="CardEffectRegistrar.AllTimings"/>).
 /// </summary>
+// (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried over — remaining consumers: EX8_074 (RD-R6-07
+// STOP), fixtures TfxCappedSelectSuspend/TfxOptionalSelectSuspend, the internal
+// ActivatedSelectBounceAndDiscardSourcesEffect wrapper, and ST1/ST2 white-box test casts. Deleted with the
+// corpus deletion (Da'-5 / R6-Db). Do NOT wire new consumers.
+[Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(Da'-5/corpus) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
 public sealed class ActivatedSelectEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly SelectPermanentEffect _select = new();
@@ -650,6 +655,11 @@ public sealed class SelectDestroyThenTrashSecurityBody : IEffectBody
 /// bounce mutation — the shared Mode→mutation contract stays 1:1 (locked by the G3.5-CVA2 ModeMapping
 /// test's "one mutation per mode" assertion); the resolver calls <see cref="DiscardSourcesAsync"/>
 /// separately and unconditionally, BEFORE <see cref="Apply"/>, mirroring the AS-IS ordering.</para></summary>
+// (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried to the corpus deletion (R6-Db) — its factory
+// helper is deleted; the remaining consumer is the GREEN C3-Witness case (9) (bounce ignores trash-protection,
+// direct construction). RE-TARGET that witness onto the surviving inline bounce route BEFORE deleting this
+// class. Do NOT wire new consumers.
+[Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(corpus 삭제/R6-Db, C3-Witness 재조준 선행) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
 public sealed class ActivatedSelectBounceAndDiscardSourcesEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly SelectPermanentEffect _select = new();
@@ -1080,6 +1090,11 @@ public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect, IEffe
 /// Resolved imperatively (BuildRequest → answer → Apply); Apply emits a TrashDigivolutionCards mutation
 /// (host = selected target) for each chosen host.
 /// </summary>
+// (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried to the ST2.Blue disposal (A6) — its factory
+// helper is deleted and its former cards (ST2_03/06/09) are re-ported to the inline AS-IS idiom; the only
+// remaining consumers are the STALE ST2.Blue white-box casts. Delete this class together with that suite's
+// disposal. Do NOT wire new consumers.
+[Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(A6, ST2.Blue 처분과 동시 삭제) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
 public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly SelectPermanentEffect _select = new();
@@ -2094,6 +2109,10 @@ public sealed class ReturnThisCardToHandEffect : IActivatedCardEffect
 /// coroutine: select up to <paramref name="maxCount"/> battle-area Digimon matching <c>canTarget</c> and
 /// de-digivolve each by <c>count</c> (remove its top digivolution cards). Wraps the engine's
 /// <see cref="DeDigivolveHelpers"/> primitive via the DeDigivolve mutation.</summary>
+// (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried to Da'-5 (resolver-switch collapse) — this body
+// holds a resolver case (ActivatedEffectResolver :~928) and dies with that switch. Remaining consumers: the
+// factory helper (same carry-over) + the G9-046 DeDigivolve case. Do NOT wire new consumers.
+[Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(Da'-5, resolver switch와 동시 소멸) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
 public sealed class ActivatedSelectAndDeDigivolveEffect : IActivatedCardEffect
 {
     private readonly Func<HeadlessEntityId, bool> _canTarget;
@@ -2169,78 +2188,10 @@ public sealed class ActivatedSelectAndDeDigivolveEffect : IActivatedCardEffect
 }
 
 
-/// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.PlayPermanentCards(..., root)</c>
-/// coroutine: select up to <paramref name="maxCount"/> of the owner's cards in <paramref name="fromZone"/>
-/// (Trash / Hand) matching <paramref name="canTarget"/>, then play each onto the battle area (cost-free).</summary>
-public sealed class ActivatedSelectAndPlayEffect : IActivatedCardEffect, IEffectBody
-{
-    private readonly ChoiceZone _fromZone;
-    private readonly Func<HeadlessEntityId, bool> _canTarget;
-    private readonly int _maxCount;
-    private readonly bool _canEndNotMax;
-
-    public ActivatedSelectAndPlayEffect(CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canTarget);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        _fromZone = fromZone;
-        _canTarget = canTarget;
-        _maxCount = maxCount;
-        _canEndNotMax = canEndNotMax;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    private IEnumerable<HeadlessEntityId> Candidates() =>
-        ((IZoneStateReader)Card.Context.ZoneMover).GetCards(Card.Owner, _fromZone).Where(_canTarget);
-
-    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players)
-    {
-        var candidates = Candidates()
-            .Select(id => EffectChoiceHelpers.Candidate(id, id.Value, _fromZone, isSelectable: true, Card.Owner))
-            .ToList();
-        int max = Math.Min(_maxCount, candidates.Count);
-        return EffectChoiceHelpers.CreatePermanentRequest(Card.Owner, Description, minCount: _canEndNotMax ? 0 : max, maxCount: max, canSkip: _canEndNotMax, candidates);
-    }
-
-    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        ArgumentNullException.ThrowIfNull(selected);
-        foreach (HeadlessEntityId id in selected)
-        {
-            if (id.IsEmpty)
-            {
-                continue;
-            }
-
-            sink.Apply(new EffectMutation(
-                MatchStateMutationSink.PlayCardKind,
-                Card.InstanceId,
-                new Dictionary<string, object?>(StringComparer.Ordinal)
-                {
-                    [MatchStateMutationSink.TargetEntityIdKey] = id.Value,
-                    [MatchStateMutationSink.FromZoneKey] = _fromZone.ToString(),
-                }));
-        }
-    }
-
-    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
-    bool IEffectBody.IsInteractive => true;
-
-    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
-
-    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        Apply(sink, selected);
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Select-and-play effect is resolved via the activation flow, not registered: {Description}");
-}
+// (R6-Da'-1) invented body `ActivatedSelectAndPlayEffect` DELETED — 0 consumers after the factory helper
+// `SelectAndPlayFromZoneEffect` deletion and the G9-046 SelectAndPlay-case removal. The real AS-IS surface is
+// `CardEffectCommons.PlayPermanentCards(..., root)` / SelectCardEffect (Root.Trash/Hand) — live in the
+// re-ported corpus (e.g. BT9_081).
 
 
 /// <summary>(PRIM-P0 B.O.5) The headless mirror of AS-IS <c>CardEffectCommons.PlayOptionCards</c>: select up to
@@ -2298,92 +2249,10 @@ public sealed class PlayOptionCardEffect : IActivatedCardEffect
 }
 
 
-/// <summary>(PRIM-P0-flow B.O.3) An activated "select up to <paramref name="maxCount"/> of the owner's cards in
-/// <paramref name="fromZone"/> (Trash / Library / Security …) matching a predicate, then apply a single-target
-/// mutation to each" — the zone-card select-follow-up wrapper (AS-IS SelectCardEffect Mode AddHand / Discard).
-/// The mutation kind picks the follow-up (ReturnToHand = add-to-hand, TrashCard = trash-from-zone); the sink
-/// moves each target from its current zone, so no from-zone payload is needed.</summary>
-public sealed class ActivatedSelectFromZoneEffect : IActivatedCardEffect, IEffectBody
-{
-    private readonly ChoiceZone _fromZone;
-    private readonly Func<HeadlessEntityId, bool> _canTarget;
-    private readonly int _maxCount;
-    private readonly bool _canEndNotMax;
-    private readonly string _mutationKind;
-    private readonly Action<CardSource, MatchStateMutationSink>? _onSelectedAny;
-
-    public ActivatedSelectFromZoneEffect(CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget,
-        int maxCount, bool canEndNotMax, string mutationKind, string description,
-        Action<CardSource, MatchStateMutationSink>? onSelectedAny = null)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canTarget);
-        ArgumentException.ThrowIfNullOrWhiteSpace(mutationKind);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        _fromZone = fromZone;
-        _canTarget = canTarget;
-        _maxCount = maxCount;
-        _canEndNotMax = canEndNotMax;
-        _mutationKind = mutationKind;
-        Description = description;
-        // (G14) fires ONCE, AFTER the move mutation(s), only when ≥1 card was actually selected — the AS-IS
-        // "if you added a card, THEN <do X>" conditional follow-up (e.g. BT3_034 add-from-security then draw 1).
-        _onSelectedAny = onSelectedAny;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    private IEnumerable<HeadlessEntityId> Candidates() =>
-        ((IZoneStateReader)Card.Context.ZoneMover).GetCards(Card.Owner, _fromZone).Where(_canTarget);
-
-    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players)
-    {
-        var candidates = Candidates()
-            .Select(id => EffectChoiceHelpers.Candidate(id, id.Value, _fromZone, isSelectable: true, Card.Owner))
-            .ToList();
-        int max = Math.Min(_maxCount, candidates.Count);
-        return EffectChoiceHelpers.CreatePermanentRequest(Card.Owner, Description, minCount: _canEndNotMax ? 0 : max, maxCount: max, canSkip: _canEndNotMax, candidates);
-    }
-
-    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        ArgumentNullException.ThrowIfNull(selected);
-        bool any = false;
-        foreach (HeadlessEntityId id in selected)
-        {
-            if (id.IsEmpty)
-            {
-                continue;
-            }
-
-            any = true;
-            sink.Apply(new EffectMutation(
-                _mutationKind,
-                Card.InstanceId,
-                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = id.Value }));
-        }
-
-        if (any)
-        {
-            _onSelectedAny?.Invoke(Card, sink);
-        }
-    }
-
-    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
-    bool IEffectBody.IsInteractive => true;
-
-    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
-
-    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        Apply(sink, selected);
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Select-from-zone effect is resolved via the activation flow, not registered: {Description}");
-}
+// (R6-Da'-1) invented body `ActivatedSelectFromZoneEffect` DELETED — 0 consumers after the factory helper
+// deletions (SelectAndAddToHandFromZone/SelectAndTrashFromZone/SelectAndPutSecurityFromZone) and the
+// TfxSelectFollowUp inline-migration. The real AS-IS surface is SelectCardEffect (full 16-param SetUp,
+// Mode.AddHand/Discard over Root.Trash/Library/…) — live in the re-ported corpus (e.g. BT2_090, BT10_084).
 
 
 /// <summary>

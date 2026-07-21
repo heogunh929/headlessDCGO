@@ -110,6 +110,12 @@ async Task<(EngineContext Context, HeadlessEntityId Foe)> Setup(string followMod
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 401);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (R6-Da'-1 companion, G9-009 F4 precedent) Initialize() starts at the pre-game phase, which makes
+    // TurnStateMachine.DoneStartGame false; the fixture's inline AS-IS ActivateClass gates ALL activation on
+    // DoneStartGame (ICardEffect.CanTrigger) — a gate the retired old-model helpers never consulted. An Option
+    // [Main] is by definition mid-game, so advancing past the pre-game phase is a harness correctness fix,
+    // not a behavior change to what is being tested.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     var cards = (CardDatabase)context.CardRepository;
 
     var defId = new HeadlessEntityId("TfxSelectFollowUp");
