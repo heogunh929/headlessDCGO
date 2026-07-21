@@ -190,3 +190,22 @@ id-헬퍼 5종 구현 실사 결과:
 ### 권고 (본 감사 범위 밖, 후속)
 
 `symbol_map.csv`에 `permanent.XXX` 속성-읽기 행 65개를 추가하는 것이 최대 ROI: 각 행 mirror_symbol = `PermanentOf(card,id).XXX`(경로 B) 또는 전용 id-헬퍼(경로 A: `LevelOf`/`CurrentDp`/`IsSuspended`/`HasNoDigivolutionCards`/`HasCannotReturnToLibrary`), UI 5종은 `stripped(no-op)`로 명시. relocated 3종(`Levels_ForJogress`→CardSource, `AddBoost`/`RemoveBoost`→DpBoostHelpers)은 signature_delta에 이전처 기재.
+
+---
+
+## 정정 (2026-07-21): LevelOf 발화 등급 재판정 — "확정" → "교차 조건부 잠복"
+
+사용자 지적으로 발화 근거를 재검사. 두 가지 정밀화:
+
+### 1. 레벨 관련 효과가 두 축으로 갈림 (하나만 LevelOf에 걸림)
+- **축A — Jogress 전용 취급** (`AddJogressLevelsClass`/`IAddJogressLevelsEffect`, 예 EX3_020 "DNA 진화 시 레벨6으로도 취급"): 메인 `Level`을 **안 바꾸고** 별도 리스트 `Levels_ForJogress`에만 추가. DNA/합체 요건 판정 전용 스코프. **LevelOf 버그와 무관** — 별도 축, 별도 처리(재하우징 완비 확인됨).
+- **축B — 일반 Level 오버라이드** (`ChangePermanentLevelClass`/`IChangePermanentLevelEffect`): 텍스트가 "treated as level N"이어도 구현은 `Permanent.Level` 게터가 무조건 접는 일반 오버라이드. **이 축만 LevelOf에 걸림.**
+- 초기 감사가 "레벨 언급 카드"를 뭉갠 것을 정정: BT20_025(=DP 6000, 무관)·EX3_020(=축A, 무관)은 오탐이었음.
+
+### 2. 축B도 "포팅 시 발화 확정"은 과함 — 교차 조건 필요
+`ChangePermanentLevelClass` 실사용 표본(BT7_087) 검사: GetLevel이 **자기 자신(`permanent == card.PermanentOfThisCard()`)만 레벨5로** 오버라이드(레벨 없는 테이머를 진화 목적 레벨5 취급). 즉 대상이 좁음(자기-테이머). 발화하려면 **(a) 레벨-오버라이드된 퍼머넌트**와 **(b) 그 퍼머넌트를 `LevelOf`로 판정하는 다른 효과**가 실제로 교차해야 함. 자기-대상·테이머-대상 케이스는 그 교차가 드묾(대다수 LevelOf 소비자는 "상대 디지몬 레벨N 이하" 류라 테이머 비대상).
+
+### 정정된 판정
+- **버그 자체는 실재**(설계 비대칭: `CurrentDp`는 `Permanent.DP` 위임, `LevelOf`만 게터 우회 base 읽기). 수리 유효.
+- **발화 등급: "포팅 시 확정" → "교차 조건부 잠복"**으로 하향. `ChangePermanentLevelClass` 20건 각각의 (대상 범위 × LevelOf 소비자 교차 가능성)을 봐야 실제 발화 카드 집합이 나옴. 현재까지 표본(BT7_087)은 자기-테이머 대상이라 교차 희소.
+- **수리 시 회귀 witness**: "레벨 취급 대상 퍼머넌트 × 그를 LevelOf로 판정하는 소비자"를 실제로 만들 수 있는 카드 조합을 찾아야 의미 있는 witness가 됨(자명 픽스처로는 교차 재현 안 됨).
