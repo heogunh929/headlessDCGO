@@ -882,53 +882,13 @@ public sealed class PlayerScopeModifierEffect : ICardEffect
 }
 
 
-/// <summary>(PRIM-W5) A material condition for a Blast-DNA digivolution (AS-IS <c>BlastDNACondition</c>) —
-/// the material card names that fuse. Card-facing shim so ported cards compile.</summary>
-/// <summary>(S2) A continuous effect-immunity (AS-IS <c>CanNotAffectedClass</c>). Carries the per-card
-/// <c>SkillCondition</c> (over the causing effect's source) and <c>TargetPredicate</c> (over the protected
-/// card) that express the AS-IS <c>CanNotAffect = CardCondition &amp;&amp; SkillCondition</c> conjunction.
-/// Null skill → opponent-only fallback.
-///
-/// (이연④-a) OLD-MODEL RESIDUE. The registry-half (<c>ToBinding</c>) was DELETED: it produced a "ContinuousImmunity"
-/// registry binding whose only consumer — <c>ContinuousImmunityGate.BlocksOpponentEffect</c> — was rehomed onto
-/// the live <see cref="CardSource.CanNotBeAffected"/> scan (B군 P0-1) and then the gate file was retired. Since
-/// <c>LegacyBindingBridge.TryToBinding</c> now finds no <c>ToBinding</c> method, the enter-play registrar registers
-/// NOTHING for this class — mirroring the new-model <c>CanNotAffectedClass</c> ("declares no ToBinding"). The class
-/// itself SURVIVES as an inert live-list marker: real cards (BT25_019 / EX11_074) still build it via
-/// <c>PermanentEffectFactory.DigimonEffectImmunity/OptionEffectImmunity</c> and add it to their duration bucket, and
-/// EXEMPLAR-T2B probes its presence there. NOTE (open campaign item RD-IMM-01): this class does NOT implement
-/// <c>ICanNotAffectedEffect</c>, so the live <see cref="CardSource.CanNotBeAffected"/> scan does NOT see it — the
-/// factory output is functionally inert until <c>DigimonEffectImmunity/OptionEffectImmunity</c> are flipped to emit
-/// the new-model <c>CanNotAffectedClass</c> (at which point this class deletes and EXEMPLAR-T2B re-aims off the
-/// presence probe).</summary>
-public sealed class ContinuousImmunityEffect : ICardEffect
-{
-    public ContinuousImmunityEffect(CardSource card, Func<CardSource, bool>? skillCondition, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? targetPredicate = null)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        Card = card;
-        SkillCondition = skillCondition;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-        TargetPredicate = targetPredicate;
-    }
-
-    public CardSource Card { get; }
-    public Func<CardSource, bool>? SkillCondition { get; }
-    public bool IsInheritedEffect { get; }
-    public Func<bool>? Condition { get; }
-
-    /// <summary>(C2) AS-IS <c>CanNotAffectedClass.CardCondition</c> (the factory's permanentCondition) —
-    /// WHICH permanents this immunity protects, evaluated live against the protected target. Non-null →
-    /// the grant is registered field-wide (no target) and only reaches predicate-matching cards.</summary>
-    public Func<CardSource, bool>? TargetPredicate { get; }
-
-    // (이연④-a) The old-model registry-WRITE (`EffectBinding ToBinding(string)`) was DELETED. It lowered this
-    // immunity into a "ContinuousImmunity"-scope registry binding read ONLY by the retired
-    // ContinuousImmunityGate.BlocksOpponentEffect (census-0 production consumers post B군 P0-1). With no ToBinding
-    // method, LegacyBindingBridge.TryToBinding returns false → the enter-play registrar registers nothing, exactly
-    // as the new-model CanNotAffectedClass does. See the class summary (RD-IMM-01) for the factory-flip campaign.
-}
+// (이연④-b RD-IMM-01 RESOLVED) The old-model `ContinuousImmunityEffect` (ICardEffect-only, invisible to the live
+// `CardSource.CanNotBeAffected` ICanNotAffectedEffect scan) was DELETED here. Its ④-a state was an inert live-list
+// marker: `PermanentEffectFactory.DigimonEffectImmunity/OptionEffectImmunity` produced it and BT25_019 / EX11_074
+// added it to their `UntilOpponentTurnEndEffects` bucket, but the scan never saw it — so the real cards' immunity
+// was production-inert. Those two factory methods now emit the AS-IS kind-class `CanNotAffectedClass`
+// (ICanNotAffectedEffect), which the live scan sees; FAILa-03 calls the factory directly and EXEMPLAR-T2B drives
+// the live immunity. With no producers left, this type is census-0 and removed (structural-invention campaign 1/22).
 
 
 /// <summary>(R3-W3c-4) A minimal cause carrier — an <see cref="ICardEffect"/> whose only meaningful data is its

@@ -745,6 +745,10 @@ static int DpOf(DcgoMatch match, HeadlessEntityId id)
 
 static bool IsDp(DcgoMatch match, HeadlessEntityId id, int dp) => DpOf(match, id) == dp;
 
+// (이연④-b RD-IMM-01) DRIVES the granted immunity through the LIVE CardSource.CanNotBeAffected scan instead of
+// probing for a marker type on the effect list (the old `is ContinuousImmunityEffect` presence probe — that
+// old-model class is deleted and the factory now emits the live CanNotAffectedClass). Positive: an OPPONENT's
+// Digimon effect is blocked; negative: the card's OWN Digimon effect is NOT (immunity is opponent-only).
 static bool HasDigimonEffectImmunity(DcgoMatch match, HeadlessEntityId id)
 {
     using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
@@ -753,8 +757,27 @@ static bool HasDigimonEffectImmunity(DcgoMatch match, HeadlessEntityId id)
         return false;
     }
 
-    var perm = new Cec.Permanent(match.Context, id, rec.OwnerId);
-    return perm.EffectList(Cec.EffectTiming.None).Any(e => e is Cec.ContinuousImmunityEffect);
+    var protectedCard = new Cec.CardSource(match.Context, id, rec.OwnerId);
+    Cec.Player? enemy = new Cec.Player(match.Context, rec.OwnerId).Enemy;
+    if (enemy is null)
+    {
+        return false;
+    }
+
+    // Opponent Digimon effect — must be blocked by the granted immunity.
+    var oppDigimonCause = new CecFx.ActivateClass();
+    oppDigimonCause.SetUpICardEffect("opp-digimon-cause", _ => true,
+        new Cec.CardSource(match.Context, new HeadlessEntityId("EXT2B-IMMU-OPP"), enemy.PlayerId));
+    oppDigimonCause.SetIsDigimonEffect(true);
+
+    // Own Digimon effect — must NOT be blocked (opponent-only immunity).
+    var ownDigimonCause = new CecFx.ActivateClass();
+    ownDigimonCause.SetUpICardEffect("own-digimon-cause", _ => true,
+        new Cec.CardSource(match.Context, new HeadlessEntityId("EXT2B-IMMU-OWN"), rec.OwnerId));
+    ownDigimonCause.SetIsDigimonEffect(true);
+
+    return protectedCard.CanNotBeAffected(oppDigimonCause)
+        && !protectedCard.CanNotBeAffected(ownDigimonCause);
 }
 
 static bool WasSuspended(DcgoMatch match, HeadlessEntityId id) => true;

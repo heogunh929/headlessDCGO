@@ -10,17 +10,15 @@ using HeadlessDCGO.Engine.Headless.Services;
 // FAIL-a #3 (mapping remediation): PermanentEffectFactory.DigimonEffectImmunity / OptionEffectImmunity must
 // mirror AS-IS — "immune to the OPPONENT's DIGIMON (resp. OPTION) effects", protecting only this permanent.
 // The earlier binding-rule port flattened both to the SAME blanket effect-immunity (ignoring the causing
-// effect's owner and type). The AS-IS-shaped factory builds a ContinuousImmunityEffect with the correct
-// SkillCondition (opponent + type) and TargetPredicate (this permanent).
+// effect's owner and type). The AS-IS-shaped factory builds the kind-class CanNotAffectedClass with the correct
+// SkillCondition (opponent + effect-type flag) and CardCondition (this permanent).
 //
-// (이연④-a) RE-AIMED off the retired ContinuousImmunityGate.BlocksOpponentEffect registry probe onto the LIVE
-// AS-IS CardSource.CanNotBeAffected scan (real-driving witness, no registry direct-read — P0-1 lesson). The
-// factory's ContinuousImmunityEffect is old-model (registry-only; ToBinding deleted) and therefore NOT yet
-// visible to the live ICanNotAffectedEffect scan — so this test LOWERS the factory's own SkillCondition /
-// TargetPredicate / Condition into a live CanNotAffectedClass (the exact flip the factory itself will absorb,
-// open campaign item RD-IMM-01) and asserts the observable blocking behaviour. This exercises the FACTORY's
-// real encoded predicates through the live getter. Presence of the factory's ContinuousImmunityEffect on real
-// cards is separately covered by EXEMPLAR-T2B.
+// (이연④-b RD-IMM-01 RESOLVED) Drives the LIVE AS-IS CardSource.CanNotBeAffected scan against the factory's OWN
+// output. The factory now emits the AS-IS kind-class CanNotAffectedClass (ICanNotAffectedEffect) directly — the
+// exact seam the live scan reads — so this test places that factory output on the protected card's effect list
+// and asserts the observable blocking behaviour with NO manual lowering (④-a had to lower the old-model
+// ContinuousImmunityEffect, now deleted). This exercises the FACTORY's real encoded predicates end-to-end.
+// Presence/drive of the same immunity on the real cards BT25_019 / EX11_074 is covered by EXEMPLAR-T2B.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -50,28 +48,21 @@ async Task Check(Grant grant, HeadlessPlayerId sourceOwner, string sourceType, b
     var sourceId = await Place(ctx, sourceOwner, "SRC", sourceType);
 
     var permanent = new Permanent(ctx, protectedId, P1);
-    ContinuousImmunityEffect immunity = grant == Grant.Digimon
+    CanNotAffectedClass immunity = grant == Grant.Digimon
         ? PermanentEffectFactory.DigimonEffectImmunity(permanent)
         : PermanentEffectFactory.OptionEffectImmunity(permanent);
 
-    // (이연④-a) Lower the AS-IS factory immunity into a LIVE CanNotAffectedClass — the seam CardSource.CanNotBeAffected
-    // reads — feeding it the factory's OWN predicates (real-driving; not a registry/predicate direct-read):
-    //   CardCondition = TargetPredicate (which permanent is protected), over the protected CardSource;
-    //   SkillCondition = SkillCondition (which causing effects), over the causing effect's SOURCE card;
-    //   CanUse        = Condition (the factory's live existence gate).
+    // The factory output IS the live CanNotAffectedClass the seam CardSource.CanNotBeAffected reads — place it on
+    // the protected card's effect list directly (no manual lowering).
     var protectedCard = new CardSource(ctx, protectedId, P1);
-    ICardEffect live = CardEffectFactory.CanNotAffectedStaticEffect(
-        permanentCondition: p => immunity.TargetPredicate!(p.TopCard),
-        skillCondition: e => e.EffectSourceCard is not null && immunity.SkillCondition!(e.EffectSourceCard),
-        isInheritedEffect: immunity.IsInheritedEffect,
-        card: immunity.Card,
-        condition: immunity.Condition);
-    protectedCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(live);
+    protectedCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(immunity);
 
-    // AS-IS causing effect: an ActivateClass whose EffectSourceCard is the source card (owner + type decide
-    // IsOpponentEffect / IsDigimon, which the factory's SkillCondition keys on).
+    // AS-IS causing effect: an ActivateClass whose EffectSourceCard owner decides IsOpponentEffect, and whose
+    // IsDigimonEffect / IsTamerEffect flags the factory's SkillCondition keys on (AS-IS reads the EFFECT flag, not
+    // the source card's type — the fidelity gained by the flip off the old-model card-type SkillCondition).
     var cause = new ActivateClass();
     cause.SetUpICardEffect("cause", _ => true, new CardSource(ctx, sourceId, sourceOwner));
+    if (sourceType == "Digimon") cause.SetIsDigimonEffect(true);
 
     using var _ = AmbientMatchContext.Enter(ctx);
     bool blocked = protectedCard.CanNotBeAffected(cause);

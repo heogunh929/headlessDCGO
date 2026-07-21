@@ -36,42 +36,79 @@ public static class PermanentEffectFactory
         return effect;
     }
 
-    /// <summary>(AD1) 1:1 mirror of AS-IS <c>PermanentEffectFactory.DigimonEffectImmunity(permanent)</c>
-    /// (PermanentEffectFactory.cs:51-78): "&lt;permanent&gt; is not affected by the OPPONENT's DIGIMON effects."
-    /// Builds a <see cref="CardEffectCommons.ContinuousImmunityEffect"/> whose TargetPredicate protects exactly
-    /// this permanent (AS-IS <c>CardCondition = cardSource == permanent.TopCard</c>) and whose SkillCondition
-    /// admits only opponent-owned Digimon effects (AS-IS <c>IsOpponentEffect &amp;&amp; IsDigimonEffect</c>, mapped to
-    /// the causing effect's SOURCE card). Live existence gate mirrors AS-IS CanUseCondition
-    /// (<c>IsExistOnBattleArea</c>). Register with a duration to mirror the AS-IS <c>Until…Effects.Add(…)</c>
-    /// bucket. Replaces the earlier flattened binding-rule form that produced BLANKET effect immunity.</summary>
-    public static CardEffectCommons.ContinuousImmunityEffect DigimonEffectImmunity(CardEffectCommons.Permanent permanent)
+    /// <summary>(AD1 / 이연④-b RD-IMM-01 RESOLVED) 1:1 mirror of AS-IS
+    /// <c>PermanentEffectFactory.DigimonEffectImmunity(permanent)</c> (PermanentEffectFactory.cs:51-76):
+    /// "Not affected by opponent's Digimon's effects." Builds the AS-IS kind-class
+    /// <see cref="CardEffects.CanNotAffectedClass"/> (an <c>ICanNotAffectedEffect</c>) so the LIVE
+    /// <see cref="CardEffectCommons.CardSource.CanNotBeAffected"/> scan actually SEES it — replacing the retired
+    /// old-model <c>ContinuousImmunityEffect</c> (ICardEffect-only, invisible to that scan) that left this grant
+    /// production-INERT on the real cards BT25_019 / EX11_074. <c>CardCondition</c> protects exactly this permanent
+    /// (AS-IS <c>cardSource == permanent.TopCard</c> + live existence); <c>SkillCondition</c> admits only
+    /// opponent-owned DIGIMON effects (AS-IS <c>IsOpponentEffect(cardEffect, permanent.TopCard) &amp;&amp;
+    /// cardEffect.IsDigimonEffect</c>); CanUse mirrors AS-IS <c>IsExistOnBattleAreaDigimon</c>. The caller adds this
+    /// to its <c>UntilOpponentTurnEndEffects</c> bucket (AS-IS <c>Until…Effects.Add</c>), surfaced by
+    /// <c>Permanent.EffectList_Added</c> at every timing. ADAPTATION (substrate only): the AS-IS
+    /// <c>IsOpponentEffect(ICardEffect,CardSource)</c> overload reduces the causing effect to its
+    /// <c>EffectSourceCard</c>; the mirror overload takes that source card directly (established Progress.cs idiom).</summary>
+    public static CardEffects.CanNotAffectedClass DigimonEffectImmunity(CardEffectCommons.Permanent permanent)
     {
         ArgumentNullException.ThrowIfNull(permanent);
-        CardEffectCommons.CardSource topCard = permanent.TopCard;
-        HeadlessPlayerId owner = permanent.OwnerId;
-        return new CardEffectCommons.ContinuousImmunityEffect(
-            card: topCard,
-            skillCondition: src => src is not null && src.Owner != owner && src.IsDigimon,
-            isInheritedEffect: false,
-            condition: () => CardEffectCommons.CardEffectCommons.IsExistOnBattleAreaDigimon(topCard),
-            targetPredicate: cs => cs is not null && cs.InstanceId == permanent.InstanceId);
+
+        bool CanUseCondition1(Hashtable hashtable)
+        {
+            return CardEffectCommons.CardEffectCommons.IsExistOnBattleAreaDigimon(permanent.TopCard);
+        }
+
+        bool CardCondition(CardEffectCommons.CardSource cardSource)
+        {
+            return cardSource == permanent.TopCard
+                && CardEffectCommons.CardEffectCommons.IsExistOnBattleAreaDigimon(permanent.TopCard);
+        }
+
+        bool SkillCondition(CardEffectCommons.ICardEffect cardEffect)
+        {
+            return CardEffectCommons.CardEffectCommons.IsOpponentEffect(cardEffect.EffectSourceCard, permanent.TopCard)
+                && cardEffect.IsDigimonEffect;
+        }
+
+        CardEffects.CanNotAffectedClass canNotAffectedClass = new CardEffects.CanNotAffectedClass();
+        canNotAffectedClass.SetUpICardEffect("Not affected by opponent's Digimon's effects", CanUseCondition1, permanent.TopCard);
+        canNotAffectedClass.SetUpCanNotAffectedClass(CardCondition: CardCondition, SkillCondition: SkillCondition);
+        canNotAffectedClass.SetEffectSourcePermanent(permanent);
+        return canNotAffectedClass;
     }
 
-    /// <summary>(AD1) 1:1 mirror of AS-IS <c>PermanentEffectFactory.OptionEffectImmunity(permanent)</c>
-    /// (PermanentEffectFactory.cs:80-107): "&lt;permanent&gt; is not affected by the OPPONENT's OPTION effects."
-    /// As <see cref="DigimonEffectImmunity"/> but the SkillCondition admits only opponent-owned OPTION effects
-    /// (AS-IS <c>IsOpponentEffect &amp;&amp; !IsDigimonEffect &amp;&amp; !IsTamerEffect</c>).</summary>
-    public static CardEffectCommons.ContinuousImmunityEffect OptionEffectImmunity(CardEffectCommons.Permanent permanent)
+    /// <summary>(AD1 / 이연④-b RD-IMM-01 RESOLVED) 1:1 mirror of AS-IS
+    /// <c>PermanentEffectFactory.OptionEffectImmunity(permanent)</c> (PermanentEffectFactory.cs:80-105):
+    /// "Not affected by opponent's Option effects." As <see cref="DigimonEffectImmunity"/> but the
+    /// <c>SkillCondition</c> admits only opponent-owned OPTION effects (AS-IS <c>IsOpponentEffect &amp;&amp;
+    /// !cardEffect.IsDigimonEffect &amp;&amp; !cardEffect.IsTamerEffect</c>).</summary>
+    public static CardEffects.CanNotAffectedClass OptionEffectImmunity(CardEffectCommons.Permanent permanent)
     {
         ArgumentNullException.ThrowIfNull(permanent);
-        CardEffectCommons.CardSource topCard = permanent.TopCard;
-        HeadlessPlayerId owner = permanent.OwnerId;
-        return new CardEffectCommons.ContinuousImmunityEffect(
-            card: topCard,
-            skillCondition: src => src is not null && src.Owner != owner && !src.IsDigimon && !src.IsTamer,
-            isInheritedEffect: false,
-            condition: () => CardEffectCommons.CardEffectCommons.IsExistOnBattleAreaDigimon(topCard),
-            targetPredicate: cs => cs is not null && cs.InstanceId == permanent.InstanceId);
+
+        bool CanUseCondition1(Hashtable hashtable)
+        {
+            return CardEffectCommons.CardEffectCommons.IsExistOnBattleAreaDigimon(permanent.TopCard);
+        }
+
+        bool CardCondition(CardEffectCommons.CardSource cardSource)
+        {
+            return cardSource == permanent.TopCard
+                && CardEffectCommons.CardEffectCommons.IsExistOnBattleAreaDigimon(permanent.TopCard);
+        }
+
+        bool SkillCondition(CardEffectCommons.ICardEffect cardEffect)
+        {
+            return CardEffectCommons.CardEffectCommons.IsOpponentEffect(cardEffect.EffectSourceCard, permanent.TopCard)
+                && !cardEffect.IsDigimonEffect && !cardEffect.IsTamerEffect;
+        }
+
+        CardEffects.CanNotAffectedClass canNotAffectedClass = new CardEffects.CanNotAffectedClass();
+        canNotAffectedClass.SetUpICardEffect("Not affected by opponent's Option effects", CanUseCondition1, permanent.TopCard);
+        canNotAffectedClass.SetUpCanNotAffectedClass(CardCondition: CardCondition, SkillCondition: SkillCondition);
+        canNotAffectedClass.SetEffectSourcePermanent(permanent);
+        return canNotAffectedClass;
     }
 
     /// <summary>(AD1) 1:1 mirror of AS-IS <c>PermanentEffectFactory.CollisionEffect(targetPermanent,
