@@ -879,30 +879,10 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ActivatedTargetRestrictionEffect restrict:
-                {
-                    // (ST2_14 / ST4_12 / BT1_113) select up to maxCount matching permanents, then register the
-                    // duration-tagged can't-attack / can't-block restriction binding(s) on the pick(s) — the
-                    // AS-IS SelectPermanentEffect(Mode.Custom) whose SelectPermanentCoroutine runs
-                    // GainCanNotAttack + GainCanNotBlock per selected permanent (ST2_14.cs:44-86). Same shape as
-                    // the other interactive cases: BuildRequest -> ChoiceProvider -> apply. The AS-IS
-                    // ActivateCoroutine is guarded by HasMatchConditionPermanent (ST2_14.cs:46) — no select (and
-                    // no registration) when nothing matches.
-                    ChoiceRequest request = restrict.BuildRequest(players);
-                    if (request.Candidates.Count > 0)
-                    {
-                        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
-                        if (!result.IsSkipped && result.SelectedIds.Count > 0)
-                        {
-                            // Journaled: a registry registration is an immediately-applied side effect — a
-                            // resumed replay must not register the restriction twice.
-                            RunJournaledImmediate(context, () => restrict.ApplyRestriction(result.SelectedIds));
-                        }
-                    }
-
-                    resolved++;
-                    break;
-                }
+                // (R6-Da'-3) `case ActivatedTargetRestrictionEffect` DELETED — the producer was census-0 (no printed
+                // card creates one: ST2_14 / ST4_12 / BT1_113 are all re-ported to the inline AS-IS ActivateClass +
+                // SelectPermanentEffect(Mode.Custom) driving GainCanNotAttack/GainCanNotBlock per pick, and the
+                // CardEffectFactory.SelectAndRestrictEffect helper had no live caller). Class + factory deleted.
 
                 case ActivatedMemoryEffect memory:
                 {

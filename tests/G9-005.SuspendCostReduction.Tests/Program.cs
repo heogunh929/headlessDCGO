@@ -62,8 +62,10 @@ async Task ReductionIsUntilFixedCostCalc()
     await ResolveSelecting(context, BuildEffect(context, hand), d1, d2);
     AssertEqual(2, ContinuousModifierGate.ResolvePlayCost(context, hand, 6), "reduced before fixed-cost calc");
 
-    // PlayCardAction.ProcessAsync calls this once the play cost is locked in.
-    EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
+    // PlayCardAction.ProcessAsync calls this once the play cost is locked in. (R6-Da'-3) the reduction now lives
+    // on the payer's UntilCalculateFixedCost BUCKET (AS-IS 1:1), so expiry uses the ATOMIC overload that clears
+    // BOTH the registry bindings AND the player bucket (the same one the live pay chokes call).
+    EffectDurationExpiry.ExpireFixedCostCalc(context, P1);
     AssertEqual(6, ContinuousModifierGate.ResolvePlayCost(context, hand, 6), "reduction expired -> back to full cost");
 }
 
@@ -154,6 +156,10 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 71);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (R6-Da'-3) advance past phase None so the AS-IS ChangeCostClass fold's CanUse->DoneStartGame gate passes:
+    // the suspend-cost reduction now lives on the UntilCalculateFixedCost BUCKET (AS-IS 1:1) read by the CanUse-
+    // gated GetChangedPayingCost fold, unlike the former invented EffectRegistry NumericModifier (ungated) fold.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 

@@ -25,6 +25,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT1_109: [Main] green level-5->6 digivolution cost is reduced by 4", Bt1_109_ReducesMatching),
     ("BT1_109: a NON-matching digivolution (level-4 target) is NOT reduced", Bt1_109_IgnoresNonMatching),
     ("BT1_109: with no BT1_109 active, cost is unchanged (baseline)", Bt1_109_BaselineNoReduction),
+    ("BT1_109: the digivolution-cost reduction expires at end of turn (UntilEachTurnEnd bucket)", Bt1_109_ExpiresAtTurnEnd),
     ("BT1_088: [Main] suspend self -> reveal top; a Digimon goes to hand", Bt1_088_RevealDigimonToHand),
     ("BT1_088: [Main] a non-Digimon reveal goes to the deck bottom; gate needs a level-5+ green", Bt1_088_NonDigimonToBottomAndGate),
     ("BT1_089: [Main] suspend self -> hatch when the breeding area is empty (hatch precedes move)", Bt1_089_HatchBranch),
@@ -176,6 +177,9 @@ async Task Bt1_087_NonYellowNoRecover()
 async Task Bt1_109_ReducesMatching()
 {
     EngineContext ctx = NewContext();
+    // (R6-Da'-3) advance past phase None so ICardEffect.CanTrigger's AS-IS DoneStartGame gate passes and the
+    // re-ported inline ActivateClass [Main] actually resolves (registers the digivolution-cost reduction).
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     var opt = Instance(ctx, "BT1_109", "BT1_109", cardType: "Option");
     await ActivatedEffectResolver.ResolveAsync(ctx, opt, P1, EffectTiming.OptionSkill);
 
@@ -189,6 +193,9 @@ async Task Bt1_109_ReducesMatching()
 async Task Bt1_109_IgnoresNonMatching()
 {
     EngineContext ctx = NewContext();
+    // (R6-Da'-3) advance past phase None so ICardEffect.CanTrigger's AS-IS DoneStartGame gate passes and the
+    // [Main] option actually registers the reduction — otherwise the negative assertion passes vacuously.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     var opt = Instance(ctx, "BT1_109", "BT1_109", cardType: "Option");
     await ActivatedEffectResolver.ResolveAsync(ctx, opt, P1, EffectTiming.OptionSkill);
 
@@ -208,6 +215,27 @@ async Task Bt1_109_BaselineNoReduction()
     int cost = ContinuousModifierGate.ResolveDigivolutionCost(ctx, toCard, baseDigivolutionCost: 5, digivolveTargetPermanentId: target);
     AssertEqual(5, cost, "with no BT1_109 registered, the cost is unchanged");
     await Task.CompletedTask;
+}
+
+async Task Bt1_109_ExpiresAtTurnEnd()
+{
+    EngineContext ctx = NewContext();
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    var opt = Instance(ctx, "BT1_109", "BT1_109", cardType: "Option");
+    await ActivatedEffectResolver.ResolveAsync(ctx, opt, P1, EffectTiming.OptionSkill);
+
+    var target = Battle(ctx, "t5", "T5", level: 5, colors: new[] { "Green" });
+    var toCard = Hand(ctx, "to6", "TO6", level: 6, colors: new[] { "Green" });
+
+    // Applied this turn (grant lives in the OWNER's UntilEachTurnEnd bucket via AddEffectToPlayer).
+    AssertEqual(1, ContinuousModifierGate.ResolveDigivolutionCost(ctx, toCard, baseDigivolutionCost: 5, digivolveTargetPermanentId: target),
+        "the reduction is active during the turn it was registered");
+
+    // AS-IS end-of-turn cleanup clears the UntilEachTurnEnd bucket (TurnStateMachine.cs:3175-3201 mirror).
+    new HeadlessEndTurnCleanupFlow().Cleanup(ctx, ctx.TurnController.Current);
+
+    AssertEqual(5, ContinuousModifierGate.ResolveDigivolutionCost(ctx, toCard, baseDigivolutionCost: 5, digivolveTargetPermanentId: target),
+        "the reduction expired at end of turn (UntilEachTurnEnd bucket cleared) — no longer applies");
 }
 
 // ---- Harness ----------------------------------------------------------------

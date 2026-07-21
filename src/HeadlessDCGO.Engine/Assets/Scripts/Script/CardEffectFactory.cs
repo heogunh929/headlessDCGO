@@ -1567,11 +1567,9 @@ public static partial class CardEffectFactory
     // `ActivatedSelectBounceAndDiscardSourcesEffect` is RETAINED (carried over — C3-Witness case (9) green
     // consumer; re-target that witness before the corpus deletion, R6-Db).
 
-    /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and make each unable to attack
-    /// and/or block for <paramref name="duration"/>" effect (e.g. ST2_14).</summary>
-    public static ICardEffect SelectAndRestrictEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, EffectDuration duration, bool cannotAttack, bool cannotBlock, string description) =>
-        new ActivatedTargetRestrictionEffect(card, canTarget, maxCount, duration, cannotAttack, cannotBlock, description);
+    // (R6-Da'-3) `SelectAndRestrictEffect` factory + its `ActivatedTargetRestrictionEffect` body DELETED — the
+    // invented registry-restriction producer was census-0 (ST2_14 / ST4_12 / BT1_113 are all re-ported to the
+    // inline AS-IS ActivateClass + GainCanNotAttack/GainCanNotBlock; the factory had no live caller).
 
     // (R3-F1 fold) mirror-invented wrappers `SelfDpBuffTriggerEffect` (returned TriggeredSelfDpBuffEffect) and
     // `RecoveryTriggerEffect` (returned RecoverTriggerEffect) DELETED — 0 live consumers remained (grep: no

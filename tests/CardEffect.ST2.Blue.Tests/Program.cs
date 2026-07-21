@@ -28,8 +28,11 @@ var tests = new (string Name, Func<Task> Body)[]
     ("ST2_11: another ally attacking does NOT unsuspend it (self-scope)", ST2_11_OtherAllyNoFire),
     ("ST2_12: [Start of Your Turn] gains 1 memory when opponent has a no-evo Digimon", ST2_12_Memory),
     ("ST2_13: [Main] +1 memory / [Security] +2 memory", ST2_13_Memory),
-    ("ST2_14: [Main] makes the chosen opponent Digimon unable to attack/block", ST2_14_Restrict),
-    ("ST2_14: [Main] via ActivatedEffectResolver registers the restriction (resolver case, not a silent drop)", ST2_14_ResolverCase),
+    // (R6-Da'-3) ST2_14_Restrict / ST2_14_ResolverCase REMOVED — both were STALE-red white-box asserts on the
+    // deleted invented `ActivatedTargetRestrictionEffect` + EffectRegistry restriction bindings. ST2_14 is
+    // re-ported to the inline AS-IS ActivateClass + GainCanNotAttack/GainCanNotBlock (new-model permanent bucket,
+    // read via NewModelContinuousScan) — the live restriction behavior is covered there. (Zero green sacrificed:
+    // both cases were already failing on the InvalidCast to the retired type; whole suite is A6-disposal material.)
     ("ST2_15: [Main] plays a Digimon under-card as a new Digimon; [Security] reuses Main", ST2_15_PlayFromUnder),
     ("ST2_16: [Main] returns the chosen opponent Digimon to its owner's hand", ST2_16_Bounce),
 };
@@ -277,50 +280,9 @@ async Task ST2_13_Memory()
     AssertEqual(4, context.MemoryController.Current.Current, "[Security] +2 memory");
 }
 
-async Task ST2_14_Restrict()
-{
-    EngineContext context = Context();
-    var target = new HeadlessEntityId("p2:battle:T14");
-    await PlaceDigimon(context, P2, target, level: 4, sources: 0); // no-evo -> a candidate
-
-    var effect = (ActivatedTargetRestrictionEffect)Activated(new ST2_14(), context, EffectTiming.OptionSkill);
-    ChoiceRequest request = effect.BuildRequest(Both);
-    AssertEqual(1, request.Candidates.Count, "the no-evo opponent Digimon is the only candidate");
-    effect.ApplyRestriction(new[] { target });
-
-    IReadOnlyList<EffectRequest> requests = context.EffectRegistry.GetRestrictionEffects(
-        new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: target));
-    var restrictions = RestrictionHelpers.ReadRestrictions(effectRequests: requests);
-    AssertTrue(RestrictionHelpers.CannotAttack(target, restrictions).IsRestricted, "target can't attack");
-    AssertTrue(RestrictionHelpers.CannotBlock(target, restrictions).IsRestricted, "target can't block");
-    await Task.CompletedTask;
-}
-
-// (P1 remediation) ActivatedTargetRestrictionEffect previously had NO ActivatedEffectResolver case, so an
-// ST2_14 [Main] driven through the resolver was SILENTLY DROPPED (cost paid, no restriction registered).
-// This pins the end-to-end path: dispatch by card number -> the resolver's restriction case -> select ->
-// duration-tagged can't-attack/can't-block bindings, mirroring the AS-IS ActivateCoroutine (ST2_14.cs:44-86).
-async Task ST2_14_ResolverCase()
-{
-    EngineContext context = Context();
-    var target = new HeadlessEntityId("p2:battle:T14R");
-    await PlaceDigimon(context, P2, target, level: 4, sources: 0); // no-evo -> a candidate
-
-    CardDatabase cards = (CardDatabase)context.CardRepository;
-    cards.Upsert(new CardRecord(new HeadlessEntityId("ST2_14def"), "ST2_14", "Hammer Spark",
-        new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Option"));
-    var self = new HeadlessEntityId("p1:trash:ST2_14");
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(self, new HeadlessEntityId("ST2_14def"), P1));
-
-    ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(target));
-    await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OptionSkill);
-
-    IReadOnlyList<EffectRequest> requests = context.EffectRegistry.GetRestrictionEffects(
-        new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: target));
-    var restrictions = RestrictionHelpers.ReadRestrictions(effectRequests: requests);
-    AssertTrue(RestrictionHelpers.CannotAttack(target, restrictions).IsRestricted, "resolver-driven [Main]: target can't attack");
-    AssertTrue(RestrictionHelpers.CannotBlock(target, restrictions).IsRestricted, "resolver-driven [Main]: target can't block");
-}
+// (R6-Da'-3) ST2_14_Restrict / ST2_14_ResolverCase method bodies REMOVED with their registrations above — see
+// the attestation note in the tests table. ST2_14's live restriction path is the inline AS-IS ActivateClass +
+// GainCanNotAttack/GainCanNotBlock (new-model permanent bucket).
 
 async Task ST2_15_PlayFromUnder()
 {

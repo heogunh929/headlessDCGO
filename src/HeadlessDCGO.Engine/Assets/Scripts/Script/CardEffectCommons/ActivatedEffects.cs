@@ -11,6 +11,7 @@ using HeadlessDCGO.Engine.Headless.State;
 // into scope, which would clash with the CardEffectFactory type below.
 using SelectPermanentEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPermanentEffect;
 using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition;
+using ChangeCostClass = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ChangeCostClass;
 
 
 /// <summary>(W6-A2) Mirror of the AS-IS Arts-Digivolve resolution (an <c>OptionResolutionClass</c>): from
@@ -775,21 +776,25 @@ public sealed class BeforePayCostReductionEffect : IActivatedCardEffect
             return;
         }
 
-        // Register BOTH the play-cost (PlayCost metric — play & option) and digivolution-cost (DigivolutionCost
-        // metric) deltas. A given action pays exactly one of these costs, so only the relevant metric's resolve
-        // applies the reduction — registering both lets one effect cover play / option / digivolve uniformly.
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [ModifierHelpers.PlayCostDeltaKey] = -amount,
-            [ModifierHelpers.DigivolutionCostDeltaKey] = -amount,
-        };
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null,
-            targetEntityIds: new[] { Card.InstanceId }, values: values);
-        Card.Context.EffectRegistry.Register(new EffectBinding(
-            new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:beforePayCostReduction"), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope },
-            effect: null, duration: EffectDuration.UntilCalculateFixedCost));
+        // (R6-Da'-3) AS-IS BeforePayCost ActivateClass: card.Owner.UntilCalculateFixedCostEffect.Add(_ =>
+        // changeCostClass). Register a ONE-SHOT self cost-reduction ChangeCostClass into the OWNER's
+        // UntilCalculateFixedCost bucket (cleared once the play's cost is locked — EffectDurationExpiry.
+        // ExpireFixedCostCalc / PlayCardAction). Gated ONLY on `cardSource == this card` (no target-permanent
+        // restriction) so it reduces THIS card's cost whether paid as a play OR a digivolution — a given action
+        // pays exactly one, so it fires exactly once. Read back by CardSource.GetPayingCostWithBaseCost's
+        // GetChangedPayingCost fold. Replaces the INVENTED EffectRegistry NumericModifier binding (which reduced
+        // both metrics via separate PlayCost/DigivolutionCost delta keys but bypassed the AS-IS CanUse gate).
+        int reduce = amount;
+        var changeCostClass = new ChangeCostClass();
+        changeCostClass.SetUpICardEffect($"Cost -{reduce}", _ => true, Card);
+        changeCostClass.SetUpChangeCostClass(
+            changeCostFunc: (cs, cost, root, targetPermanents) => cost - reduce,
+            cardSourceCondition: cs => cs == Card,
+            rootCondition: root => true,
+            isUpDown: () => true,
+            isCheckAvailability: () => false,
+            isChangePayingCost: () => true);
+        new Player(Card.Context, Card.Owner).UntilCalculateFixedCostEffect.Add(_ => changeCostClass);
     }
 
     public EffectBinding ToBinding(string effectId) =>
@@ -896,33 +901,24 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect, IEffectBo
         }
 
         _select.Apply(sink, ids);
-        Card.Context.EffectRegistry.Register(BuildReductionBinding());
+        RegisterReduction();
     }
 
-    /// <summary>The one-shot self play-cost reduction the suspend pays for — a <c>playCostDelta = -M</c>
-    /// continuous self modifier scoped/keyed exactly like <see cref="ContinuousSelfModifierEffect"/>, but
-    /// tagged <see cref="EffectDuration.UntilCalculateFixedCost"/> so it lasts only until this play's cost is
-    /// locked in (mirrors <c>Player.UntilCalculateFixedCostEffect.Add(_ => changeCostClass)</c>).</summary>
-    private EffectBinding BuildReductionBinding()
+    /// <summary>(R6-Da'-3) The one-shot self PLAY-cost reduction the suspend pays for — the AS-IS
+    /// <c>Player.UntilCalculateFixedCostEffect.Add(_ => changeCostClass)</c> idiom: a self play-cost-only
+    /// <c>ChangeCostClass</c> (<see cref="CardEffectFactory.MandatorySelfPlayCostReduction{T}"/> — gated on
+    /// <c>cardSource == this card</c> and play-cost only via its null/empty targetPermanents PermanentsCondition)
+    /// added to the OWNER's <see cref="EffectDuration.UntilCalculateFixedCost"/> bucket, so it lasts only until
+    /// this play's cost is locked (cleared by EffectDurationExpiry.ExpireFixedCostCalc / PlayCardAction). Read
+    /// back by CardSource.GetPayingCostWithBaseCost's ChangeCostClass fold. Replaces the INVENTED EffectRegistry
+    /// NumericModifier binding.</summary>
+    private void RegisterReduction()
     {
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        var reduction = CardEffectFactory.MandatorySelfPlayCostReduction(CostReduction, Card);
+        if (reduction is not null)
         {
-            [ModifierHelpers.PlayCostDeltaKey] = -CostReduction,
-        };
-        var context = new EffectContext(
-            Card.Controller,
-            Card.Owner,
-            Card.InstanceId,
-            triggerEntityId: null,
-            targetEntityIds: new[] { Card.InstanceId },
-            values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:beforePayCostReduction"), Card.Controller, "Continuous", context),
-            keywords: null,
-            EffectQueryRole.Continuous,
-            new[] { ContinuousModifierGate.Scope },
-            effect: null,
-            duration: EffectDuration.UntilCalculateFixedCost);
+            new Player(Card.Context, Card.Owner).UntilCalculateFixedCostEffect.Add(_ => reduction);
+        }
     }
 
     // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
@@ -2118,80 +2114,14 @@ public sealed class PlayOptionCardEffect : IActivatedCardEffect
 // Mode.AddHand/Discard over Root.Trash/Library/…) — live in the re-ported corpus (e.g. BT2_090, BT10_084).
 
 
-/// <summary>
-/// An activated "select up to <paramref name="maxCount"/> Digimon and make each unable to attack and/or
-/// block for a <see cref="EffectDuration"/>" effect (e.g. ST2_14). <see cref="ApplyRestriction"/> registers
-/// one duration-tagged restriction binding per chosen target, queried by <c>RestrictionHelpers</c> via the
-/// continuous-restriction scope, so <see cref="EffectDurationExpiry"/> removes it on expiry.
-/// </summary>
-public sealed class ActivatedTargetRestrictionEffect : IActivatedCardEffect
-{
-    private readonly SelectPermanentEffect _select = new();
-    private readonly EffectDuration _duration;
-    private readonly bool _cannotAttack;
-    private readonly bool _cannotBlock;
-
-    public ActivatedTargetRestrictionEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, EffectDuration duration, bool cannotAttack, bool cannotBlock, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canTarget);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Description = description;
-        _duration = duration;
-        _cannotAttack = cannotAttack;
-        _cannotBlock = cannotBlock;
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId, card.Context);
-        _select.SetUpCustomMessage(description);
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players) =>
-        _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
-
-    public void ApplyRestriction(IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(selected);
-        int index = 0;
-        foreach (HeadlessEntityId target in selected)
-        {
-            var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [RestrictionHelpers.RestrictionTargetEntityIdKey] = target.Value,
-                [RestrictionHelpers.RestrictionSourceEntityIdKey] = Card.InstanceId.Value,
-            };
-            HeadlessEntityId restricted = target;
-            if (_cannotAttack)
-            {
-                values[RestrictionHelpers.CannotAttackKey] = true;
-                // (joint-migration) canonical joint: the selected target cannot attack (unconditional, subject-identity).
-                values[JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotAttackKey)] =
-                    (Func<CardSource, CardSource?, bool>)((subject, _) => subject.InstanceId == restricted);
-            }
-
-            if (_cannotBlock)
-            {
-                values[RestrictionHelpers.CannotBlockKey] = true;
-                values[JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotBlockKey)] =
-                    (Func<CardSource, CardSource?, bool>)((subject, _) => subject.InstanceId == restricted);
-            }
-
-            var context = new EffectContext(
-                Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { target }, values: values);
-            var binding = new EffectBinding(
-                new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:restrict:{target.Value}:{index++}"), Card.Controller, "Continuous", context),
-                keywords: null, EffectQueryRole.Restriction, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: _duration);
-            Card.Context.EffectRegistry.Register(binding);
-        }
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Activated restriction effect is resolved via the activation flow, not registered: {Description}");
-}
+// (R6-Da'-3) invented `ActivatedTargetRestrictionEffect` (select-and-restrict → registered one duration-tagged
+// EffectRegistry restriction binding per pick, scope ContinuousRestrictionGate.Scope) DELETED — census-0. The
+// live "select N Digimon, they can't attack/block until <duration>" behavior is the AS-IS inline ActivateClass +
+// SelectPermanentEffect(Mode.Custom) whose per-target coroutine runs CardEffectCommons.GainCanNotAttack /
+// GainCanNotBlock (AddEffectToPermanent duration bucket, read by ContinuousRestrictionGate via
+// NewModelContinuousScan) — already re-ported inline into ST2_14 / ST4_12 / BT1_113. Its CardEffectFactory
+// helper (SelectAndRestrictEffect) had no live caller and its resolver case was dead. EffectDurationExpiry sweeps
+// the permanent bucket at reset.
 
 
 /// <summary>

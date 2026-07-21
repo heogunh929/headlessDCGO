@@ -91,6 +91,11 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 71);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (R6-Da'-3) advance past phase None so the AS-IS ChangeCostClass fold's CanUse->CanTrigger->DoneStartGame
+    // gate passes: the before-pay reduction now lives on the UntilCalculateFixedCost BUCKET (AS-IS 1:1), read by
+    // CardSource.GetPayingCostWithBaseCost's CanUse-gated GetChangedCostItselef/GetChangedPayingCost — unlike the
+    // former invented EffectRegistry NumericModifier fold, which bypassed the DoneStartGame gate.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
