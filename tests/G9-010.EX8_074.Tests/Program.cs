@@ -60,7 +60,11 @@ async Task BeforePayCostLive()
     var d2 = await PlaceCard(context, P1, "U2", ChoiceZone.BattleArea, dp: 4000);
     ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(d1, d2));
 
-    ActionProcessResult r = await new PlayCardAction().ProcessAsync(HeadlessActionFactory.PlayCard(P1, hand, 6), context);
+    // (RD-R6-07 re-port) With the AS-IS region #2 availability-only ChangeCostClass RESTORED on the card,
+    // the action surface advertises the AS-IS availability-projected cost (GetPayingCostWithBaseCost
+    // checkAvailability:true fold = AS-IS CanSelect's PayingCost projection): 6 - 4 = 2. The actual PAY
+    // still re-resolves with checkAvailability:false (bucket-only), so declining the suspend pays full 6.
+    ActionProcessResult r = await new PlayCardAction().ProcessAsync(HeadlessActionFactory.PlayCard(P1, hand, 2), context);
     AssertTrue(r.IsSuccess, $"play succeeded ({r.Message})");
     AssertTrue(IsSuspended(context, d1) && IsSuspended(context, d2), "2 Digimon suspended as the cost");
     AssertEqual(6, context.MemoryController.Current.Current, "paid reduced cost 2 (8 -> 6), not full 6");
@@ -122,7 +126,9 @@ async Task WhenDigivolvingDelete()
     provider.Enqueue(ChoiceResult.Select(big));  // delete the 10000 opponent
 
     int resolved = await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.WhenDigivolving);
-    AssertEqual(2, resolved, "both [When Digivolving] effects resolved");
+    // (RD-R6-07 re-port) AS-IS region #5 is ONE ActivateClass whose coroutine does suspend-then-delete
+    // sequentially (EX8_074.cs:243-325) — the former two-uniform-ActivatedEffect split was the port dialect.
+    AssertEqual(1, resolved, "the [When Digivolving] ActivateClass resolved (one effect, suspend then delete)");
     AssertTrue(IsSuspended(context, ally), "the ally was suspended");
     AssertTrue(InZone(context, P2, ChoiceZone.Trash, big), "the 10000 opponent was deleted (cap raised by the suspend)");
 }
@@ -135,6 +141,9 @@ async Task AllTurnsReuse()
     var foe = await PlaceCard(context, P2, "FOE", ChoiceZone.BattleArea, dp: 7000, suspended: false);
 
     var provider = (ScriptedChoiceProvider)context.ChoiceProvider;
+    // (RD-R6-07 re-port) AS-IS region #6 is an OPTIONAL ActivateClass (SetUpActivateClass(..., 1, true, ...))
+    // — the AS-IS OptionalSkill yes/no prompt surfaces first (YES = select the source card).
+    provider.Enqueue(ChoiceResult.Select(self));
     provider.Enqueue(ChoiceResult.Select(ally));
     provider.Enqueue(ChoiceResult.Select(foe));
 

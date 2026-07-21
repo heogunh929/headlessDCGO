@@ -8,10 +8,14 @@ using HeadlessDCGO.Engine.Headless.State;
 // (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
 using PlayCardAction = HeadlessDCGO.Engine.Headless.Runtime.PlayCardAction;
 
-// G9-012 (LA-3): EX8_074's "[All Turns] (Once Per Turn) when Digimon are played, activate this Digimon's
-// [When Digivolving] effects" now fires LIVE. When ANOTHER Digimon is played, the in-play EX8_074 re-runs
-// its [When Digivolving] suspend+delete through the action flow (OnPlayReactivation). Once-per-turn guarded;
-// cleared at turn end.
+// G9-012 (LA-3, RD-R6-07 re-aim): EX8_074's "[All Turns] (Once Per Turn) when Digimon are played, activate
+// this Digimon's [When Digivolving] effects" fires through the STANDARD play window — the AS-IS
+// CardController.cs:1691 StackSkillInfos(OnEnterFieldAnyone) broadcast, delivered in the mirror by the C2
+// window pump (GameFlowProcessor: play event -> SkillWindowSupply.ConvertEvent -> StackSkillInfos over all
+// field permanents). The invented OnPlayReactivation driver no-ops for the re-ported card. Once-per-turn is
+// the AS-IS maxCountPerTurn=1 cap (SetHashString "PlayActivate_EX8_074" + RegisterUseEffectThisTurn); the
+// turn-end reset is the AS-IS InitUseCountThisTurn sweep (CEntity_EffectControllerStore.ResetUseCountsForTurn).
+// The optional "(you may)" surfaces as the AS-IS OptionalSkill yes/no prompt (YES = select the source card).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -42,68 +46,85 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 async Task FiresOnOtherPlay()
 {
-    var (context, ally, foe) = await Board(P1, P2);
+    var (context, ex, ally, foe) = await Board(P1, P2);
     var trigger = await PlaceHand(context, P1, "TRIGGER", playCost: 1);
-    ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(ally));
-    ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(foe));
+    var provider = (ScriptedChoiceProvider)context.ChoiceProvider;
+    provider.Enqueue(ChoiceResult.Select(ex));   // AS-IS OptionalSkill "Will you use ...?" -> YES
+    provider.Enqueue(ChoiceResult.Select(ally));
+    provider.Enqueue(ChoiceResult.Select(foe));
 
     ActionProcessResult r = await new PlayCardAction().ProcessAsync(HeadlessActionFactory.PlayCard(P1, trigger, 1), context);
     AssertTrue(r.IsSuccess, $"play succeeded ({r.Message})");
+    // The broadcast window is opened by the pump (event -> StackSkillInfos), not inside the play action.
+    await new GameFlowProcessor().RunToStableAsync(context);
     AssertTrue(IsSuspended(context, ally), "EX8_074's [All Turns] re-ran [When Digivolving] -> suspended the ally");
     AssertTrue(InZone(context, P2, ChoiceZone.Trash, foe), "[All Turns] re-run deleted the opponent");
 }
 
 async Task OncePerTurnGuard()
 {
-    var (context, ally, foe) = await Board(P1, P2);
+    var (context, ex, ally, foe) = await Board(P1, P2);
     var ally2 = await Place(context, P1, "ALLY2", ChoiceZone.BattleArea, dp: 4000);
     var t1 = await PlaceHand(context, P1, "T1", playCost: 1);
     var t2 = await PlaceHand(context, P1, "T2", playCost: 1);
     var provider = (ScriptedChoiceProvider)context.ChoiceProvider;
+    provider.Enqueue(ChoiceResult.Select(ex));   // optional YES
     provider.Enqueue(ChoiceResult.Select(ally));
     provider.Enqueue(ChoiceResult.Select(foe));
 
     await new PlayCardAction().ProcessAsync(HeadlessActionFactory.PlayCard(P1, t1, 1), context); // activates once
+    await new GameFlowProcessor().RunToStableAsync(context);
     AssertTrue(IsSuspended(context, ally), "first play activated [All Turns]");
 
-    // Second play same turn: guard set -> no re-activation (no choices enqueued; must NOT try to activate).
+    // Second play same turn: the AS-IS maxCountPerTurn=1 cap (RegisterUseEffectThisTurn, matched across fresh
+    // EffectList instances by the AS-IS hash "PlayActivate_EX8_074") keeps it OUT of the window collect
+    // (CanTrigger -> isOverMaxCountPerTurn). No choices enqueued; must NOT try to activate.
     ActionProcessResult r2 = await new PlayCardAction().ProcessAsync(HeadlessActionFactory.PlayCard(P1, t2, 1), context);
     AssertTrue(r2.IsSuccess, $"second play succeeded ({r2.Message})");
+    await new GameFlowProcessor().RunToStableAsync(context);
     AssertTrue(!IsSuspended(context, ally2), "second play did NOT re-activate (once per turn)");
 }
 
 async Task GuardResets()
 {
-    var (context, ally, foe) = await Board(P1, P2);
+    var (context, ex, ally, foe) = await Board(P1, P2);
     var ally2 = await Place(context, P1, "ALLY2", ChoiceZone.BattleArea, dp: 4000);
     var foe2 = await Place(context, P2, "FOE2", ChoiceZone.BattleArea, dp: 6000);
     var t1 = await PlaceHand(context, P1, "T1", playCost: 1);
     var t2 = await PlaceHand(context, P1, "T2", playCost: 1);
     var provider = (ScriptedChoiceProvider)context.ChoiceProvider;
+    provider.Enqueue(ChoiceResult.Select(ex));   // optional YES
     provider.Enqueue(ChoiceResult.Select(ally));
     provider.Enqueue(ChoiceResult.Select(foe));
     await new PlayCardAction().ProcessAsync(HeadlessActionFactory.PlayCard(P1, t1, 1), context);
+    await new GameFlowProcessor().RunToStableAsync(context);
 
-    OnPlayReactivation.ClearAll(context); // turn-end reset
+    // Turn-end reset = the AS-IS per-turn use-count sweep (TurnStateMachine InitUseCountThisTurn mirror).
+    CEntity_EffectControllerStore.ResetUseCountsForTurn(context);
 
+    provider.Enqueue(ChoiceResult.Select(ex));   // optional YES again
     provider.Enqueue(ChoiceResult.Select(ally2));
     provider.Enqueue(ChoiceResult.Select(foe2));
     await new PlayCardAction().ProcessAsync(HeadlessActionFactory.PlayCard(P1, t2, 1), context);
-    AssertTrue(IsSuspended(context, ally2), "after ClearAll, the next play re-activates [All Turns] again");
+    await new GameFlowProcessor().RunToStableAsync(context);
+    AssertTrue(IsSuspended(context, ally2), "after the turn-end use reset, the next play re-activates [All Turns] again");
 }
 
 // --- Helpers -------------------------------------------------------------
 
-async Task<(EngineContext, HeadlessEntityId ally, HeadlessEntityId foe)> Board(HeadlessPlayerId p1, HeadlessPlayerId p2)
+async Task<(EngineContext, HeadlessEntityId ex, HeadlessEntityId ally, HeadlessEntityId foe)> Board(HeadlessPlayerId p1, HeadlessPlayerId p2)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 71);
     context.TurnController.Initialize(new[] { p1, p2 }, p1);
+    // (RD-R6-07 re-port) the window collect gates through the AS-IS CanTrigger, which requires DoneStartGame
+    // (mirror proxy: phase past None/Setup).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     context.MemoryController.Set(8);
     var ex = await Place(context, p1, "EX8_074", ChoiceZone.BattleArea, dp: 6000);
     CardEffectRegistrar.RegisterCard(context, ex, p1);
     var ally = await Place(context, p1, "ALLY", ChoiceZone.BattleArea, dp: 4000);
     var foe = await Place(context, p2, "FOE", ChoiceZone.BattleArea, dp: 7000);
-    return (context, ally, foe);
+    return (context, ex, ally, foe);
 }
 
 async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner, string cardNumber, ChoiceZone zone, int dp)

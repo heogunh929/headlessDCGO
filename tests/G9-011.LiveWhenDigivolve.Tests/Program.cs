@@ -81,6 +81,9 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 71);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (RD-R6-07 re-port) the inline ActivateClass gates through the AS-IS CanTrigger, which requires
+    // DoneStartGame (mirror proxy: phase past None/Setup) — same as the G9-010 harness.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 

@@ -78,6 +78,10 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 914);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (RD-R6-07 re-port) the availability gate now lives on the AS-IS region #2 ChangeCostClass, folded by
+    // GetPayingCostWithBaseCost through the CanUse->CanTrigger gate, which requires DoneStartGame (mirror
+    // proxy: phase past None/Setup) — same as the G9-010/G9-013 harnesses.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 

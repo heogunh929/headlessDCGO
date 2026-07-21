@@ -89,9 +89,12 @@ async Task WhenDigivolveDeferredResume()
     AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, evolve), "EX8_074 stayed the top (no re-digivolve)");
 }
 
-// LA-4 over LA-3: an EX8_074 holder in the battle area reacts to ANOTHER Digimon being played. Under a
-// DeferredChoiceProvider the [All Turns] reactivation (its [When Digivolving] effects) suspends; ResolveChoice
-// through the processor resumes it round by round, and the once-per-turn guard prevents a second firing.
+// LA-4 over LA-3 (RD-R6-07 re-aim): an EX8_074 holder in the battle area reacts to ANOTHER Digimon being
+// played through the STANDARD play window (the C2 pump's StackSkillInfos(OnEnterFieldAnyone) broadcast — the
+// AS-IS CardController.cs:1691 route; the invented OnPlayReactivation driver no-ops for the re-ported card).
+// Under a DeferredChoiceProvider the window suspends at each choice (the AS-IS OptionalSkill yes/no first,
+// then the re-activated [When Digivolving] suspend + delete); each ResolveChoice through the processor
+// resumes the suspended window round by round (ResumeSuspendedWindowsAsync), without re-running the play.
 async Task AllTurnsDeferredResume()
 {
     EngineContext context = Context();
@@ -103,34 +106,40 @@ async Task AllTurnsDeferredResume()
     var foe = await Place(context, P2, "FOE", "FOE", ChoiceZone.BattleArea, dp: 7000, level: 4);
     var played = await Place(context, P1, "PLAYED", "PLAYED", ChoiceZone.Hand, dp: 3000, level: 3, playCost: 3);
 
-    // 1) Play another Digimon through the processor. The holder's [All Turns] reactivation suspends at the
-    //    first re-activated [When Digivolving] choice (suspend).
+    // 1) Play another Digimon through the processor, then drive the pump: the play event opens the broadcast
+    //    OnEnterFieldAnyone window, which suspends at the holder's optional yes/no prompt.
     ActionProcessResult play = await processor.ProcessAsync(
         HeadlessActionFactory.PlayCard(P1, played, memoryCost: 3), context);
 
     AssertTrue(play.IsSuccess, $"play action returned success ({play.Message})");
-    AssertTrue(context.ChoiceController.Current.IsPending, "[All Turns] reactivation surfaced its first choice");
-    AssertTrue(context.DeferredActivations.HasPending, "reactivation suspended (DeferredActivations holds the holder)");
-    AssertEqual(EffectTiming.OnEnterFieldAnyone, context.DeferredActivations.Pending!.Timing, "suspended at the [All Turns] (OnEnterFieldAnyone) timing");
-    AssertEqual(holder.Value, context.DeferredActivations.Pending!.CardId.Value, "the suspended activation is the EX8_074 holder, not the played card");
     AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, played), "commit-once: the played Digimon already entered");
+
+    await new GameFlowProcessor().RunToStableAsync(context);
+    AssertTrue(context.ChoiceController.Current.IsPending, "[All Turns] reactivation surfaced its first choice");
     AssertTrue(!IsSuspended(context, ally) && InZone(context, P2, ChoiceZone.BattleArea, foe), "nothing applied yet while suspended");
 
-    // 2) ResolveChoice (suspend ALLY) -> re-suspends for the delete choice.
+    // 2) ResolveChoice (optional YES = select the holder) -> re-suspends for the suspend-target choice.
+    ActionProcessResult round0 = await processor.ProcessAsync(
+        HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(holder)), context);
+    AssertTrue(round0.IsSuccess, $"optional-YES ResolveChoice succeeded ({round0.Message})");
+    AssertTrue(context.ChoiceController.Current.IsPending, "the suspend-target choice is now pending");
+
+    // 3) ResolveChoice (suspend ALLY) -> re-suspends for the delete choice.
     ActionProcessResult round1 = await processor.ProcessAsync(
         HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(ally)), context);
 
     AssertTrue(round1.IsSuccess, $"first ResolveChoice succeeded ({round1.Message})");
-    AssertTrue(context.DeferredActivations.HasPending, "reactivation still suspended between choices");
+    AssertTrue(context.ChoiceController.Current.IsPending, "the delete choice is now pending");
 
-    // 3) ResolveChoice (delete FOE) -> completes; the re-activated [When Digivolving] applies once.
+    // 4) ResolveChoice (delete FOE) -> completes; the re-activated [When Digivolving] applies once.
     ActionProcessResult round2 = await processor.ProcessAsync(
         HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(foe)), context);
 
     AssertTrue(round2.IsSuccess, $"second ResolveChoice succeeded ({round2.Message})");
-    AssertTrue(!context.DeferredActivations.HasPending, "reactivation cleared after it completes");
+    AssertTrue(!context.ChoiceController.Current.IsPending, "no pending choice remains");
     AssertTrue(IsSuspended(context, ally), "[All Turns] re-activation suspended the chosen ally");
     AssertTrue(InZone(context, P2, ChoiceZone.Trash, foe), "[All Turns] re-activation deleted the chosen opponent");
+    AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, played), "the played Digimon stayed entered (no re-play)");
 }
 
 // brick 2b: playing EX8_074 with a DeferredChoiceProvider suspends at the BeforePayCost "suspend 2 Digimon
@@ -146,10 +155,16 @@ async Task BeforePayCostDeferredPlay()
     var ex8 = await PlaceDigimonInHand(context, P1, "EX8_074", playCost: 11);
     var s1 = await Place(context, P1, "S1", "S1", ChoiceZone.BattleArea, dp: 3000, level: 4);
     var s2 = await Place(context, P1, "S2", "S2", ChoiceZone.BattleArea, dp: 3000, level: 4);
+    // (RD-R6-07 re-port) a THIRD suspendable Digimon keeps the pool above maxCount: with exactly 2, the AS-IS
+    // forced-selection shortcut (SelectPermanentEffect.cs:366-399 — !canNoSelect at full 11 > MaxMemoryCost 10,
+    // pool == maxCount) auto-selects WITHOUT a choice and the play never suspends.
+    var s3 = await Place(context, P1, "S3", "S3", ChoiceZone.BattleArea, dp: 3000, level: 4);
 
     // 1) Play EX8_074. Its BeforePayCost suspend-2 choice surfaces and suspends — nothing paid/moved yet.
+    // (RD-R6-07 re-port) the declared cost is the AS-IS availability projection (the restored region #2
+    // ChangeCostClass folds -4 at checkAvailability:true): 11 - 4 = 7 — what GetLegalActions advertises.
     ActionProcessResult play = await processor.ProcessAsync(
-        HeadlessActionFactory.PlayCard(P1, ex8, memoryCost: 11), context);
+        HeadlessActionFactory.PlayCard(P1, ex8, memoryCost: 7), context);
 
     AssertTrue(play.IsSuccess, $"play action returned success ({play.Message})");
     AssertTrue(context.ChoiceController.Current.IsPending, "BeforePayCost suspend choice surfaced to the agent");
@@ -163,11 +178,22 @@ async Task BeforePayCostDeferredPlay()
         HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(s1, s2)), context);
 
     AssertTrue(resume.IsSuccess, $"ResolveChoice succeeded ({resume.Message})");
-    AssertTrue(!context.DeferredActivations.HasPending, "activation cleared after the play finishes");
     AssertTrue(IsSuspended(context, s1) && IsSuspended(context, s2), "the 2 chosen Digimon were suspended to pay the reduction");
     AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, ex8), "EX8_074 entered the battle area (play completed)");
     AssertTrue(!InZone(context, P1, ChoiceZone.Hand, ex8), "EX8_074 left the hand");
     AssertEqual(-7, context.MemoryController.Current.Current, "reduced cost 7 paid once: 0 -> -7 (no re-pay)");
+
+    // (RD-R6-07 re-port) AS-IS follow-up: EX8_074's own entry is itself a Digimon play, so its [All Turns]
+    // "(Once Per Turn) when Digimon are played..." optional prompt surfaces next (AS-IS the broadcast window
+    // collects the [All Turns] ActivateClass on the card's own play — it is not IsOnPlay-filtered). Decline it.
+    if (context.ChoiceController.Current.IsPending)
+    {
+        ActionProcessResult decline = await processor.ProcessAsync(
+            HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Skip()), context);
+        AssertTrue(decline.IsSuccess, $"declining the [All Turns] optional succeeded ({decline.Message})");
+    }
+
+    AssertTrue(!context.DeferredActivations.HasPending, "activation cleared after the play finishes");
 }
 
 // --- Helpers -------------------------------------------------------------
