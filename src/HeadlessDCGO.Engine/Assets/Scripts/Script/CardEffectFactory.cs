@@ -1547,8 +1547,10 @@ public static partial class CardEffectFactory
     /// <summary>(PRIM special-play) AS-IS <c>IDigiBurst</c> — <c>[Digi-Burst N] &lt;effect&gt;</c>: trash N of this
     /// card's own digivolution sources as a cost, then resolve <paramref name="innerEffect"/>. Offered only when
     /// the permanent holds &gt;= N sources. Wrap the card's Digi-Burst body as the inner effect.</summary>
-    public static ICardEffect DigiBurstEffect(CardSource card, int count, ICardEffect innerEffect, string description) =>
-        new DigiBurstActivatedEffect(card, count, innerEffect, description);
+    public static ICardEffect DigiBurstEffect(
+        CardSource card, int count, ICardEffect innerEffect, string description,
+        EffectTiming grantTiming = EffectTiming.None) =>
+        new DigiBurstActivatedEffect(card, count, innerEffect, description, grantTiming);
 
     // (R3-F1 fold) mirror-invented wrapper `UnsuspendSelfTriggerEffect` (returned the invented
     // TriggeredUnsuspendSelfEffect) DELETED — 0 live consumers remained (grep: no card / Tfx / test / engine call;

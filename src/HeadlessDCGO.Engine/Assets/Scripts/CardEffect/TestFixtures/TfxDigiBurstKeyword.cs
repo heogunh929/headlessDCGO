@@ -11,8 +11,12 @@ public sealed class TfxDigiBurstKeyword : CEntity_Effect
         var effects = new List<ICardEffect>();
         if (timing == EffectTiming.OptionSkill)
         {
+            // (R6-Da'-4 / RD-P6B-6) the body is a CONTINUOUS keyword-static grant — pass the keyword's live-read
+            // timing (Pierce reads OnDetermineDoSecurityCheck, NewModelContinuousScan.HasPierce) so the resolver
+            // registers it into the permanent's AS-IS duration bucket rather than running its no-op coroutine.
             effects.Add(CardEffectFactory.DigiBurstEffect(
-                card, count: 2, CardEffectFactory.PierceSelfEffect(false, card, null), "[Digi-Burst 2] This gains Piercing."));
+                card, count: 2, CardEffectFactory.PierceSelfEffect(false, card, null), "[Digi-Burst 2] This gains Piercing.",
+                grantTiming: EffectTiming.OnDetermineDoSecurityCheck));
         }
         return effects;
     }

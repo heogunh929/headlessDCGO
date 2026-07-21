@@ -712,7 +712,7 @@ grep(`tests/**/Program.cs`, 주석/sniff 포함 상한, 본 배치 후):
 ## §3.5 완료 선언 — 4b 골 종점 도달 (2026-07-19)
 
 **소비자 0 → 물리 삭제 → 검증 green: 4b의 종점 조건 충족.** OLD 스텝-케이던스 드라이버(발명물)는 엔진에서 물리적으로 소멸했고, 턴 케이던스의 유일 소유자는 AS-IS 미러 TurnFlowPump(TurnStateMachine 페이즈 바디)다. AdvancePhase/EndTurn 액션 통화 소비자 = 0(RL-A1의 펌프-illegal 거부 단언만 잔존 = 정당 keeper). 기본 ctor=존치 스크립팅 프로파일(MetaAP=순수 retained substrate). 구조 지표: 발명 드라이버 파일 3 삭제·발명 페이즈 표/마커/메모리-패스 모델 0·미러 위반 신규 0.
-**남는 리스크**: ①키워드/보안 창 직교부채(C5-Witness 8 등)=병행 Sonnet 트랙 ②RD-P6C1-8(L4 잔red 1) ③RD-R4B6-P1-2 ④metadata `hasReboot` 소비자=OLD-전용이었으므로 사망(GR-007 sink 계약은 존치 green; 라이브 Reboot=R4P2a 신설 witness가 커버) — 키워드 grant 경로가 metadata 카서를 쓸 경우 라이브-클래스 grant로의 재하우징은 키워드 트랙 몫.
+**남는 리스크**: ①키워드/보안 창 직교부채(C5-Witness 8 등)=병행 Sonnet 트랙 ②RD-P6C1-8(L4 잔red 1) ③RD-R4B6-P1-2 ④metadata `hasReboot` 소비자=OLD-전용이었으므로 사망(라이브 Reboot=R4P2a 신설 witness가 `Permanent.HasReboot` 키워드-스캔으로 커버) — **[R6-Da′-4/RD-P6B-6 폐쇄]** carrier `["ScheduleRebootUnsuspend"]="hasReboot"`(MatchStateMutationSink.cs) census-0 확인 후 물리 삭제, GR-007 sink 계약은 `RebootGrantNoLongerWritesDeadFlag` 툼스톤으로 재조준(green 유지); Piercing carrier(`SetSecurityCheck`→`hasPiercing`)는 별개 잔여로 존치(키워드 트랙 몫).
 
 ## §3.4k B6-fix (최종 게이트 여파 4건, 2026-07-19)
 G2Z-001=G2A-006 은퇴 재핀(RetiredTestProject 역단언, G3Z 판례)·RL-A5/RL-V=누락 legacy-ctor 소비자 2 펌프 flip(재핀 불요 — 펌프가 단언 전량 재현)·G8-006=**선재 갭 노출**(RD-R4B6-P2-1: 펌프 디스패처 SpecialPlay 미제안(STOP RD-P6C1-5/R5-04) vs validator AgentFacingTypes 등재 불일치 — pre-B6에도 펌프-매치엔 존재, 비-펌프 폴백이 가림막이었음; SpecialPlay 클러스터 포팅 시 동시 해소)·L4-001=정직 red 확인(RD-P6C1-8 failed-play hand restore). 최종 모수: E3 flip-out, G8-006·L4-001 정직-red 등재.

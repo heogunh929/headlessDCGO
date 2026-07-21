@@ -686,24 +686,34 @@ public static class ActivatedEffectResolver
                                     [MatchStateMutationSink.SelectedCardIdsKey] = string.Join(",", selection.SelectedIds.Select(id => id.Value)),
                                 }));
 
-                            // The Digi-Burst body is either an ACTIVATED effect (draw/delete/trash — resolve it) or
-                            // a CONTINUOUS grant (e.g. "your Digimon gain <keyword>" — register it, as at enter-play).
-                            if (burst.InnerEffect is IActivatedCardEffect or ActivateICardEffect)
+                            // (R6-Da'-4 / RD-P6B-6) the Digi-Burst body is either a CONTINUOUS keyword-static grant
+                            // ("This gains <keyword>") or an ACTIVATED body (draw/delete/trash). AS-IS a card's
+                            // Digi-Burst coroutine registers the continuous grant into the permanent's duration
+                            // bucket via CardEffectCommons.AddEffectToPermanent at the KEYWORD's live-read timing
+                            // (e.g. Pierce reads OnDetermineDoSecurityCheck — NewModelContinuousScan.HasPierce),
+                            // exactly the GainPierce/GainBlocker idiom; an activated body runs its coroutine. The
+                            // continuous case carries burst.GrantTiming (!= None), supplied by the card that knows
+                            // the keyword's timing. The former blanket `is IActivatedCardEffect or ActivateICardEffect
+                            // -> resolve now` MISROUTED a keyword-static ActivateClass (PierceSelfEffect builds an
+                            // ActivateClass) into the coroutine path, where its no-op ActivateCoroutine ran and the
+                            // grant was lost (RD-P6B-6). The old-model LegacyBindingBridge registry-lowering `else`
+                            // branch is deleted with the rest of the invented registry (a NEW-model ActivateClass has
+                            // no ToBinding — the branch was inert; census-0 old-model producer).
+                            if (burst.GrantTiming != EffectTiming.None)
+                            {
+                                // Journaled: a resumed replay must not re-add a second bucket delegate (the AS-IS
+                                // duration bucket is a LIST). AS-IS 1:1 — the self permanent's None-relative duration
+                                // bucket, read live by the keyword gate.
+                                RunJournaledImmediate(context, () => CardEffectCommons.AddEffectToPermanent(
+                                    targetPermanent: new Permanent(context, burst.Card.InstanceId),
+                                    effectDuration: EffectDuration.UntilOwnerTurnEnd, card: burst.Card,
+                                    cardEffect: burst.InnerEffect, timing: burst.GrantTiming));
+                            }
+                            else
                             {
                                 resolved += await ResolveListAsync(
                                     context, effectClass, burst.Card, players, sink, new[] { burst.InnerEffect }, cancellationToken,
                                     hashtable: hashtable, timing: timing).ConfigureAwait(false);
-                            }
-                            else if (LegacyBindingBridge.TryToBinding(
-                                burst.InnerEffect,
-                                $"{burst.Card.InstanceId.Value}:digiburst:{burst.InnerEffect.GetType().Name}",
-                                out EffectBinding? innerBinding) && innerBinding is not null)
-                            {
-                                // Journaled + deterministic id: a resumed replay of this already-performed
-                                // registration must not register a second binding. (P6 stage A: legacy lowering
-                                // via the reflective bridge — a NEW-model continuous grant would be a stage-B
-                                // live-scan effect, no registration.)
-                                RunJournaledImmediate(context, () => context.EffectRegistry.Register(innerBinding));
                             }
                         }
                     }

@@ -3,16 +3,20 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 
-// GR-007: the Reboot/Piercing keyword GRANT mutations must set the SAME presence flag their consumers read.
+// GR-007: the Piercing keyword GRANT mutation must set the SAME presence flag its consumer reads.
 // Before this, the keyword mutations wrote dead flags (scheduleRebootUnsuspend / pendingSecurityCheck) that
-// no consumer read, while the consumers (HeadlessEarlyPhaseFlow / BattleResolver) read hasReboot / hasPiercing
-// which no mutation set — so a Reboot/Piercing GRANTED via these mutations was inert. The sink now maps:
-//   ScheduleRebootUnsuspend -> hasReboot,  SetSecurityCheck -> hasPiercing.
-// (Self-static Reboot/Piercing already worked via the GR-005 ContinuousKeywordGate; this fixes the grant path.)
+// no consumer read, while the consumer (BattleResolver) reads hasPiercing which no mutation set — so a
+// Piercing GRANTED via this mutation was inert. The sink now maps: SetSecurityCheck -> hasPiercing.
+// (Self-static Piercing already worked via the GR-005 ContinuousKeywordGate; this fixes the grant path.)
+//
+// (R6-Da'-4 / RD-P6B-6, ledger #5) The Reboot carrier (ScheduleRebootUnsuspend -> hasReboot) was REMOVED: the
+// OLD phase-flow reader of the hasReboot metadata flag retired in 4b and the live Reboot read is rehoused to the
+// AS-IS Permanent.HasReboot keyword scan (covered by the R4P2a ActiveRebootUnsuspend witness), leaving the
+// metadata carrier with 0 gameplay consumers. RebootGrantNoLongerWritesDeadFlag pins that removal.
 
 var tests = new (string Name, Action Body)[]
 {
-    ("Granting Reboot (ScheduleRebootUnsuspend) sets the hasReboot flag the consumer reads", RebootGrantSetsConsumerFlag),
+    ("Granting Reboot (ScheduleRebootUnsuspend) no longer writes the retired hasReboot metadata flag", RebootGrantNoLongerWritesDeadFlag),
     ("Granting Piercing (SetSecurityCheck) sets the hasPiercing flag the consumer reads", PiercingGrantSetsConsumerFlag),
     ("No dead set-only flags are written (scheduleRebootUnsuspend / pendingSecurityCheck)", NoDeadFlags),
 };
@@ -29,12 +33,15 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 // --- Tests ---------------------------------------------------------------
 
-void RebootGrantSetsConsumerFlag()
+void RebootGrantNoLongerWritesDeadFlag()
 {
+    // (R6-Da'-4 / RD-P6B-6, ledger #5) The ScheduleRebootUnsuspend -> hasReboot metadata carrier was removed:
+    // the OLD phase-flow reader retired and the live Reboot read is the AS-IS Permanent.HasReboot keyword scan
+    // (R4P2a ActiveRebootUnsuspend witness). The mutation now writes no metadata flag (0 gameplay consumers).
     var (repo, sink) = Setup("r1");
     sink.Apply(new EffectMutation("ScheduleRebootUnsuspend", new HeadlessEntityId("src"),
         new Dictionary<string, object?> { ["targetEntityId"] = "r1" }));
-    AssertTrue(Flag(repo, "r1", "hasReboot"), "hasReboot presence flag is set (4b B6: the OLD phase-flow reader retired; the live unsuspend seat reads the keyword scan — see R4P2a ActiveRebootUnsuspend)");
+    AssertTrue(!Flag(repo, "r1", "hasReboot"), "the retired hasReboot metadata carrier no longer writes a flag");
 }
 
 void PiercingGrantSetsConsumerFlag()

@@ -246,11 +246,16 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         {
             ["GrantBlocker"] = "hasBlocker",
             ["GrantRush"] = "hasRush",
-            // GR-007: align grant→consume. The Reboot/Piercing keyword mutations previously wrote dead flags
-            // (scheduleRebootUnsuspend/pendingSecurityCheck) that NO consumer read, while the consumers
-            // (HeadlessEarlyPhaseFlow / BattleResolver) read hasReboot/hasPiercing which NO mutation set —
-            // so a keyword GRANTED via these mutations was inert. Map them to the consumer presence flags.
-            ["ScheduleRebootUnsuspend"] = "hasReboot",
+            // GR-007: align grant→consume. The Piercing keyword mutation previously wrote a dead flag
+            // (pendingSecurityCheck) that NO consumer read, while the consumer (BattleResolver) reads hasPiercing
+            // which NO mutation set — so a Piercing GRANTED via this mutation was inert. Map it to the consumer flag.
+            // (R6-Da'-4 / RD-P6B-6, ledger #5) the Reboot carrier ["ScheduleRebootUnsuspend"] = "hasReboot" was
+            // DELETED here: the OLD phase-flow reader of the hasReboot metadata flag retired in 4b (its only remaining
+            // reader was the GR-007 contract test), and the LIVE Reboot read is already rehoused to the AS-IS
+            // Permanent.HasReboot keyword scan (IRebootEffect over EffectList(None); R1-c) — covered by the R4P2a
+            // ActiveRebootUnsuspend witness. Metadata carrier had 0 gameplay consumers → removed (census-0), so a
+            // ScheduleRebootUnsuspend mutation (OLD-model KeywordBaseBatch1Effect, no live card producer) now falls
+            // through to the unsupported log rather than writing a flag nobody reads.
             ["PreventBattleDeletion"] = "preventBattleDeletion",
             ["SetSecurityCheck"] = "hasPiercing",
             // W2: previously-dropped keyword kinds now write a flag (consumers wired per keyword).

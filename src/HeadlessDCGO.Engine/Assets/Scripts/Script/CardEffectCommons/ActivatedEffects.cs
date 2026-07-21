@@ -1017,7 +1017,9 @@ public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffec
 /// least <see cref="Count"/> digivolution cards (AS-IS <c>CanDigiBurst</c>). Resolved via the activation flow.</summary>
 public sealed class DigiBurstActivatedEffect : IActivatedCardEffect
 {
-    public DigiBurstActivatedEffect(CardSource card, int count, ICardEffect innerEffect, string description)
+    public DigiBurstActivatedEffect(
+        CardSource card, int count, ICardEffect innerEffect, string description,
+        EffectTiming grantTiming = EffectTiming.None)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(innerEffect);
@@ -1026,6 +1028,7 @@ public sealed class DigiBurstActivatedEffect : IActivatedCardEffect
         Count = count < 1 ? 1 : count;
         InnerEffect = innerEffect;
         Description = description;
+        GrantTiming = grantTiming;
     }
 
     public CardSource Card { get; }
@@ -1035,6 +1038,16 @@ public sealed class DigiBurstActivatedEffect : IActivatedCardEffect
     public ICardEffect InnerEffect { get; }
 
     public string Description { get; }
+
+    /// <summary>(R6-Da'-4 / RD-P6B-6) The live-read timing at which the Digi-Burst body is a CONTINUOUS
+    /// keyword-static grant ("This gains &lt;keyword&gt;") — e.g. <see cref="EffectTiming.OnDetermineDoSecurityCheck"/>
+    /// for Pierce (the timing <c>NewModelContinuousScan.HasPierce</c> scans). A non-<see cref="EffectTiming.None"/>
+    /// value means the resolver registers <see cref="InnerEffect"/> into the permanent's AS-IS duration bucket
+    /// (<see cref="CardEffectCommons.AddEffectToPermanent"/>) at this timing rather than resolving it as an
+    /// activated body — mirroring the AS-IS card idiom where the Digi-Burst coroutine calls a keyword Gain*
+    /// (GainPierce/GainBlocker) with the timing baked in. <see cref="EffectTiming.None"/> = an activated body
+    /// (draw/delete/trash), resolved via its coroutine.</summary>
+    public EffectTiming GrantTiming { get; }
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Digi-Burst effect is resolved via the activation flow, not registered: {Description}");
