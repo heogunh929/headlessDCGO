@@ -1,14 +1,17 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
-using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// BT-PRE-A2 (G9-016): SimplifiedRevealAndSelectEffect + SimplifiedSelectCardConditionClass — mirror of the
-// original SimplifiedRevealDeckTopCardsAndSelect ("reveal top N, add a condition-matching card to hand, rest
-// to deck bottom"). TfxRevealSelect reveals 3, lets you add 1 Tamer to hand. Resolved through the activation
-// flow; selected/remaining moves are staged on the sink. Verified against a scripted choice provider.
+// BT-PRE-A2 (G9-016): the AS-IS reveal-select commons CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect
+// ("reveal top N, add a condition-matching card to hand, rest to deck bottom"). Reveal 3, add 1 Tamer to hand.
+// (이연③-f RE-TARGET) driven DIRECTLY with a ScriptedChoiceProvider — the established commons-witness pattern
+// (cf. G3.5-B7 / G9-029) — replacing the retired declarative SimplifiedRevealAndSelectEffect class (and its
+// TfxRevealSelect fixture). `canNoSelect: true` keeps the retired class's always-skippable prompt so the
+// select / skip / no-match scenarios are semantics-identical.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -40,13 +43,13 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 async Task SelectMatchToHand()
 {
     EngineContext context = Context();
-    var src = await PlaceFixture(context, P1, "TfxRevealSelect");
+    var host = await PlaceHost(context, P1, "TfxHost");
     var tamer = await PlaceLibrary(context, P1, "TAMER", "Tamer");
     await PlaceLibrary(context, P1, "DIGI1", "Digimon");
     await PlaceLibrary(context, P1, "DIGI2", "Digimon");
 
     ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(tamer));
-    await ActivatedEffectResolver.ResolveAsync(context, src, P1, EffectTiming.OptionSkill);
+    await RevealSelect(context, host);
 
     AssertTrue(InZone(context, P1, ChoiceZone.Hand, tamer), "selected Tamer went to hand");
     AssertEqual(1, HandCount(context, P1), "exactly 1 card added to hand");
@@ -56,13 +59,13 @@ async Task SelectMatchToHand()
 async Task SkipAllToBottom()
 {
     EngineContext context = Context();
-    var src = await PlaceFixture(context, P1, "TfxRevealSelect");
+    var host = await PlaceHost(context, P1, "TfxHost");
     var tamer = await PlaceLibrary(context, P1, "TAMER", "Tamer");
     await PlaceLibrary(context, P1, "DIGI1", "Digimon");
     await PlaceLibrary(context, P1, "DIGI2", "Digimon");
 
     ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Skip());
-    await ActivatedEffectResolver.ResolveAsync(context, src, P1, EffectTiming.OptionSkill);
+    await RevealSelect(context, host);
 
     AssertEqual(0, HandCount(context, P1), "nothing added to hand when skipped");
     AssertEqual(3, LibraryCount(context, P1), "all 3 revealed cards returned to the deck bottom");
@@ -72,16 +75,43 @@ async Task SkipAllToBottom()
 async Task NoMatchAllToBottom()
 {
     EngineContext context = Context();
-    var src = await PlaceFixture(context, P1, "TfxRevealSelect");
+    var host = await PlaceHost(context, P1, "TfxHost");
     await PlaceLibrary(context, P1, "DIGI1", "Digimon");
     await PlaceLibrary(context, P1, "DIGI2", "Digimon");
     await PlaceLibrary(context, P1, "DIGI3", "Digimon");
 
-    // No Tamer in the top 3 -> the condition has no candidates -> no choice is requested.
-    await ActivatedEffectResolver.ResolveAsync(context, src, P1, EffectTiming.OptionSkill);
+    // No Tamer in the top 3 -> the condition's maxCount collapses to 0 -> the pass is skipped, no choice is requested.
+    await RevealSelect(context, host);
 
     AssertEqual(0, HandCount(context, P1), "nothing added (no matching card)");
     AssertEqual(3, LibraryCount(context, P1), "all 3 revealed cards returned to the deck bottom");
+}
+
+// The AS-IS reveal-select commons, driven inline through an ActivateClass exactly as the real cards
+// (BT2_044 / ST4_10) do; `canNoSelect: true` = the retired class's always-skippable single-select prompt.
+async Task RevealSelect(EngineContext context, HeadlessEntityId host)
+{
+    bool IsTamer(CardSource cardSource) =>
+        context.CardInstanceRepository.TryGetInstance(cardSource.InstanceId, out CardInstanceRecord? inst) && inst is not null
+        && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
+        && def.IsCardType("Tamer");
+
+    var activate = new ActivateClass();
+    activate.SetUpICardEffect("Reveal 3, add 1 Tamer to hand, rest to deck bottom.", _ => true, new CardSource(context, host, P1));
+    await CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(
+        revealCount: 3,
+        simplifiedSelectCardConditions: new SimplifiedSelectCardConditionClass[]
+        {
+            new SimplifiedSelectCardConditionClass(
+                canTargetCondition: IsTamer,
+                message: "Select 1 Tamer card.",
+                mode: SelectCardEffect.Mode.AddHand,
+                maxCount: 1,
+                selectCardCoroutine: null),
+        },
+        remainingCardsPlace: RemainingCardsPlace.DeckBottom,
+        activateClass: activate,
+        canNoSelect: true);
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -93,7 +123,7 @@ EngineContext Context()
     return context;
 }
 
-async Task<HeadlessEntityId> PlaceFixture(EngineContext context, HeadlessPlayerId owner, string cardNumber)
+async Task<HeadlessEntityId> PlaceHost(EngineContext context, HeadlessPlayerId owner, string cardNumber)
 {
     var cards = (CardDatabase)context.CardRepository;
     var defId = new HeadlessEntityId(cardNumber);

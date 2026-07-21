@@ -1,13 +1,15 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
-using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// PRIM-W2 (G9-029): the fuller SelectCardConditionClass descriptor drives the same reveal-select mechanism
-// (SimplifiedRevealAndSelectEffect via ToSimplified). TfxSelectCardCond reveals 3, adds 1 Tamer to hand,
-// rest to deck bottom — proving the descriptor is wired to the working reveal-select.
+// PRIM-W2 (G9-029): the fuller SelectCardConditionClass descriptor drives the AS-IS reveal-select commons
+// (CardEffectCommons.RevealDeckTopCardsAndSelect — 이연③-f re-target off the retired declarative classes).
+// Reveal 3, add 1 Tamer to hand, rest to deck bottom — proving the descriptor is wired to the working
+// reveal-select. Driven directly with a ScriptedChoiceProvider (the retired TfxSelectCardCond fixture is gone).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -15,7 +17,7 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("SelectCardConditionClass reveal-select: Tamer -> hand, others -> deck bottom", SelectViaFullDescriptor),
-    ("(P4) FULL RevealDeckTopCardsAndSelect factory: 2 passes over the shared pool, Custom pick recorded", FullMultiConditionFactory),
+    ("(P4) FULL RevealDeckTopCardsAndSelect commons: 2 passes over the shared pool, Custom pick recorded", FullMultiConditionFactory),
 };
 
 var failures = new List<string>();
@@ -38,21 +40,45 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 async Task SelectViaFullDescriptor()
 {
     EngineContext context = Context();
-    var src = await PlaceFixture(context, P1, "TfxSelectCardCond");
+    var host = await PlaceFixture(context, P1, "TfxHost");
     var tamer = await PlaceLibrary(context, P1, "TAMER", "Tamer");
     await PlaceLibrary(context, P1, "DIGI1", "Digimon");
     await PlaceLibrary(context, P1, "DIGI2", "Digimon");
 
+    bool IsTamer(CardSource cs) =>
+        context.CardInstanceRepository.TryGetInstance(cs.InstanceId, out CardInstanceRecord? inst) && inst is not null &&
+        context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null && def.IsCardType("Tamer");
+
+    var activate = new ActivateClass();
+    activate.SetUpICardEffect("Reveal 3, add 1 Tamer to hand (SelectCardConditionClass).", _ => true, new CardSource(context, host, P1));
+
     ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(tamer));
-    await ActivatedEffectResolver.ResolveAsync(context, src, P1, EffectTiming.OptionSkill);
+    // (이연③-f RE-TARGET) drive the AS-IS commons RevealDeckTopCardsAndSelect with the fuller SelectCardConditionClass
+    // descriptor directly (replacing the retired SimplifiedRevealAndSelectEffect + its TfxSelectCardCond fixture).
+    await CardEffectCommons.RevealDeckTopCardsAndSelect(
+        revealCount: 3,
+        selectCardConditions: new SelectCardConditionClass[]
+        {
+            new SelectCardConditionClass(
+                canTargetCondition: IsTamer,
+                canTargetCondition_ByPreSelecetedList: null, canEndSelectCondition: null,
+                canNoSelect: true, selectCardCoroutine: null,
+                message: "Select 1 Tamer card.", maxCount: 1, canEndNotMax: false,
+                mode: SelectCardEffect.Mode.AddHand),
+        },
+        remainingCardsPlace: RemainingCardsPlace.DeckBottom,
+        activateClass: activate);
 
     var zones = (IZoneStateReader)context.ZoneMover;
     AssertTrue(zones.GetCards(P1, ChoiceZone.Hand).Contains(tamer), "selected Tamer went to hand");
     AssertEqual(2, zones.GetCards(P1, ChoiceZone.Library).Count, "the 2 others returned to the deck bottom");
 }
 
-// (P4) the FULL multi-condition mirror (BT10-096 shape): pass 0 mandatory Tamer -> hand; pass 1 optional
-// Digimon -> Custom (recorded, NOT moved — the card script's follow-up plays it); rest -> deck bottom.
+// (이연③-f RE-TARGET) the FULL multi-condition mirror (BT10-096 shape) now drives the AS-IS commons
+// CardEffectCommons.RevealDeckTopCardsAndSelect (the retired RevealMultiSelectEffect class was a mirror-invented
+// duplicate of it): pass 0 mandatory Tamer -> hand; pass 1 optional Digimon -> Custom (captured by the pass's
+// selectCardCoroutine, NOT moved — the card script's follow-up plays it); rest -> deck bottom. The commons
+// stages every move on its own sink and flushes internally.
 async Task FullMultiConditionFactory()
 {
     EngineContext context = Context();
@@ -65,31 +91,42 @@ async Task FullMultiConditionFactory()
         context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? i) && i is not null &&
         context.CardRepository.TryGetCard(i.DefinitionId, out CardRecord? d) && d is not null && d.IsCardType(type);
 
-    var effect = (RevealMultiSelectEffect)CardEffectFactory.RevealDeckTopCardsAndSelect(
-        new CardSource(context, host, P1), revealCount: 3,
-        selectCardConditions: new[]
-        {
-            new RevealSelectPass(id => IsType(id, "Tamer"), MaxCount: 1, RevealDestination.Hand, "Select 1 Tamer."),
-            new RevealSelectPass(id => IsType(id, "Digimon"), MaxCount: 1, RevealDestination.Custom, "Select 1 Digimon.", CanNoSelect: true),
-        },
-        remainingCardsPlace: RevealDestination.DeckBottom,
-        description: "Reveal 3: Tamer to hand, Digimon played free.");
+    var captured = new List<HeadlessEntityId>();
+    Task Capture(CardSource cs) { captured.Add(cs.InstanceId); return Task.CompletedTask; }
+
+    var activate = new ActivateClass();
+    activate.SetUpICardEffect("Reveal 3: Tamer to hand, Digimon played free.", _ => true, new CardSource(context, host, P1));
+    activate.SetUpActivateClass(null, _ => Task.CompletedTask, -1, false, "Reveal 3: Tamer to hand, Digimon played free.");
 
     var provider = (ScriptedChoiceProvider)context.ChoiceProvider;
-    provider.Enqueue(ChoiceResult.Select(tamer));   // pass 0
-    provider.Enqueue(ChoiceResult.Select(digi1));   // pass 1 (Custom)
+    provider.Enqueue(ChoiceResult.Select(tamer));   // pass 0 (mandatory Tamer -> hand)
+    provider.Enqueue(ChoiceResult.Select(digi1));   // pass 1 (optional Digimon -> Custom)
 
-    var sink = new HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink(
-        context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
-        context.EffectRegistry, context.GameEventQueue, context: context);
-    await effect.ResolveAsync(sink, CancellationToken.None);
-    await sink.FlushAsync();
+    await CardEffectCommons.RevealDeckTopCardsAndSelect(
+        revealCount: 3,
+        selectCardConditions: new SelectCardConditionClass[]
+        {
+            new SelectCardConditionClass(
+                canTargetCondition: cs => IsType(cs.InstanceId, "Tamer"),
+                canTargetCondition_ByPreSelecetedList: null, canEndSelectCondition: null,
+                canNoSelect: false, selectCardCoroutine: null,
+                message: "Select 1 Tamer.", maxCount: 1, canEndNotMax: false,
+                mode: SelectCardEffect.Mode.AddHand),
+            new SelectCardConditionClass(
+                canTargetCondition: cs => IsType(cs.InstanceId, "Digimon"),
+                canTargetCondition_ByPreSelecetedList: null, canEndSelectCondition: null,
+                canNoSelect: true, selectCardCoroutine: Capture,
+                message: "Select 1 Digimon.", maxCount: 1, canEndNotMax: false,
+                mode: SelectCardEffect.Mode.Custom),
+        },
+        remainingCardsPlace: RemainingCardsPlace.DeckBottom,
+        activateClass: activate);
 
     var zones = (IZoneStateReader)context.ZoneMover;
     AssertTrue(zones.GetCards(P1, ChoiceZone.Hand).Contains(tamer), "pass-0 Tamer went to hand");
     AssertTrue(zones.GetCards(P1, ChoiceZone.Library).Contains(digi1), "the Custom pick is NOT moved by the flow");
-    AssertEqual(1, effect.CustomSelections.Count, "the Custom pick is recorded for the card script");
-    AssertEqual(digi1.Value, effect.CustomSelections[0].Value, "recorded pick = the pass-1 selection");
+    AssertEqual(1, captured.Count, "the Custom pick is recorded (via the pass selectCardCoroutine) for the card script");
+    AssertEqual(digi1.Value, captured[0].Value, "recorded pick = the pass-1 selection");
     AssertEqual(2, zones.GetCards(P1, ChoiceZone.Library).Count, "custom pick + the untouched card remain in the library (rest to bottom)");
 }
 

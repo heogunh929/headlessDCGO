@@ -831,14 +831,12 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case SimplifiedRevealAndSelectEffect reveal:
-                {
-                    // (BT-PRE-A2) reveal top N + per-condition select + destination routing. Drives the
-                    // ChoiceProvider itself (multi-step), staging every move on the shared sink.
-                    await reveal.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (이연③-f EXHAUSTED) `case SimplifiedRevealAndSelectEffect` DELETED — the invented declarative
+                // reveal-select carrier is retired (census-0). The AS-IS reveal-select is the coroutine-callable
+                // commons `CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect` / `RevealDeckTopCardsAndProcessForAll`
+                // (RevealLibrary.cs) driven inline through an ActivateClass (BT2_044 / ST4_03 / ST4_10), run by the
+                // ActivateICardEffect case above. Witnesses G9-016 / G9-029 drive the commons directly (fixtures
+                // TfxRevealSelect / TfxSelectCardCond retired), the established commons-witness pattern.
 
                 // (이연③-b RETIRED) `case ArtsDigivolveSelfEffect` DELETED — the orphaned invented Arts-Digivolve
                 // self duplicate is retired. The live surface is CardEffectFactory.ArtsDigivolveEffect →
@@ -853,14 +851,10 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case RevealMultiSelectEffect revealMulti:
-                {
-                    // (P4) FULL multi-condition reveal (shared pool, per-pass destination incl. Custom,
-                    // opt-out, mutual rule, remaining ordering). ChoiceProvider-driven, sink-staged.
-                    await revealMulti.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (이연③-f EXHAUSTED) `case RevealMultiSelectEffect` DELETED — the invented FULL multi-condition
+                // reveal carrier is retired (census-0; BT10_096/097 / ST17_11 are unported skeletons). The AS-IS
+                // multi-pass reveal is the commons `CardEffectCommons.RevealDeckTopCardsAndSelect` (RevealLibrary.cs,
+                // shared-pool passes + Custom via per-card selectCardCoroutine); G9-029 FullMultiCondition re-pointed.
 
                 // (이연③-b RE-TARGETED) `case DestroyPermanentsEffect` DELETED — TfxDestroy drives the AS-IS
                 // DeleteKind sink path (NewSink + CardEffectCommons.DestroyPermanent per target + FlushAsync, the

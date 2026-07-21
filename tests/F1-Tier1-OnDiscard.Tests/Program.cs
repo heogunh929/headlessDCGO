@@ -17,6 +17,8 @@
 //   * BT19_071 (BT19/Purple): [All Turns][Once Per Turn] "when effects trash cards from your deck, delete 1 of your
 //     opponent's level<=5 Digimon" — activated SELECT-DESTROY, ANYONE/cross-card, Library (no cause gate).
 // Uncapped fixture (TfxDiscardCounter) proves the batch collapse the single-fire real cards would mask.
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -255,16 +257,21 @@ async Task RevealRemainderTrashDoesNotOverfire()
     var l1 = await LibraryCard(ctx, P1, "L1");
     var l2 = await LibraryCard(ctx, P1, "L2");
 
-    // Reveal the top 2 deck cards with NO select condition -> both remainder cards route to the trash (RemainingTo).
+    // Reveal the top 2 deck cards with NO matching select condition -> both remainder cards route to the trash.
+    // (이연③-f RE-TARGET) driven through the AS-IS commons CardEffectCommons.RevealDeckTopCardsAndProcessForAll
+    // (a never-matching Custom condition), replacing the retired SimplifiedRevealAndSelectEffect class. The
+    // commons' StageRevealMovesAsync stamps the SAME RevealTrashFlagKey on the reveal->trash move and flushes
+    // its own internal sink.
     var revealCard = new CardSource(ctx, revealSource, P1, P1);
-    var reveal = new SimplifiedRevealAndSelectEffect(
-        revealCard, revealCount: 2, conditions: Array.Empty<SimplifiedSelectCardConditionClass>(),
-        remainingTo: RevealDestination.Trash, description: "reveal top 2, trash the rest");
-    var sink = new MatchStateMutationSink(
-        ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController,
-        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
-    await reveal.ResolveAsync(sink, CancellationToken.None);
-    await sink.FlushAsync();
+    var activate = new ActivateClass();
+    activate.SetUpICardEffect("reveal top 2, trash the rest", _ => true, revealCard);
+    await CardEffectCommons.RevealDeckTopCardsAndProcessForAll(
+        revealCount: 2,
+        simplifiedSelectCardCondition: new SimplifiedSelectCardConditionClass(
+            canTargetCondition: _ => false, message: "", mode: SelectCardEffect.Mode.Custom,
+            maxCount: -1, selectCardCoroutine: null),
+        remainingCardsPlace: RemainingCardsPlace.Trash,
+        activateClass: activate);
     await new GameFlowProcessor().RunToStableAsync(ctx);
 
     AssertTrue(InTrash(ctx, P1, l1) && InTrash(ctx, P1, l2), "the revealed remainder was actually trashed (Library->Trash)");

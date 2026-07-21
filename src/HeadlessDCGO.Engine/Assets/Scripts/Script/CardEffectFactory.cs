@@ -1438,25 +1438,12 @@ public static partial class CardEffectFactory
     // white-box test). De-digivolve is available live via CardEffectCommons.DeDigivolvePermanent (C5-witness)
     // and the SelectDeDigivolve / MassDeDigivolveThenConditionalDestroy primitives.
 
-    /// <summary>(PRIM-W5) Mirror of the AS-IS <c>CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect</c>:
-    /// reveal the top <paramref name="revealCount"/> cards of the owner's deck, select per
-    /// <paramref name="conditions"/>, route the rest to <paramref name="remainingTo"/>.</summary>
-    public static IActivatedCardEffect SimplifiedRevealDeckTopCardsAndSelect(
-        CardSource card, int revealCount, IReadOnlyList<SimplifiedSelectCardConditionClass> conditions,
-        RevealDestination remainingTo, string description) =>
-        new SimplifiedRevealAndSelectEffect(card, revealCount, conditions, remainingTo, description);
-
-    /// <summary>(P4) Mirror of the FULL AS-IS <c>CardEffectCommons.RevealDeckTopCardsAndSelect</c> with a
-    /// <c>SelectCardConditionClass[]</c> (multi-condition sequential passes over the shared revealed pool,
-    /// BT10-096/BT10-097/ST17-11 shape). Each original condition maps to one
-    /// <see cref="HeadlessDCGO.Engine.Headless.Runtime.RevealSelectPass"/> (predicate 1:1, maxCount,
-    /// Mode → destination — original <c>Mode.Custom</c> = <see cref="RevealDestination.Custom"/>, read the
-    /// picks back from <see cref="RevealMultiSelectEffect.CustomSelections"/>).</summary>
-    public static IActivatedCardEffect RevealDeckTopCardsAndSelect(
-        CardSource card, int revealCount, IReadOnlyList<HeadlessDCGO.Engine.Headless.Runtime.RevealSelectPass> selectCardConditions,
-        RevealDestination remainingCardsPlace, string description,
-        bool canNoAction = false, bool isOpponentDeck = false, bool mutualConditions = false) =>
-        new RevealMultiSelectEffect(card, revealCount, selectCardConditions, remainingCardsPlace, description, canNoAction, isOpponentDeck, mutualConditions);
+    // (이연③-f EXHAUSTED) factory helpers `SimplifiedRevealDeckTopCardsAndSelect` and `RevealDeckTopCardsAndSelect`
+    // DELETED with their invented bodies (`SimplifiedRevealAndSelectEffect` / `RevealMultiSelectEffect`, census-0).
+    // The AS-IS reveal-select surface is the coroutine-callable commons `CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect`
+    // / `RevealDeckTopCardsAndSelect` / `RevealDeckTopCardsAndProcessForAll` (RevealLibrary.cs, bridge W3), which
+    // real cards (BT2_044 / ST4_03 / ST4_10) call inline from an ActivateClass. The white-box fixtures/tests that
+    // used these factory helpers are re-pointed to that commons.
 
     /// <summary>(PRIM-W5/S2, R3-W3c-1) <c>CanNotAffectedStaticEffect</c> — AS-IS <c>CanNotAffectedClass</c>:
     /// <c>CanNotAffect(target, effect) = CardCondition(target) &amp;&amp; SkillCondition(effect)</c>. Returns the
