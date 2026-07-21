@@ -9,6 +9,16 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // Inherited / conditional / dynamic / player-scope continuous self-modifiers: ST1_07/03/01/11/12.
+//
+// (deferred-queue re-aim, ST2.Blue toolbox) These were OLD-model white-box reads: after RegisterOnEnterPlay
+// they read Permanent.DP/Strike with the turn phase left at HeadlessPhase.None. The uniform-사멸 flip made the
+// continuous DP/SA modifiers new-model kind-classes served by the LIVE EffectList scan (NewModelContinuousScan),
+// whose CanUse -> ICardEffect.CanTrigger gates on TurnStateMachine.DoneStartGame (phase != None). With phase
+// None the scan is inert, so every DP/SA read returned the bare base (0 with no printed dp). Re-aimed onto the
+// live surface exactly as ST2_01/08 did: SetPhase(HeadlessPhase.Main) opens the DoneStartGame gate, the top
+// carries a base dp, and Strike (which — unlike DP — does not self-scope AmbientMatchContext) is read inside the
+// match scope. RegisterOnEnterPlay is retained: for a new-model kind-class it registers no binding but ATTACHES
+// the effect to the instance's cEntity_EffectController, which is what the live EffectList scan reads.
 internal static class Wave1Tests
 {
     private static readonly HeadlessPlayerId P1 = new(1);
@@ -28,7 +38,12 @@ internal static class Wave1Tests
     {
         (EngineContext context, HeadlessEntityId source) = await StackOf(1);
         Register(context, new ST1_07(), "ST1_07", source);
-        AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Top).Strike, "inherited SA +1 on top");
+        // Permanent.Strike (unlike Permanent.DP) does not self-scope AmbientMatchContext — read inside the match
+        // scope, the same convention ST2_08 established for the security-attack fold.
+        using (AmbientMatchContext.Enter(context))
+        {
+            AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Top).Strike, "inherited SA +1 on top");
+        }
     }
 
     private static async Task ST1_03_OwnerTurnDp()
@@ -36,9 +51,11 @@ internal static class Wave1Tests
         (EngineContext context, HeadlessEntityId source) = await StackOf(1);
         Register(context, new ST1_03(), "ST1_03", source);
 
-        context.TurnController.Initialize(new[] { P1, P2 }, P1);
+        // Owner's turn (StackOf initialised P1 as the turn player): the inherited [Your Turn] +1000 applies.
         AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Top).DP, "owner turn: +1000");
 
+        // EndTurn advances to the opponent's turn (phase Active — DoneStartGame stays open); the IsOwnerTurn
+        // condition now reads false, so the buff is off (a true condition read, not a closed gate).
         context.TurnController.EndTurn();
         AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Top).DP, "opponent turn: no buff");
     }
@@ -47,12 +64,10 @@ internal static class Wave1Tests
     {
         (EngineContext four, HeadlessEntityId source4) = await StackOf(4);
         Register(four, new ST1_01(), "ST1_01", source4);
-        four.TurnController.Initialize(new[] { P1, P2 }, P1);
         AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(four, Top).DP, "4 sources, owner turn: +1000");
 
         (EngineContext two, HeadlessEntityId source2) = await StackOf(2);
         Register(two, new ST1_01(), "ST1_01", source2);
-        two.TurnController.Initialize(new[] { P1, P2 }, P1);
         AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(two, Top).DP, "2 sources: no buff");
     }
 
@@ -60,13 +75,17 @@ internal static class Wave1Tests
     {
         (EngineContext four, _) = await StackOf(4);
         Register(four, new ST1_11(), "ST1_11", Top);
-        four.TurnController.Initialize(new[] { P1, P2 }, P1);
-        AssertEqual(3, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(four, Top).Strike, "4 sources -> +2 SA");
+        using (AmbientMatchContext.Enter(four))
+        {
+            AssertEqual(3, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(four, Top).Strike, "4 sources -> +2 SA");
+        }
 
         (EngineContext one, _) = await StackOf(1);
         Register(one, new ST1_11(), "ST1_11", Top);
-        one.TurnController.Initialize(new[] { P1, P2 }, P1);
-        AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(one, Top).Strike, "1 source -> count 0 -> base");
+        using (AmbientMatchContext.Enter(one))
+        {
+            AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(one, Top).Strike, "1 source -> count 0 -> base");
+        }
     }
 
     private static async Task ST1_12_PlayerScopeDp()
@@ -80,15 +99,17 @@ internal static class Wave1Tests
         var tamer = new HeadlessEntityId("p1:battle:T");
         var mine = new HeadlessEntityId("p1:battle:D");
         var opp = new HeadlessEntityId("p2:battle:D");
+        var baseDp = new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 2000 };
         ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(tamer, new HeadlessEntityId("TAMER"), P1));
-        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(mine, new HeadlessEntityId("MYDIGI"), P1));
-        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(opp, new HeadlessEntityId("OPPDIGI"), P2));
+        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(mine, new HeadlessEntityId("MYDIGI"), P1, Metadata: new Dictionary<string, object?>(baseDp, StringComparer.Ordinal)));
+        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(opp, new HeadlessEntityId("OPPDIGI"), P2, Metadata: new Dictionary<string, object?>(baseDp, StringComparer.Ordinal)));
         await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, tamer, ChoiceZone.None, ChoiceZone.BattleArea));
         await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, mine, ChoiceZone.None, ChoiceZone.BattleArea));
         await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, opp, ChoiceZone.None, ChoiceZone.BattleArea));
 
         CardEffectRegistrar.RegisterOnEnterPlay(ctx, new ST1_12(), "ST1_12", new CardSource(ctx, tamer, P1));
         ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+        ctx.TurnController.SetPhase(HeadlessPhase.Main);
 
         AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, mine).DP, "owner's Digimon +1000 on owner turn");
         AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, opp).DP, "opponent's Digimon unaffected");
@@ -112,9 +133,16 @@ internal static class Wave1Tests
             sourceIds.Add(sid.Value);
         }
 
-        var meta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["sourceIds"] = sourceIds };
+        // (re-aim) The top carries a base dp so the +1000 buff reads over a real base (2000 -> 3000), the same
+        // ST2_01 SelfStack convention.
+        var meta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["sourceIds"] = sourceIds, ["dp"] = 2000 };
         ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(Top, new HeadlessEntityId("TOPDEF"), P1, Metadata: meta));
         await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, Top, ChoiceZone.None, ChoiceZone.BattleArea));
+
+        // (re-aim) Owner is the turn player and the game is past setup (phase != None), so the continuous scan's
+        // CanTrigger DoneStartGame gate is open — the [Your Turn] modifiers become live.
+        ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+        ctx.TurnController.SetPhase(HeadlessPhase.Main);
 
         HeadlessEntityId deepest = new($"p1:src:S{sourceCount - 1}");
         return (ctx, deepest);
