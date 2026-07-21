@@ -1492,8 +1492,8 @@ public sealed class CardSource
     /// cause is never blocked (AS-IS :1062). The AS-IS three-region scan (all field permanents' effects → all
     /// players' effects → THIS card's own effects while not a permanent), gated by <c>CanUse(null)</c> and
     /// <c>CanNotAffect(this, _cardEffect)</c>. ADAPTATION: <c>gameContext.Players</c> (full roster) =
-    /// <c>new GameContext(Context).Players</c>. Rehoused from the mirror <see cref="ContinuousImmunityGate"/>
-    /// delegation to this AS-IS-literal scan.</summary>
+    /// <c>new GameContext(Context).Players</c>. Rehoused from the mirror <c>ContinuousImmunityGate</c> (now deleted,
+    /// 이연④-a) delegation to this AS-IS-literal scan.</summary>
     public bool CanNotBeAffected(ICardEffect _cardEffect)
     {
         if (_cardEffect == null) return false;

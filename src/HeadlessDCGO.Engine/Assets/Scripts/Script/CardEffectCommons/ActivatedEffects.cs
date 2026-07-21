@@ -397,7 +397,7 @@ public sealed class DnaFromHandOrTrashActivatedEffect : IActivatedCardEffect
 /// (DCGO/Assets/Scripts/Script/CardController.cs): DIRECTLY delete a pre-computed list of permanents (no
 /// selection — the card already filtered them, e.g. "all enemy Digimon with the same name"). Each target is
 /// staged as a <c>Delete</c> sink mutation whose source is this card, so the sink's CENTRALISED gates apply:
-/// opponent-effect immunity (<see cref="HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate"/> — AS-IS <c>CanNotBeAffected</c>) and
+/// opponent-effect immunity (the live <see cref="CardSource.CanNotBeAffected"/> scan — AS-IS <c>CanNotBeAffected</c>) and
 /// deletion-prevention (<c>cannotBeDeleted</c> / continuous prevent) / the optional would-be-deleted window.
 /// The AS-IS filter is NOT re-implemented here (EX8_074 lesson). NOTE: the AS-IS <c>CanBeDestroyedBySkill</c>
 /// (skill-destroy immunity) is not modeled engine-wide (<c>CanNotBeDestroyedBySkillClass</c> is an unported

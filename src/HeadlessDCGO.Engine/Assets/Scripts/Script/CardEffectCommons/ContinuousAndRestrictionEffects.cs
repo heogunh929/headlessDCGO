@@ -884,9 +884,23 @@ public sealed class PlayerScopeModifierEffect : ICardEffect
 
 /// <summary>(PRIM-W5) A material condition for a Blast-DNA digivolution (AS-IS <c>BlastDNACondition</c>) —
 /// the material card names that fuse. Card-facing shim so ported cards compile.</summary>
-/// <summary>(S2) A continuous effect-immunity registered under <see cref="HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate"/>
-/// (AS-IS <c>CanNotAffectedClass</c>). Carries the per-card <c>SkillCondition</c> (over the causing effect's
-/// source) so the immunity gate evaluates it 1:1. Null skill → opponent-only fallback.</summary>
+/// <summary>(S2) A continuous effect-immunity (AS-IS <c>CanNotAffectedClass</c>). Carries the per-card
+/// <c>SkillCondition</c> (over the causing effect's source) and <c>TargetPredicate</c> (over the protected
+/// card) that express the AS-IS <c>CanNotAffect = CardCondition &amp;&amp; SkillCondition</c> conjunction.
+/// Null skill → opponent-only fallback.
+///
+/// (이연④-a) OLD-MODEL RESIDUE. The registry-half (<c>ToBinding</c>) was DELETED: it produced a "ContinuousImmunity"
+/// registry binding whose only consumer — <c>ContinuousImmunityGate.BlocksOpponentEffect</c> — was rehomed onto
+/// the live <see cref="CardSource.CanNotBeAffected"/> scan (B군 P0-1) and then the gate file was retired. Since
+/// <c>LegacyBindingBridge.TryToBinding</c> now finds no <c>ToBinding</c> method, the enter-play registrar registers
+/// NOTHING for this class — mirroring the new-model <c>CanNotAffectedClass</c> ("declares no ToBinding"). The class
+/// itself SURVIVES as an inert live-list marker: real cards (BT25_019 / EX11_074) still build it via
+/// <c>PermanentEffectFactory.DigimonEffectImmunity/OptionEffectImmunity</c> and add it to their duration bucket, and
+/// EXEMPLAR-T2B probes its presence there. NOTE (open campaign item RD-IMM-01): this class does NOT implement
+/// <c>ICanNotAffectedEffect</c>, so the live <see cref="CardSource.CanNotBeAffected"/> scan does NOT see it — the
+/// factory output is functionally inert until <c>DigimonEffectImmunity/OptionEffectImmunity</c> are flipped to emit
+/// the new-model <c>CanNotAffectedClass</c> (at which point this class deletes and EXEMPLAR-T2B re-aims off the
+/// presence probe).</summary>
 public sealed class ContinuousImmunityEffect : ICardEffect
 {
     public ContinuousImmunityEffect(CardSource card, Func<CardSource, bool>? skillCondition, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? targetPredicate = null)
@@ -909,42 +923,11 @@ public sealed class ContinuousImmunityEffect : ICardEffect
     /// the grant is registered field-wide (no target) and only reaches predicate-matching cards.</summary>
     public Func<CardSource, bool>? TargetPredicate { get; }
 
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal);
-
-        // (joint-migration) canonical joint mirroring AS-IS CanNotAffectedClass.CanNotAffect(cardSource, cardEffect) =
-        // CardCondition(target) && SkillCondition(cause): store ONE joint predicate f(target, cause) so a non-separable
-        // immunity can be expressed. CardCondition = TargetPredicate (field-wide grant) or "is the holder" (self grant);
-        // SkillCondition = the cause filter or opponent-only (cause owned by the target's opponent).
-        Func<CardSource, bool>? skill = SkillCondition;
-        Func<CardSource, bool>? target = TargetPredicate;
-        HeadlessEntityId holder = Card.InstanceId;
-        values[HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.JointPredicateKey] =
-            (Func<CardSource, CardSource, bool>)((protectedCard, causeSource) =>
-                (target is not null ? target(protectedCard) : protectedCard.InstanceId == holder)
-                && (skill is not null ? skill(causeSource) : causeSource.Owner != protectedCard.Owner));
-
-        if (IsInheritedEffect)
-        {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
-        }
-
-        if (Condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null,
-            // (C2) predicate-scoped grants protect the predicate-matching set, not (implicitly) the holder.
-            targetEntityIds: TargetPredicate is null ? new[] { Card.InstanceId } : Array.Empty<HeadlessEntityId>(),
-            values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.Scope }, effect: null, duration: null);
-    }
+    // (이연④-a) The old-model registry-WRITE (`EffectBinding ToBinding(string)`) was DELETED. It lowered this
+    // immunity into a "ContinuousImmunity"-scope registry binding read ONLY by the retired
+    // ContinuousImmunityGate.BlocksOpponentEffect (census-0 production consumers post B군 P0-1). With no ToBinding
+    // method, LegacyBindingBridge.TryToBinding returns false → the enter-play registrar registers nothing, exactly
+    // as the new-model CanNotAffectedClass does. See the class summary (RD-IMM-01) for the factory-flip campaign.
 }
 
 

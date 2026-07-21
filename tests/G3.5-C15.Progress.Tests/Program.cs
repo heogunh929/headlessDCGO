@@ -1,8 +1,11 @@
 // C-15 Progress (S2): while a Progress Digimon attacks, it is not affected by the opponent's effects
 // (UntilEndAttack). AS-IS ProgressStaticEffect (CanNotAffectedClass, SkillCondition = IsOpponentEffect),
-// a passive static effect. Engine: ContinuousImmunityGate (opponent-only immunity, source-relativity) +
-// the mutation sink immunity check; ProgressImmunity auto-registers the immunity at attack declaration;
-// grant GrantProgress -> hasProgress.
+// a passive static effect. Engine: the live CardSource.CanNotBeAffected scan (opponent-only immunity,
+// source-relativity) + the mutation sink immunity check; ProgressImmunity auto-registers the immunity at
+// attack declaration; grant GrantProgress -> hasProgress.
+// (이연④-a) Re-aimed off the retired ContinuousImmunityGate.BlocksOpponentEffect registry probe: the
+// source-relativity + own-delete cases now grant a LIVE CanNotAffectedClass (GrantLiveImmunity, G9-057 idiom)
+// and drive the AS-IS CardSource.CanNotBeAffected getter / the sink — real-driving, no registry direct-read.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -45,12 +48,18 @@ async Task GateSourceRelativity()
         ("P1-Protected", P1),
         ("P2-Enemy", P2),
         ("P1-Ally", P1));
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // CanUse -> DoneStartGame gate
     var protectedId = new HeadlessEntityId("P1-Protected");
-    RegisterImmunity(context, protectedId, P1);
+    GrantLiveImmunity(context, protectedId, P1);
+    using var _ = AmbientMatchContext.Enter(context);
 
-    AssertTrue(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, protectedId, new HeadlessEntityId("P2-Enemy"), context),
+    // (이연④-a) real-driving: the live AS-IS CardSource.CanNotBeAffected getter evaluates the granted opponent-only
+    // immunity against the causing effect's SOURCE (source-relativity), replacing the retired registry probe.
+    var protectedCard = new CardSource(context, protectedId, P1);
+    AssertTrue(protectedCard.CanNotBeAffected(OpponentProbe(context, new HeadlessEntityId("P2-Enemy"), P2)),
         "opponent-sourced effect is blocked");
-    AssertFalse(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, protectedId, new HeadlessEntityId("P1-Ally"), context),
+    AssertFalse(protectedCard.CanNotBeAffected(OpponentProbe(context, new HeadlessEntityId("P1-Ally"), P1)),
         "own/ally effect is not blocked (source-relativity)");
 }
 
@@ -76,12 +85,15 @@ async Task SinkBlocksOpponentDelete()
 async Task SinkAllowsOwnDelete()
 {
     EngineContext context = await Field(("P1-Protected", P1), ("P1-Ally", P1));
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // CanUse -> DoneStartGame gate
     var protectedId = new HeadlessEntityId("P1-Protected");
-    RegisterImmunity(context, protectedId, P1);
+    GrantLiveImmunity(context, protectedId, P1);           // a LIVE opponent-only immunity IS present on the card
+    using var _ = AmbientMatchContext.Enter(context);
 
     await DeleteBy(context, protectedId, deleter: new HeadlessEntityId("P1-Ally"));
 
-    AssertTrue(InZone(context, P1, ChoiceZone.Trash, protectedId), "an own-sourced delete still applies (not blocked)");
+    AssertTrue(InZone(context, P1, ChoiceZone.Trash, protectedId), "an own-sourced delete still applies (opponent-only immunity does not shield it)");
 }
 
 async Task NonImmuneDeleted()
@@ -147,27 +159,6 @@ async Task<EngineContext> Field(params (string Id, HeadlessPlayerId Owner)[] car
     }
 
     return context;
-}
-
-void RegisterImmunity(EngineContext context, HeadlessEntityId targetId, HeadlessPlayerId owner)
-{
-    // (structure-1:1) opponent-only immunity as the canonical joint predicate ContinuousImmunityGate reads on the
-    // context path (mirrors ProgressImmunity + AS-IS CanNotBeAffected — protected card, opponent-sourced cause).
-    var effectContext = new EffectContext(
-        owner, owner, targetId,
-        triggerEntityId: null,
-        targetEntityIds: new[] { targetId },
-        values: new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [ContinuousImmunityGate.JointPredicateKey] =
-                (Func<HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource, HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource, bool>)(
-                    (prot, cause) => prot.InstanceId == targetId && cause.Owner != prot.Owner),
-        });
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId($"{targetId.Value}:immunity"), owner, "Continuous", effectContext),
-        keywords: new[] { "Progress" },
-        EffectQueryRole.Continuous,
-        new[] { ContinuousImmunityGate.Scope }));
 }
 
 async Task DeleteBy(EngineContext context, HeadlessEntityId targetId, HeadlessEntityId deleter)
