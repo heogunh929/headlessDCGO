@@ -63,50 +63,18 @@ public sealed class DrawBody : IEffectBody
     }
 }
 
-/// <summary>Run a fixed SEQUENCE of non-interactive bodies in order — the 1:1 mirror of an AS-IS
-/// ActivateCoroutine that performs several sink mutations back-to-back (e.g. BT8_092/BT6_088 "gain 1 memory
-/// and &lt;Draw 1&gt;" = <see cref="DrawBody"/> then <see cref="MemoryBody"/>). Every sub-body must be
-/// non-interactive (no player choice); this composite is itself non-interactive and applies each in list order.
-/// A body needing an interactive step must be expressed as a dedicated "…Then…" body, not composed here.</summary>
-public sealed class CompositeBody : IEffectBody
-{
-    private readonly IReadOnlyList<IEffectBody> _bodies;
-
-    public CompositeBody(params IEffectBody[] bodies)
-    {
-        ArgumentNullException.ThrowIfNull(bodies);
-        foreach (IEffectBody b in bodies)
-        {
-            if (b is null)
-            {
-                throw new ArgumentException("Composite sub-body must not be null.", nameof(bodies));
-            }
-
-            if (b.IsInteractive)
-            {
-                throw new ArgumentException(
-                    "CompositeBody composes only NON-interactive bodies; use a dedicated '…Then…' body for an interactive step.",
-                    nameof(bodies));
-            }
-        }
-
-        _bodies = bodies;
-    }
-
-    public bool IsInteractive => false;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(sink);
-        foreach (IEffectBody body in _bodies)
-        {
-            body.Apply(card, sink, selected);
-        }
-    }
-}
+// (R6-Db) NINE consumer-0 IEffectBody bodies DELETED — CompositeBody, RecoveryBody, TrashSecurityBody,
+// SuspendSelfAndGainMemoryBody, GrantPlayerScopeRestrictionBody, MemoryCostThenUnsuspendSelfBody,
+// ReturnTopSecurityToHandThenUnsuspendSelfBody, SuspendSelfCostThenBody, ApplyToAllMatchingBody. Each reached
+// 0 producers (whole-word census, src+tests, --binary-files=text): their former cards were all re-ported to
+// literal AS-IS inline `ActivateClass` coroutines (BT8_057→TrashSecurity, BT9_043→ReturnTopSecurity,
+// BT16_025→ApplyToAllMatching, BT1_081→MemoryCostThenUnsuspend, BT1_086→SuspendSelfCostThen,
+// BT1_109→GrantPlayerScopeRestriction; CompositeBody/RecoveryBody/SuspendSelfAndGainMemory had none left),
+// leaving only self-definitions + historical doc-comment mentions. Retirement-guard step 3 (consumer-0 →
+// immediate deletion). The uniform survival core (ActivatedEffect + ActivatedSelectEffect + SelfToHandBody +
+// the fixture-consumed DrawBody/MemoryBody/SelectTrashHandThenSelfMutationBody/GrantContinuousBody/SelectBody)
+// is untouched — it stays for EX8_074 (RD-R6-07/R2-C STOP), ST4_15 (security-reuse afterMainBody), and the Tfx
+// uniform-model fixtures (pending Tfx retirement).
 
 /// <summary>Gain / lose N memory (AS-IS card.Owner.AddMemory). Non-interactive.</summary>
 public sealed class MemoryBody : IEffectBody
@@ -127,67 +95,6 @@ public sealed class MemoryBody : IEffectBody
             MatchStateMutationSink.AddMemoryKind,
             card.InstanceId,
             new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = _amount }));
-    }
-}
-
-/// <summary>&lt;Recovery +N (Deck)&gt; — move the top N deck cards onto the owner's security stack. Non-interactive.</summary>
-public sealed class RecoveryBody : IEffectBody
-{
-    private readonly int _amount;
-
-    public RecoveryBody(int amount) => _amount = amount;
-
-    public bool IsInteractive => false;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(sink);
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.RecoverKind,
-            card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.PlayerIdKey] = card.Owner.Value,
-                [MatchStateMutationSink.CountKey] = _amount,
-            }));
-    }
-}
-
-/// <summary>Trash the top/bottom N security cards of <paramref name="player"/> (AS-IS IDestroySecurity /
-/// DestroySecurity coroutine). Non-interactive.</summary>
-public sealed class TrashSecurityBody : IEffectBody
-{
-    private readonly HeadlessPlayerId _player;
-    private readonly int _count;
-    private readonly bool _fromTop;
-
-    public TrashSecurityBody(HeadlessPlayerId player, int count, bool fromTop)
-    {
-        _player = player;
-        _count = count;
-        _fromTop = fromTop;
-    }
-
-    public bool IsInteractive => false;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(sink);
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.TrashSecurityKind,
-            card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.PlayerIdKey] = _player.Value,
-                [MatchStateMutationSink.CountKey] = _count,
-                [MatchStateMutationSink.FromTopKey] = _fromTop,
-            }));
     }
 }
 
@@ -254,37 +161,6 @@ public sealed class SelectTrashHandThenSelfMutationBody : IEffectBody
     }
 }
 
-/// <summary>Pay a self-suspend cost, then gain N memory (AS-IS <c>SuspendPermanentsClass(this).Tap()</c>
-/// followed by <c>card.Owner.AddMemory(N)</c>) — e.g. ST4_14 "you may suspend this Tamer to gain 1 memory".
-/// The optional "may" is the activation itself (isOptional on the ActivatedEffect); the cost is applied
-/// first, then the memory gain, matching the AS-IS coroutine order. Non-interactive.</summary>
-public sealed class SuspendSelfAndGainMemoryBody : IEffectBody
-{
-    private readonly int _amount;
-
-    public SuspendSelfAndGainMemoryBody(int amount) => _amount = amount;
-
-    public bool IsInteractive => false;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(sink);
-        // Cost: suspend this card's own permanent (EntityId = source, TargetEntityIdKey = the suspend target).
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.SuspendKind,
-            card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value }));
-        // Effect: gain N memory for the card's owner (same shape as MemoryBody).
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.AddMemoryKind,
-            card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = _amount }));
-    }
-}
-
 /// <summary>Return THIS card to its owner's hand (AS-IS AddThisCardToHand). Non-interactive.</summary>
 public sealed class SelfToHandBody : IEffectBody
 {
@@ -340,181 +216,12 @@ public sealed class GrantContinuousBody : IEffectBody
     }
 }
 
-/// <summary>Run a caller-supplied no-select PLAYER-SCOPE grant — the AS-IS ActivateCoroutine that calls a
-/// <c>Gain*PlayerEffect</c> commons procedure (GainCanNotAttackPlayerEffect / GainCanNotUnsuspendPlayerEffect /
-/// …) directly, with NO SelectPermanentEffect step (unlike <see cref="SelectBody"/>). Those procedures take their
-/// own per-permanent scope predicate + duration and self-register a duration-tagged player-scope binding via
-/// EffectRegistry (the AS-IS battle-area + !CanNotBeAffected guards ride the GainToPlayerScope live-CanUse), so
-/// this body just invokes the grant when the activated skill resolves. Non-interactive. Mirrors how
-/// <see cref="GrantContinuousBody"/> wires a registration into the activation flow, but for the self-registering
-/// Gain*PlayerEffect procedures (which have no ICardEffect/ToBinding wrapper to hand GrantContinuousBody).</summary>
-public sealed class GrantPlayerScopeRestrictionBody : IEffectBody
-{
-    private readonly Action<CardSource> _grant;
-
-    public GrantPlayerScopeRestrictionBody(Action<CardSource> grant)
-    {
-        ArgumentNullException.ThrowIfNull(grant);
-        _grant = grant;
-    }
-
-    public bool IsInteractive => false;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        _grant(card);
-    }
-}
-
-/// <summary>Pay an N-memory cost then unsuspend this card's own permanent — the AS-IS ActivateCoroutine
-/// <c>card.Owner.AddMemory(-N)</c> THEN <c>IUnsuspendPermanents(self).Unsuspend()</c> (e.g. BT1_081
-/// "[End of Attack][Twice Per Turn] You can unsuspend this Digimon by decreasing your memory by 3"). The
-/// payability gate (<c>MemoryController.CanPay(N)</c>) rides the owning ActivatedEffect's CanActivate. The
-/// reverse-order sibling of <see cref="SuspendSelfAndGainMemoryBody"/> (cost = suspend, effect = gain memory).
-/// Non-interactive.</summary>
-public sealed class MemoryCostThenUnsuspendSelfBody : IEffectBody
-{
-    private readonly int _memoryCost;
-
-    public MemoryCostThenUnsuspendSelfBody(int memoryCost) => _memoryCost = memoryCost;
-
-    public bool IsInteractive => false;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(sink);
-        // Cost: AS-IS card.Owner.AddMemory(-N).
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.AddMemoryKind,
-            card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = -_memoryCost }));
-        // Effect: AS-IS IUnsuspendPermanents(self).Unsuspend().
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.UnsuspendKind,
-            card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value }));
-    }
-}
-
-/// <summary>Return the TOP security card to hand, then unsuspend this card's own permanent — the AS-IS BT9_043
-/// OnEndAttack ActivateCoroutine (BT9_043.cs:115-135): <c>AddHandCards({SecurityCards[0]})</c> +
-/// <c>IReduceSecurity().ReduceSecurity()</c> THEN <c>if (IsExistOnBattleArea) IUnsuspendPermanents(self).Unsuspend()</c>.
-/// A SINGLE ReturnToHand on the top security card reproduces BOTH AS-IS steps: the security->hand zone move fires
-/// OnAddHand (the AS-IS AddHandCards) AND derives OnLoseSecurity (the AS-IS IReduceSecurity broadcast — TriggerTimingMap
-/// from==Security &amp;&amp; to!=Security). AS-IS "Top security = index 0" (SecurityCards[0]) == zone-reader index 0. A single
-/// card moves, so the derived OnLoseSecurity fires exactly once (no batch-id needed — same proven path as
-/// ReplaceBottomSecurityWithFaceUpEffect). Non-interactive.</summary>
-public sealed class ReturnTopSecurityToHandThenUnsuspendSelfBody : IEffectBody
-{
-    public bool IsInteractive => false;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(sink);
-        // AS-IS: topCard = SecurityCards[0]; AddHandCards({topCard}) + IReduceSecurity().
-        if (card.Context.ZoneMover is IZoneStateReader reader)
-        {
-            IReadOnlyList<HeadlessEntityId> security = reader.GetCards(card.Owner, ChoiceZone.Security);
-            if (security.Count > 0)
-            {
-                sink.Apply(new EffectMutation(
-                    MatchStateMutationSink.ReturnToHandKind,
-                    card.InstanceId,
-                    new Dictionary<string, object?>(StringComparer.Ordinal)
-                        { [MatchStateMutationSink.TargetEntityIdKey] = security[0].Value }));
-            }
-        }
-        // AS-IS: if (IsExistOnBattleArea(card)) IUnsuspendPermanents(self).Unsuspend().
-        if (CardEffectCommons.IsExistOnBattleArea(card))
-        {
-            CardEffectCommons.UnsuspendSelf(sink, card);
-        }
-    }
-}
-
 // (R3-C2b-2) MemoryGainThenScheduledReversalBody DELETED — the invented "gain +N now, schedule a fire-once -N
 // registry reversal" body is retired. BT1_021 / BT1_090 (its only callers) are now AS-IS 1:1 ActivateClass
 // re-ports: they gain +N via card.Owner.AddMemory THEN store the "-N at end of turn" reversal (EoTLose3Memory /
 // a nested "Memory -N" ActivateClass) into the owning Player's UntilEachTurnEnd bucket via AddEffectToPlayer /
 // UntilEachTurnEndEffects.Add — the flipped window's player.EffectList(OnEndTurn) scan fires it, and the
 // per-duration bucket clear gives the fire-once semantics (no DelayedOneShot registry binding).
-
-/// <summary>Pay a self-suspend cost (AS-IS <c>SuspendPermanentsClass(card.PermanentOfThisCard()).Tap()</c>) then
-/// run an inner body — the "you can suspend this &lt;card&gt; to &lt;effect&gt;" activated cost shape (e.g. BT1_086
-/// "you can suspend this Tamer to trash the bottom digivolution card of 1 opponent Digimon"). BuildRequest is
-/// delegated to the inner body (so an interactive inner select still surfaces its choice); Apply pays the suspend
-/// cost first, then runs the inner body. Interactive iff the inner body is.</summary>
-public sealed class SuspendSelfCostThenBody : IEffectBody
-{
-    private readonly IEffectBody _inner;
-
-    public SuspendSelfCostThenBody(IEffectBody inner)
-    {
-        ArgumentNullException.ThrowIfNull(inner);
-        _inner = inner;
-    }
-
-    public bool IsInteractive => _inner.IsInteractive;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) =>
-        _inner.BuildRequest(card, players);
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(sink);
-        // Cost: AS-IS SuspendPermanentsClass(card.PermanentOfThisCard()).Tap() — suspend this card's own permanent.
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.SuspendKind,
-            card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value }));
-        _inner.Apply(card, sink, selected);
-    }
-}
-
-/// <summary>Apply a caller-supplied per-target mutation to EVERY field permanent matching a predicate, with NO
-/// player selection — the AS-IS ActivateCoroutine that runs <c>foreach (… GetBattleAreaDigimons().Filter(pred))
-/// &lt;mutation&gt;</c> directly (e.g. "trash all digivolution cards under every opponent Digimon" / "suspend all
-/// opponent Digimon without &lt;Blocker&gt;"). The match predicate + per-target action are evaluated live at
-/// resolve time via <see cref="CardEffectCommons.MatchConditionPermanentIds"/>; the sink's centralised immunity
-/// gates filter, mirroring <c>DestroyPermanentsEffect</c>. Non-interactive.</summary>
-public sealed class ApplyToAllMatchingBody : IEffectBody
-{
-    private readonly Func<HeadlessEntityId, bool> _match;
-    private readonly Action<CardSource, MatchStateMutationSink, HeadlessEntityId> _perTarget;
-
-    public ApplyToAllMatchingBody(
-        Func<HeadlessEntityId, bool> match, Action<CardSource, MatchStateMutationSink, HeadlessEntityId> perTarget)
-    {
-        ArgumentNullException.ThrowIfNull(match);
-        ArgumentNullException.ThrowIfNull(perTarget);
-        _match = match;
-        _perTarget = perTarget;
-    }
-
-    public bool IsInteractive => false;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(sink);
-        foreach (HeadlessEntityId id in CardEffectCommons.MatchConditionPermanentIds(card, _match))
-        {
-            _perTarget(card, sink, id);
-        }
-    }
-}
 
 /// <summary>Select up to <c>maxCount</c> matching permanents and apply a <see cref="SelectPermanentEffect.Mode"/>
 /// (Destroy / Tap / UnTap / Bounce / Discard / Custom …) — the AS-IS SelectPermanentEffect coroutine. When

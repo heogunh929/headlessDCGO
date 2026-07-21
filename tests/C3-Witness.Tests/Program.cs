@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -187,8 +188,8 @@ async Task CaseFlippedGranterGrantsNothing()
 }
 
 // (9) (C-3 재상환 P1-A) The BOUNCE path — AS-IS HandBounceClaass.Bounce (CardController.cs:2603/2793) runs
-// permanent.DiscardEvoRoots() with NO CanNotTrashFromDigivolutionCards check, so the ST4_16-shaped
-// ActivatedSelectBounceAndDiscardSourcesEffect must trash even a protected source. Before the fix this path was
+// permanent.DiscardEvoRoots() with NO CanNotTrashFromDigivolutionCards check, so an ST4_16-shaped
+// bounce+source-discard must trash even a protected source. Before the fix this path was
 // wired honorProtection:true, which would have kept BT9_109 out of the trash.
 async Task CaseBounceIgnoresProtection()
 {
@@ -202,11 +203,20 @@ async Task CaseBounceIgnoresProtection()
     AssertTrue(!InZone(context, P1, ChoiceZone.Trash, xAntibody), "precondition: tucked BT9_109 is effect-trash-protected");
 
     // The opponent's bounce effect (ST4_16 shape) targets the host: sources discard, then the bounce.
+    // (R6-Db) Re-targeted off the invented ActivatedSelectBounceAndDiscardSourcesEffect wrapper onto the REAL
+    // substrate it composed — DigivolutionStackHelpers.TrashSourcesAsync(honorProtection:false) THEN
+    // SelectPermanentEffect(Mode.Bounce) — so the corpus class can be deleted while this exact rule (AS-IS
+    // HandBounceClaass.Bounce runs DiscardEvoRoots UNCONDITIONALLY, ignoring CanNotTrashFromDigivolutionCards)
+    // stays asserted through the same non-invented carriers, in the same AS-IS order (discard BEFORE bounce).
     var causer = new CardSource(context, trasher, P2, P2);
-    var bounce = new ActivatedSelectBounceAndDiscardSourcesEffect(
-        causer, canTarget: id => id == host, maxCount: 1, "Bounce 1 Digimon (discarding its digivolution cards).");
     var sink = Sink(context);
-    await ((IEffectBody)bounce).ApplyAsync(causer, sink, new[] { host }, CancellationToken.None);
+    await DigivolutionStackHelpers.TrashSourcesAsync(
+        context.CardInstanceRepository, context.ZoneMover, host,
+        int.MaxValue, fromBottom: true, CancellationToken.None, gameEventQueue: null, honorProtection: false);
+    var bounce = new SelectPermanentEffect();
+    bounce.SetUp(causer.Owner, id => id == host, maxCount: 1, canNoSelect: false, canEndNotMax: false,
+        SelectPermanentEffect.Mode.Bounce, causer.InstanceId, context);
+    bounce.Apply(sink, new[] { host });
     await sink.FlushAsync();
 
     AssertTrue(InZone(context, P1, ChoiceZone.Trash, xAntibody),

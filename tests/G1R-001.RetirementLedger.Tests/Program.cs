@@ -16,10 +16,13 @@ using System.Text.RegularExpressions;
 // R6-Db (design §5 D4) — it is [Obsolete]-guarded and must not GAIN consumers before its R6-Db rehome.
 var ledger = new (string Symbol, int Baseline, string Batch)[]
 {
-    ("PlaySelfAtEndOfBattleSecurityEffect", 8, "R6-Db (PlaySelfAtEndOfBattle re-adjudication + special-play markers)"),
-    ("ActivatedSelectEffect", 22, "Da'-5 / corpus deletion (EX8_074 RD-R6-07 STOP + fixtures + white-box casts)"),
-    ("ActivatedSelectBounceAndDiscardSourcesEffect", 7, "corpus deletion R6-Db (re-target C3-Witness case (9) first)"),
-    ("ActivatedSelectTrashDigivolutionEffect", 6, "A6 (deleted with the ST2.Blue disposal)"),
+    ("PlaySelfAtEndOfBattleSecurityEffect", 8, "R6-Db carry (D4: AS-IS UntilEndBattleEffects rehome, RD-P6C3-B2 re-adjudication — live resolver case + factory + FAILa-10)"),
+    ("ActivatedSelectEffect", 22, "STAYS — uniform survival core (EX8_074 RD-R6-07/R2-C STOP + live ST1/ST2 cards + fixtures + white-box casts); final deletion after A8 R2-C + Tfx retirement"),
+    // (R6-Db) `ActivatedSelectBounceAndDiscardSourcesEffect` row RETIRED — the symbol was DELETED in R6-Db: it was
+    // consumer-0 in production (no card producer), and its ONLY remaining consumer, the green C3-Witness case (9),
+    // was re-targeted onto the REAL substrate it composed (DigivolutionStackHelpers.TrashSourcesAsync(honorProtection:
+    // false) + SelectPermanentEffect Mode.Bounce, AS-IS HandBounceClaass.Bounce order). C3-Witness stays 10/10 green.
+    ("ActivatedSelectTrashDigivolutionEffect", 6, "A6 carry (deleted with the full ST2.Blue disposal — the whole CardEffect.ST2.Blue suite is stale-red; the 3 TrashDigivolution casts are dead InvalidCast, providing 0 coverage today)"),
     // (R6-Da'-5) `SelectAndDeDigivolveEffect` (factory helper) + `ActivatedSelectAndDeDigivolveEffect` (body) rows
     // RETIRED — both symbols were DELETED in their owning batch (Da'-5): census-0 producer (only the [Obsolete]
     // factory helper constructed the body, only the G9-046 DeDigivolve white-box test consumed the helper). The

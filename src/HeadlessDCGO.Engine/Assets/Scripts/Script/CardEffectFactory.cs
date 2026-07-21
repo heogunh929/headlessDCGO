@@ -1559,9 +1559,9 @@ public static partial class CardEffectFactory
     // (R6-Da'-1) invented helpers `SelectAndBounceEffect` (4-arg) / `SelectAndBounceWithSourceDiscardEffect`
     // DELETED — 0 call-sites (former cards ST2_16/BT2_095/ST4_16 were re-ported to the AS-IS inline
     // ActivateClass + SelectPermanentEffect Mode.Bounce idiom; the AS-IS unconditional
-    // `permanent.DiscardEvoRoots()` on every hand-bounce lives in the sink bounce route). The body class
-    // `ActivatedSelectBounceAndDiscardSourcesEffect` is RETAINED (carried over — C3-Witness case (9) green
-    // consumer; re-target that witness before the corpus deletion, R6-Db).
+    // `permanent.DiscardEvoRoots()` on every hand-bounce lives in the sink bounce route). (R6-Db) The body class
+    // `ActivatedSelectBounceAndDiscardSourcesEffect` is now also DELETED — its sole remaining (green C3-Witness
+    // case (9)) consumer was re-targeted onto that same real substrate (TrashSourcesAsync + Mode.Bounce).
 
     // (R6-Da'-3) `SelectAndRestrictEffect` factory + its `ActivatedTargetRestrictionEffect` body DELETED — the
     // invented registry-restriction producer was census-0 (ST2_14 / ST4_12 / BT1_113 are all re-ported to the

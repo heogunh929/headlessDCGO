@@ -516,10 +516,11 @@ public sealed class ModeChoiceEffect : IActivatedCardEffect
 /// SelectPermanentEffect tests do, until that integration lands. They are not auto-registered (their
 /// OptionSkill / SecuritySkill timing is excluded from <see cref="CardEffectRegistrar.AllTimings"/>).
 /// </summary>
-// (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried over — remaining consumers: EX8_074 (RD-R6-07
-// STOP), fixtures TfxCappedSelectSuspend/TfxOptionalSelectSuspend, the internal
-// ActivatedSelectBounceAndDiscardSourcesEffect wrapper, and ST1/ST2 white-box test casts. Deleted with the
-// corpus deletion (Da'-5 / R6-Db). Do NOT wire new consumers.
+// (R6-Da'-1 carry-over marking; R6-Db census re-confirmed) RETIREMENT CONFIRMED but STAYS — this is the uniform
+// survival core. Remaining LIVE consumers: EX8_074 (RD-R6-07 / R2-C STOP — the blocker keeping the whole uniform
+// path alive), live cards ST1_15/ST1_16/ST2_16, fixtures TfxCappedSelectSuspend/TfxOptionalSelectSuspend, and its
+// own internal use inside SelectDestroyThenTrashSecurityBody (_select). Final deletion follows EX8_074's R2-C resolution
+// (A8) + the Tfx uniform-fixture retirement. Do NOT wire new consumers.
 [Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(Da'-5/corpus) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
 public sealed class ActivatedSelectEffect : IActivatedCardEffect, IEffectBody
 {
@@ -644,95 +645,12 @@ public sealed class SelectDestroyThenTrashSecurityBody : IEffectBody
 }
 
 
-/// <summary>(ST4_16) Composite "select 1 (or up to <c>maxCount</c>) Digimon → bounce to hand" activated
-/// effect where the bounce ALSO discards all of the target's digivolution cards — the headless mirror of
-/// AS-IS <c>HandBounceClaass.Bounce()</c> (CardController.cs:2622), which unconditionally runs
-/// <c>permanent.DiscardEvoRoots()</c> (Permanent.cs:106) immediately before the top card leaves the field,
-/// for EVERY hand-bounce (not gated by any "cannot trash digivolution cards" flag, and NOT the
-/// <c>OnDigivolutionCardDiscarded</c> trigger — those belong to the separate skill-driven
-/// <c>ITrashDigivolutionCards</c> subsystem used by ST2_03/06/09, a different AS-IS mechanism).
-/// <para>Candidate enumeration/selection reuses <see cref="SelectPermanentEffect"/> (Mode.Bounce shape,
-/// same as the plain <see cref="ActivatedSelectEffect"/> bounce). <see cref="Apply"/> drives only the
-/// bounce mutation — the shared Mode→mutation contract stays 1:1 (locked by the G3.5-CVA2 ModeMapping
-/// test's "one mutation per mode" assertion); the resolver calls <see cref="DiscardSourcesAsync"/>
-/// separately and unconditionally, BEFORE <see cref="Apply"/>, mirroring the AS-IS ordering.</para></summary>
-// (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried to the corpus deletion (R6-Db) — its factory
-// helper is deleted; the remaining consumer is the GREEN C3-Witness case (9) (bounce ignores trash-protection,
-// direct construction). RE-TARGET that witness onto the surviving inline bounce route BEFORE deleting this
-// class. Do NOT wire new consumers.
-[Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(corpus 삭제/R6-Db, C3-Witness 재조준 선행) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
-public sealed class ActivatedSelectBounceAndDiscardSourcesEffect : IActivatedCardEffect, IEffectBody
-{
-    private readonly SelectPermanentEffect _select = new();
-
-    public ActivatedSelectBounceAndDiscardSourcesEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canTarget);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Description = description;
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Bounce, card.InstanceId, card.Context);
-        _select.SetUpCustomMessage(description);
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players) =>
-        _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
-
-    /// <summary>AS-IS <c>DiscardEvoRoots</c>: unconditionally trash ALL of each selected target's
-    /// digivolution sources (deepest DigiEgg included), bypassing the skill-trash immune gate, the
-    /// OnDigivolutionCardDiscarded trigger AND the <c>CanNotTrashFromDigivolutionCards</c> protection (all
-    /// <c>ITrashDigivolutionCards</c>-specific — a different AS-IS subsystem; <c>DiscardEvoRoots</c>,
-    /// Permanent.cs:106-142, has no keyword check). Call BEFORE <see cref="Apply"/>, matching the AS-IS
-    /// coroutine order. (Design item C3-06: the AS-IS DiscardEvoRoots ACE-Overflow pass over the leaving
-    /// sources — Permanent.cs:111-115 — is not yet mirrored on this bounce path.)</summary>
-    public async Task DiscardSourcesAsync(IEnumerable<HeadlessEntityId> selected, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(selected);
-        foreach (HeadlessEntityId target in selected)
-        {
-            // count: int.MaxValue clamps to "all sources" inside TrashSourcesAsync (Math.Min(count, depth));
-            // gameEventQueue: null intentionally suppresses OnDigivolutionCardDiscarded (see summary above).
-            await DigivolutionStackHelpers.TrashSourcesAsync(
-                Card.Context.CardInstanceRepository, Card.Context.ZoneMover, target,
-                int.MaxValue, true, cancellationToken, null,
-                // (C-3 재상환 P1-A) AS-IS HandBounceClaass.Bounce (CardController.cs:2603/2793) runs
-                // permanent.DiscardEvoRoots() UNCONDITIONALLY — no CanNotTrashFromDigivolutionCards check —
-                // so the bounce-driven source discard must NOT honour the effect-trash protection.
-                honorProtection: false).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>The bounce itself — the same <see cref="MatchStateMutationSink.ReturnToHandKind"/> mutation
-    /// the shared Mode.Bounce mapping emits.</summary>
-    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected) => _select.Apply(sink, selected);
-
-    // (B-5) IEffectBody — the AS-IS HandBounceClaass.Bounce() runs DiscardEvoRoots() (awaited) BEFORE the
-    // bounce mutation, so this body is driven through ApplyAsync (discard-then-bounce). The synchronous Apply
-    // cannot honour the awaited discard, so it is a wiring guard.
-    bool IEffectBody.IsInteractive => true;
-
-    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
-
-    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-        throw new NotSupportedException("ActivatedSelectBounceAndDiscardSourcesEffect must be applied via ApplyAsync (awaited DiscardEvoRoots).");
-
-    async ValueTask IEffectBody.ApplyAsync(
-        CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected, CancellationToken cancellationToken)
-    {
-        // AS-IS order: DiscardEvoRoots() (await) BEFORE the top card leaves the field, then the bounce.
-        await DiscardSourcesAsync(selected, cancellationToken).ConfigureAwait(false);
-        Apply(sink, selected);
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Activated bounce+source-discard effect is resolved via the activation flow, not registered: {Description}");
-}
+// (R6-Db) ActivatedSelectBounceAndDiscardSourcesEffect (ST4_16-shaped bounce+source-discard) DELETED —
+// consumer-0 in production (no card producer; its factory helper was already removed). Its ONLY remaining
+// consumer, the GREEN C3-Witness case (9) "bounce ignores trash-protection", was re-targeted onto the REAL
+// substrate this class merely composed: DigivolutionStackHelpers.TrashSourcesAsync(honorProtection:false)
+// THEN SelectPermanentEffect(Mode.Bounce), in the same AS-IS HandBounceClaass.Bounce order (discard BEFORE
+// bounce). G1R-001 row retired.
 
 
 /// <summary>(PRIM-P0 B.O.4) A non-interactive one-shot before-pay cost reduction: when this card is being
