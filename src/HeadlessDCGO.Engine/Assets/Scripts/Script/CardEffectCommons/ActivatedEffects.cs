@@ -499,68 +499,12 @@ public sealed class BeforePayCostReductionEffect : IActivatedCardEffect
 // (ST1_13/14/08, ST3_11/13/14/15/16, BT2_035/092/097/099). EffectDurationExpiry sweeps the bucket at reset.
 
 
-/// <summary>
-/// An activated "select up to <paramref name="maxCount"/> opponent Digimon and trash
-/// <paramref name="trashCount"/> of each host's digivolution cards" effect (e.g. ST2_03 / ST2_06 / ST2_09).
-/// Resolved imperatively (BuildRequest → answer → Apply); Apply emits a TrashDigivolutionCards mutation
-/// (host = selected target) for each chosen host.
-/// </summary>
-// (R6-Da'-1 carry-over marking) RETIREMENT CONFIRMED, carried to the ST2.Blue disposal (A6) — its factory
-// helper is deleted and its former cards (ST2_03/06/09) are re-ported to the inline AS-IS idiom; the only
-// remaining consumers are the STALE ST2.Blue white-box casts. Delete this class together with that suite's
-// disposal. Do NOT wire new consumers.
-[Obsolete("RD-RETIRE-DA1: 은퇴 확정·이월(A6, ST2.Blue 처분과 동시 삭제) — 신규 배선 금지, docs/audit/r6da_prime_design_2026-07-21.md")]
-public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffect
-{
-    private readonly SelectPermanentEffect _select = new();
-    private readonly int _trashCount;
-    private readonly bool _fromBottom;
-
-    public ActivatedSelectTrashDigivolutionEffect(
-        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int trashCount, bool fromBottom, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(canTarget);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Description = description;
-        _trashCount = trashCount;
-        _fromBottom = fromBottom;
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId, card.Context);
-        _select.SetUpCustomMessage(description);
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players) =>
-        _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
-
-    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        ArgumentNullException.ThrowIfNull(selected);
-        foreach (HeadlessEntityId host in selected)
-        {
-            sink.Apply(new EffectMutation(
-                MatchStateMutationSink.TrashDigivolutionCardsKind,
-                Card.InstanceId,
-                new Dictionary<string, object?>(StringComparer.Ordinal)
-                {
-                    [MatchStateMutationSink.TargetEntityIdKey] = host.Value,
-                    [MatchStateMutationSink.CountKey] = _trashCount,
-                    [MatchStateMutationSink.FromBottomKey] = _fromBottom,
-                }));
-        }
-    }
-
-    // (uniform-사멸 flip) explicit IEffectBody half REMOVED — the interface died with the uniform
-    // ActivatedEffect corpus; the public BuildRequest/Apply surface is unchanged.
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Activated trash-digivolution effect is resolved via the activation flow, not registered: {Description}");
-}
+// (A6 / ST2.Blue disposal) invented body `ActivatedSelectTrashDigivolutionEffect` DELETED — it reached
+// consumer-0: its factory helper (SelectAndTrashDigivolutionEffect) was already gone, its former cards
+// (ST2_03/06/09) are re-ported to the inline AS-IS ActivateClass + SelectPermanentEffect Mode.Custom +
+// TrashDigivolutionCardsFromTopOrBottom, and its only remaining consumers — the stale ST2.Blue white-box casts —
+// were re-targeted onto that live ActivateClass surface (the CardEffect.ST2.Blue suite is now 12/12 truthful
+// green). No resolver switch case existed. G1R-001 row RETIRED with this deletion.
 
 
 /// <summary>(PRIM special-play) AS-IS <c>IDigiBurst</c>: a <c>[Digi-Burst N]</c> effect — trash N of THIS card's

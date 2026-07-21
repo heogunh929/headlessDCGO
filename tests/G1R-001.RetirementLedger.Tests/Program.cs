@@ -28,7 +28,14 @@ var ledger = new (string Symbol, int Baseline, string Batch)[]
     // consumer-0 in production (no card producer), and its ONLY remaining consumer, the green C3-Witness case (9),
     // was re-targeted onto the REAL substrate it composed (DigivolutionStackHelpers.TrashSourcesAsync(honorProtection:
     // false) + SelectPermanentEffect Mode.Bounce, AS-IS HandBounceClaass.Bounce order). C3-Witness stays 10/10 green.
-    ("ActivatedSelectTrashDigivolutionEffect", 6, "A6 carry (deleted with the full ST2.Blue disposal — the whole CardEffect.ST2.Blue suite is stale-red; the 3 TrashDigivolution casts are dead InvalidCast, providing 0 coverage today)"),
+    // (A6 / ST2.Blue disposal) `ActivatedSelectTrashDigivolutionEffect` row RETIRED — the symbol was DELETED in its
+    // owning batch (A6): its factory helper (SelectAndTrashDigivolutionEffect) was already gone, its former cards
+    // (ST2_03/06/09) are re-ported to the inline AS-IS ActivateClass + SelectPermanentEffect Mode.Custom +
+    // TrashDigivolutionCardsFromTopOrBottom, and its only remaining consumers — the 3 stale ST2.Blue white-box casts
+    // — were re-targeted onto that live ActivateClass surface (CardEffect.ST2.Blue suite now 12/12 truthful green).
+    // No resolver switch case existed. (ActivatedPlayFromUnderEffect was RE-CONFIRMED NOT consumer-0 by the A6
+    // diversified grep — BT23.PrimTranche4 / G9-060 / FAILa-11 / CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards
+    // still construct/cast it — so it is RETAINED, not deleted, this batch.)
     // (R6-Da'-5) `SelectAndDeDigivolveEffect` (factory helper) + `ActivatedSelectAndDeDigivolveEffect` (body) rows
     // RETIRED — both symbols were DELETED in their owning batch (Da'-5): census-0 producer (only the [Obsolete]
     // factory helper constructed the body, only the G9-046 DeDigivolve white-box test consumed the helper). The

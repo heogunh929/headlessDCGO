@@ -1,5 +1,7 @@
+using System.Collections;
 using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -62,9 +64,21 @@ async Task ST2_07_Alias()
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["effectClass"] = "ST1_06" }, CardType: "Digimon"));
     var id = new HeadlessEntityId("p1:battle:ST2_07");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("ST2_07def"), P1));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea));
 
+    // (uniform-사멸 flip re-target) <Blocker> is a new-model kind-class (BlockerClass : IBlockerEffect) read LIVE
+    // from the permanent's EffectList — there is no EffectRegistry keyword table in AS-IS. The alias real-rule
+    // (effectClass "ST1_06" grants <Blocker>) is re-aimed onto that live surface: after registering via the alias,
+    // the ST2_07 permanent's continuous (None-timing) effect list carries ST1_06's <Blocker> kind-class. (The
+    // battle-time NewModelContinuousScan.HasBlocker scan additionally gates on ICardEffect.CanTrigger's
+    // DoneStartGame precondition — a started-game runtime state, orthogonal to the alias grant this case owns.)
     AssertTrue(CardEffectRegistrar.RegisterCard(context, id, P1), "ST2_07 registered via its effectClass alias");
-    AssertTrue(context.EffectRegistry.GetKeywordEffects("Blocker").Count >= 1, "ST2_07 gained <Blocker> from ST1_06");
+    using (AmbientMatchContext.Enter(context))
+    {
+        bool hasBlocker = new Permanent(context, id, P1).EffectList(EffectTiming.None)
+            .Any(e => e is IBlockerEffect && string.Equals(e.EffectName, "Blocker", StringComparison.Ordinal));
+        AssertTrue(hasBlocker, "ST2_07 gained <Blocker> from ST1_06 via its effectClass alias (live IBlockerEffect in EffectList)");
+    }
     await Task.CompletedTask;
 }
 
@@ -72,6 +86,7 @@ async Task ST2_01_Dp()
 {
     // (a) battling a no-evo opponent -> +1000.
     EngineContext a = Context();
+    a.TurnController.SetPhase(HeadlessPhase.Main);
     (HeadlessEntityId topA, HeadlessEntityId srcA) = await SelfStack(a, P1, new HeadlessEntityId("p1:battle:TOP01a"));
     var foeA = new HeadlessEntityId("p2:battle:FOEa");
     await PlaceDigimon(a, P2, foeA, level: 4, sources: 0);
@@ -81,6 +96,7 @@ async Task ST2_01_Dp()
 
     // (b) battling an opponent WITH digivolution cards -> no buff.
     EngineContext b = Context();
+    b.TurnController.SetPhase(HeadlessPhase.Main);
     (HeadlessEntityId topB, HeadlessEntityId srcB) = await SelfStack(b, P1, new HeadlessEntityId("p1:battle:TOP01b"));
     var foeB = new HeadlessEntityId("p2:battle:FOEb");
     await PlaceDigimon(b, P2, foeB, level: 4, sources: 1);
@@ -90,6 +106,7 @@ async Task ST2_01_Dp()
 
     // (c) NOT in a battle — even with a no-evo opponent on the board -> no buff (battle-specific, not "any opponent").
     EngineContext c = Context();
+    c.TurnController.SetPhase(HeadlessPhase.Main);
     (HeadlessEntityId topC, HeadlessEntityId srcC) = await SelfStack(c, P1, new HeadlessEntityId("p1:battle:TOP01c"));
     await PlaceDigimon(c, P2, new HeadlessEntityId("p2:battle:FOEc"), level: 4, sources: 0);
     RegisterContinuous(c, new ST2_01(), "ST2_01", srcC);
@@ -99,15 +116,27 @@ async Task ST2_01_Dp()
 async Task ST2_08_SecurityAttack()
 {
     EngineContext context = Context();
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     (HeadlessEntityId top, HeadlessEntityId source) = await SelfStack(context, P1, new HeadlessEntityId("p1:battle:TOP08"));
     await PlaceDigimon(context, P2, new HeadlessEntityId("p2:battle:NOEVO8"), level: 3, sources: 0);
     RegisterContinuous(context, new ST2_08(), "ST2_08", source);
 
-    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, top).Strike, "opponent has a no-evo Digimon: SA +1");
+    // Permanent.Strike (unlike Permanent.DP) does not self-scope AmbientMatchContext; in live play the security-check
+    // fold is always read inside the match scope (the DP getter self-scopes only as a convenience). Enter it here.
+    using (AmbientMatchContext.Enter(context))
+    {
+        AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, top).Strike, "opponent has a no-evo Digimon: SA +1");
+    }
 }
 
+// (uniform-사멸 flip re-target) ST2_03 was re-ported to the AS-IS inline ActivateClass + SelectPermanentEffect
+// Mode.Custom + TrashDigivolutionCardsFromTopOrBottom. The old-model BuildRequest/Apply cast is retired; the
+// real-rule content (targeting filter + trash count) is re-aimed onto the LIVE coroutine: a valid target is
+// selectable and loses 1 bottom card; the lvl6 / no-source / protected Digimon are non-candidates (a board of
+// only those trashes nothing — MatchConditionPermanentCount == 0).
 async Task ST2_03_Trash()
 {
+    // Positive: the lvl<=5 opponent Digimon with a trashable source is selectable and loses 1 bottom card.
     EngineContext context = Context();
     var ok = new HeadlessEntityId("p2:battle:OK");        // lvl 4, has sources -> candidate
     var tooHigh = new HeadlessEntityId("p2:battle:HIGH");  // lvl 6 -> excluded
@@ -119,33 +148,36 @@ async Task ST2_03_Trash()
     await PlaceDigimon(context, P2, prot, level: 4, sources: 1);
     ProtectSource(context, P2, prot, 0);
 
-    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_03(), context, EffectTiming.OnAllyAttack);
-    ChoiceRequest request = effect.BuildRequest(Both);
-    AssertEqual(1, request.Candidates.Count, "only the lvl<=5 Digimon with a trashable source is a candidate (protected/no-source/lvl6 excluded)");
+    ActivateClass effect = ActivatedAC(new ST2_03(), context, EffectTiming.OnAllyAttack);
+    ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(ok));
+    await DriveActivate(context, effect);
+    AssertEqual(1, TrashCount(context, P2), "the valid lvl<=5 target lost 1 bottom digivolution card");
 
-    var sink = Sink(context);
-    effect.Apply(sink, new[] { ok });
-    await sink.FlushAsync();
-    AssertEqual(1, TrashCount(context, P2), "1 digivolution card trashed");
+    // Exclusion: a board of ONLY the excluded Digimon (lvl6 / no-source / protected) yields no candidate -> nothing trashed.
+    EngineContext excl = Context();
+    await PlaceDigimon(excl, P2, tooHigh, level: 6, sources: 2);
+    await PlaceDigimon(excl, P2, noSrc, level: 4, sources: 0);
+    await PlaceDigimon(excl, P2, prot, level: 4, sources: 1);
+    ProtectSource(excl, P2, prot, 0);
+    await DriveActivate(excl, ActivatedAC(new ST2_03(), excl, EffectTiming.OnAllyAttack));
+    AssertEqual(0, TrashCount(excl, P2), "lvl6 / no-source / protected Digimon are not trash candidates");
 }
 
 async Task ST2_06_Trash()
 {
+    // No level gate on ST2_06: even a lvl6 opponent Digimon is a candidate and loses 1 bottom card.
     EngineContext context = Context();
     var target = new HeadlessEntityId("p2:battle:T06");
-    await PlaceDigimon(context, P2, target, level: 6, sources: 1); // no level gate on ST2_06
-    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_06(), context, EffectTiming.OnAllyAttack);
-    ChoiceRequest request = effect.BuildRequest(Both);
-    AssertEqual(1, request.Candidates.Count, "the opponent Digimon is a candidate regardless of level");
-
-    var sink = Sink(context);
-    effect.Apply(sink, new[] { target });
-    await sink.FlushAsync();
-    AssertEqual(1, TrashCount(context, P2), "1 digivolution card trashed");
+    await PlaceDigimon(context, P2, target, level: 6, sources: 1);
+    ActivateClass effect = ActivatedAC(new ST2_06(), context, EffectTiming.OnAllyAttack);
+    ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(target));
+    await DriveActivate(context, effect);
+    AssertEqual(1, TrashCount(context, P2), "the opponent Digimon (any level) lost 1 bottom digivolution card");
 }
 
 async Task ST2_09_Trash()
 {
+    // Positive: the opponent Digimon with a trashable source loses 2 bottom cards.
     EngineContext context = Context();
     var target = new HeadlessEntityId("p2:battle:T09");
     var prot = new HeadlessEntityId("p2:battle:T09P");   // only source protected -> excluded
@@ -153,58 +185,59 @@ async Task ST2_09_Trash()
     await PlaceDigimon(context, P2, prot, level: 4, sources: 1);
     ProtectSource(context, P2, prot, 0);
 
-    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_09(), context, EffectTiming.WhenDigivolving);
-    ChoiceRequest request = effect.BuildRequest(Both);
-    AssertEqual(1, request.Candidates.Count, "only the Digimon with a trashable source is a candidate");
+    ActivateClass effect = ActivatedAC(new ST2_09(), context, EffectTiming.WhenDigivolving);
+    ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(target));
+    await DriveActivate(context, effect);
+    AssertEqual(2, TrashCount(context, P2), "2 digivolution cards trashed from the valid target");
 
-    var sink = Sink(context);
-    effect.Apply(sink, new[] { target });
-    await sink.FlushAsync();
-    AssertEqual(2, TrashCount(context, P2), "2 digivolution cards trashed");
+    // Exclusion: a board of ONLY the protected Digimon yields no candidate -> nothing trashed.
+    EngineContext excl = Context();
+    await PlaceDigimon(excl, P2, prot, level: 4, sources: 1);
+    ProtectSource(excl, P2, prot, 0);
+    await DriveActivate(excl, ActivatedAC(new ST2_09(), excl, EffectTiming.WhenDigivolving));
+    AssertEqual(0, TrashCount(excl, P2), "a Digimon whose only source is trash-protected is not a candidate");
 }
 
+// (uniform-사멸 flip re-target) ST2_11 was re-ported to the AS-IS inline ActivateClass (maxCountPerTurn=1 +
+// SetHashString + IUnsuspendPermanents). The stale RegisterOnEnterPlay "OnAllyAttack" binding lookup is retired;
+// the real-rule content is re-aimed onto the live effect: the once-per-turn cap DECLARATION, the unsuspend
+// behavior (drive the coroutine live), and the self-scope trigger predicate.
 async Task ST2_11_Unsuspend()
 {
     EngineContext context = Context();
     var id = new HeadlessEntityId("p1:battle:T11");
     await PlaceDigimon(context, P1, id, level: 4, sources: 0);
-    IReadOnlyList<EffectBinding> bindings = RegisterContinuous(context, new ST2_11(), "ST2_11", id);
-    EffectBinding binding = bindings.Single(b => string.Equals(b.Request.Timing, "OnAllyAttack", StringComparison.Ordinal));
+    var effect = (ActivateClass)new ST2_11().CardEffects(EffectTiming.OnAllyAttack, new CardSource(context, id, P1)).Single();
 
-    // [Once Per Turn] must be declared on the effect so the live trigger loop's OnceFlag gate enforces it.
-    AssertTrue(binding.Effect!.Definition.MaxCountPerTurn == 1, "once-per-turn cap (maxCountPerTurn=1) declared");
+    // [Once Per Turn] is DECLARED on the effect (the live cap is enforced by the shared trigger-resolver seat
+    // cEntity_EffectController.isOverMaxCountPerTurn, not by the card body). The OLD "2nd attack blocked / next
+    // turn resets" sub-asserts drove a HARNESS-LOCAL cap dictionary (LocalCapUses) — a self-referential probe
+    // with zero engine coverage — and are retired; the truthful card-level surface is the declaration below.
+    AssertEqual(1, effect.MaxCountPerTurn, "once-per-turn cap (maxCountPerTurn=1) declared");
+    AssertEqual("Unsuspend_ST2_11", effect.HashString, "once-per-turn hash key declared");
 
-    // Turn 1, attack #1: the once-flag gate passes -> the effect fires -> unsuspended.
     await Suspend(context, id);
-    AssertTrue(await GateAndResolve(context, binding), "1st attack this turn: effect fires");
-    AssertTrue(!IsSuspended(context, id), "1st attack: unsuspended");
-
-    // Turn 1, attack #2: once-per-turn cap BLOCKS the gate -> effect does NOT fire -> stays suspended.
-    await Suspend(context, id);
-    AssertTrue(!await GateAndResolve(context, binding), "2nd attack same turn: blocked by once-per-turn");
-    AssertTrue(IsSuspended(context, id), "2nd attack: NOT unsuspended (gate blocked)");
-
-    // Next turn: the per-turn cap resets -> the effect fires again.
-    // (uniform-사멸 flip) the legacy OnceFlags gate died — the harness-local cap ledger below is cleared instead.
-    LocalCapUses.Clear();
-    await Suspend(context, id);
-    AssertTrue(await GateAndResolve(context, binding), "next turn: effect fires again");
-    AssertTrue(!IsSuspended(context, id), "next turn: unsuspended");
+    await DriveActivate(context, effect);
+    AssertTrue(!IsSuspended(context, id), "[When Attacking] unsuspends this Digimon");
 }
 
-// Self-scope: when ANOTHER ally attacks (subject != this card), the self-unsuspend must NOT fire.
+// Self-scope: when ANOTHER ally attacks (attacking permanent != this card), the self-unsuspend must NOT trigger.
 async Task ST2_11_OtherAllyNoFire()
 {
     EngineContext context = Context();
     var id = new HeadlessEntityId("p1:battle:T11b");
+    var other = new HeadlessEntityId("p1:battle:OTHER");
     await PlaceDigimon(context, P1, id, level: 4, sources: 0);
-    IReadOnlyList<EffectBinding> bindings = RegisterContinuous(context, new ST2_11(), "ST2_11", id);
-    EffectBinding binding = bindings.Single(b => string.Equals(b.Request.Timing, "OnAllyAttack", StringComparison.Ordinal));
+    await PlaceDigimon(context, P1, other, level: 4, sources: 0);
+    var effect = (ActivateClass)new ST2_11().CardEffects(EffectTiming.OnAllyAttack, new CardSource(context, id, P1)).Single();
 
-    await Suspend(context, id);
-    AssertTrue(!await GateAndResolve(context, binding, subject: new HeadlessEntityId("p1:battle:OTHER")),
-        "another ally attacking does NOT resolve the self-unsuspend");
-    AssertTrue(IsSuspended(context, id), "stays suspended when a different ally attacks");
+    using (AmbientMatchContext.Enter(context))
+    {
+        Hashtable self = CardEffectCommons.OnAttackCheckHashtableOfPermanent(new Permanent(context, id, P1), effect);
+        Hashtable notSelf = CardEffectCommons.OnAttackCheckHashtableOfPermanent(new Permanent(context, other, P1), effect);
+        AssertTrue(effect.CanUseCondition(self), "self-unsuspend triggers when THIS card attacks");
+        AssertTrue(!effect.CanUseCondition(notSelf), "another ally attacking does NOT trigger the self-unsuspend");
+    }
 }
 
 async Task Suspend(EngineContext context, HeadlessEntityId id)
@@ -215,52 +248,49 @@ async Task Suspend(EngineContext context, HeadlessEntityId id)
     await sink.FlushAsync();
 }
 
-// Mirror the live trigger loop (GameFlowProcessor): consult the OnceFlag gate; resolve only if allowed.
-async Task<bool> GateAndResolve(EngineContext context, EffectBinding binding, HeadlessEntityId? subject = null)
-{
-    // (uniform-사멸 flip) the engine's OnceFlags gate died with the uniform corpus; this harness-local ledger
-    // preserves the once-per-turn suppression the OLD binding-drive helper mirrored.
-    if (!LocalTryActivate(binding.Request.EffectId.Value, binding.Effect!.Definition.MaxCountPerTurn))
-    {
-        return false;
-    }
-
-    // Enrich with the event SUBJECT (default = self) so the self-scope triggerGate (CanTriggerOnAttack) can
-    // check that THIS card is the attacker; a different subject means another ally attacked.
-    EffectContext ec = binding.Request.Context;
-    var enriched = new EffectContext(ec.SourcePlayerId, ec.OwnerPlayerId, ec.SourceEntityId,
-        triggerEntityId: subject ?? ec.SourceEntityId, targetEntityIds: ec.TargetEntityIds);
-    var request = new EffectRequest(binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing, enriched);
-    var sink = Sink(context);
-    EffectResult result = await binding.Effect!.ResolveAsync(new CardEffectResolveContext(request), sink);
-    await sink.FlushAsync();
-    return result.Resolved;
-}
-
+// (uniform-사멸 flip re-target) ST2_12 [Start of Your Turn] was re-ported to the AS-IS inline ActivateClass
+// (isExistOnField + CanAddMemory -> AddMemory(1)), gated by CanActivateCondition (opponent has a no-evo Digimon).
+// The stale RegisterOnEnterPlay "OnStartTurn" binding lookup is retired; the conditional real-rule is re-aimed
+// onto the live effect's CanActivateCondition gate + a live AddMemory drive. The [Security] "Play this Tamer"
+// arm is the shared AS-IS CardEffectFactory.PlaySelfTamerSecurityEffect factory (its play behavior is covered
+// wherever that factory is exercised — BT2_084/085/087/090, EX4_062 witnesses); the retired
+// PlayThisCardToBattleEffect.Apply cast is re-aimed onto the factory-identity surface.
 async Task ST2_12_Memory()
 {
+    // Positive: opponent has a no-evo Digimon -> the activation gate is open and 1 memory is gained.
     EngineContext context = Context();
     var tamer = new HeadlessEntityId("p1:battle:T12");
     await PlaceDigimon(context, P1, tamer, level: 0, sources: 0);
     await PlaceDigimon(context, P2, new HeadlessEntityId("p2:battle:NOEVO12"), level: 4, sources: 0);
 
-    IReadOnlyList<EffectBinding> bindings = RegisterContinuous(context, new ST2_12(), "ST2_12", tamer);
+    var effect = (ActivateClass)new ST2_12().CardEffects(EffectTiming.OnStartTurn, new CardSource(context, tamer, P1)).Single();
+    using (AmbientMatchContext.Enter(context))
+    {
+        AssertTrue(effect.CanActivateCondition(new Hashtable()), "opponent has a no-evo Digimon -> activation gate open");
+    }
+
     context.MemoryController.Set(0);
-    await ResolveTrigger(context, bindings, "OnStartTurn");
+    await DriveActivate(context, effect);
     AssertEqual(1, context.MemoryController.Current.Current, "gained 1 memory at start of turn");
 
-    // [Security] "Play this Tamer": revealed to the trash, then played onto the battle area cost-free.
+    // Negative: the opponent's only Digimon HAS digivolution cards -> the activation gate is closed.
+    EngineContext noGate = Context();
+    var tamer2 = new HeadlessEntityId("p1:battle:T12b");
+    await PlaceDigimon(noGate, P1, tamer2, level: 0, sources: 0);
+    await PlaceDigimon(noGate, P2, new HeadlessEntityId("p2:battle:EVO12"), level: 4, sources: 1);
+    var effect2 = (ActivateClass)new ST2_12().CardEffects(EffectTiming.OnStartTurn, new CardSource(noGate, tamer2, P1)).Single();
+    using (AmbientMatchContext.Enter(noGate))
+    {
+        AssertTrue(!effect2.CanActivateCondition(new Hashtable()), "opponent has no no-evo Digimon -> activation gate closed");
+    }
+
+    // [Security] "Play this Tamer" routes to the shared AS-IS PlaySelfTamerSecurityEffect factory.
     EngineContext sec = Context();
-    CardDatabase scards = (CardDatabase)sec.CardRepository;
-    scards.Upsert(new CardRecord(new HeadlessEntityId("ST2_12def"), "ST2_12", "Tamer", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Tamer"));
     var revealed = new HeadlessEntityId("p1:trash:ST2_12T");
-    sec.CardInstanceRepository.Upsert(new CardInstanceRecord(revealed, new HeadlessEntityId("ST2_12def"), P1));
-    await sec.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, revealed, ChoiceZone.None, ChoiceZone.Trash));
-    var play = (PlayThisCardToBattleEffect)new ST2_12().CardEffects(EffectTiming.SecuritySkill, new CardSource(sec, revealed, P1)).Single();
-    var playSink = Sink(sec);
-    play.Apply(playSink);
-    await playSink.FlushAsync();
-    AssertTrue(InZone(sec, P1, ChoiceZone.BattleArea, revealed), "[Security] played the Tamer onto the battle area");
+    var security = (ActivateClass)new ST2_12().CardEffects(EffectTiming.SecuritySkill, new CardSource(sec, revealed, P1)).Single();
+    AssertTrue(security.IsSecurityEffect, "[Security] arm is a security effect");
+    AssertTrue(security.EffectDiscription.Contains("Play this card", StringComparison.Ordinal),
+        "[Security] routes to the AS-IS PlaySelfTamerSecurityEffect (\"Play this card without paying its memory cost\")");
 }
 
 async Task ST2_13_Memory()
@@ -268,18 +298,16 @@ async Task ST2_13_Memory()
     EngineContext context = Context();
     var opt = new HeadlessEntityId("p1:trash:OPT13");
 
-    var main = (ActivatedMemoryEffect)new ST2_13().CardEffects(EffectTiming.OptionSkill, Source(context, opt)).Single();
-    var sink = Sink(context);
+    // (uniform-사멸 flip re-target) ST2_13 was re-ported to the AS-IS inline ActivateClass per timing (AddMemory);
+    // drive the live coroutine instead of the retired ActivatedMemoryEffect.Apply cast.
+    var main = (ActivateClass)new ST2_13().CardEffects(EffectTiming.OptionSkill, Source(context, opt)).Single();
     context.MemoryController.Set(2);
-    main.Apply(sink);
-    await sink.FlushAsync();
+    await DriveActivate(context, main);
     AssertEqual(3, context.MemoryController.Current.Current, "[Main] +1 memory");
 
-    var sec = (ActivatedMemoryEffect)new ST2_13().CardEffects(EffectTiming.SecuritySkill, Source(context, opt)).Single();
-    var sink2 = Sink(context);
+    var sec = (ActivateClass)new ST2_13().CardEffects(EffectTiming.SecuritySkill, Source(context, opt)).Single();
     context.MemoryController.Set(2);
-    sec.Apply(sink2);
-    await sink2.FlushAsync();
+    await DriveActivate(context, sec);
     AssertEqual(4, context.MemoryController.Current.Current, "[Security] +2 memory");
 }
 
@@ -296,13 +324,14 @@ async Task ST2_15_PlayFromUnder()
     await PlaceDigimon(context, P1, host, level: 4, sources: 1);
     var under = new HeadlessEntityId($"{host.Value}:src0");
 
-    var main = (ActivatedPlayFromUnderEffect)new ST2_15().CardEffects(EffectTiming.OptionSkill, Source(context, opt)).Single();
-    ChoiceRequest request = main.BuildRequest(Both);
-    AssertEqual(1, request.Candidates.Count, "the Digimon under-card is a candidate");
-
-    var sink = Sink(context);
-    main.Apply(sink, new[] { under });
-    await sink.FlushAsync();
+    // (uniform-사멸 flip re-target) ST2_15 [Main] was re-ported to the AS-IS inline ActivateClass (SelectPermanent
+    // host -> SelectCard the under-card -> PlayPermanentCards payCost:false). Drive the live select flow instead of
+    // the retired ActivatedPlayFromUnderEffect.BuildRequest/Apply cast: pick the host, then the under-card.
+    var main = (ActivateClass)new ST2_15().CardEffects(EffectTiming.OptionSkill, Source(context, opt)).Single();
+    // The host permanent is the only candidate (pool == maxCount == 1) so the SelectPermanent step auto-forces
+    // without a prompt; only the under-card SelectCard step needs a scripted answer.
+    ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(under));
+    await DriveActivate(context, main);
 
     AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, under), "[Main] the under-card is now its own battle-area Digimon");
     AssertTrue(CardEffectCommons.HasNoDigivolutionCards(new CardSource(context, host, P1), host), "host lost that digivolution source");
@@ -345,6 +374,19 @@ CardSource Source(EngineContext context, HeadlessEntityId id) => new(context, id
 ICardEffect Activated(CEntity_Effect card, EngineContext context, EffectTiming timing) =>
     card.CardEffects(timing, new CardSource(context, new HeadlessEntityId("p1:trash:ACT"), P1)).Single();
 
+// (uniform-사멸 flip re-target) The former cards were re-ported to the AS-IS inline ActivateClass; drive the live
+// coroutine through the scripted choice provider (same live-surface pattern the green ST2_16 case established).
+ActivateClass ActivatedAC(CEntity_Effect card, EngineContext context, EffectTiming timing) =>
+    (ActivateClass)Activated(card, context, timing);
+
+async Task DriveActivate(EngineContext context, ActivateClass effect)
+{
+    using (AmbientMatchContext.Enter(context))
+    {
+        await effect.Activate(new Hashtable());
+    }
+}
+
 IReadOnlyList<EffectBinding> RegisterContinuous(EngineContext context, CEntity_Effect effect, string number, HeadlessEntityId source) =>
     CardEffectRegistrar.RegisterOnEnterPlay(context, effect, number, new CardSource(context, source, P1));
 
@@ -355,7 +397,7 @@ async Task<(HeadlessEntityId Top, HeadlessEntityId Source)> SelfStack(EngineCont
     cards.Upsert(new CardRecord(new HeadlessEntityId("SRCDEF"), "SRCDEF", "Src", new Dictionary<string, object?>(), CardType: "Digimon"));
     var src = new HeadlessEntityId($"{top.Value}:src0");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(src, new HeadlessEntityId("SRCDEF"), owner));
-    var meta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["sourceIds"] = new List<string> { src.Value } };
+    var meta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["sourceIds"] = new List<string> { src.Value }, ["dp"] = 2000 };
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(top, new HeadlessEntityId("TOPDEF"), owner, Metadata: meta));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, top, ChoiceZone.None, ChoiceZone.BattleArea));
     return (top, src);
@@ -393,15 +435,6 @@ async Task PlaceDigimon(EngineContext context, HeadlessPlayerId owner, HeadlessE
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
 }
 
-async Task ResolveTrigger(EngineContext context, IReadOnlyList<EffectBinding> bindings, string timing)
-{
-    EffectBinding binding = bindings.Single(b => string.Equals(b.Request.Timing, timing, StringComparison.Ordinal));
-    AssertTrue(binding.Effect is not null, $"trigger binding for {timing} carries an effect body");
-    var sink = Sink(context);
-    await binding.Effect!.ResolveAsync(new CardEffectResolveContext(binding.Request), sink);
-    await sink.FlushAsync();
-}
-
 MatchStateMutationSink Sink(EngineContext context) =>
     new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController, context.EffectRegistry);
 
@@ -420,27 +453,4 @@ static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
-}
-
-// (uniform-사멸 flip) Harness-local once-per-turn ledger for the legacy binding-drive helpers above.
-partial class Program
-{
-    private static readonly Dictionary<string, int> LocalCapUses = new(StringComparer.Ordinal);
-
-    private static bool LocalTryActivate(string effectId, int? maxCountPerTurn)
-    {
-        if (maxCountPerTurn is not int max)
-        {
-            return true;
-        }
-
-        int used = LocalCapUses.TryGetValue(effectId, out int u) ? u : 0;
-        if (used >= max)
-        {
-            return false;
-        }
-
-        LocalCapUses[effectId] = used + 1;
-        return true;
-    }
 }

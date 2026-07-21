@@ -1535,8 +1535,9 @@ public static partial class CardEffectFactory
 
     // (R6-Da'-1) invented helper `SelectAndTrashDigivolutionEffect` DELETED — 0 call-sites (its former cards
     // ST2_03/ST2_06/ST2_09 were re-ported to the AS-IS inline ActivateClass + SelectPermanentEffect Mode.Custom
-    // + TrashDigivolutionCardsFromTopOrBottom idiom). Its body class `ActivatedSelectTrashDigivolutionEffect`
-    // is RETAINED (carried over — ST2.Blue stale casts, deleted together with the ST2.Blue disposal, A6).
+    // + TrashDigivolutionCardsFromTopOrBottom idiom). (A6) Its body class `ActivatedSelectTrashDigivolutionEffect`
+    // is now also DELETED — its only remaining consumers were the stale ST2.Blue white-box casts, re-targeted onto
+    // the live ActivateClass surface with the ST2.Blue disposal (suite 12/12 truthful green). G1R-001 row RETIRED.
 
     /// <summary>(PRIM special-play) AS-IS <c>IDigiBurst</c> — <c>[Digi-Burst N] &lt;effect&gt;</c>: trash N of this
     /// card's own digivolution sources as a cost, then resolve <paramref name="innerEffect"/>. Offered only when
