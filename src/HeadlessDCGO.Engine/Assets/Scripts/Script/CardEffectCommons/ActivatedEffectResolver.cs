@@ -400,7 +400,6 @@ public static class ActivatedEffectResolver
         HeadlessPlayerId controller,
         EffectTiming timing,
         CancellationToken cancellationToken = default,
-        bool skipReactivationHolder = false,
         GameEvent? drivingEvent = null,
         Func<ICardEffect, bool>? effectFilter = null,
         bool declarative = false,
@@ -462,15 +461,6 @@ public static class ActivatedEffectResolver
         // every other (default) path runs only the non-inherited ones. Behaviour-neutral for the default path
         // (no ported effect is inherited yet, so the non-inherited filter keeps them all).
         effects = effects.Where(e => MembershipKeeps(e, inheritedScan)).ToList();
-
-        if (skipReactivationHolder)
-        {
-            // The [On Play] play path resolves a card's own OnEnterFieldAnyone [On Play] effects, but the
-            // [All Turns] reactivation-holder effect (ReuseWhenDigivolvingEffect) shares that timing and must NOT
-            // self-fire — it reacts to OTHER cards' plays (driven by OnPlayReactivation, which excludes the
-            // just-played card). Skip it here so playing a holder doesn't wrongly trigger its own reactivation.
-            effects = effects.Where(e => e is not ReuseWhenDigivolvingEffect).ToList();
-        }
 
         return await ResolveWithinCycleAsync(
             context, sink,

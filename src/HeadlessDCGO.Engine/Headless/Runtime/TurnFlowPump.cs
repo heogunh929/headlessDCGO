@@ -311,8 +311,6 @@ public static class TurnFlowPump
             context.OnceFlags.ResetForTurn(newTurn.TurnNumber, newTurn.TurnPlayerId);
             // AS-IS :3181 player.DigivolveCount_ThisTurn = 0 — substrate PlayerTurnCounterController owner.
             context.PlayerTurnCounters.ResetForTurn();
-            // LA-3: the [All Turns] once-per-turn reactivation guard resets at the boundary.
-            OnPlayReactivation.ClearAll(context);
             // F-1.7: leftover "until cost is calculated" one-shot modifiers expire at the boundary.
             EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
             // COORDINATE TRANSLATION: the mirror memory gauge is turn-player-relative (AS-IS is seat-absolute,

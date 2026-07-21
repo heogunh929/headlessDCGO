@@ -239,8 +239,7 @@ public sealed class PlayCardAction
         try
         {
             await ActivatedEffectResolver
-                .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.OnEnterFieldAnyone, cancellationToken,
-                    skipReactivationHolder: true)
+                .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.OnEnterFieldAnyone, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (DeferredChoicePendingException ex)
@@ -252,16 +251,9 @@ public sealed class PlayCardAction
         }
 
         // LA-3: a Digimon entering play triggers eligible "[All Turns] (Once Per Turn) when Digimon are
-        // played, activate this Digimon's [When Digivolving] effects" holders (both players). No-op when no
-        // such holder is on the board. A deferred agent choice suspends that holder and reports pending.
-        HeadlessEntityId? deferredHolder = await OnPlayReactivation
-            .TryResolveAsync(context, payload.CardId, cancellationToken)
-            .ConfigureAwait(false);
-        if (deferredHolder is not null)
-        {
-            metadata["pendingChoice"] = true;
-            return ActionProcessResult.Success("Card played; [All Turns] re-activation awaiting choice.", metadata);
-        }
+        // played, activate this Digimon's [When Digivolving] effects" holders — this fires through the STANDARD
+        // play window (AS-IS CardController.cs:1691 StackSkillInfos(OnEnterFieldAnyone) broadcast, delivered by
+        // the C2 window pump), not a bespoke driver. EX8_074 (the only such card) inlines it at OnEnterFieldAnyone.
 
         return ActionProcessResult.Success("Card played.", metadata);
     }
