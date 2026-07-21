@@ -788,8 +788,7 @@ public sealed class DigivolveAction
         HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner, out int cost)
     {
         cost = 0;
-        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId)
-                     .Concat(OwnAddedRequirementRequests(context, cardId)))
+        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
         {
             if (!(AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, playerId, cardId, targetInstanceId, targetOwner)))
             {
@@ -854,8 +853,7 @@ public sealed class DigivolveAction
         // set — card-targeted AND player-scope with the cardCondition predicate (AS-IS: which cards receive the
         // added "can digivolve from X" requirement, e.g. ST8_04 "your UlforceVeedramon cards in hand") evaluated
         // 1:1 against the target — so a non-self cardCondition reaches every matching card, not just the source.
-        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, scope, cardId)
-                     .Concat(OwnAddedRequirementRequests(context, cardId)))
+        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, scope, cardId))
         {
             if (AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, playerId, cardId, targetInstanceId, targetOwner))
             {
@@ -868,47 +866,13 @@ public sealed class DigivolveAction
         return NewModelAddedDigivolutionCosts(context, cardId, playerId, targetInstanceId, targetOwner).Count > 0;
     }
 
-    /// <summary>(C5-witness / EX8_061) The MOVING card's OWN added-requirement statics. A card declaring
-    /// <c>AddSelfDigivolutionRequirementStaticEffect</c> at <c>EffectTiming.None</c> is typically still in
-    /// HAND when the digivolve is checked — never registered (registration is enter-play only) — while AS-IS
-    /// reads <c>cardSource.EffectList(timing)</c> zone-independently (Player.EffectList scans hand/trash too).
-    /// Mirror with the established dispatch-first idiom (<c>CardSource.LinkConditionOf</c> /
-    /// <c>DigivolutionCostGateEffect.CollectOwnGatedModifiers</c>): build the moving card's None-timing
-    /// effects via <c>CardEffectDispatch</c> and surface the added-requirement requests alongside the registry
-    /// set. A non-null AS-IS <c>cardCondition</c> (which cards RECEIVE the requirement) is evaluated against
-    /// the moving card itself here — the cross-card grant of a REGISTERED source still flows through the
-    /// registry player-scope path. Duplicates with a registered self-binding are harmless: both consumers
-    /// are any-match / first-cost reads.</summary>
-    private static IEnumerable<EffectRequest> OwnAddedRequirementRequests(EngineContext context, HeadlessEntityId cardId)
-    {
-        if (cardId.IsEmpty
-            || !context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null
-            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) || def is null
-            || !Assets.Scripts.Script.CardEffectCommons.CardEffectDispatch.TryCreateForCard(def, out Assets.Scripts.Script.CardEffectCommons.CEntity_Effect? entity) || entity is null)
-        {
-            yield break;
-        }
-
-        var movingCard = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, instance.OwnerId, instance.OwnerId);
-        int index = 0;
-        foreach (Assets.Scripts.Script.CardEffectCommons.ICardEffect effect in entity.CardEffects(EffectTiming.None, movingCard))
-        {
-            if (effect is Assets.Scripts.Script.CardEffectCommons.AddedDigivolutionRequirementPredicateEffect predicateEffect)
-            {
-                if (predicateEffect.TargetCardCondition is not null && !predicateEffect.TargetCardCondition(movingCard))
-                {
-                    index++;
-                    continue;
-                }
-
-                yield return predicateEffect.ToBinding($"dispatch:{cardId.Value}:asdr:{index++}").Request;
-            }
-            else if (effect is Assets.Scripts.Script.CardEffectCommons.AddedDigivolutionRequirementEffect colorLevelEffect)
-            {
-                yield return colorLevelEffect.ToBinding($"dispatch:{cardId.Value}:asdr:{index++}").Request;
-            }
-        }
-    }
+    // (이연④-e) The `OwnAddedRequirementRequests` dispatch helper was DELETED. Its only body was the two
+    // `is AddedDigivolutionRequirement{,Predicate}Effect` type-check branches (the MOVING card's OWN None-timing
+    // added-requirement statics, dispatch-built for a hand card); both effect types were census-0 and removed in
+    // 이연④-e (see the tombstone in ContinuousAndRestrictionEffects.cs). With no producers of those types, the helper
+    // yielded nothing, so its two `.Concat(...)` call sites (TryGetAddedDigivolutionCost / MatchesAddedDigivolutionRequirement)
+    // were dropped — behaviour-identical. Real cards' added-digivolution paths (incl. hand-zone own statics using the
+    // new-model AddDigivolutionRequirementClass) flow through NewModelAddedDigivolutionCosts (the RD-P6B-15 union).
 
     // (PRIM-W5) honour a predicate-based added source: build the target under-card as a Permanent and evaluate
     // the card-authored Func<Permanent,bool> (with the same continuous.condition gating).

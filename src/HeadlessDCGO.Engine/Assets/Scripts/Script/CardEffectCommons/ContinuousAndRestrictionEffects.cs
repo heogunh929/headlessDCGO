@@ -109,7 +109,16 @@ public sealed class ContinuousSelfModifierEffect : ICardEffect
 /// binding under <see cref="ContinuousRestrictionGate.Scope"/> carrying the given restriction flag, targeting
 /// this card; the various actions (DigivolveAction / AttackPermanentAction / BlockTiming / …) already consult
 /// <see cref="ContinuousRestrictionGate"/>. Condition / inherited-effect are honoured (same
-/// <c>ContinuousScopeEvaluation</c> as the modifier gate). Reused across the CanNot* self-static primitives.</summary>
+/// <c>ContinuousScopeEvaluation</c> as the modifier gate). Reused across the CanNot* self-static primitives.
+///
+/// (이연④-e, design item RD-④E-SELFRESTR) KEEP + MARK — real-card production census = 0 (the CanNot* self-static
+/// factories were flipped to <see cref="JointRestrictionEffect"/> / kind-classes; NO factory constructs this). Its
+/// surviving producers are load-bearing test scaffolding for a LIVE key path with NO invention-free retarget:
+/// tests/FAILd-06 and the TfxOptionIgnoreColor fixture (tests/RD2-OptionColor) use it as the generic self-continuous
+/// writer of <c>DigivolveAction.IgnoreColorRequirementKey</c> — the ignore-COLOUR flag read live by DigivolveAction
+/// and OptionColorRequirement (the AS-IS UseRequirements / IgnoreColorConditionClass has no lowered kind-class yet —
+/// stage-B continuous scan pending). Retire alongside that stage-B decision. (Cf. SelfKeywordByNameEffect /
+/// RD-SELFKW-BYNAME.)</summary>
 public sealed class ContinuousSelfRestrictionEffect : ICardEffect
 {
     public ContinuousSelfRestrictionEffect(CardSource card, string restrictionKey, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null, Func<CardSource, bool>? counterpartPredicate = null)
@@ -193,7 +202,16 @@ public sealed class ContinuousSelfRestrictionEffect : ICardEffect
 /// buff. Registers a <c>Restriction</c> flag over a player's cards (optionally narrowed by CardType) under
 /// <see cref="ContinuousRestrictionGate.Scope"/>, collected by <c>ContinuousScopeEvaluation</c>'s player-scope
 /// path. Covers the structured "your opponent's Digimon cannot digivolve" style; arbitrary per-permanent
-/// predicates (the original's <c>Func&lt;Permanent,bool&gt;</c>) beyond CardType/meta scoping are per-card.</summary>
+/// predicates (the original's <c>Func&lt;Permanent,bool&gt;</c>) beyond CardType/meta scoping are per-card.
+///
+/// (이연④-e, design item RD-④E-PSRESTR) KEEP + MARK — real-card production census = 0 (NO factory constructs this;
+/// the player-scope CanNot* factories flipped to <see cref="JointRestrictionEffect"/> / kind-classes). Its surviving
+/// producer is a load-bearing witness with NO invention-free retarget: tests/P0R-PrintedPlayerScopeImmunity drives
+/// the PRINTED player-scope cannot-attack + the AS-IS immunity exemption term (<c>!subject.CanNotBeAffected(this)</c>,
+/// Permanent.cs:2267/2290) that THIS effect embeds into its joint predicate (see ToBinding below). Plain
+/// <see cref="JointRestrictionEffect"/> does not carry that immunity term, so retargeting P0R to it would lose the
+/// exemption behaviour — no faithful flip exists until a printed-player-scope-restriction kind-class is ported.
+/// Retire alongside that corpus decision. (Cf. SelfKeywordByNameEffect / RD-SELFKW-BYNAME.)</summary>
 public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
 {
     private readonly HeadlessPlayerId _scopePlayerId;
@@ -310,192 +328,25 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
 }
 
 
-/// <summary>(W6-X) inert mirror of AS-IS <c>AddDetailClass</c> — tooltip text only (no consumer beyond
-/// the AS-IS UI); the binding carries the string for observability.</summary>
-public sealed class DisplayDetailEffect : ICardEffect
-{
-    private readonly CardSource _card;
-    private readonly string _detail;
-    private readonly Func<bool>? _condition;
-
-    public DisplayDetailEffect(CardSource card, string detail, Func<bool>? condition)
-    {
-        _card = card ?? throw new ArgumentNullException(nameof(card));
-        _detail = detail;
-        _condition = condition;
-    }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { ["display.detail"] = _detail };
-        if (_condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
-        }
-
-        var context = new EffectContext(
-            _card.Controller, _card.Owner, _card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { _card.InstanceId }, values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), _card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, queryScopes: null, effect: null, duration: null);
-    }
-}
+// (이연④-e) The old-model `DisplayDetailEffect` (inert tooltip-text mirror of AS-IS `AddDetailClass`) was DELETED
+// here. It had ZERO producers: `CardEffectFactory.AddDetailClass` (CardEffectFactory.cs:1250) was flipped to return
+// the ported AS-IS kind-class `CardEffects.AddDetailClass` (which real cards build), and no card, factory, or test
+// constructs `DisplayDetailEffect`. The binding it produced carried only a `display.detail` string with no engine
+// consumer beyond the AS-IS UI. With no producers left, this type is census-0 and removed (structural-invention
+// campaign 이연④-e, 캠페인 4호).
 
 
-/// <summary>(PRIM-W1-6/9) A continuous "added digivolution requirement" on self — grants this card an
-/// ADDITIONAL "Color@Level" from-condition (AS-IS AddDigivolutionRequirementStaticEffect /
-/// AddDigivolutionRequirementClass). Registered under <see cref="ContinuousRestrictionGate.Scope"/> carrying
-/// <see cref="DigivolveAction.AddedEvolutionConditionKey"/>; DigivolveAction consults it when the printed
-/// condition fails. Condition / inherited honoured. (Per-path cost is composed via
-/// <c>ChangeDigivolutionCostStaticEffect</c> or handled per-card.)</summary>
-public sealed class AddedDigivolutionRequirementEffect : ICardEffect
-{
-    public AddedDigivolutionRequirementEffect(CardSource card, string fromCondition, bool isInheritedEffect, Func<bool>? condition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fromCondition);
-        Card = card;
-        FromCondition = fromCondition;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-    }
-
-    public CardSource Card { get; }
-
-    public string FromCondition { get; }
-
-    public bool IsInheritedEffect { get; }
-
-    public Func<bool>? Condition { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [DigivolveAction.AddedEvolutionConditionKey] = FromCondition,
-        };
-        if (IsInheritedEffect)
-        {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
-        }
-
-        if (Condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
-    }
-}
-
-
-/// <summary>(PRIM-W5) Predicate-based added digivolution source (AS-IS
-/// <c>AddSelfDigivolutionRequirementStaticEffect</c>): "you can also digivolve this card from any Digimon
-/// matching <see cref="Predicate"/> (for <see cref="DigivolutionCost"/> memory)". Registers the predicate on a
-/// continuous binding that <c>DigivolveAction</c> evaluates by building the under-card as a <see cref="Permanent"/>.
-/// Cost/ignore-requirement are retained for fidelity; the primary behavior is enabling the digivolve.</summary>
-public sealed class AddedDigivolutionRequirementPredicateEffect : ICardEffect
-{
-    public AddedDigivolutionRequirementPredicateEffect(CardSource card, Func<Permanent, bool> predicate, int digivolutionCost, bool ignoreDigivolutionRequirement, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? targetCardCondition = null, Func<int>? costEquation = null, int level = -1, int minLevel = -1, int maxLevel = -1)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(predicate);
-        Card = card;
-        Predicate = predicate;
-        DigivolutionCost = digivolutionCost;
-        IgnoreDigivolutionRequirement = ignoreDigivolutionRequirement;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-        TargetCardCondition = targetCardCondition;
-        CostEquation = costEquation;
-        Level = level;
-        MinLevel = minLevel;
-        MaxLevel = maxLevel;
-    }
-
-    /// <summary>(A2) AS-IS level / minLevel / maxLevel — a HARD level gate on the digivolving-FROM permanent,
-    /// separate from (and evaluated before) <see cref="Predicate"/>. Exact <see cref="Level"/> wins; the
-    /// min/max range applies only when Level &lt; 0. -1 = unset.</summary>
-    public int Level { get; }
-    public int MinLevel { get; }
-    public int MaxLevel { get; }
-
-    public CardSource Card { get; }
-    public Func<Permanent, bool> Predicate { get; }
-    public int DigivolutionCost { get; }
-
-    /// <summary>(FR2/M-3) AS-IS costEquation — a DYNAMIC digivolution cost for this added path, evaluated at read
-    /// time (<c>costEquation() ?? digivolutionCost</c>). Null = the fixed <see cref="DigivolutionCost"/>.</summary>
-    public Func<int>? CostEquation { get; }
-
-    public bool IgnoreDigivolutionRequirement { get; }
-    public bool IsInheritedEffect { get; }
-    public Func<bool>? Condition { get; }
-
-    /// <summary>(FR2/M-1) AS-IS cardCondition — WHICH cards receive this added digivolution requirement. Null =
-    /// self only (default <c>cs => cs == card</c>). Non-null = any owner's card matching it (player-scope +
-    /// predicate), e.g. "your UlforceVeedramon cards in hand".</summary>
-    public Func<CardSource, bool>? TargetCardCondition { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [DigivolveAction.AddedEvolutionPredicateKey] = Predicate,
-            [DigivolveAction.AddedEvolutionCostKey] = DigivolutionCost,
-        };
-        if (CostEquation is not null)
-        {
-            values[DigivolveAction.AddedEvolutionCostEquationKey] = CostEquation;
-        }
-
-        if (Level >= 0)
-        {
-            values[DigivolveAction.AddedEvolutionLevelKey] = Level;
-        }
-
-        if (MinLevel >= 0)
-        {
-            values[DigivolveAction.AddedEvolutionMinLevelKey] = MinLevel;
-        }
-
-        if (MaxLevel >= 0)
-        {
-            values[DigivolveAction.AddedEvolutionMaxLevelKey] = MaxLevel;
-        }
-
-        if (TargetCardCondition is not null)
-        {
-            // Player-scope so the requirement reaches every owner's card the predicate selects (not just self).
-            values[PlayerScopeContinuousHelpers.PlayerScopeKey] = true;
-            values[PlayerScopeContinuousHelpers.ScopePlayerIdKey] = Card.Owner.Value;
-            values[PlayerScopeContinuousHelpers.ScopePredicateKey] = TargetCardCondition;
-        }
-
-        if (IsInheritedEffect)
-        {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
-        }
-
-        if (Condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
-    }
-}
+// (이연④-e) The old-model `AddedDigivolutionRequirementEffect` and `AddedDigivolutionRequirementPredicateEffect`
+// (registry-key added-digivolution-requirement carriers, writing DigivolveAction.AddedEvolution{Condition,Predicate,
+// Cost,Level,…}Key onto a ContinuousRestrictionGate binding) were DELETED here. Both had ZERO producers (census-0):
+// no factory or real card constructs them, and the only writers of the AddedEvolution* keys were these two classes.
+// The LIVE added-digivolution path is the new-model `IAddDigivolutionRequirementEffect` interface scan (AS-IS
+// `CardSource.EvoCosts`/`CostList`, via `CardSource.AddedDigivolutionCosts`), which `DigivolveAction` reaches
+// through `NewModelAddedDigivolutionCosts` (the RD-P6B-15 union) — the AS-IS `AddDigivolutionRequirementClass`
+// kind-class registers no binding, so this interface scan is the sole observable path. The now-dead legacy branch
+// in `DigivolveAction.OwnAddedRequirementRequests` (the `is AddedDigivolutionRequirement*Effect` type-checks) was
+// removed alongside. With no producers left, these types are census-0 and removed (structural-invention campaign
+// 이연④-e, 캠페인 4호).
 
 
 /// <summary>(PRIM-W2) A self-static keyword grant BY NAME — for keywords outside the Batch1/Batch2 enums
@@ -580,7 +431,16 @@ public sealed class SelfKeywordByNameEffect : ICardEffect
 /// <summary>(PRIM-W2) A continuous PLAYER-SCOPE keyword grant — grants a keyword to a player's cards
 /// (optionally narrowed by CardType), e.g. "your Digimon gain &lt;Blocker&gt;". Registers a keyword binding
 /// (keywords = [name]) carrying the player-scope markers; <see cref="ContinuousKeywordGate.HasKeyword"/>
-/// (context overload) resolves it for any of the scoped player's cards.</summary>
+/// (context overload) resolves it for any of the scoped player's cards.
+///
+/// (이연④-e, design item RD-④E-PSKEYWORD) KEEP + MARK — 2-hop real-card production census = 0 (the five factory
+/// methods Piercing/Blitz/Retaliation/Decoy/Barrier StaticEffect have ZERO real-card callers; ST6_12 is a STOP that
+/// WOULD need this primitive but is unported — no "select N and grant keyword" factory exists). Its surviving
+/// producers are load-bearing witnesses for the LIVE gate <see cref="ContinuousKeywordGate.HasKeyword"/> player-scope
+/// path (tests/G9-028 BlockerStatic, tests/G9-050 PlayerScopePredicate, tests/PRIM-P0.AddSkillLiveSet — the AS-IS
+/// AddSkillClass live-set semantics). NO invention-free kind-class flip exists for a player-scope keyword grant
+/// (this IS the AddSkillClass port), exactly the SelfKeywordByNameEffect / RD-SELFKW-BYNAME situation. Retire
+/// alongside a MindLink/AddSkillClass keyword-corpus decision.</summary>
 public sealed class ContinuousPlayerScopeKeywordEffect : ICardEffect
 {
     private readonly HeadlessPlayerId _scopePlayerId;
@@ -652,7 +512,15 @@ public sealed class ContinuousPlayerScopeKeywordEffect : ICardEffect
 /// player-scope markers so it is registered under the nested effect's timing but fires for ANY event whose actor
 /// is the scoped player; the collector injects the triggering card as the subject so the nested effect (built to
 /// read TriggerEntityId and apply its per-card predicate) resolves against that card. See
-/// docs/porting/play_option_and_delayed_player_effect_design.md.</summary>
+/// docs/porting/play_option_and_delayed_player_effect_design.md.
+///
+/// (이연④-e, design item RD-④E-TRIGGERGRANT) KEEP + MARK — 2-hop real-card production census = 0 (its sole factory
+/// <c>CardEffectFactory.GrantTriggeredEffectToScopedSet</c> has ZERO real-card callers). Its surviving producer is a
+/// load-bearing witness for the AS-IS AddSkillClass triggered-set-splice path (tests/PRIM-P0.TriggerGrantSetSplice —
+/// BT8_031 style "your Digimon gain '[When Attacking] …'"), the live <c>AutoProcessingTriggerCollector</c> grant
+/// seam. NO invention-free flip exists (this IS the AddSkillClass triggered-grant port; it is also the blocked
+/// primitive RD-P6C3-C1 — a NEW-model nested effect throws NotSupportedException). Retire alongside the AddSkillClass
+/// corpus decision. (Cf. SelfKeywordByNameEffect / RD-SELFKW-BYNAME.)</summary>
 public sealed class PlayerScopeTriggerGrantEffect : ICardEffect
 {
     public PlayerScopeTriggerGrantEffect(CardSource card, HeadlessPlayerId scopePlayer, ICardEffect nestedEffect, bool scopeAnyPlayer = false)
@@ -710,6 +578,15 @@ public sealed class PlayerScopeTriggerGrantEffect : ICardEffect
 /// A continuous player-scope numeric modifier ("your Digimon get +X DP"). Lowers to a continuous-role
 /// binding carrying the player-scope markers (<see cref="PlayerScopeContinuousHelpers"/>) so it reaches
 /// every applicable card the owner controls via <see cref="ContinuousScopeEvaluation"/>.
+///
+/// (이연④-e, design item RD-④E-PSMODIFIER) KEEP + MARK — real-card production census = 0 (the ChangeDP factory that
+/// produced this was flipped to a kind-class; NO factory constructs it). Its surviving producers are load-bearing
+/// witnesses for the LIVE <see cref="ContinuousModifierGate"/> player-scope DP path: tests/FAILa-02
+/// (ImmuneFromDPMinus causing-effect predicate — needs a player-scope DP-minus SOURCE), tests/G9-050
+/// (PlayerScopePredicate), tests/G3.5-N2 (ContinuousBattleDp). Retargeting each to the flipped ChangeDP kind-class
+/// factory requires per-test AS-IS re-verification (a causing-source-bearing player-scope DP delta) — deferred to a
+/// witness-retarget pass; kept meanwhile so the gate coverage is not lost. (Cf. SelfKeywordByNameEffect /
+/// RD-SELFKW-BYNAME.)
 /// </summary>
 public sealed class PlayerScopeModifierEffect : ICardEffect
 {
@@ -1008,28 +885,14 @@ public sealed class CanNotSelectBySkillEffect : ICardEffect, ICanNotSelectBySkil
         return false;
     }
 
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        // (joint-migration) canonical joint key: f(candidate, selectingSkillSource); the sink falls back to the
-        // candidate itself when there is no distinct selecting source (AS-IS Permanent.CanSelectBySkill self-cause).
-        Func<CardSource, CardSource, bool> pred = _predicate;
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotBeSelectedBySkillKey)] =
-                (Func<CardSource, CardSource?, bool>)((subject, cp) => pred(subject, cp ?? subject)),
-        };
-        if (_condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
-    }
+    // (이연④-e, substrate reclassification) The old-model registry-WRITE (`EffectBinding ToBinding(string)`) was
+    // DELETED. It wrote the `JointRestrictionEffect.PredicateKey(CannotBeSelectedBySkillKey)` binding, but that key
+    // has ZERO readers: `CannotBeSelectedBySkillKey` is never passed to `RestrictionScan.IsRestricted` — the
+    // select-by-skill restriction was rehoused (R1-d) onto the live AS-IS interface scan
+    // `Permanent.CanSelectBySkill` / `SelectPermanentEffect`, which enumerates the `ICanNotSelectBySkillEffect`
+    // this class implements (over a permanent's `EffectList(None)`; see `SetUpICardEffect` in the ctor). With no
+    // registry reader, the registry-half was 사문 (dead-letter), so removing it registers NOTHING — the class is a
+    // pure kind-class-style substrate effect, live only through the interface (④-a ToBinding-removal precedent).
 }
 
 
@@ -1093,7 +956,14 @@ public sealed class JointRestrictionEffect : ICardEffect
 
 /// <summary>(d-remediation, true-scan) AS-IS <c>ICanNotMoveEffect</c> / <c>Permanent.CanMove</c>: SCANNED over every
 /// field permanent's effects; while any usable one's predicate <c>CanNotMove(candidate, causing)</c> holds, the
-/// candidate cannot move (the move gate passes a null causing effect, AS-IS <c>CanNotMove(TopCard, null)</c>).</summary>
+/// candidate cannot move (the move gate passes a null causing effect, AS-IS <c>CanNotMove(TopCard, null)</c>).
+///
+/// (이연④-e, substrate reclassification) DUAL-LIVE — both halves are consumed, so the <c>ToBinding</c> registry-half
+/// is KEPT (contrast the sibling <c>CanNotSelectBySkillEffect</c>, whose registry-half was 사문 and deleted): the
+/// interface half feeds <c>Permanent.CanMove</c>, and the registry half feeds the LIVE move legal-action FLOW —
+/// <c>RestrictionScan.IsRestricted(context, RestrictionHelpers.CannotMoveKey, …)</c> reads the joint predicate this
+/// <c>ToBinding</c> writes, called from the breeding→battle move gate (real card BT1_089.cs:106). Reclassified as a
+/// substrate kind-class-style effect (not old-model residue to retire).</summary>
 public sealed class CanNotMoveEffect : ICardEffect, ICanNotMoveEffect
 {
     private readonly Func<CardSource, CardSource?, bool> _predicate;
@@ -1152,49 +1022,16 @@ public sealed class CanNotMoveEffect : ICardEffect, ICanNotMoveEffect
 }
 
 
-/// <summary>(d-remediation, true-scan) AS-IS <c>ICannotIgnoreDigivolutionConditionEffect</c> /
-/// <c>Player.CanIgnoreDigivolutionRequirement</c>: SCANNED over every field permanent's effects; while any usable
-/// one's JOINT predicate <c>cannotIgnoreDigivolutionCondition(digivolvingCard, target)</c> holds, ignore-grants are
-/// negated (BT8_059). Carries the AS-IS predicate as a single runtime Func.</summary>
-public sealed class CannotIgnoreDigivolutionConditionEffect : ICardEffect
-{
-    private readonly Func<CardSource, CardSource, bool> _predicate;
-    private readonly Func<bool>? _condition;
-
-    public CannotIgnoreDigivolutionConditionEffect(CardSource card, Func<CardSource, CardSource, bool> predicate, Func<bool>? condition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(predicate);
-        Card = card;
-        _predicate = predicate;
-        _condition = condition;
-    }
-
-    public CardSource Card { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        // (joint-migration) canonical joint key: f(digivolvingCard, target under-card). Requires a target (the
-        // digivolve consults it with the under-card), so a null counterpart never blocks.
-        Func<CardSource, CardSource, bool> pred = _predicate;
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotIgnoreDigivolutionConditionKey)] =
-                (Func<CardSource, CardSource?, bool>)((subject, cp) => cp is not null && pred(subject, cp)),
-        };
-        if (_condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
-    }
-}
+// (이연④-e) The old-model `CannotIgnoreDigivolutionConditionEffect` (ICardEffect-only, invisible to the live AS-IS
+// `ICannotIgnoreDigivolutionConditionEffect` / `Player.CanIgnoreDigivolutionRequirement` interface scan — it
+// implemented only ICardEffect) was DELETED here. Its `ToBinding` wrote the `CannotIgnoreDigivolutionConditionKey`
+// joint-restriction registry binding, but that key has ZERO readers: `IsDigivolveIgnoreBlocked` (DigivolveAction.cs:
+// 725) was rehoused in R3-W3c-4b D from the retired registry RestrictionScan to the AS-IS-literal live getter
+// `Player.CanIgnoreDigivolutionRequirement` (Player.cs:552-573, the `ICannotIgnoreDigivolutionConditionEffect` veto
+// scan). It also had ZERO producers (census-0): the real card BT8_059 and the `CannotIgnoreDigivolutionCondition...`
+// factory (CardEffectFactory.cs:621) both build the new-model kind-class `CardEffects.CannotIgnoreDigivolutionConditionClass`
+// (an `ICannotIgnoreDigivolutionConditionEffect`, no `ToBinding`), which the live scan sees. With no producers left,
+// this type is census-0 and removed (structural-invention campaign 이연④-e, 캠페인 4호).
 
 
 // (이연④-c) The old-model `DontBattleSecurityDigimonEffect` (ICardEffect-only, with a `SkipsBattle` method the
