@@ -943,14 +943,9 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case PlayThisCardToBattleEffect playSelf:
-                {
-                    // (G10-003) A Tamer's [Security] "play this Tamer": play the revealed card onto the
-                    // battle area cost-free; the PlayCard mutation auto-registers its effects.
-                    playSelf.Apply(sink);
-                    resolved++;
-                    break;
-                }
+                // (이연③-A DEAD) `case PlayThisCardToBattleEffect` DELETED — the mirror-invented Tamer
+                // [Security] "play this Tamer" carrier was census-0 at HEAD (all producers re-pointed to the
+                // AS-IS PlayCardClass factory / ActivateClass flow). Class deleted in ActivatedEffects.cs.
 
                 // (R6-Db D4 EXHAUSTED) `case PlaySelfAtEndOfBattleSecurityEffect` DELETED — the mirror-invented
                 // [Security] end-of-battle carrier is retired; the AS-IS UntilEndBattleEffects idiom is landed in

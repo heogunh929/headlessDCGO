@@ -1395,8 +1395,8 @@ public sealed class HatchDigiEggEffect : IActivatedCardEffect
 /// (BT-PRE-A5) Mirror of the original <c>PlayCardClass</c>
 /// (DCGO/Assets/Scripts/Script/CardController.cs) for the SIMPLE cost-free play the BT sets actually use
 /// (BT1_078: <c>payCost: false, root: Library</c>): play <see cref="TargetCardId"/> from <see cref="FromZone"/>
-/// onto the battle area at no cost. Staged as a <c>PlayCard</c> sink mutation (same seam as
-/// <see cref="PlayThisCardToBattleEffect"/>, generalised to an arbitrary target). The original's
+/// onto the battle area at no cost. Staged as a <c>PlayCard</c> sink mutation (the same PlayCard sink seam,
+/// generalised to an arbitrary target). The original's
 /// jogress / burst / app-fusion / targetPermanent / isTapped / <c>payCost:true</c> branches are NOT modeled
 /// here (out of BT-PRE scope — no such mechanism is invented until a card needs it).
 /// </summary>
@@ -1589,58 +1589,11 @@ public sealed class AddThisCardToHandEffect : IActivatedCardEffect
 }
 
 
-/// <summary>
-/// An activated "play THIS card onto the battle area (without paying its cost)" effect — the headless
-/// realization of a Tamer's <c>PlaySelfTamerSecurityEffect</c> security skill (e.g. ST1_12 / ST2_12 /
-/// ST3_12 [Security] "Play this Tamer"). The security loop reveals the card (to the trash) before resolving
-/// its SecuritySkill, so <see cref="Apply"/> plays it from whatever zone it currently sits in to the battle
-/// area via a PlayCard mutation, which also auto-registers its effects (G6-001 / G8-002).
-/// </summary>
-public sealed class PlayThisCardToBattleEffect : IActivatedCardEffect
-{
-    public PlayThisCardToBattleEffect(CardSource card, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public void Apply(MatchStateMutationSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        ChoiceZone from = CurrentZone() ?? ChoiceZone.Trash;
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.PlayCardKind,
-            Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value,
-                [MatchStateMutationSink.FromZoneKey] = from.ToString(),
-            }));
-    }
-
-    private ChoiceZone? CurrentZone()
-    {
-        var zones = (IZoneStateReader)Card.Context.ZoneMover;
-        foreach (ChoiceZone zone in new[] { ChoiceZone.Security, ChoiceZone.Trash, ChoiceZone.Hand, ChoiceZone.BattleArea })
-        {
-            if (zones.GetCards(Card.Owner, zone).Contains(Card.InstanceId))
-            {
-                return zone;
-            }
-        }
-
-        return null;
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Play-this-card effect is resolved via the activation flow, not registered: {Description}");
-}
+// (이연③-A DEAD) The mirror-invented `PlayThisCardToBattleEffect` (Tamer [Security] "Play this Tamer",
+// ST1_12 / ST2_12 / ST3_12) is DELETED — census-0 producer at HEAD: every printed-card production site was
+// re-pointed to the AS-IS PlayCardClass factory shape (CardEffectFactory.cs:929/1295 "Replaces the old
+// mirror-invented PlayThisCardToBattleEffect version" → ActivateClass flow). Class + resolver switch case
+// removed; only comment/test-comment mentions of the retired name remained.
 
 
 // (R6-Db D4 EXHAUSTED) The mirror-invented `PlaySelfAtEndOfBattleSecurityEffect` (+ its one-shot
