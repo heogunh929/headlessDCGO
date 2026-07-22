@@ -1399,18 +1399,10 @@ public static partial class CardEffectCommons
         Func<CardSource, bool>? cardCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard) =>
         ChangeSecurityDigimonCardDPPlayerEffectImpl(cardCondition, changeValue, effectDuration, card: sourceCard);
 
-    /// <summary>(③-A) AS-IS <c>StartOfMainAttack</c> (GiveEffect/GiveEffectToPermanent/StartOfMainAttack.cs:5):
-    /// until the owner's turn end, at the start of the owner's main phase this Digimon MUST attack (the offer
-    /// cannot be declined; player or any Digimon). The AS-IS body is NOT a bucket-idiom kind-class/reader grant —
-    /// it builds an inline <c>ActivateClass</c> that drives a MANDATORY <c>SelectAttackEffect</c> attack offer
-    /// (SetCanNotSelectNotAttack) added to <c>Permanent.UntilOwnerTurnEndEffects</c> at OnStartMainPhase. Porting
-    /// it 1:1 needs the OnStartMainPhase auto-fire window to drive that mandatory attack offer — a firing path
-    /// with no live precedent (0 callers exercise it) — so this is the "needs a new firing window" branch, not the
-    /// J-1..J-4 straightforward grant. The invented <c>StartOfMainAttackEffect</c> registry payload is retired
-    /// (registry producer seat removed). Port 1:1 into the skeleton home file when a caller appears.</summary>
-    public static void StartOfMainAttack(Permanent? targetPermanent, CardSource sourceCard) =>
-        throw new NotSupportedException(
-            "design item RD-3A-01: AS-IS StartOfMainAttack grant unported (registry producer retired; port 1:1 when a caller appears).");
+    // (RD-3A-01 resolved) The StartOfMainAttack STOP wrapper was removed — the AS-IS grant is now ported 1:1 into
+    // its home file GiveEffect/GiveEffectToPermanent/StartOfMainAttack.cs. The OnStartMainPhase auto-fire window it
+    // needs already exists (TurnStateMachine.MainPhaseAsync:428 -> StackSkillInfos(OnStartMainPhase) ->
+    // GetSkillInfos -> Permanent.EffectList_Added walks UntilOwnerTurnEndEffects at that timing). First caller: BT21_077.
 
     /// <summary>AS-IS <c>GetCardEffectFromHashtable</c> (GetFromHashtable.cs:10) — headless the CAUSING
     /// effect is represented by its SOURCE CARD.</summary>
