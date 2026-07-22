@@ -1854,6 +1854,13 @@ public sealed class Permanent
         }
     }
 
+    /// <summary>(coverage-exemplar BT25_096 one-surface read-side fold — permitted) 1:1 mirror of AS-IS
+    /// <c>Permanent.HasFaceDownDigivolutionCards</c> (Permanent.cs:3954): <c>DigivolutionCards.Any(x =&gt; x.IsFlipped)</c>.
+    /// Read-only, derived from the already-mirrored <see cref="DigivolutionCards"/> + <see cref="CardSource.IsFlipped"/>
+    /// (the AS-IS face-down instance flag); inert to existing behaviour (no writer added). Used by the BT25_096 /
+    /// BT25_041 / ST24_01 face-down-source Tamer families.</summary>
+    public bool HasFaceDownDigivolutionCards => DigivolutionCards.Any(x => x.IsFlipped);
+
     /// <summary>AS-IS <c>Permanent.DigivolutionCardsColors</c> (Permanent.cs:3962-3990): the distinct colours
     /// carried by this permanent's non-flipped digivolution cards (each card's <c>CardColors</c> and
     /// <c>DualCardColors</c>). Substrate translation only: the mirror colour view is the string list, folded back
