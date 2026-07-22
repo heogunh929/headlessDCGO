@@ -112,6 +112,10 @@ async Task UnsuspendLock()
 async Task SuspendLock()
 {
     EngineContext ctx = Ctx();
+    // (J-4) the CanNotSuspend grant now surfaces through the AS-IS interface reader (Permanent.CanSuspend, via
+    // ICardEffect.CanUse -> IsDisabled -> CheckEffectDisabledClass, which reads GManager.instance) — hold a match
+    // scope so that resolves, exactly as the live suspend-cost step does (mirrors UnsuspendLock's J-2 treatment).
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(ctx);
     var src = await Place(ctx, P1, "SRC");
     var target = await Place(ctx, P1, "TGT");
     AssertTrue(CardEffectCommons.CanActivateSuspendCostEffect(V(ctx, target)), "can pay a suspend cost before");

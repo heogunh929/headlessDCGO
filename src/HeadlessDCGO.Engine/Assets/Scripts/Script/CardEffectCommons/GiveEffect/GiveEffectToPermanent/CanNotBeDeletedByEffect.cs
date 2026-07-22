@@ -1,22 +1,22 @@
 // Source: DCGO/Assets/Scripts/Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/CanNotBeDeletedByEffect.cs
-// (EFFECT-MODEL REBUILD / bridge W2, Group A) AS-IS-signature `Task` overload; delegates to the verified
-// substrate `GainCanNotBeDeletedByEffect` (CardEffectCommons.cs:3345).
+// (J-4) 1:1 mirror of AS-IS CardEffectCommons.GainCanNotBeDeletedByEffect (…/GiveEffectToPermanent/
+// CanNotBeDeletedByEffect.cs:10-53): grant the TARGET permanent a timed "can't be deleted by effect (from matching
+// effects)" restriction. Builds the AS-IS kind-class via CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect
+// (PermanentCondition = permanent==target, the caller's `cardEffectCondition` gating WHICH causing effects are
+// refused, live CanUseCondition = on-battle-area && !TopCard.CanNotBeAffected(cause)) and stores it in the target's
+// duration bucket via AddEffectToPermanent(timing: EffectTiming.None). Read LIVE by Permanent.CanBeDestroyedBySkill
+// / NewModelContinuousScan.HasCanNotBeDestroyedBySkill over EffectList(None) — the registry joint arm goes silent.
+// The AS-IS coroutine only drove the CreateBuffEffect UI visual (dropped). The public AS-IS-signature `Task`
+// overload threads the LIVE `activateClass` as the CanNotBeAffected cause and the REAL Func<ICardEffect,bool>
+// cardEffectCondition (AS-IS 1:1); the CardSource-only substrate overload (CardEffectCommons.cs) collapses the
+// cause to BareCauseEffect.For(sourceCard) and lifts its CardSource predicate to the causing effect's source card.
 //
-// Design item RD-W2-1 (docs/audit/rebuild_bridge_w2_notes.md): AS-IS `cardEffectCondition` is
-// `Func<ICardEffect,bool>` (tests the causing EFFECT INSTANCE) but the substrate's `causingEffectPredicate`
-// gate (MatchStateMutationSink.IsRestrictedFromCause / RestrictionScan) only ever supplies the causing
-// effect's SOURCE CARD as a `CardSource`, so a real `ICardEffect` cannot be reconstructed at gate-evaluation
-// time. `AdaptCardEffectCondition` (defined here, shared by all 7 Group A helpers in this batch) invokes the
-// REAL AS-IS predicate delegate against a minimal carrier `ActivateClass` whose `EffectSourceCard` is the
-// causing card and every other `ICardEffect` flag sits at its honest `SetUpICardEffect` ctor-default (false)
-// — this is faithful (not a re-implementation/simplification of the predicate logic) for every confirmed
-// real-usage shape (grep of all 77 Group-A call sites across the 7 helpers: `null` / `cardEffect != null` /
-// `true` / `IsOpponentEffect(cardEffect, card)` — all either constant or `EffectSourceCard`-only). It is
-// lossy ONLY for a predicate that also inspects a flag never set on the carrier — the one such case found is
-// BT19_089's `SkillCondition` (`!cardEffect.IsDigimonEffect || !cardEffect.IsTamerEffect`, passed to
-// `GainImmuneFromDPMinus`): with both flags defaulting false, the adapted predicate answers `true` whenever
-// `Owner == Enemy`, dropping the "excludes an effect flagged as both Digimon- and Tamer-effect" refinement.
-// BT19_089 is not yet ported (residual gap only fires when/if it is) — see the notes doc for detail.
+// (J-4 cleanup) The RD-W2-1 `AdaptCardEffectCondition` down-adapter (ICardEffect->CardSource, formerly shared by
+// all 7 Group A bridge wrappers to feed the retired GainRestrictionToPermanent/GainToPlayerScope funnels) is
+// DELETED: every Group A `Task` overload now threads its REAL Func<ICardEffect,bool> straight into the AS-IS
+// kind-class factory (no lossy down-adaptation), so the AS-IS predicate is evaluated against the live causing
+// effect verbatim — this fully resolves the RD-W2-1 residual (BT19_089's dual-flag SkillCondition no longer
+// loses its Digimon/Tamer-effect refinement, since the real ICardEffect reaches the predicate).
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using System;
@@ -26,40 +26,73 @@ using HeadlessDCGO.Engine.Headless.Effects;
 
 public static partial class CardEffectCommons
 {
-    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.GainCanNotBeDeletedByEffect(...)</c>
-    /// (GiveEffect/GiveEffectToPermanent/CanNotBeDeletedByEffect.cs:10) — AS-IS-signature overload; delegates
-    /// to the verified substrate implementation. See RD-W2-1 above for the <paramref name="cardEffectCondition"/>
-    /// adaptation.</summary>
+    /// <summary>1:1 mirror of AS-IS <c>GainCanNotBeDeletedByEffect</c> (GiveEffect/GiveEffectToPermanent/
+    /// CanNotBeDeletedByEffect.cs:10) — the AS-IS-signature overload: threads the LIVE <paramref name="activateClass"/>
+    /// as the <c>CanNotBeAffected</c> cause and the REAL <paramref name="cardEffectCondition"/> into the kind-class.</summary>
     public static async Task GainCanNotBeDeletedByEffect(Permanent targetPermanent, Func<ICardEffect, bool> cardEffectCondition, EffectDuration effectDuration, ICardEffect activateClass, string effectName)
     {
-        GainCanNotBeDeletedByEffect(targetPermanent, AdaptCardEffectCondition(cardEffectCondition), effectDuration, activateClass?.EffectSourceCard, effectName);
+        // AS-IS :12-15 guards.
+        if (targetPermanent is null || !IsPermanentExistsOnBattleArea(targetPermanent)
+            || activateClass is null || activateClass.EffectSourceCard is null)
+        {
+            await Task.CompletedTask;
+            return;
+        }
+
+        GainCanNotBeDeletedByEffectImpl(
+            targetPermanent, cardEffectCondition, effectDuration,
+            card: activateClass.EffectSourceCard, cause: activateClass, effectName);
         await Task.CompletedTask;
     }
 
-    /// <summary>RD-W2-1 shared adapter (see class-level design-item note above) — reused by all 7 Group A
-    /// bridge wrappers in this batch (CanNotBeDeletedByEffect / CanNoReturnToDeck(PlayerEffect) /
-    /// CanNotReturnToHand(PlayerEffect) / ImmuneFromDPMinus(PlayerEffect)). Invokes the real AS-IS
-    /// <c>Func&lt;ICardEffect,bool&gt;</c> predicate against a minimal cause-effect carrier built from the
-    /// bare <see cref="CardSource"/> the substrate gate supplies — no re-implementation of the predicate's
-    /// logic, so it stays correct for any future predicate shape that only reads <c>EffectSourceCard</c>-derived
-    /// data (the confirmed common case).</summary>
-    private static Func<CardSource, bool>? AdaptCardEffectCondition(Func<ICardEffect, bool> cardEffectCondition)
+    /// <summary>AS-IS 1:1 body shared by the <c>ICardEffect</c> overload (above) and the CardSource-only substrate
+    /// overload (CardEffectCommons.cs).</summary>
+    private static bool GainCanNotBeDeletedByEffectImpl(
+        Permanent? targetPermanent,
+        Func<ICardEffect, bool>? cardEffectCondition,
+        EffectDuration effectDuration,
+        CardSource? card,
+        ICardEffect? cause,
+        string effectName)
     {
-        if (cardEffectCondition == null)
-        {
-            return null;
-        }
+        if (targetPermanent is null) return false;                          // AS-IS :12
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return false;  // AS-IS :13
+        if (card is null || cause is null) return false;                    // AS-IS :14-15
 
-        return causingCard =>
+        // (B군 P0-1) grant-time !CanNotBeAffected refusal — sync-bool rendering of AS-IS's immunity-gated grant.
+        if (targetPermanent.TopCard.CanNotBeAffected(cause)) return false;
+
+        bool PermanentCondition(Permanent attacker) => attacker == targetPermanent;  // AS-IS :19
+
+        bool CanUseCondition()                                                        // AS-IS :21-32
         {
-            if (causingCard == null)
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
             {
-                return false;
+                if (!targetPermanent.TopCard.CanNotBeAffected(cause))
+                {
+                    return true;
+                }
             }
 
-            var carrier = new ActivateClass();
-            carrier.SetUpICardEffect("(RD-W2-1 bridge cause-effect carrier)", _ => true, causingCard);
-            return cardEffectCondition(carrier);
-        };
+            return false;
+        }
+
+        CanNotBeDestroyedBySkillClass canNotBeDestroyedBySkillClass = CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(  // AS-IS :34-40
+            permanentCondition: PermanentCondition,
+            cardEffectCondition: cardEffectCondition!,
+            isInheritedEffect: false,
+            card: card,
+            condition: CanUseCondition,
+            effectName: effectName);
+
+        AddEffectToPermanent(  // AS-IS :42-47
+            targetPermanent: targetPermanent,
+            effectDuration: effectDuration,
+            card: card,
+            cardEffect: canNotBeDestroyedBySkillClass,
+            timing: EffectTiming.None);
+
+        // AS-IS :49-52 conditionally ran CreateBuffEffect (a UI icon), immunity-gated — pure visual; dropped.
+        return true;
     }
 }

@@ -129,13 +129,24 @@ async Task AllKeywordsLiveSet()
 void GrantAllianceToMyDigimon(EngineContext ctx, HeadlessEntityId grantSrc, Func<Permanent, bool>? permanentCondition)
 {
     var card = new CardSource(ctx, grantSrc, P1, P1);
-    CardEffectCommons.GainAlliancePlayerEffect(permanentCondition, EffectDuration.UntilOpponentTurnEnd, card);
+    // (J-4) The retired GainToPlayerScope funnel auto-owner-scoped the grant (ScopePlayerIdKey = sourceCard.Owner).
+    // The AS-IS live idiom (GainAlliancePlayerEffect -> AllianceStaticEffect in the OWNER's OnAllyAttack bucket,
+    // read by Permanent.HasAlliance) carries NO implicit owner scope — a real "your Digimon gain [Alliance]" card
+    // encodes it in the permanentCondition. So express the "MyDigimon" scope explicitly (owner == the grant card's
+    // owner), AND the caller's predicate — this is the faithful live-surface shape.
+    Func<Permanent, bool> scoped = p =>
+        p.OwnerId == card.Owner && (permanentCondition is null || permanentCondition(p));
+    CardEffectCommons.GainAlliancePlayerEffect(scoped, EffectDuration.UntilOpponentTurnEnd, card);
 }
 
 EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 5);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (J-4) Alliance now surfaces through the AS-IS reader Permanent.HasAlliance, whose CanTrigger gate refuses
+    // effects before the game starts (ICardEffect.CanTrigger DoneStartGame guard = phase past None). Start the game
+    // like every interface-scan keyword harness so the granted [Alliance] is actually read.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 

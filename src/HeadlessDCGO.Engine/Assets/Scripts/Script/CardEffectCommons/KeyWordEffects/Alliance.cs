@@ -92,6 +92,75 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
             await Task.CompletedTask;
         }
 
+        /// <summary>(J-4) 1:1 mirror of AS-IS <c>GainAlliancePlayerEffect</c> (KeyWordEffects/Alliance.cs:180-219):
+        /// the OWNING PLAYER gains a timed "its Digimon have [Alliance]" grant. Builds the AS-IS
+        /// <see cref="CardEffectFactory.AllianceStaticEffect"/> ActivateClass (EffectName "Alliance", the folded
+        /// PermanentCondition = on-battle-area && !TopCard.CanNotBeAffected(cause) && caller predicate; CanUse =
+        /// true) and stores it in the owning player's <c>OnAllyAttack</c> duration bucket via
+        /// <see cref="AddEffectToPlayer"/> — DIFFERENT timing from the restriction grants (Alliance is a
+        /// firing-window keyword). Read LIVE by <see cref="Permanent.HasAlliance"/> / NewModelContinuousScan.HasAlliance
+        /// (scan player.EffectList(OnAllyAttack) for EffectName=="Alliance" && CanTrigger), surfaced by
+        /// ContinuousKeywordGate.HasKeyword — the retired GainToPlayerScope keyword funnel is gone (RD-RC-03 resolved).
+        /// AS-IS coroutine only drove the per-permanent CreateBuffEffect UI visual (dropped). The public
+        /// AS-IS-signature `Task` overload threads the LIVE `activateClass` as the CanNotBeAffected cause; the
+        /// CardSource-only substrate overload (CardEffectCommons.cs) collapses the cause to BareCauseEffect.For(sourceCard).</summary>
+        public static async Task GainAlliancePlayerEffect(Func<Permanent, bool> permanentCondition, EffectDuration effectDuration, ICardEffect activateClass)
+        {
+            // AS-IS :182-183 guards (activateClass / EffectSourceCard null).
+            if (activateClass is null || activateClass.EffectSourceCard is null)
+            {
+                await Task.CompletedTask;
+                return;
+            }
+
+            GainAlliancePlayerEffectImpl(permanentCondition, effectDuration, card: activateClass.EffectSourceCard, cause: activateClass);
+            await Task.CompletedTask;
+        }
+
+        /// <summary>AS-IS 1:1 body shared by the <c>ICardEffect</c> overload (above) and the CardSource-only substrate
+        /// overload (CardEffectCommons.cs). Mirrors AS-IS GainAlliancePlayerEffect :180-219.</summary>
+        internal static bool GainAlliancePlayerEffectImpl(
+            Func<Permanent, bool>? permanentCondition,
+            EffectDuration effectDuration,
+            CardSource? card,
+            ICardEffect? cause)
+        {
+            if (card is null || cause is null) return false;   // AS-IS :182-183
+
+            bool PermanentCondition(Permanent permanent)   // AS-IS :187-201
+            {
+                if (IsPermanentExistsOnBattleArea(permanent))
+                {
+                    if (!permanent.TopCard.CanNotBeAffected(cause))
+                    {
+                        if (permanentCondition is null || permanentCondition(permanent))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanUseCondition() => true;   // AS-IS :203-206
+
+            ICardEffect alliance = CardEffectFactory.AllianceStaticEffect(  // AS-IS :208
+                permanentCondition: PermanentCondition,
+                isInheritedEffect: false,
+                card: card,
+                condition: CanUseCondition);
+
+            AddEffectToPlayer(  // AS-IS :210
+                effectDuration: effectDuration,
+                card: card,
+                cardEffect: alliance,
+                timing: EffectTiming.OnAllyAttack);
+
+            // AS-IS :212-218 iterated PermanentsForTurnPlayer running CreateBuffEffect (UI visual) — dropped headless.
+            return true;
+        }
+
         /// <summary>(P6 cluster2) AS-IS <c>CanActivateAlliance</c> (KeyWordEffects/Alliance.cs:10, verbatim).</summary>
         public static bool CanActivateAlliance(Hashtable hashtable, CardSource card)
         {

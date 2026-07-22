@@ -2923,79 +2923,15 @@ public static partial class CardEffectCommons
     // GiveEffectToPermanentOrPlayer.cs), read LIVE by CanNotPlayOptionScan region ① and cleared by the AS-IS
     // turn-end bucket reset (HeadlessEndTurnCleanupFlow) — no registry, no ToBinding.
 
-    /// <summary>(W6-G) shared restriction-grant core — AS-IS GiveEffectToPermanent shape: target-locked,
-    /// duration-tagged restriction binding with the LIVE CanUse (on field && !CanNotBeAffected) plus an
-    /// optional counterpart predicate (attackerCondition / defenderCondition) evaluated by the gates.</summary>
-    private static bool GainRestrictionToPermanent(
-        Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard,
-        string restrictionKey, string gainName,
-        Func<Permanent, bool>? counterpartCondition = null,
-        Func<bool>? extraCondition = null,
-        Func<CardSource, bool>? causingEffectPredicate = null)
-    {
-        ArgumentNullException.ThrowIfNull(sourceCard);
-        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty)
-        {
-            return false;
-        }
-
-        EngineContext context = sourceCard.Context;
-        HeadlessEntityId targetId = targetPermanent.InstanceId;
-        HeadlessPlayerId targetOwner = targetPermanent.OwnerId;
-        var zones = (IZoneStateReader)context.ZoneMover;
-        if (!zones.GetCards(targetOwner, ChoiceZone.BattleArea).Contains(targetId))
-        {
-            return false;
-        }
-
-        // (B군 P0-1) AS-IS grant-time guard `!targetPermanent.TopCard.CanNotBeAffected(cardEffect)` — rehomed from
-        // the now-dead BlocksOpponentEffect registry scan (0 producers post W3c-1/2) to the AS-IS-literal live
-        // ICanNotAffectedEffect scan (W3c-1 idiom). The causing effect is collapsed to its source card
-        // (BareCauseEffect); an immune target refuses the grant.
-        if (targetPermanent.TopCard.CanNotBeAffected(BareCauseEffect.For(sourceCard)))
-        {
-            return false;
-        }
-
-        HeadlessEntityId grantSourceId = sourceCard.InstanceId;
-        Func<bool> liveCondition = () =>
-            ((IZoneStateReader)context.ZoneMover).GetCards(targetOwner, ChoiceZone.BattleArea).Contains(targetId)
-            && !new Permanent(context, targetId, targetOwner).TopCard.CanNotBeAffected(BareCauseEffect.For(context, grantSourceId))
-            && (extraCondition is null || extraCondition());
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [restrictionKey] = true,
-            [ContinuousScopeEvaluation.ConditionKey] = liveCondition,
-        };
-        if (causingEffectPredicate is not null)
-        {
-            // The restriction fires only when the CAUSING effect's source matches (AS-IS cardEffectCondition),
-            // read by the sink's IsRestrictedFromCause. Without it the restriction is unconditional.
-            values[RestrictionHelpers.CausingEffectPredicateKey] = causingEffectPredicate;
-        }
-
-        // (joint-migration) additively emit the canonical joint predicate: subject = the granted target permanent;
-        // the 2nd arg (counterpart participant for Attack/Block/…, or the causing effect source) must satisfy any
-        // provided predicate.
-        HeadlessEntityId subjectId = targetId;
-        Func<Permanent, bool>? cpCond = counterpartCondition;
-        Func<CardSource, bool>? causingP2 = causingEffectPredicate;
-        values[JointRestrictionEffect.PredicateKey(restrictionKey)] = (Func<CardSource, CardSource?, bool>)((subject, cp) =>
-            subject.InstanceId == subjectId
-            && (cpCond is null || (cp is not null && cpCond(new Permanent(cp.Context, cp.InstanceId, cp.Owner))))
-            && (causingP2 is null || (cp is not null && causingP2(cp))));
-
-        var effectContext = new EffectContext(
-            sourceCard.Controller, sourceCard.Owner, sourceCard.InstanceId,
-            triggerEntityId: null, targetEntityIds: new[] { targetId }, values: values);
-        context.EffectRegistry.Register(new EffectBinding(
-            new EffectRequest(
-                new HeadlessEntityId($"{sourceCard.InstanceId.Value}:{gainName}:{targetId.Value}"),
-                sourceCard.Controller, "Continuous", effectContext),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope },
-            effect: null, duration: effectDuration));
-        return true;
-    }
+    // (②J-4) GainRestrictionToPermanent — the invented target-locked restriction FUNNEL (a bare registry
+    // EffectBinding under ContinuousRestrictionGate.Scope + a JointRestrictionEffect predicate, no AS-IS kind-class)
+    // — is DELETED. Its 7 permanent-target consumers (GainCanNotBeAttacked/…BeBlocked/…Suspend/…ReturnToHand/
+    // …ReturnToDeck/…ImmuneFromDPMinus/…BeDeletedByEffect) are re-housed onto the AS-IS bucket idiom: each builds
+    // its true AS-IS kind-class (CardEffectFactory.*StaticEffect) and stores it in the TARGET's None duration bucket
+    // via AddEffectToPermanent (home files under GiveEffect/GiveEffectToPermanent/*.cs), read LIVE by the AS-IS
+    // interface scans (Permanent.CanAttackTargetDigimon/CanBlock/CanSuspend/CannotReturnToHand/CannotReturnToLibrary/
+    // ImmuneFromDPMinus/CanBeDestroyedBySkill), which the ContinuousRestrictionGate already unions via
+    // NewModelContinuousScan.IsRestrictedNewModel. Producer for the registry joint arm is now 0.
 
     /// <summary>AS-IS <c>GainCanNotAttack</c> (GiveEffect/GiveEffectToPermanent/CanNotAttack.cs:10) —
     /// <paramref name="defenderCondition"/> narrows WHICH defenders this permanent cannot attack.
@@ -3017,26 +2953,36 @@ public static partial class CardEffectCommons
         GainCanNotBlockImpl(targetPermanent, attackerCondition, effectDuration,
             card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
 
-    /// <summary>AS-IS <c>GainCanNotBeAttacked</c> (…/CanNotBeAttacked.cs:10).</summary>
+    /// <summary>AS-IS <c>GainCanNotBeAttacked</c> (…/CanNotBeAttacked.cs:10). (J-4) CardSource-only substrate entry:
+    /// routes to the AS-IS 1:1 body (home file) with the cause collapsed to <see cref="BareCauseEffect"/>.</summary>
     public static bool GainCanNotBeAttacked(
         Permanent? targetPermanent, Func<Permanent, bool>? attackerCondition,
-        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be attacked") =>
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotBeAttackedKey, "gainCanNotBeAttacked", attackerCondition);
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be attacked")
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotBeAttackedImpl(targetPermanent, attackerCondition, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
+    }
 
-    /// <summary>AS-IS <c>GainCanNotBeBlocked</c> (…/CanNotBeBlocked.cs:10).</summary>
+    /// <summary>AS-IS <c>GainCanNotBeBlocked</c> (…/CanNotBeBlocked.cs:10). (J-4) CardSource-only substrate entry.</summary>
     public static bool GainCanNotBeBlocked(
         Permanent? targetPermanent, Func<Permanent, bool>? defenderCondition,
-        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be blocked") =>
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotBeBlockedKey, "gainCanNotBeBlocked", defenderCondition);
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be blocked")
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotBeBlockedImpl(targetPermanent, defenderCondition, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
+    }
 
-    /// <summary>AS-IS <c>GainCanNotSuspend</c> (…/CanNotSuspend.cs:34).</summary>
+    /// <summary>AS-IS <c>GainCanNotSuspend</c> (…/CanNotSuspend.cs:34). (J-4) CardSource-only substrate entry.</summary>
     public static bool GainCanNotSuspend(
         Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard,
-        Func<bool>? condition = null, string effectName = "Can't suspend") =>
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotSuspendKey, "gainCanNotSuspend", extraCondition: condition);
+        Func<bool>? condition = null, string effectName = "Can't suspend")
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotSuspendImpl(targetPermanent, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), condition, effectName);
+    }
 
     /// <summary>AS-IS <c>GainCantSuspendUntilOpponentTurnEnd</c> (…/CanNotSuspend.cs:8).</summary>
     public static bool GainCantSuspendUntilOpponentTurnEnd(Permanent? targetPermanent, CardSource sourceCard) =>
@@ -3064,90 +3010,26 @@ public static partial class CardEffectCommons
     public static bool GainCantUnsuspendNextActivePhase(Permanent? targetPermanent, CardSource sourceCard) =>
         GainCanNotUnsuspend(targetPermanent, EffectDuration.UntilNextUntap, sourceCard);
 
-    /// <summary>(W6 tail) shared PLAYER-SCOPE timed grant core — the AS-IS GiveEffectToPlayer shape
-    /// (verbatim verified): a duration-tagged player-scope binding whose PermanentCondition folds the
-    /// battle-area + live !CanNotBeAffected guards around the caller's predicate.</summary>
-    private static bool GainToPlayerScope(
-        EffectDuration effectDuration, CardSource sourceCard, string gainName,
-        Func<Permanent, bool>? permanentCondition,
-        string? keyword = null, string? valueKey = null, object? value = null,
-        IReadOnlyDictionary<string, object?>? extraValues = null,
-        Func<bool>? extraCondition = null,
-        string? scopeOverride = null,
-        Func<CardSource, bool>? counterpartPredicate = null)
+    // (②J-4) GainToPlayerScope — the invented player-scope grant FUNNEL (a bare registry EffectBinding carrying a
+    // PlayerScope predicate + a JointRestrictionEffect predicate, no AS-IS kind-class) — is DELETED. Its 6
+    // player-scope restriction consumers (GainCanNotSuspendPlayerEffect/…BlockPlayerEffect/…BeDeletedPlayerEffect/
+    // …ReturnToHandPlayerEffect/…ReturnToDeckPlayerEffect/…ImmuneFromDPMinusPlayerEffect) plus GainAlliancePlayerEffect
+    // are re-housed onto the AS-IS bucket idiom: each builds its true AS-IS kind-class (CardEffectFactory.*StaticEffect)
+    // whose PermanentCondition folds battle-area + !CanNotBeAffected + caller predicate, and stores it in the OWNING
+    // PLAYER's duration bucket via AddEffectToPlayer (home files under GiveEffect/GiveEffectToPlayer/*.cs and
+    // KeyWordEffects/Alliance.cs), read LIVE by the AS-IS interface scans over player.EffectList(...) (restrictions
+    // at timing None; Alliance at OnAllyAttack). Producer for the registry joint arm / player-scope keyword funnel is 0.
+    // (G-clean-2) GainBlockerPlayerEffect / GainRushPlayerEffect / GainIcecladPlayerEffect were already deleted.
+
+    /// <summary>AS-IS <c>GainAlliancePlayerEffect</c> (KeyWordEffects/Alliance.cs:180). (J-4) CardSource-only substrate
+    /// entry: routes to the AS-IS 1:1 body (KeyWordEffects/Alliance.cs) with the cause collapsed to
+    /// <see cref="BareCauseEffect"/>.</summary>
+    public static bool GainAlliancePlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard)
     {
         ArgumentNullException.ThrowIfNull(sourceCard);
-        EngineContext context = sourceCard.Context;
-        HeadlessEntityId grantSourceId = sourceCard.InstanceId;
-
-        // AS-IS _PermanentCondition: on the battle area && !CanNotBeAffected && caller predicate — LIVE.
-        // (B군 P0-1) The !CanNotBeAffected term is rehomed from the now-dead BlocksOpponentEffect registry scan to
-        // the AS-IS-literal live TopCard.CanNotBeAffected getter (cause = the granting effect's source card).
-        Func<CardSource, bool> scopePredicate = cs =>
-            !new Permanent(cs.Context, cs.InstanceId, cs.Owner).TopCard.CanNotBeAffected(BareCauseEffect.For(context, grantSourceId))
-            && (permanentCondition is null || permanentCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner)));
-
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [Headless.Effects.PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
-            [Headless.Effects.PlayerScopeContinuousHelpers.ScopePlayerIdKey] = sourceCard.Owner.Value,
-            [Headless.Effects.PlayerScopeContinuousHelpers.ScopePredicateKey] = scopePredicate,
-        };
-        if (valueKey is not null)
-        {
-            values[valueKey] = value;
-        }
-
-        if (extraValues is not null)
-        {
-            foreach (KeyValuePair<string, object?> pair in extraValues)
-            {
-                values[pair.Key] = pair.Value;
-            }
-        }
-
-        if (extraCondition is not null)
-        {
-            values[ContinuousScopeEvaluation.ConditionKey] = extraCondition;
-        }
-
-        // (joint-migration) canonical joint for player-scope restriction grants: this scope player's permanents (that
-        // pass the live scope predicate — battle area, immunity, caller filter) cannot X the counterpart, when the
-        // counterpart (attacker/defender being blocked) also satisfies the caller's counterpart predicate.
-        if (valueKey is not null && value is bool on && on && RestrictionHelpers.IsRestrictionKey(valueKey))
-        {
-            HeadlessPlayerId scopePlayer = sourceCard.Owner;
-            Func<CardSource, bool> subjectPredicate = scopePredicate;
-            Func<CardSource, bool>? cpPredicate = counterpartPredicate;
-            values[JointRestrictionEffect.PredicateKey(valueKey)] = (Func<CardSource, CardSource?, bool>)((subject, counterpart) =>
-                subject.Owner == scopePlayer
-                && subjectPredicate(subject)
-                && (cpPredicate is null || (counterpart is not null && cpPredicate(counterpart))));
-        }
-
-        var effectContext = new EffectContext(
-            sourceCard.Controller, sourceCard.Owner, sourceCard.InstanceId,
-            triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
-        string[]? scopes = keyword is not null ? null : new[] { scopeOverride ?? ContinuousRestrictionGate.Scope };
-        context.EffectRegistry.Register(new EffectBinding(
-            new EffectRequest(
-                new HeadlessEntityId($"{sourceCard.InstanceId.Value}:{gainName}:{Guid.NewGuid():N}"),
-                sourceCard.Controller, "Continuous", effectContext),
-            keywords: keyword is null ? null : new[] { keyword },
-            EffectQueryRole.Continuous, scopes, effect: null, duration: effectDuration));
-        return true;
+        return GainAlliancePlayerEffectImpl(permanentCondition, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard));
     }
-
-    // (G-clean-2) GainBlockerPlayerEffect / GainRushPlayerEffect / GainIcecladPlayerEffect (the invented
-    // GainToPlayerScope keyword-marker player-scope wrappers) are DELETED — the AS-IS-signature
-    // Task GainBlockerPlayerEffect / GainRushPlayerEffect / GainIcecladPlayerEffect (KeyWordEffects/*.cs) now
-    // build the keyword's StaticEffect and store it in the owning player's None bucket via AddEffectToPlayer,
-    // AS-IS 1:1 (read by Permanent.Has<Keyword>'s player.EffectList(None) scan). GainAlliancePlayerEffect is
-    // retained: Alliance is a firing-window keyword (C-Atk) whose player-scope grant still rides the surviving
-    // GainToPlayerScope funnel (out of the 충실-7 grant scope).
-    /// <summary>AS-IS <c>GainAlliancePlayerEffect</c> (KeyWordEffects/Alliance.cs:180).</summary>
-    public static bool GainAlliancePlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
-        throw new NotSupportedException("GainAlliancePlayerEffect: player-scope Alliance grant has no live reader after the keyword registry-half retirement (design item RD-RC-03) — rehome to the AS-IS player-bucket StaticEffect idiom when a caller appears.");
 
     /// <summary>AS-IS <c>GainCanNotUnsuspendPlayerEffect</c> (GiveEffectToPlayer/CanNotUnsuspend.cs:10, verbatim).
     /// (J-2) CardSource-only substrate entry: routes to the AS-IS 1:1 body (home file) — the owning player's
@@ -3162,17 +3044,16 @@ public static partial class CardEffectCommons
         GainCanNotUnsuspendPlayerEffectImpl(permanentCondition, effectDuration,
             card: sourceCard, cause: BareCauseEffect.For(sourceCard), isOnlyActivePhase, effectName);
 
-    /// <summary>AS-IS <c>GainCanNotSuspendPlayerEffect</c> (GiveEffectToPlayer/CanNotSuspend.cs:10).</summary>
+    /// <summary>AS-IS <c>GainCanNotSuspendPlayerEffect</c> (GiveEffectToPlayer/CanNotSuspend.cs:10). (J-4)
+    /// CardSource-only substrate entry: routes to the AS-IS 1:1 body (home file) with the cause collapsed to
+    /// <see cref="BareCauseEffect"/>.</summary>
     public static bool GainCanNotSuspendPlayerEffect(
         Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard,
         bool isOnlyActivePhase = false, string effectName = "Can't suspend")
     {
-        EngineContext context = sourceCard.Context;
-        Func<Permanent, bool> composed = p =>
-            (permanentCondition is null || permanentCondition(p))
-            && (!isOnlyActivePhase || context.TurnController.Current.TurnPlayerId == p.OwnerId);
-        return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotSuspendPlayer", composed,
-            valueKey: RestrictionHelpers.CannotSuspendKey, value: true);
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotSuspendPlayerEffectImpl(permanentCondition, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), isOnlyActivePhase, effectName);
     }
 
     /// <summary>AS-IS <c>GainCanNotAttackPlayerEffect</c> (GiveEffectToPlayer/CanNotAttack.cs:10, verbatim).
@@ -3186,102 +3067,118 @@ public static partial class CardEffectCommons
         GainCanNotAttackPlayerEffectImpl(attackerCondition, defenderCondition, effectDuration,
             card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
 
-    /// <summary>AS-IS <c>GainCanNotBlockPlayerEffect</c> (GiveEffectToPlayer/CanNotBlock.cs:10).</summary>
+    /// <summary>AS-IS <c>GainCanNotBlockPlayerEffect</c> (GiveEffectToPlayer/CanNotBlock.cs:10). (J-4)
+    /// CardSource-only substrate entry.</summary>
     public static bool GainCanNotBlockPlayerEffect(
         Func<Permanent, bool>? attackerCondition, Func<Permanent, bool>? defenderCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't block")
     {
-        // AS-IS naming quirk: the SUBJECT filter arrives as attackerCondition; the counterpart (the
-        // attacker being blocked) as defenderCondition — it rides the joint counterpart predicate.
-        Func<CardSource, bool>? attackerBlockedPredicate = defenderCondition is null
-            ? null
-            : cs => defenderCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner));
-        return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotBlockPlayer", attackerCondition,
-            valueKey: RestrictionHelpers.CannotBlockKey, value: true, counterpartPredicate: attackerBlockedPredicate);
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotBlockPlayerEffectImpl(attackerCondition, defenderCondition, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
     }
 
     /// <summary>AS-IS <c>GainCanNotBeDeletedPlayerEffect</c> (GiveEffectToPlayer/CanNotBeDeletedByBattle.cs:10)
-    /// — the BATTLE-deletion immunity, player-scoped, with the 4-arg battle predicate.</summary>
+    /// — the BATTLE-deletion immunity, player-scoped, with the 4-arg battle predicate. (J-4) CardSource-only
+    /// substrate entry.</summary>
     public static bool GainCanNotBeDeletedPlayerEffect(
         Func<Permanent, bool>? permanentCondition,
         Func<Permanent, Permanent, Permanent, CardSource, bool>? canNotBeDestroyedByBattleCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be deleted in battle")
     {
-        var extra = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (canNotBeDestroyedByBattleCondition is not null)
-        {
-            extra[BattleDeletionGate.BattleConditionKey] = canNotBeDestroyedByBattleCondition;
-        }
-
-        return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotBeDeletedPlayer", permanentCondition,
-            valueKey: BattleDeletionGate.PreventBattleDeletionKey, value: true, extraValues: extra);
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotBeDeletedPlayerEffectImpl(permanentCondition, canNotBeDestroyedByBattleCondition, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
     }
 
-    /// <summary>AS-IS <c>GainCanNotReturnToHand</c> (GiveEffectToPermanent/CanNotReturnToHand.cs:10) — the
-    /// causing-effect predicate maps to the source-card predicate the return gate evaluates.</summary>
+    /// <summary>AS-IS <c>GainCanNotReturnToHand</c> (GiveEffectToPermanent/CanNotReturnToHand.cs:10). (J-4)
+    /// CardSource-only substrate entry: the CardSource predicate is lifted to a Func&lt;ICardEffect,bool&gt; that
+    /// evaluates it against the causing effect's source card (matching the AS-IS reader's ICardEffect argument).</summary>
     public static bool GainCanNotReturnToHand(
         Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
-        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand") =>
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotReturnToHandKey, "gainCanNotReturnToHand",
-            causingEffectPredicate: cardEffectSourceCondition);
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand")
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotReturnToHandImpl(targetPermanent, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
+    }
 
-    /// <summary>AS-IS <c>GainCanNotReturnToDeck</c> (…/CanNoReturnToDeck.cs:10).</summary>
+    /// <summary>AS-IS <c>GainCanNotReturnToDeck</c> (…/CanNoReturnToDeck.cs:10). (J-4) CardSource-only substrate entry.</summary>
     public static bool GainCanNotReturnToDeck(
         Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
-        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck") =>
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotReturnToDeckKey, "gainCanNotReturnToDeck",
-            causingEffectPredicate: cardEffectSourceCondition);
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck")
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotReturnToDeckImpl(targetPermanent, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
+    }
 
-    /// <summary>AS-IS <c>GainCanNotReturnToHandPlayerEffect</c> (GiveEffectToPlayer/CanNotReturnToHand.cs:10).</summary>
+    /// <summary>AS-IS <c>GainCanNotReturnToHandPlayerEffect</c> (GiveEffectToPlayer/CanNotReturnToHand.cs:10). (J-4)
+    /// CardSource-only substrate entry.</summary>
     public static bool GainCanNotReturnToHandPlayerEffect(
         Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
-        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand") =>
-        GainToPlayerScope(effectDuration, sourceCard, "gainCanNotReturnToHandPlayer", permanentCondition,
-            valueKey: RestrictionHelpers.CannotReturnToHandKey, value: true,
-            extraValues: CausingEffectValues(cardEffectSourceCondition));
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand")
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotReturnToHandPlayerEffectImpl(permanentCondition, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
+    }
 
-    /// <summary>AS-IS <c>GainCanNotReturnToDeckPlayerEffect</c> (GiveEffectToPlayer/CanNoReturnToDeck.cs:10).</summary>
+    /// <summary>AS-IS <c>GainCanNotReturnToDeckPlayerEffect</c> (GiveEffectToPlayer/CanNoReturnToDeck.cs:10). (J-4)
+    /// CardSource-only substrate entry.</summary>
     public static bool GainCanNotReturnToDeckPlayerEffect(
         Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
-        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck") =>
-        GainToPlayerScope(effectDuration, sourceCard, "gainCanNotReturnToDeckPlayer", permanentCondition,
-            valueKey: RestrictionHelpers.CannotReturnToDeckKey, value: true,
-            extraValues: CausingEffectValues(cardEffectSourceCondition));
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck")
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotReturnToDeckPlayerEffectImpl(permanentCondition, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
+    }
 
     /// <summary>AS-IS <c>GainImmuneFromDPMinus</c> (GiveEffectToPermanent/ImmuneFromDPMinus.cs:10):
-    /// this permanent ignores DP-minus effects for the duration (only from matching causing effects).</summary>
+    /// this permanent ignores DP-minus effects for the duration (only from matching causing effects). (J-4)
+    /// CardSource-only substrate entry.</summary>
     public static bool GainImmuneFromDPMinus(
         Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
-        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus") =>
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            ReplacementHelpers.ImmuneFromDpMinusKey, "gainImmuneFromDpMinus",
-            causingEffectPredicate: cardEffectSourceCondition);
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus")
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainImmuneFromDPMinusImpl(targetPermanent, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
+    }
 
-    /// <summary>AS-IS <c>GainImmuneFromDPMinusPlayerEffect</c> (GiveEffectToPlayer/ImmuneFromDPMinus.cs:10).</summary>
+    /// <summary>AS-IS <c>GainImmuneFromDPMinusPlayerEffect</c> (GiveEffectToPlayer/ImmuneFromDPMinus.cs:10). (J-4)
+    /// CardSource-only substrate entry.</summary>
     public static bool GainImmuneFromDPMinusPlayerEffect(
         Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
-        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus") =>
-        GainToPlayerScope(effectDuration, sourceCard, "gainImmuneFromDpMinusPlayer", permanentCondition,
-            valueKey: ReplacementHelpers.ImmuneFromDpMinusKey, value: true,
-            extraValues: CausingEffectValues(cardEffectSourceCondition));
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus")
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainImmuneFromDPMinusPlayerEffectImpl(permanentCondition, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
+    }
 
-    /// <summary>Wrap a causing-effect predicate as continuous-binding values (or null when absent), so a
-    /// player-scope grant carries the AS-IS <c>cardEffectCondition</c> the sink / DP gate evaluate.</summary>
-    private static IReadOnlyDictionary<string, object?>? CausingEffectValues(Func<CardSource, bool>? cardEffectSourceCondition) =>
+    /// <summary>(J-4) Lift a CardSource cause-predicate (the substrate's <c>cardEffectSourceCondition</c>) to the
+    /// AS-IS <c>Func&lt;ICardEffect,bool&gt; cardEffectCondition</c> shape the return/immunity kind-classes evaluate:
+    /// the live reader supplies the REAL causing ICardEffect, whose source card is fed to the CardSource predicate.
+    /// The inverse of the retired RD-W2-1 down-adapter; a null predicate stays null (AS-IS: an unconditional
+    /// cardEffectCondition never fires — verbatim kind-class semantics).</summary>
+    private static Func<ICardEffect, bool>? LiftCauseCardCondition(Func<CardSource, bool>? cardEffectSourceCondition) =>
         cardEffectSourceCondition is null
             ? null
-            : new Dictionary<string, object?>(StringComparer.Ordinal) { [RestrictionHelpers.CausingEffectPredicateKey] = cardEffectSourceCondition };
+            : (ICardEffect cardEffect) => cardEffect?.EffectSourceCard is CardSource cs && cardEffectSourceCondition(cs);
 
     /// <summary>AS-IS <c>GainCanNotBeDeletedByEffect</c> (GiveEffectToPermanent/CanNotBeDeletedByEffect.cs:10)
-    /// — skill/effect-deletion immunity for the duration (the effect-delete gate's key).</summary>
+    /// — skill/effect-deletion immunity for the duration (the effect-delete gate's key). (J-4) CardSource-only
+    /// substrate entry.</summary>
     public static bool GainCanNotBeDeletedByEffect(
         Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
-        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be deleted by effects") =>
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotBeDeletedBySkillKey, "gainCanNotBeDeletedByEffect",
-            causingEffectPredicate: cardEffectSourceCondition);
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be deleted by effects")
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        return GainCanNotBeDeletedByEffectImpl(targetPermanent, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
+    }
 
     /// <summary>AS-IS <c>ChangeDigimonSAttackPlayerEffect</c> (GiveEffectToPlayer/ChangeSAttack.cs:10).
     /// (R3-W3c-3) Restored to AS-IS 1:1: the dead registry ContinuousModifierGate binding (SecurityAttackDelta,
