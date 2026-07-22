@@ -89,6 +89,10 @@ async Task BeAttackedBeBlockedPair()
 async Task UnsuspendLock()
 {
     EngineContext ctx = Ctx();
+    // (J-2) the CanNotUnsuspend grant now surfaces through the AS-IS interface reader (Permanent.CanUnsuspend, via
+    // ICardEffect.CanUse -> IsDisabled -> CheckEffectDisabledClass, which reads GManager.instance) — hold a match
+    // scope so that resolves, exactly as the live unsuspend step does.
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(ctx);
     var src = await Place(ctx, P1, "SRC");
     var target = await Place(ctx, P2, "TGT");
     SetMeta(ctx, target, "isSuspended", true);
@@ -97,7 +101,11 @@ async Task UnsuspendLock()
     AssertTrue(!new Permanent(ctx, target).CanUnsuspend, "unsuspend locked");
     AssertTrue(!CardEffectCommons.CanUnsuspend(Perm(ctx, target)), "CanUnsuspend predicate agrees");
 
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
+    // (J-2) the grant now lives in the target permanent's duration bucket (AS-IS AddEffectToPermanent), not the
+    // retired EffectRegistry — expire it the AS-IS way. UntilOpponentTurnEnd with an owner-relative swap lands a
+    // grant to the OPPONENT's permanent in its UntilOwnerTurnEndEffects bucket; the AS-IS turn-end cleanup resets it
+    // (`= new List<>()`, HeadlessEndTurnCleanupFlow).
+    Perm(ctx, target).UntilOwnerTurnEndEffects = new();
     AssertTrue(new Permanent(ctx, target).CanUnsuspend, "expired at the boundary");
 }
 

@@ -3055,12 +3055,16 @@ public static partial class CardEffectCommons
     public static bool GainCantSuspendUntilOpponentTurnEnd(Permanent? targetPermanent, CardSource sourceCard) =>
         GainCanNotSuspend(targetPermanent, EffectDuration.UntilOpponentTurnEnd, sourceCard);
 
-    /// <summary>AS-IS <c>GainCanNotUnsuspend</c> (…/CanNotUnsuspend.cs:69).</summary>
+    /// <summary>AS-IS <c>GainCanNotUnsuspend</c> (…/CanNotUnsuspend.cs:69).
+    /// (J-2) CardSource-only substrate core: routes to the AS-IS 1:1 body (home file) — the target permanent's
+    /// duration bucket gets the <c>CanNotUnsuspendClass</c> read LIVE by <see cref="Permanent.CanUnsuspend"/> —
+    /// with the cause collapsed to <see cref="BareCauseEffect"/> (this signature carries no live
+    /// <c>activateClass</c>). The invented registry <c>CannotUnsuspendKey</c> arm is retired (it had no reader).</summary>
     public static bool GainCanNotUnsuspend(
         Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard,
         Func<bool>? condition = null, string effectName = "Can't unsuspend") =>
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotUnsuspendKey, "gainCanNotUnsuspend", extraCondition: condition);
+        GainCanNotUnsuspendImpl(targetPermanent, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), condition, effectName);
 
     /// <summary>AS-IS <c>GainCantUnsuspendUntilOpponentTurnEnd</c> (…/CanNotUnsuspend.cs:45).</summary>
     public static bool GainCantUnsuspendUntilOpponentTurnEnd(Permanent? targetPermanent, CardSource sourceCard) =>
@@ -3158,21 +3162,18 @@ public static partial class CardEffectCommons
     public static bool GainAlliancePlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
         throw new NotSupportedException("GainAlliancePlayerEffect: player-scope Alliance grant has no live reader after the keyword registry-half retirement (design item RD-RC-03) — rehome to the AS-IS player-bucket StaticEffect idiom when a caller appears.");
 
-    /// <summary>AS-IS <c>GainCanNotUnsuspendPlayerEffect</c> (GiveEffectToPlayer/CanNotUnsuspend.cs:10,
-    /// verbatim): <paramref name="isOnlyActivePhase"/> narrows to the turn player's permanents — headless
-    /// the unsuspend gate is only consulted BY the unsuspend step, so the phase half is equivalent; the
-    /// turn-player half rides the predicate.</summary>
+    /// <summary>AS-IS <c>GainCanNotUnsuspendPlayerEffect</c> (GiveEffectToPlayer/CanNotUnsuspend.cs:10, verbatim).
+    /// (J-2) CardSource-only substrate entry: routes to the AS-IS 1:1 body (home file) — the owning player's
+    /// duration bucket gets the <c>CanNotUnsuspendClass</c> whose PermanentCondition folds battle-area +
+    /// <c>!CanNotBeAffected</c> + caller filter + (when <paramref name="isOnlyActivePhase"/>) the turn-player
+    /// narrowing, and whose CanUseCondition gates on the Active phase — read LIVE by
+    /// <see cref="Permanent.CanUnsuspend"/> (player arm) — with the cause collapsed to <see cref="BareCauseEffect"/>
+    /// (this signature carries no live <c>activateClass</c>).</summary>
     public static bool GainCanNotUnsuspendPlayerEffect(
         Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard,
-        bool isOnlyActivePhase = false, string effectName = "Can't unsuspend")
-    {
-        EngineContext context = sourceCard.Context;
-        Func<Permanent, bool> composed = p =>
-            (permanentCondition is null || permanentCondition(p))
-            && (!isOnlyActivePhase || context.TurnController.Current.TurnPlayerId == p.OwnerId);
-        return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotUnsuspendPlayer", composed,
-            valueKey: RestrictionHelpers.CannotUnsuspendKey, value: true);
-    }
+        bool isOnlyActivePhase = false, string effectName = "Can't unsuspend") =>
+        GainCanNotUnsuspendPlayerEffectImpl(permanentCondition, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), isOnlyActivePhase, effectName);
 
     /// <summary>AS-IS <c>GainCanNotSuspendPlayerEffect</c> (GiveEffectToPlayer/CanNotSuspend.cs:10).</summary>
     public static bool GainCanNotSuspendPlayerEffect(

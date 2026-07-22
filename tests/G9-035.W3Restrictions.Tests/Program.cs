@@ -37,6 +37,10 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 async Task CantUnsuspend()
 {
     EngineContext context = Context();
+    // (J-2) the CanNotUnsuspend grant is read by the AS-IS interface reader (Permanent.CanUnsuspend, via
+    // ICardEffect.CanUse -> IsDisabled -> CheckEffectDisabledClass, which reads GManager.instance) — hold a match
+    // scope so it resolves.
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(context);
     var id = await Place(context, P1, "SELF");
     AssertTrue(new Permanent(context, id).CanUnsuspend, "not restricted before grant");
     // (P7 stage-B SEAM) CanNotUnsuspendClass is a new-model kind-class with no ToBinding/EffectRegistry

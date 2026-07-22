@@ -101,9 +101,13 @@ async Task PlayerScopeGrants()
     // player-scope Blocker grant (AddEffectToPlayer None bucket -> Permanent.HasBlocker) is now witnessed in
     // G9-067.W6GainCommons. CanNotUnsuspend below still rides the surviving GainToPlayerScope registry funnel.
     SetMeta(ctx, small, "isSuspended", true);
+    // (J-2) hold a match scope so the AS-IS interface reader (Permanent.CanUnsuspend) can resolve GManager.instance.
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(ctx);
     CardEffectCommons.GainCanNotUnsuspendPlayerEffect(null, EffectDuration.UntilOpponentTurnEnd, V(ctx, src));
     AssertTrue(!new Permanent(ctx, small).CanUnsuspend, "player-wide unsuspend lock");
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
+    // (J-2) the player-scope grant now lives in the owning player's UntilOpponentTurnEnd bucket (AS-IS
+    // AddEffectToPlayer), not the retired EffectRegistry — expire it the AS-IS way (`= new List<>()`).
+    new Player(ctx, P1).UntilOpponentTurnEndEffects = new();
     AssertTrue(new Permanent(ctx, small).CanUnsuspend, "expired");
 }
 
@@ -182,6 +186,9 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 974);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (J-2) CanNotUnsuspend now surfaces through the AS-IS interface reader, which gates on DoneStartGame (phase
+    // past None) via ICardEffect.CanUse — start the game like the other interface-scan restriction harnesses.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
