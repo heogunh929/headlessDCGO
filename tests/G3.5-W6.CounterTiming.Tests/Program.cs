@@ -18,9 +18,11 @@ HeadlessEntityId TargetId = new("p2:main:001:P2-M01");
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("Advancing a declared attack opens an OnCounter timing window", AdvanceOpensCounterWindow),
-    ("The counter window is global (every OnCounter effect fires)", CounterWindowIsGlobal),
     ("The counter window opens before block timing", CounterBeforeBlock),
-    ("(P5) two ordered passes: non-[Counter] effects resolve BEFORE [Counter] effects", CounterTwoPassOrder),
+    // (RC-6) CounterWindowIsGlobal + CounterTwoPassOrder removed — they registered RecordingFakeEffect bindings
+    // into the EffectRegistry and asserted the invented AutoProcessingTriggerCollector collected/two-pass-ordered
+    // them (the excised registry trigger-reader surface, incl. the CounterPass/IsCounterEffect filter that lived
+    // in the collector). The counter-window EMIT + ordering-before-block (via GameEventQueue) is retained.
 };
 
 var failures = new List<string>();
@@ -53,36 +55,6 @@ async Task AdvanceOpensCounterWindow()
     AssertEqual(Player, window.Actor, "counter window actor is the attacking player");
 }
 
-async Task CounterWindowIsGlobal()
-{
-    DcgoMatch match = await CreateMatchAsync();
-    EngineContext context = match.Context;
-
-    // Two different cards each carry an OnCounter effect; both must fire (no subject scoping).
-    var onCounterA = Register(context, "ctr-a", "src-a", TriggerTimings.OnCounter);
-    var onCounterB = Register(context, "ctr-b", "src-b", TriggerTimings.OnCounter);
-
-    context.AttackController.DeclareAttack(Player, AttackerId, Opponent, targetId: null, isDirectAttack: true);
-    DrainEvents(context);
-
-    await new AttackPipeline().AdvanceAsync(context);
-
-    // Drain the counter window through the common-loop collector/scheduler.
-    var collector = new AutoProcessingTriggerCollector(context.EffectRegistry);
-    foreach (GameEvent gameEvent in context.GameEventQueue.DrainPending())
-    {
-        if (gameEvent.Type != GameEventType.Unknown)
-        {
-            collector.CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
-        }
-    }
-
-    await context.EffectScheduler.ResolveAllAsync();
-
-    AssertEqual(1, onCounterA.ResolveCalls, "card A's OnCounter effect fired");
-    AssertEqual(1, onCounterB.ResolveCalls, "card B's OnCounter effect fired (global window)");
-}
-
 async Task CounterBeforeBlock()
 {
     // With no blockers the attack auto-advances Declared -> Combat, but the counter window must still
@@ -98,59 +70,7 @@ async Task CounterBeforeBlock()
     AssertTrue(hasCounter, "counter window emitted while advancing out of the declared phase");
 }
 
-// (P5) AS-IS AttackProcess.CounterTiming (AttackProcess.cs:266-296): two ordered passes over
-// OnCounterTiming — non-IsCounterEffect first (each pass resolved), then the [Counter] effects.
-async Task CounterTwoPassOrder()
-{
-    DcgoMatch match = await CreateMatchAsync();
-    EngineContext context = match.Context;
-
-    var regular = Register(context, "ctr-reg", "src-reg", TriggerTimings.OnCounter);
-    var counter = Register(context, "ctr-cnt", "src-cnt", TriggerTimings.OnCounter, isCounterEffect: true);
-
-    context.AttackController.DeclareAttack(Player, AttackerId, Opponent, targetId: null, isDirectAttack: true);
-    DrainEvents(context);
-
-    var pipeline = new AttackPipeline();
-    var collector = new AutoProcessingTriggerCollector(context.EffectRegistry);
-
-    // Pass 1 park: only the NON-[Counter] effect resolves.
-    await pipeline.AdvanceAsync(context);
-    foreach (GameEvent gameEvent in context.GameEventQueue.DrainPending())
-    {
-        if (gameEvent.Type != GameEventType.Unknown) collector.CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
-    }
-
-    await context.EffectScheduler.ResolveAllAsync();
-    AssertEqual(1, regular.ResolveCalls, "pass 1 resolved the regular counter-timing effect");
-    AssertEqual(0, counter.ResolveCalls, "pass 1 did NOT resolve the [Counter] effect");
-
-    // Pass 2 park: the [Counter] effect resolves.
-    await pipeline.AdvanceAsync(context);
-    foreach (GameEvent gameEvent in context.GameEventQueue.DrainPending())
-    {
-        if (gameEvent.Type != GameEventType.Unknown) collector.CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
-    }
-
-    await context.EffectScheduler.ResolveAllAsync();
-    AssertEqual(1, regular.ResolveCalls, "the regular effect did not re-fire");
-    AssertEqual(1, counter.ResolveCalls, "pass 2 resolved the [Counter] effect (AS-IS second pass)");
-}
-
 // --- Harness -------------------------------------------------------------
-
-RecordingFakeEffect Register(EngineContext context, string effectId, string sourceId, string timing, bool isCounterEffect = false)
-{
-    var effect = new RecordingFakeEffect(effectId, sourceId, timing);
-    var values = isCounterEffect
-        ? new Dictionary<string, object?>(StringComparer.Ordinal) { [AutoProcessingTriggerCollector.IsCounterEffectKey] = true }
-        : null;
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId(effectId), Player, timing,
-            new EffectContext(Player, Player, new HeadlessEntityId(sourceId), triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values)),
-        effect: effect));
-    return effect;
-}
 
 void DrainEvents(EngineContext context)
 {

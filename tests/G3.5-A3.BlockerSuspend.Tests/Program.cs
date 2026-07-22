@@ -21,7 +21,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Blocking suspends the blocker", BlockingSuspendsBlocker),
     ("Blocking emits an OnBlock window scoped to the blocker", BlockingEmitsScopedOnBlock),
     ("Skipping the block does NOT suspend or emit OnBlock", SkippingDoesNotSuspendOrEmit),
-    ("An OnBlock effect on the blocker fires through the loop", OnBlockEffectFires),
+    // (RC-6) OnBlockEffectFires removed — it registered a RecordingFakeEffect into the EffectRegistry and asserted
+    // the invented AutoProcessingTriggerCollector re-collected/fired it (the excised registry trigger-reader
+    // surface). The window emit + scoping (BlockingEmitsScopedOnBlock, via GameEventQueue) is retained.
 };
 
 var failures = new List<string>();
@@ -95,40 +97,6 @@ async Task SkippingDoesNotSuspendOrEmit()
     AssertFalse(
         match.Context.GameEventQueue.DrainPending().Any(e => string.Equals(e.Cause, TriggerTimings.OnBlock, StringComparison.Ordinal)),
         "no OnBlock window emitted on skip");
-}
-
-async Task OnBlockEffectFires()
-{
-    DcgoMatch match = await CreateConfiguredMatchAsync();
-    EngineContext context = match.Context;
-
-    // (F1-Tier2 OnBlockAnyone fidelity) the reactor lives on the ATTACKER (gates via CanTriggerOnAttack); a reactor on
-    // the blocker stays dormant (the window is scoped to the attacker, not the blocker).
-    var onBlock = new RecordingFakeEffect("atk-fx", AttackerId.Value, TriggerTimings.OnBlock);
-    var unrelated = new RecordingFakeEffect("blk-fx", BlockerId.Value, TriggerTimings.OnBlock);
-    context.EffectRegistry.Register(new EffectBinding(CreateRequest("atk-fx", AttackerId.Value, TriggerTimings.OnBlock), effect: onBlock));
-    context.EffectRegistry.Register(new EffectBinding(CreateRequest("blk-fx", BlockerId.Value, TriggerTimings.OnBlock), effect: unrelated));
-
-    await DeclareDirectAttackAsync(match);
-    using var _probe = AmbientMatchContext.Enter(context);
-    var timing = new BlockTiming();
-    timing.RequestBlockChoice(context);
-    timing.ResolveBlockChoice(context, ChoiceResult.Select(BlockerId));
-
-    // Drain the emitted OnBlock window through the common-loop collector/scheduler.
-    var collector = new AutoProcessingTriggerCollector(context.EffectRegistry);
-    foreach (GameEvent gameEvent in context.GameEventQueue.DrainPending())
-    {
-        if (gameEvent.Type != GameEventType.Unknown)
-        {
-            collector.CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
-        }
-    }
-
-    await context.EffectScheduler.ResolveAllAsync();
-
-    AssertEqual(1, onBlock.ResolveCalls, "the attacker's OnBlock effect fired once");
-    AssertEqual(0, unrelated.ResolveCalls, "the blocker's OnBlock effect stayed dormant (window scoped to the attacker)");
 }
 
 // --- Harness (trimmed from G2G-002) --------------------------------------

@@ -15,7 +15,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Hand->Trash (discard) does NOT derive OnDeletion", () => Pure(() => AssertDeletion(ChoiceZone.Hand, false))),
     ("Library->Trash (mill) does NOT derive OnDeletion", () => Pure(() => AssertDeletion(ChoiceZone.Library, false))),
     ("Security->Trash (security check) does NOT derive OnDeletion", () => Pure(() => AssertDeletion(ChoiceZone.Security, false))),
-    ("An OnDeletion effect fires on field destruction but not on a hand discard", () => Pure(OnDeletionEffectScopedToField)),
+    // (RC-6) OnDeletionEffectScopedToField removed — it registered an EffectRequest into an
+    // InMemoryEffectQueryService and asserted the invented AutoProcessingTriggerCollector enqueued it (the excised
+    // registry trigger-reader surface). The field-vs-non-field DERIVATION scoping (TriggerTimingMap.Derive matrix
+    // above) — the actual D-5 rule — is retained.
     ("An UNMARKED field->Trash move (top-swap / no-DP trash) does NOT derive OnDeletion (R2-P1-4)", () => Pure(UnmarkedFieldTrashIsNotDeletion)),
 };
 
@@ -62,30 +65,6 @@ static void UnmarkedFieldTrashIsNotDeletion()
         throw new InvalidOperationException(
             $"unmarked BattleArea->Trash must derive neither OnDeletion nor OnLeaveField (timings: {string.Join(", ", timings)}).");
     }
-}
-
-// --- Behavioral E2E ------------------------------------------------------
-
-void OnDeletionEffectScopedToField()
-{
-    // A card bound to OnDeletion: it must be collected when destroyed from the battle area,
-    // and NOT collected when discarded from hand.
-    AssertEqual(1, EnqueuedFor(ChoiceZone.BattleArea), "OnDeletion enqueued on field destruction");
-    AssertEqual(0, EnqueuedFor(ChoiceZone.Hand), "OnDeletion NOT enqueued on a hand discard");
-}
-
-static int EnqueuedFor(ChoiceZone from)
-{
-    var query = new InMemoryEffectQueryService();
-    query.Register(new EffectRequest(
-        new HeadlessEntityId("del-fx"), new HeadlessPlayerId(1), TriggerTimings.OnDeletion,
-        new EffectContext(new HeadlessPlayerId(1), new HeadlessPlayerId(1), new HeadlessEntityId("src"),
-            triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>())));
-
-    var scheduler = new EffectScheduler();
-    var collector = new AutoProcessingTriggerCollector(query);
-    TriggerCollectionResult result = collector.CollectAndEnqueueAll(Moved(from, ChoiceZone.Trash, deletionMarked: true), scheduler);
-    return result.EnqueuedCount;
 }
 
 // --- Helpers -------------------------------------------------------------

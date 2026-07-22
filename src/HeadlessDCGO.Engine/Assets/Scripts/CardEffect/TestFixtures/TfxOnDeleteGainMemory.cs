@@ -1,42 +1,47 @@
 // TEST FIXTURE (not a real card). "When an opponent's Digimon is deleted by dropping to 0 DP, gain 1 memory"
-// with NO once-per-turn cap — so it fires once PER deletion. Used by tests/RD11-PerEventFire to prove a
-// driving-event trigger fires per event in a pass (AS-IS stacks a SkillInfo per event). Inert in actual play.
+// with NO once-per-turn cap — so it fires once PER deletion. Inert in actual play (no real card is numbered
+// "TfxOnDeleteGainMemory").
 //
-// R3-C2b-2: the production old-model AddMemoryTriggerEffect was deleted, but this fixture drives the STILL-LIVE
-// registry-collection subsystem (AutoProcessingTriggerCollector), so it uses the test-scoped old-model
-// TfxTriggeredMemoryEffect (registers a ToBinding registry binding) — the same registry path it used before.
+// (RC-6) The old-model probe (this fixture -> TfxTriggeredMemoryEffect, a ToBinding(string) ICardEffect lowered
+// into the invented EffectRegistry) is retired: the registry trigger-reader half (AutoProcessingTriggerCollector
+// GetEffectsForTiming) had zero real-card producers and is excised. This fixture now follows the current-model
+// canon — a card-registered ActivateClass surfaced via the live SkillInfo scan (CEntity_Effect /
+// AutoProcessing.GetSkillInfos), identical in shape to the RD11 TfxOnOpponentDpZeroDeleteMemory reactor: scoped to
+// OnDestroyedAnyone + opponent-owned + DP-zero, uncapped, firing an observable AddMemory the way the deleted probe did.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class TfxOnDeleteGainMemory : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        var effects = new List<ICardEffect>();
         if (timing == EffectTiming.OnDestroyedAnyone)
         {
-            bool Condition() => CardEffectCommons.IsExistOnBattleArea(card) && CardEffectCommons.IsOwnerTurn(card);
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false,
+                "[All Turns] When an opponent's Digimon is deleted by dropping to 0 DP, gain 1 memory (uncapped). (test fixture)");
+            activateClass.SetIsInheritedEffect(true);
+            effects.Add(activateClass);
 
-            bool TriggerGate(CardEffectResolveContext ctx) =>
-                CardEffectCommons.CanTriggerOnPermanentDeleted(card, ctx, id => CardEffectCommons.IsOpponentOwnedDigimon(card, id))
-                && CardEffectCommons.IsDPZeroDelete(card, ctx);
+            bool CanUseCondition(Hashtable hashtable) =>
+                CardEffectCommons.IsExistOnBattleArea(card)
+                && CardEffectCommons.IsOwnerTurn(card)
+                && CardEffectCommons.CanTriggerOnPermanentDeleted(hashtable, permanent => permanent.OwnerId != card.Owner)
+                && CardEffectCommons.IsDPZeroDelete(hashtable);
 
-            cardEffects.Add(new TfxTriggeredMemoryEffect(
-                card: card,
-                timing: EffectTiming.OnDestroyedAnyone,
-                amount: 1,
-                isInheritedEffect: true,
-                condition: Condition,
-                description: "When an opponent's Digimon is deleted by dropping to 0 DP, gain 1 memory (uncapped).",
-                triggerGate: TriggerGate,
-                maxCountPerTurn: null,   // uncapped -> fires once per deletion event
-                hash: "Memory+1_TfxOnDeleteGainMemory",
-                isOptional: false));
+            bool CanActivateCondition(Hashtable hashtable) => CardEffectCommons.IsExistOnBattleArea(card);
+
+            async Task ActivateCoroutine(Hashtable _hashtable) => await card.Owner.AddMemory(1, activateClass);
         }
 
-        return cardEffects;
+        return effects;
     }
 }

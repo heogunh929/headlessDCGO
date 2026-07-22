@@ -5,18 +5,17 @@ using HeadlessDCGO.Engine.Headless.Services;
 
 var root = FindRepositoryRoot();
 
+// (RC-6) The eight collector-query subtests (CollectorUsesTimingMetadataAndRegistrationOrder ...
+// CollectorMapsModeKindAndPriority) and the collector-source-shape subtest
+// (TriggerCollectorSourceHasNoPlaceholderOrUnityDependency) were removed: they exercised the invented registry
+// trigger-reader surface (register an EffectRequest -> AutoProcessingTriggerCollector.Collect returns/filters/
+// enqueues it), which had zero real-card producers and is excised. The live trigger pipeline collects through
+// the new-model SkillInfo scan (AutoProcessing.GetSkillInfos). The AS-IS goal-row and AS-IS-source anchors are
+// retained.
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("G2F-001 goal row and predecessors are satisfied", GoalRowAndPredecessorsAreSatisfied),
     ("AS-IS AutoProcessing trigger collection references are recorded", AsIsAutoProcessingReferencesAreRecorded),
-    ("Collector uses event timing metadata and keeps registration order", CollectorUsesTimingMetadataAndRegistrationOrder),
-    ("Collector falls back to GameEventType when timing metadata is absent", CollectorFallsBackToEventTypeTiming),
-    ("Collector filters candidates by source player and target metadata", CollectorFiltersByEventMetadata),
-    ("Collector enqueues collected triggers into EffectScheduler", CollectorEnqueuesIntoEffectScheduler),
-    ("Collector rejects unknown events with an explicit failure result", CollectorRejectsUnknownEvents),
-    ("Collector returns deterministic candidates for repeated identical input", CollectorIsDeterministic),
-    ("Collector maps event mode kind and priority metadata to triggers", CollectorMapsModeKindAndPriority),
-    ("G2F-001 source files contain no placeholder or Unity dependency", TriggerCollectorSourceHasNoPlaceholderOrUnityDependency),
 };
 
 var failures = new List<string>();
@@ -81,178 +80,6 @@ Task AsIsAutoProcessingReferencesAreRecorded()
     AssertContains(autoProcessing, "public IEnumerator StackSkillInfos", "AS-IS StackSkillInfos");
     AssertContains(multipleSkills, "ActivateMultipleSkills", "AS-IS multiple skill activation");
     AssertContains(skillInfo, "class SkillInfo", "AS-IS SkillInfo model");
-    return Task.CompletedTask;
-}
-
-Task CollectorUsesTimingMetadataAndRegistrationOrder()
-{
-    var query = new InMemoryEffectQueryService();
-    EffectRequest first = CreateRequest("effect-1", "Main", player: 1, source: "card-a");
-    EffectRequest ignored = CreateRequest("effect-ignored", "Attack", player: 1, source: "card-a");
-    EffectRequest second = CreateRequest("effect-2", "Main", player: 2, source: "card-b");
-    query.Register(first);
-    query.Register(ignored);
-    query.Register(second);
-    var collector = new AutoProcessingTriggerCollector(query);
-    GameEvent gameEvent = CreateEvent(
-        GameEventType.StateChanged,
-        7,
-        new Dictionary<string, object?> { ["triggerTiming"] = " Main " });
-
-    TriggerCollectionResult result = collector.Collect(gameEvent);
-
-    AssertTrue(result.IsSuccess, "success result");
-    AssertEqual("Main", result.Timing, "resolved timing");
-    AssertEqual(2, result.Triggers.Count, "trigger count");
-    AssertSame(first, result.Triggers[0].Request, "first request");
-    AssertSame(second, result.Triggers[1].Request, "second request");
-    AssertEqual(0L, result.Triggers[0].Sequence, "first sequence");
-    AssertEqual(1L, result.Triggers[1].Sequence, "second sequence");
-    return Task.CompletedTask;
-}
-
-Task CollectorFallsBackToEventTypeTiming()
-{
-    var query = new InMemoryEffectQueryService();
-    EffectRequest attackEffect = CreateRequest("effect-attack", "AttackDeclared", player: 1, source: "attacker");
-    query.Register(attackEffect);
-    var collector = new AutoProcessingTriggerCollector(query);
-    GameEvent gameEvent = CreateEvent(GameEventType.AttackDeclared, 3);
-
-    TriggerCollectionResult result = collector.Collect(gameEvent);
-
-    AssertTrue(result.IsSuccess, "success result");
-    AssertEqual("AttackDeclared", result.Timing, "fallback timing");
-    AssertEqual(1, result.Triggers.Count, "trigger count");
-    AssertSame(attackEffect, result.Triggers[0].Request, "fallback request");
-    return Task.CompletedTask;
-}
-
-Task CollectorFiltersByEventMetadata()
-{
-    var query = new InMemoryEffectQueryService();
-    EffectRequest matching = CreateRequest(
-        "effect-match",
-        "CardMoved",
-        player: 1,
-        source: "card-a",
-        trigger: "card-a",
-        targets: new[] { "card-a" });
-    EffectRequest wrongPlayer = CreateRequest("effect-wrong-player", "CardMoved", player: 2, source: "card-a", targets: new[] { "card-a" });
-    EffectRequest wrongSource = CreateRequest("effect-wrong-source", "CardMoved", player: 1, source: "card-b", targets: new[] { "card-a" });
-    EffectRequest wrongTarget = CreateRequest("effect-wrong-target", "CardMoved", player: 1, source: "card-a", targets: new[] { "card-c" });
-    query.Register(matching);
-    query.Register(wrongPlayer);
-    query.Register(wrongSource);
-    query.Register(wrongTarget);
-    var collector = new AutoProcessingTriggerCollector(query);
-    GameEvent gameEvent = CreateEvent(
-        GameEventType.CardMoved,
-        11,
-        new Dictionary<string, object?>
-        {
-            ["playerId"] = 1,
-            ["sourceEntityId"] = "card-a",
-            ["targetEntityId"] = "card-a"
-        });
-
-    TriggerCollectionResult result = collector.Collect(gameEvent);
-
-    AssertTrue(result.IsSuccess, "success result");
-    AssertEqual(1, result.Triggers.Count, "filtered trigger count");
-    AssertSame(matching, result.Triggers[0].Request, "matching request");
-    return Task.CompletedTask;
-}
-
-Task CollectorEnqueuesIntoEffectScheduler()
-{
-    var query = new InMemoryEffectQueryService();
-    query.Register(CreateRequest("effect-1", "Main", player: 1, source: "card-a"));
-    query.Register(CreateRequest("effect-2", "Main", player: 1, source: "card-b"));
-    var collector = new AutoProcessingTriggerCollector(query);
-    var scheduler = new EffectScheduler();
-    GameEvent gameEvent = CreateEvent(
-        GameEventType.StateChanged,
-        4,
-        new Dictionary<string, object?> { ["timing"] = "Main" });
-
-    TriggerCollectionResult result = collector.CollectAndEnqueue(gameEvent, scheduler);
-
-    AssertTrue(result.IsSuccess, "success result");
-    AssertEqual(2, result.EnqueuedCount, "enqueued count");
-    AssertEqual(2, scheduler.PendingCount, "scheduler pending count");
-    AssertEqual(2, scheduler.TotalEnqueuedCount, "scheduler total enqueued count");
-    return Task.CompletedTask;
-}
-
-Task CollectorRejectsUnknownEvents()
-{
-    var collector = new AutoProcessingTriggerCollector(new InMemoryEffectQueryService());
-    GameEvent gameEvent = CreateEvent(GameEventType.Unknown, 0);
-
-    TriggerCollectionResult result = collector.Collect(gameEvent);
-
-    AssertFalse(result.IsSuccess, "unknown event success");
-    AssertEqual(0, result.Triggers.Count, "unknown trigger count");
-    AssertContains(result.FailureReason, "Unknown game events", "failure reason");
-    return Task.CompletedTask;
-}
-
-Task CollectorIsDeterministic()
-{
-    var query = new InMemoryEffectQueryService();
-    query.Register(CreateRequest("effect-a", "Main", player: 1, source: "card-a"));
-    query.Register(CreateRequest("effect-b", "Main", player: 1, source: "card-b"));
-    query.Register(CreateRequest("effect-c", "Main", player: 1, source: "card-c"));
-    var collector = new AutoProcessingTriggerCollector(query);
-    GameEvent gameEvent = CreateEvent(
-        GameEventType.StateChanged,
-        8,
-        new Dictionary<string, object?> { ["effectTiming"] = "Main" });
-
-    string first = JoinEffectIds(collector.Collect(gameEvent).Triggers);
-    string second = JoinEffectIds(collector.Collect(gameEvent).Triggers);
-
-    AssertEqual(first, second, "repeated collection");
-    AssertEqual("effect-a,effect-b,effect-c", first, "deterministic order");
-    return Task.CompletedTask;
-}
-
-Task CollectorMapsModeKindAndPriority()
-{
-    var query = new InMemoryEffectQueryService();
-    query.Register(CreateRequest("effect-optional", "Main", player: 1, source: "card-a"));
-    var collector = new AutoProcessingTriggerCollector(query);
-    GameEvent gameEvent = CreateEvent(
-        GameEventType.StateChanged,
-        9,
-        new Dictionary<string, object?>
-        {
-            ["triggerTiming"] = "Main",
-            ["resolutionMode"] = "CutIn",
-            ["triggerKind"] = "Optional",
-            ["priority"] = -5
-        });
-
-    TimingWindowTrigger trigger = collector.Collect(gameEvent).Triggers.Single();
-
-    AssertEqual(EffectResolutionMode.CutIn, trigger.Mode, "mode");
-    AssertEqual(TimingWindowTriggerKind.Optional, trigger.Kind, "kind");
-    AssertEqual(-5, trigger.Priority, "priority");
-    return Task.CompletedTask;
-}
-
-Task TriggerCollectorSourceHasNoPlaceholderOrUnityDependency()
-{
-    string path = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "AutoProcessingTriggerCollector.cs");
-    string text = File.ReadAllText(path);
-
-    AssertFalse(text.Contains("TODO", StringComparison.OrdinalIgnoreCase), "collector must not contain TODO");
-    AssertFalse(text.Contains("UnityEngine", StringComparison.Ordinal), "collector must not reference UnityEngine");
-    AssertFalse(text.Contains("MonoBehaviour", StringComparison.Ordinal), "collector must not reference MonoBehaviour");
-    AssertContains(text, "Collect(GameEvent gameEvent)", "collect API");
-    AssertContains(text, "CollectAndEnqueue", "scheduler enqueue API");
-    AssertContains(text, "TriggerCollectionResult", "result model");
     return Task.CompletedTask;
 }
 

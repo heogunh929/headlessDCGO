@@ -24,9 +24,11 @@ HeadlessEntityId SecurityThreeId = new("p2:main:008:P2-M08");
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("Scoped OnSecurityCheck fires only the subject card's effect", ScopedFiresSubjectOnly),
-    ("A different card's OnSecurityCheck effect stays dormant", OtherCardStaysDormant),
-    ("Unscoped timing window (no subject) still fires all bound effects", UnscopedFiresAll),
+    // (RC-6) ScopedFiresSubjectOnly / OtherCardStaysDormant / UnscopedFiresAll removed — they registered
+    // RecordingFakeEffect bindings into the EffectRegistry and asserted the invented AutoProcessingTriggerCollector
+    // scoped/fired them (the excised registry trigger-reader surface). The LIVE security wiring — a card-registered
+    // OnSecurityCheck ActivateClass fired by SecurityResolver via AutoProcessing.GetSkillInfos, with checked-card
+    // owner scoping — is retained (ResolverEmitsScopedWindow + EndToEndSecurityEffectFires).
     ("SecurityResolver emits an OnSecurityCheck window scoped to the revealed card", ResolverEmitsScopedWindow),
     ("End to end: revealed security card's effect fires, the next one does not", EndToEndSecurityEffectFires),
 };
@@ -45,47 +47,6 @@ foreach (var test in tests)
 
 if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} test(s) failed."); Environment.Exit(1); }
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
-
-// --- Collector-level scoping --------------------------------------------
-
-async Task ScopedFiresSubjectOnly()
-{
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 91);
-    RecordingFakeEffect onCardA = Register(context, "fxA", "cardA", OnSecurityCheck);
-    RecordingFakeEffect onCardB = Register(context, "fxB", "cardB", OnSecurityCheck);
-
-    TriggerEventEmitter.Emit(context.GameEventQueue, OnSecurityCheck, actor: P2, subject: new HeadlessEntityId("cardA"));
-    await DrainCollectResolveAsync(context);
-
-    AssertEqual(1, onCardA.ResolveCalls, "subject card's effect fired");
-    AssertEqual(0, onCardB.ResolveCalls, "other card's effect did NOT fire (scoped)");
-}
-
-async Task OtherCardStaysDormant()
-{
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 92);
-    RecordingFakeEffect onCardB = Register(context, "fxB", "cardB", OnSecurityCheck);
-
-    // Reveal cardA — there is no effect bound to cardA, and cardB's effect must not fire either.
-    TriggerEventEmitter.Emit(context.GameEventQueue, OnSecurityCheck, actor: P2, subject: new HeadlessEntityId("cardA"));
-    await DrainCollectResolveAsync(context);
-
-    AssertEqual(0, onCardB.ResolveCalls, "unrelated security card's effect stayed dormant");
-}
-
-async Task UnscopedFiresAll()
-{
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 93);
-    RecordingFakeEffect onCardA = Register(context, "fxA", "cardA", TriggerTimings.OnEndTurn);
-    RecordingFakeEffect onCardB = Register(context, "fxB", "cardB", TriggerTimings.OnEndTurn);
-
-    // No subject -> global timing window: every effect bound to the timing fires (turn boundaries).
-    TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndTurn, actor: P1);
-    await DrainCollectResolveAsync(context);
-
-    AssertEqual(1, onCardA.ResolveCalls, "card A end-turn effect fired");
-    AssertEqual(1, onCardB.ResolveCalls, "card B end-turn effect fired");
-}
 
 // --- SecurityResolver integration ---------------------------------------
 
@@ -131,29 +92,12 @@ async Task EndToEndSecurityEffectFires()
 
     DeclareDirectAttack(match);
     await new SecurityResolver().ResolveAsync(context);
-    await DrainCollectResolveAsync(context);
+    // (RC-6) The reactor is a live OnSecurityCheck ActivateClass fired INLINE by SecurityResolver via
+    // AutoProcessing.GetSkillInfos (see ResolverEmitsScopedWindow — the draw lands during ResolveAsync); the old
+    // post-resolve collector drain is excised.
 
     AssertEqual(p2LibraryBefore - 1, LibraryCount(context, Opponent), "the reactor fired once (one revealed card)");
     AssertEqual(p1LibraryBefore, LibraryCount(context, Player), "the other player's reactor did not fire");
-}
-
-// --- Common-loop emulation (mirrors GameFlowProcessor.AutoProcessAsync) --
-
-async Task DrainCollectResolveAsync(EngineContext context)
-{
-    context.GameEventQueue.SyncFrom(context.ZoneMover.Events);
-    var collector = new AutoProcessingTriggerCollector(context.EffectRegistry);
-    foreach (GameEvent gameEvent in context.GameEventQueue.DrainPending())
-    {
-        if (gameEvent.Type == GameEventType.Unknown)
-        {
-            continue;
-        }
-
-        collector.CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
-    }
-
-    await context.EffectScheduler.ResolveAllAsync();
 }
 
 // (수리-2 re-aim) Register a live OnSecurityCheck reactor on a battle-area Digimon: retype it to the

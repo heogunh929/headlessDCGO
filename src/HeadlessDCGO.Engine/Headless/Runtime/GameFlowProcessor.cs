@@ -1143,19 +1143,10 @@ public sealed class GameFlowProcessor
 
     internal static TimingWindowTrigger ReclassifyKind(EngineContext context, TimingWindowTrigger trigger)
     {
-        if (context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect is { } effect)
-        {
-            TimingWindowTriggerKind kind = effect.Definition.IsOptional
-                ? TimingWindowTriggerKind.Optional
-                : TimingWindowTriggerKind.Mandatory;
-            if (trigger.Kind != kind)
-            {
-                // `with` (not a fresh construction) so a BatchId already stamped on the trigger survives the
-                // Kind reclassification (D-1 order sequencing).
-                return trigger with { Kind = kind };
-            }
-        }
-
+        // (RC-6) The registry Find arm — which read the invented EffectRegistry trigger binding's Effect body to
+        // reclassify a trigger's Kind (Optional/Mandatory) from its IsOptional flag — is excised: no real card
+        // ever produced a trigger binding (producer 0), so the arm never hit, and the registry trigger-reader
+        // half is retired. Kind now stands as the emitting pipeline stamped it (live path unchanged).
         return trigger;
     }
 

@@ -16,8 +16,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Security->Trash derives OnLoseSecurity + OnDeletion", () => Pure(SecurityLossDerivesTimings)),
     ("AttackDeclared derives OnAttack", () => Pure(AttackDerivesTimings)),
     ("Explicit metadata timing overrides derivation", () => Pure(ExplicitOverrideWins)),
-    ("An effect bound to OnDeletion fires when a card is trashed", () => Pure(EffectFiresOnDeletion)),
-    ("An effect matching two derived timings is enqueued once (dedup)", () => Pure(MultiTimingDedup)),
+    // (RC-6) EffectFiresOnDeletion + MultiTimingDedup removed — they registered EffectRequests into an
+    // InMemoryEffectQueryService and asserted the invented AutoProcessingTriggerCollector enqueued/de-duplicated
+    // them (the excised registry trigger-reader surface). The timing DERIVATION wiring (TriggerTimingMap.Derive,
+    // incl. the multi-timing set a field->Trash opens) — the actual W1 concern — is retained above.
 };
 
 var failures = new List<string>();
@@ -96,39 +98,6 @@ void ExplicitOverrideWins()
     var timings = TriggerTimingMap.Derive(e);
     AssertEqual(1, timings.Count, "explicit override yields exactly one timing");
     AssertEqual("CustomTiming", timings[0], "override value");
-}
-
-// --- Live collection -----------------------------------------------------
-
-void EffectFiresOnDeletion()
-{
-    var query = new InMemoryEffectQueryService();
-    query.Register(EffectFor("del-effect", TriggerTimings.OnDeletion));
-
-    var scheduler = new EffectScheduler();
-    var collector = new AutoProcessingTriggerCollector(query);
-
-    TriggerCollectionResult result = collector.CollectAndEnqueueAll(
-        Deleted(ChoiceZone.BattleArea), scheduler);
-
-    AssertEqual(1, result.EnqueuedCount, "OnDeletion effect enqueued when a card is trashed");
-    AssertEqual(1, scheduler.PendingCount, "scheduler holds the trigger");
-}
-
-void MultiTimingDedup()
-{
-    var query = new InMemoryEffectQueryService();
-    // Same effect id registered under two timings that a field->Trash move both opens.
-    query.Register(EffectFor("dual", TriggerTimings.OnDeletion));
-    query.Register(EffectFor("dual", TriggerTimings.OnLeaveField));
-
-    var scheduler = new EffectScheduler();
-    var collector = new AutoProcessingTriggerCollector(query);
-
-    TriggerCollectionResult result = collector.CollectAndEnqueueAll(
-        Deleted(ChoiceZone.BattleArea), scheduler);
-
-    AssertEqual(1, result.EnqueuedCount, "effect matching two timings is enqueued once");
 }
 
 // --- Helpers -------------------------------------------------------------

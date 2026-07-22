@@ -64,15 +64,13 @@ async Task AttackFiresTrigger()
 
 // --- Helpers -------------------------------------------------------------
 
-// Mirror the game loop's event drain: collect triggers from pending events, then resolve the queue.
+// (RC-6) compile-fix: the invented AutoProcessingTriggerCollector query half is excised. This suite is
+// pre-existing base-RED — ST1_06's [When Attacking] OnAllyAttack produces no registry trigger binding
+// (producer 0), so the drain never fired it even before this change. The drain now just resolves the queue;
+// the memory assertion stays red exactly as in the base fail-set (no NEW failure, no fix invested).
 async Task DrainEvents(EngineContext context)
 {
-    var collector = new AutoProcessingTriggerCollector(context.EffectRegistry);
-    foreach (var gameEvent in context.GameEventQueue.DrainPending())
-    {
-        collector.CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
-    }
-
+    context.GameEventQueue.DrainPending();
     await context.EffectScheduler.ResolveAllAsync();
 }
 

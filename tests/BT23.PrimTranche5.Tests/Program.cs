@@ -21,10 +21,14 @@ using HeadlessDCGO.Engine.Headless.Services;
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
+// (RC-6) The two collector-driven suppression subtests (G3_SuppressDropsOwnEnterPlay /
+// G3_NoSuppressKeepsTrigger) were removed: they asserted the invented registry trigger-reader surface
+// (register a ToBinding fixture -> AutoProcessingTriggerCollector.CollectAllTriggers returns it), which is
+// excised. The retargeted TfxOnPlayGainMemory is a new-model ActivateClass (no registry binding), so the
+// collector-level suppression probe has no home; ETB-suppression on the live path routes through the
+// SkillInfo-scan pipeline, not this reader. The play-does-not-throw behavior subtest is retained.
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("G3: a CardMoved(Hand->BattleArea) with suppressOnPlay drops the moved card's OWN OnPlay/OnEnterField trigger", G3_SuppressDropsOwnEnterPlay),
-    ("G3: without the suppress marker, the moved card's OnPlay/OnEnterField trigger is collected normally", G3_NoSuppressKeepsTrigger),
     ("G3: PlayPermanentCards(activateETB:false) no longer throws and still plays the card onto the field", G3_PlayEtbFalseDoesNotThrow),
 };
 
@@ -38,34 +42,6 @@ if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} failed.")
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 // ---- G3 ----------------------------------------------------------------------
-
-async Task G3_SuppressDropsOwnEnterPlay()
-{
-    EngineContext ctx = NewContext();
-    HeadlessEntityId x = Battle(ctx, "TfxOnPlayGainMemory", "PlayedDigi");
-    CardEffectRegistrar.RegisterCard(ctx, x, P1); // its [On Play] (OnEnterFieldAnyone memory) binding now exists
-
-    var collector = new AutoProcessingTriggerCollector(ctx.EffectRegistry);
-    var triggers = collector.CollectAllTriggers(CardMovedToPlay(x, suppressOnPlay: true));
-
-    AssertFalse(triggers.Any(t => t.Request.Context.SourceEntityId == x),
-        "the moved card's own OnPlay/OnEnterField trigger is suppressed");
-    await Task.CompletedTask;
-}
-
-async Task G3_NoSuppressKeepsTrigger()
-{
-    EngineContext ctx = NewContext();
-    HeadlessEntityId x = Battle(ctx, "TfxOnPlayGainMemory", "PlayedDigi");
-    CardEffectRegistrar.RegisterCard(ctx, x, P1);
-
-    var collector = new AutoProcessingTriggerCollector(ctx.EffectRegistry);
-    var triggers = collector.CollectAllTriggers(CardMovedToPlay(x, suppressOnPlay: false));
-
-    AssertTrue(triggers.Any(t => t.Request.Context.SourceEntityId == x),
-        "without suppression the moved card's own OnPlay/OnEnterField trigger is collected");
-    await Task.CompletedTask;
-}
 
 async Task G3_PlayEtbFalseDoesNotThrow()
 {
@@ -88,26 +64,6 @@ EngineContext NewContext()
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 9);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
     return ctx;
-}
-
-// A CardMoved(Hand -> BattleArea) event for `card`, optionally carrying the one-shot suppressOnPlay marker.
-GameEvent CardMovedToPlay(HeadlessEntityId card, bool suppressOnPlay)
-{
-    var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        ["cardId"] = card.Value,
-        ["fromZone"] = ChoiceZone.Hand.ToString(),
-        ["toZone"] = ChoiceZone.BattleArea.ToString(),
-    };
-    if (suppressOnPlay) { metadata[MatchStateMutationSink.SuppressOnPlayKey] = true; }
-
-    return new GameEvent(1, GameEventType.CardMoved, "play", metadata)
-    {
-        Actor = P1,
-        Subject = card,
-        ZoneFrom = ChoiceZone.Hand,
-        ZoneTo = ChoiceZone.BattleArea,
-    };
 }
 
 HeadlessEntityId Place(EngineContext ctx, string number, string name, ChoiceZone zone, string cardType)
