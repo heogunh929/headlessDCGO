@@ -26,6 +26,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT9_013 W1: ESS CanAttackTargetDefendingPermanentClass — [OmniShoutmon] 진화원 보유 시 상대 언서스펜드 디지몬 공격 허용, 서스펜드면 불허", BT9013_CanAttackUnsuspendedWithSource),
     ("BT16_052 W1: [When Digivolving] 직접 발화 → [KoHagurumon] 토큰이 자기 배틀에어리어에 착지", BT16052_WhenDigivolvingPlaysToken),
     ("ST20_15 W1: [Security] 직접 발화 → 손패 테이머 1장이 코스트 없이 배틀에어리어에 착지", ST2015_SecurityPlaysTamerFree),
+    ("ST20_15 W2: [Main] 직접 발화 → 최상단 시큐리티 1장 손패로 + ST20_15 자신이 최상단 시큐리티(앞면) 배치 (RD-P6C3-B1 UN-STOP)", ST2015_MainReplacesTopSecurityWithSelf),
     ("BT12_044 W1: [When Digivolving] 직접 발화 → 상대 약체 디지몬이 Security Attack -2 부여받음(HasSecurityAttackChanges)", BT12044_WhenDigivolvingGrantsSAttackDebuff),
     ("BT10_084 W1: [On Play] 직접 발화 → 트래시 [BagraArmy] Lv4 이하 디지몬 최대 2장 무상 플레이 + Blocker 부여", BT10084_OnPlayPlaysTrashDigimonAndGrantsBlocker),
     ("BT23_081 W1: [On Play] 직접 발화 → 손패 [Hudie] 플레이코스트5 이하 디지몬 1장 무상 플레이", BT23081_OnPlayPlaysHudieDigimonFree),
@@ -146,6 +147,61 @@ async Task ST2015_SecurityPlaysTamerFree()
         $"[Security]: the tamer left the hand and landed on the battle area for free [debug prompts:{string.Join(" | ", policy.Seen)}]");
     AssertEqual(handBefore - 1, Count(match, P1, ChoiceZone.Hand), "exactly 1 card left the hand");
     AssertEqual(battleBefore + 1, Count(match, P1, ChoiceZone.BattleArea), "exactly 1 permanent landed on the battle area");
+}
+
+// ST20_15 W2 — the [Main] OptionSkill (ReplaceTopSecurityWithFaceUpOptionMainEffect, AS-IS :68) whose body was the
+// RD-P6C3-B1 STOP seat (ReplaceTopSecurityWithFaceUpOptionEffect, AS-IS CardEffectFactory.cs:684). Direct
+// effect-API drive (PILOT-S5 house style): the TOP security card is added to hand, then ST20_15 itself is placed
+// face-up as the new TOP security card.
+async Task ST2015_MainReplacesTopSecurityWithSelf()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPilotMatchAsync(seed: 9402, MonoDecks("BT1_028", "BT1_028"));
+    EngineContext ctx = match.Context;
+    await ReachMainWaitAsync(match);
+
+    // Clear the security cards the StartGame pump dealt so the two staged cards are the only ones.
+    foreach (HeadlessEntityId dealt in ZoneCards(match, P1, ChoiceZone.Security).ToArray())
+    {
+        await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, dealt, ChoiceZone.Security, ChoiceZone.Library));
+    }
+
+    // Two distinct security cards so "top" (first) vs "bottom" (last) is observable.
+    StageSynthetic(match, P1, "EXS5-SECTOP", dp: 1000, level: 3, "1:sec:st20top", zone: ChoiceZone.Security);
+    StageSynthetic(match, P1, "EXS5-SECBOT", dp: 2000, level: 4, "1:sec:st20bot", zone: ChoiceZone.Security);
+    HeadlessEntityId st2015 = Stage(match, P1, "ST20_15", ChoiceZone.Hand, "1:hand:ST2015main", register: true);
+
+    HeadlessEntityId topId, bottomId;
+    using (AmbientMatchContext.Scope _c = AmbientMatchContext.Enter(ctx))
+    {
+        var secBefore = new Cec.Player(ctx, P1).SecurityCards;
+        AssertEqual(2, secBefore.Count, "staging produced exactly 2 security cards");
+        topId = secBefore.First().InstanceId;
+        bottomId = secBefore.Last().InstanceId;
+    }
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(ctx);
+    var card = new Cec.CardSource(ctx, st2015, P1);
+    var effectInstance = new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST20.White.ST20_15();
+    List<Cec.ICardEffect> mainEffects = effectInstance.CardEffects(Cec.EffectTiming.OptionSkill, card);
+    var main = (Cfx.ActivateClass)mainEffects.First(e => e.EffectName == "Replace your top security card with this face-up card");
+
+    await main.Activate(new System.Collections.Hashtable());
+
+    // (1) old TOP security card added to hand; (2) it left the security stack.
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Hand).Contains(topId), "the top security card was added to P1's hand");
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.Security).Contains(topId), "the old top security card left the security stack");
+    // (3) the bottom security card is untouched (only the TOP was pulled).
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Security).Contains(bottomId), "the bottom security card was NOT touched (Top variant pulls the top only)");
+    // (4) ST20_15 itself is now a security card, and NOT in hand.
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Security).Contains(st2015), "ST20_15 placed itself as a security card");
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.Hand).Contains(st2015), "ST20_15 is no longer in hand");
+    // (5) net security count unchanged (removed 1 top, added ST20_15 as new top).
+    AssertEqual(2, Count(match, P1, ChoiceZone.Security), "security count unchanged: -1 (top to hand) +1 (ST20_15 placed) = net 2");
+    // (6) ST20_15 is the new TOP (first) security card, placed FACE UP (faceUp:true).
+    var secAfter = new Cec.Player(ctx, P1).SecurityCards;
+    AssertEqual(st2015.Value, secAfter.First().InstanceId.Value, "ST20_15 is the new TOP (first) security card");
+    AssertEqual(bottomId.Value, secAfter.Last().InstanceId.Value, "the original bottom security card is still on the bottom");
+    AssertTrue(SecurityFaceState.IsFaceUpInSecurity(ctx, st2015), "ST20_15 was placed FACE UP as the top security card");
 }
 
 // ═══════════════════════════════════ BT12_044 ═══════════════════════════════════
