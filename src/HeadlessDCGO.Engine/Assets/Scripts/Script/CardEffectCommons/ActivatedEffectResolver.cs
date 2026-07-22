@@ -327,7 +327,8 @@ public static class ActivatedEffectResolver
         Func<ICardEffect, bool>? effectFilter = null,
         bool declarative = false,
         bool windowDispatched = false,
-        bool inheritedScan = false)
+        bool inheritedScan = false,
+        Action<ICardEffect>? effectStamp = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardInstanceId.IsEmpty
@@ -384,6 +385,18 @@ public static class ActivatedEffectResolver
         // every other (default) path runs only the non-inherited ones. Behaviour-neutral for the default path
         // (no ported effect is inherited yet, so the non-inherited filter keeps them all).
         effects = effects.Where(e => MembershipKeeps(e, inheritedScan)).ToList();
+
+        // (RD-W3-5) AS-IS ActivateMainOfOptionSide stamps the RESOLVED [Main] ActivateClass instance
+        // (SetIsDigimonEffect/SetIsTamerEffect) BEFORE Activate — the resolver enumerates the card's OWN effect
+        // instances (CardSource.EffectList), so a caller can stamp those very instances that ResolveListAsync then
+        // activates. Faithful substrate translation of the AS-IS `mainActivateClass.SetIs*(...)` lines.
+        if (effectStamp is not null)
+        {
+            foreach (ICardEffect e in effects)
+            {
+                effectStamp(e);
+            }
+        }
 
         return await ResolveWithinCycleAsync(
             context, sink,

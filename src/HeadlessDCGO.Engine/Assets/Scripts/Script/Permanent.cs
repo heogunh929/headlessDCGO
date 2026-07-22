@@ -3850,8 +3850,47 @@ public sealed class Permanent
     {
         if (!putToTrash)
         {
-            throw new NotSupportedException(
-                "Permanent.DiscardEvoRoots(putToTrash: false) has no headless primitive yet — design item MIG4-DISCARDEVOROOTS-PUTTOTRASH.");
+            // (MIG4-DISCARDEVOROOTS-PUTTOTRASH) AS-IS Permanent.cs:106-142 putToTrash==false path — the jogress
+            // collapse's bare-DETACH (CardController.cs:1484 uses ignoreOverflow:true): snapshot BOTH root lists,
+            // apply the ACE-Overflow penalty first (unless ignoreOverflow, host-on-field guard = AS-IS
+            // AceOverflowClass.Overflow's IsExistOnBattleArea/IsExistOnBreedingAreaDigimon filter), then
+            // RemoveFromAllArea each evo source AND each link card (AS-IS's exact call — detach from the stack /
+            // link + withdraw to zone None, NO trash). The detached sources are left in None for the caller to
+            // re-parent under the new jogress permanent.
+            List<CardSource> evoRoots = new List<CardSource>(DigivolutionCards);   // AS-IS DigivolutionCards.Clone()
+            List<CardSource> linkRoots = new List<CardSource>(LinkedCards);        // AS-IS LinkedCards.Clone()
+
+            if (!ignoreOverflow && HostIsOnField())
+            {
+                DeletionSourceTrash.ApplyAceOverflow(
+                    _context.CardInstanceRepository,
+                    evoRoots.Select(c => c.InstanceId).ToArray(),
+                    _context.MemoryController,
+                    _context.TurnController.Current.TurnPlayerId);
+                DeletionSourceTrash.ApplyAceOverflow(
+                    _context.CardInstanceRepository,
+                    linkRoots.Select(c => c.InstanceId).ToArray(),
+                    _context.MemoryController,
+                    _context.TurnController.Current.TurnPlayerId);
+            }
+
+            foreach (CardSource evoRoot in evoRoots)
+            {
+                await CardObjectController.RemoveFromAllArea(evoRoot, cancellationToken).ConfigureAwait(false);
+            }
+
+            foreach (CardSource linkRoot in linkRoots)
+            {
+                await CardObjectController.RemoveFromAllArea(linkRoot, cancellationToken).ConfigureAwait(false);
+            }
+
+            return;
+
+            // AS-IS AceOverflowClass.Overflow keeps only sources whose host permanent is on the battle/breeding
+            // area (IsExistOnBattleArea || IsExistOnBreedingAreaDigimon). The sources belong to THIS permanent, so
+            // the per-card existence test collapses to "is this permanent on the field".
+            bool HostIsOnField() =>
+                new Player(_context, OwnerId).GetFieldPermanents().Any(p => p.InstanceId == InstanceId);
         }
 
         await DeletionSourceTrash.TrashEvoSourcesAsync(

@@ -222,29 +222,30 @@ public static partial class CardEffectCommons
     /// <summary>(BRIDGE W3) AS-IS <c>ActivateMainOfOptionSide</c> — AS-IS-signature overload; the substrate
     /// resolves ONLY the [Main]-tagged OptionSkill effect (the AS-IS <c>OptionMainEffect(card)</c> filter),
     /// then the AS-IS <paramref name="afterMainEffect"/> follow-up runs with <paramref name="activateClass"/>
-    /// (AS-IS: forwarded verbatim, never inspected by this method itself). AS-IS also stamps the resolved
-    /// [Main] instance with <c>SetIsDigimonEffect(asEffectOfThisDigimon)</c>/<c>SetIsTamerEffect(false)</c>;
-    /// the substrate resolver constructs the effect instance itself and exposes no hook to stamp it, so a
-    /// <c>true</c> flag cannot be threaded — STOP (design item RD-W3-5) rather than a silent drop. The default
-    /// (<c>false</c>) path's residual deviation (no explicit false-override on a factory-flagged instance) is
-    /// recorded in the same design item; the single AS-IS card caller (BT25_104) uses the defaults.</summary>
+    /// (AS-IS: forwarded verbatim, never inspected by this method itself). (RD-W3-5 RESOLVED) AS-IS stamps the
+    /// resolved [Main] instance with <c>SetIsDigimonEffect(asEffectOfThisDigimon)</c>/<c>SetIsTamerEffect(false)</c>
+    /// BEFORE Activate (CardEffectCommons.cs:738-739); the substrate resolver now threads a per-instance stamp
+    /// (<c>ActivatedEffectResolver.effectStamp</c>) onto the very effect instances it enumerates from the card's
+    /// own <c>EffectList</c> and activates, so the AS-IS stamp — for BOTH the <c>true</c> and the default
+    /// <c>false</c> value — is applied 1:1. The single AS-IS card caller (BT25_104) uses the defaults.</summary>
     public static async Task ActivateMainOfOptionSide(
         CardSource card, ICardEffect activateClass, Func<ICardEffect, Task> afterMainEffect = null,
         bool asEffectOfThisDigimon = false)
     {
-        if (asEffectOfThisDigimon)
-        {
-            throw new NotSupportedException(
-                "ActivateMainOfOptionSide(asEffectOfThisDigimon: true) cannot stamp IsDigimonEffect on the " +
-                "resolver-constructed [Main] instance — design item RD-W3-5 (STOP, strong model).");
-        }
-
         if (card == null)
         {
             return;
         }
 
-        await ActivateMainOfOptionSide(card, activateClass?.EffectSourceCard!).ConfigureAwait(false);
+        // AS-IS :738-739 — stamp the resolved [Main] ActivateClass as (by default) an OPTION effect, unless the
+        // caller declares it an effect OF this Digimon. Threaded onto the resolver-enumerated instance.
+        await ActivateMainOfOptionSide(
+            card, activateClass?.EffectSourceCard!,
+            effectStamp: mainEffect =>
+            {
+                mainEffect.SetIsDigimonEffect(asEffectOfThisDigimon);
+                mainEffect.SetIsTamerEffect(false);
+            }).ConfigureAwait(false);
 
         if (afterMainEffect != null)
         {

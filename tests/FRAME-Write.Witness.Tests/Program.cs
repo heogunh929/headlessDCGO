@@ -146,23 +146,22 @@ async Task JogressCollapseWrite()
         activateETB: true);
     play.SetJogress(new[] { blueIdx, greenIdx });
 
-    // The frame-WRITE jogress path (my seats) drives: jogress target resolution (PlayCardClass:3093 — resolves the
-    // two roots from the compacted field list at [blueIdx, greenIdx]), the CanJogressFromTargetPermanents gate, and
-    // the hand-off into PlayPermanentClass's jogress arm, which then calls DiscardEvoRoots(putToTrash:false) on the
-    // TWO RESOLVED ROOTS. That detach-without-trash leaf is the pre-existing MIG4-DISCARDEVOROOTS-PUTTOTRASH STOP
-    // (Permanent.cs:3853) — a SEPARATE design item, NOT a frame seat. Reaching it (with both roots resolved and the
-    // capacity gate passed) is the live-ness witness for the frame-WRITE jogress path; the collapse's final
-    // stack-order write is gated only on that MIG4 leaf.
-    try
-    {
-        await play.PlayCard();
-        throw new InvalidOperationException("expected the jogress collapse to reach the MIG4 detach leaf");
-    }
-    catch (NotSupportedException nse)
-    {
-        AssertTrue(nse.Message.Contains("DISCARDEVOROOTS", StringComparison.OrdinalIgnoreCase) || nse.Message.Contains("DiscardEvoRoots", StringComparison.Ordinal),
-            "the frame-WRITE jogress path resolved both roots + passed the capacity gate + handed off to the collapse executor, stopping only at the pre-existing MIG4 bare-detach leaf (residual, not a frame seat)");
-    }
+    // The frame-WRITE jogress path drives: jogress target resolution (PlayCardClass:3093 — resolves the two roots
+    // from the compacted field list at [blueIdx, greenIdx]), the CanJogressFromTargetPermanents gate, and the
+    // hand-off into PlayPermanentClass's jogress arm, which calls DiscardEvoRoots(putToTrash:false) on the TWO
+    // RESOLVED ROOTS (bare-detach to None) then re-parents them under the new BT16_025 permanent.
+    // (MIG4-DISCARDEVOROOTS-PUTTOTRASH LANDED) that bare-detach leaf — the former STOP — is now a live 1:1 port,
+    // so the collapse runs END-TO-END. This assert was extended from "reaches the MIG4 STOP" to the full collapse.
+    await play.PlayCard();
+
+    List<Cec.Permanent> field = new Cec.Player(match.Context, P1).GetFieldPermanents();
+    AssertTrue(field.All(p => p.InstanceId != blue && p.InstanceId != green),
+        "both jogress roots (Blue Lv4, Green Lv4) are gone from the field as standalone permanents (bare-detached)");
+    Cec.Permanent? result = field.FirstOrDefault(p => p.InstanceId == bt16);
+    AssertTrue(result is not null, "BT16_025 is the surviving jogress permanent (2 roots collapsed → 1 permanent)");
+    IReadOnlyList<Cec.CardSource> sources = result!.DigivolutionCards;
+    AssertTrue(sources.Any(s => s.InstanceId == blue) && sources.Any(s => s.InstanceId == green),
+        "both roots are stacked underneath BT16_025 as its digivolution sources (full collapse WRITE)");
 }
 
 // ═══════════════════════════════════ Test 4: burst WRITE end-to-end ═══════════════════════════════════
