@@ -106,6 +106,11 @@ async Task SecurityBattleDeletionStampsBatch()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 41);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // The uncapped OnLeaveFieldAnyone reactor is an ActivateClass — its ICardEffect.CanTrigger gates on
+    // DoneStartGame (mirror proxy: phase past None/Setup), so the finisher's leave window collects it only once
+    // the game is underway. A security check runs mid-attack in the Main phase; advance past setup (the P1-1
+    // cluster reaches Main via the pump, so its reactor already fires — this direct-driven case must match).
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     ctx.MemoryController.Set(0);
     HeadlessEntityId reactor = await AddLeaveReactor(ctx);
     HeadlessEntityId attacker = await AddFieldDigimon(ctx, P1, "ATK", dp: 3000);
@@ -130,11 +135,12 @@ async Task SecurityBattleDeletionStampsBatch()
     AssertTrue(move.Metadata.TryGetValue(MatchStateMutationSink.DeletionBatchIdKey, out object? raw) && raw is long id && id != 0,
         "security-battle deletion move stamped with a non-zero delete-batch id");
 
-    // (B6-Db item 3 — RD-R4B6-P1-2 REAL GAP, marking preserved) The batch-id is stamped (assertion above
-    // passes), but the security-battle finisher's departure does NOT feed RunToStable's OnLeaveFieldAnyone
-    // collection the way the sink/field-battle finishers do — so the uncapped leave reactor stays silent.
-    // Fixing the security-check drain's trigger dispatch to parity is beyond a small re-pin (needs AS-IS
-    // trigger-queue analysis of the SecurityResolver finisher vs BattleResolver); left marked, not repaired.
+    // (RD-R4B6-P1-2 CLEARED) The security-battle finisher now feeds RunToStable's OnLeaveFieldAnyone collection
+    // at parity with the sink/field-battle finishers: SecurityResolver.FinalizeSecurityBattleDeletionAsync opens
+    // the collect-BEFORE-removal OnDestroyedAnyone / OnLeaveFieldAnyone window while the losing attacker is STILL
+    // on the battle area (the same StackSkillInfos(OnLeaveFieldAnyone) the field-battle finalize runs). With the
+    // game underway (phase past setup, above) the uncapped anyone-scoped leave reactor is collected and drains
+    // here, so the two-part loss (batch-id stamp + leave reactor) is now fully mirrored.
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(-1, ctx.MemoryController.Current.Current, "leave reactor fired once for the security-battle deletion");
     _ = reactor;
