@@ -342,15 +342,6 @@ public static class RestrictionHelpers
             .ToArray();
     }
 
-    public static IReadOnlyList<CannotRestriction> QueryRestrictions(
-        IEffectQueryService effectQueryService,
-        EffectQueryContext context)
-    {
-        ArgumentNullException.ThrowIfNull(effectQueryService);
-        ArgumentNullException.ThrowIfNull(context);
-        return ReadRestrictions(effectRequests: effectQueryService.GetRestrictionEffects(context));
-    }
-
     public static CannotRestrictionResult CannotAttack(
         HeadlessEntityId attackerId,
         IReadOnlyList<CannotRestriction> restrictions,

@@ -98,11 +98,6 @@ public sealed class InMemoryEffectRegistry : EffectRegistry
         return GetRequestsForRole(EffectQueryRole.Restriction, context);
     }
 
-    public bool HasEffect(HeadlessEntityId effectId)
-    {
-        return !effectId.IsEmpty && _bindingsByEffectId.ContainsKey(effectId);
-    }
-
     public EffectBinding? Find(HeadlessEntityId effectId)
     {
         return effectId.IsEmpty

@@ -14,7 +14,6 @@ public interface IEffectQueryService
 
     IReadOnlyList<EffectRequest> GetRestrictionEffects(EffectQueryContext context);
 
-    bool HasEffect(HeadlessEntityId effectId);
 }
 
 [Flags]

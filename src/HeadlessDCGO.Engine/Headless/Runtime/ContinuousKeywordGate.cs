@@ -186,46 +186,6 @@ public static class ContinuousKeywordGate
     /// permanent being protected (Decoy.cs CanSelectPermanentCondition), not the keyword holder.</summary>
     public const string PermanentConditionKey = "keyword.permanentCondition";
 
-    /// <summary>(D1 Decoy) True when SOME active <paramref name="keyword"/> grant held by
-    /// <paramref name="holderId"/> accepts <paramref name="subjectId"/> under its stored
-    /// <see cref="PermanentConditionKey"/> predicate (a grant without a predicate accepts everything).
-    /// Mirrors the AS-IS live evaluation of <c>permanentCondition(protected permanent)</c>. Context-less
-    /// callers (the sink's defer decision, a documented safe superset) treat a stored predicate as passing;
-    /// the context-aware choice paths re-evaluate strictly.</summary>
-    public static bool KeywordGrantAcceptsSubject(
-        EffectRegistry registry,
-        HeadlessEntityId holderId,
-        string keyword,
-        HeadlessEntityId subjectId,
-        HeadlessPlayerId subjectOwner,
-        EngineContext? context)
-    {
-        ArgumentNullException.ThrowIfNull(registry);
-        if (holderId.IsEmpty || string.IsNullOrWhiteSpace(keyword))
-        {
-            return false;
-        }
-
-        foreach (EffectBinding binding in registry.GetKeywordEffects(keyword))
-        {
-            EffectContext effectContext = binding.Request.Context;
-            if (effectContext.SourceEntityId != holderId && !effectContext.TargetEntityIds.Contains(holderId))
-            {
-                continue;
-            }
-
-            if (!effectContext.Values.TryGetValue(PermanentConditionKey, out object? raw)
-                || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate
-                || context is null
-                || predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, subjectId, subjectOwner, subjectOwner)))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /// <summary>Registry-only overload for consumers that hold an <see cref="EffectRegistry"/> but not the
     /// full <see cref="EngineContext"/> (e.g. DeletionReplacementGate's context-less resolution methods).</summary>
     public static bool HasKeyword(EffectRegistry registry, HeadlessEntityId cardId, string keyword)

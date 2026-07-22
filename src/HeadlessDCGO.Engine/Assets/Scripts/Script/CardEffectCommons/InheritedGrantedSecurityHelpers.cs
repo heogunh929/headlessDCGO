@@ -12,67 +12,6 @@ public enum EffectSourceKind
     Security = 3,
 }
 
-public sealed record InheritedGrantedSecurityQueryResult
-{
-    private InheritedGrantedSecurityQueryResult(
-        bool isSuccess,
-        IReadOnlyList<EffectRequest> effects,
-        EffectSourceKind? sourceKind,
-        string failureReason,
-        IReadOnlyDictionary<string, object?> values)
-    {
-        IsSuccess = isSuccess;
-        Effects = Array.AsReadOnly(effects.ToArray());
-        SourceKind = sourceKind;
-        FailureReason = failureReason ?? string.Empty;
-        Values = CopyValues(values);
-    }
-
-    public bool IsSuccess { get; }
-
-    public IReadOnlyList<EffectRequest> Effects { get; }
-
-    public EffectSourceKind? SourceKind { get; }
-
-    public string FailureReason { get; }
-
-    public IReadOnlyDictionary<string, object?> Values { get; }
-
-    public static InheritedGrantedSecurityQueryResult Success(
-        IReadOnlyList<EffectRequest> effects,
-        EffectSourceKind? sourceKind,
-        IReadOnlyDictionary<string, object?> values)
-    {
-        return new InheritedGrantedSecurityQueryResult(true, effects, sourceKind, string.Empty, values);
-    }
-
-    public static InheritedGrantedSecurityQueryResult Failure(
-        string failureReason,
-        EffectSourceKind? sourceKind = null,
-        IReadOnlyDictionary<string, object?>? values = null)
-    {
-        return new InheritedGrantedSecurityQueryResult(
-            false,
-            Array.Empty<EffectRequest>(),
-            sourceKind,
-            failureReason,
-            values ?? ReadOnlyDictionary<string, object?>.Empty);
-    }
-
-    private static IReadOnlyDictionary<string, object?> CopyValues(
-        IReadOnlyDictionary<string, object?> values)
-    {
-        var copy = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (KeyValuePair<string, object?> pair in values.OrderBy(pair => pair.Key, StringComparer.Ordinal))
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(pair.Key);
-            copy[pair.Key.Trim()] = pair.Value;
-        }
-
-        return new ReadOnlyDictionary<string, object?>(copy);
-    }
-}
-
 public static class InheritedGrantedSecurityHelpers
 {
     public const string SourceKindKey = "effectSourceKind";
@@ -182,52 +121,6 @@ public static class InheritedGrantedSecurityHelpers
         return new EffectBinding(nextRequest, keywords, queryRoles, queryScopes);
     }
 
-    public static InheritedGrantedSecurityQueryResult Query(
-        IEffectQueryService effectQueryService,
-        EffectQueryRole role,
-        EffectQueryContext context,
-        EffectSourceKind? sourceKind = null)
-    {
-        if (effectQueryService is null)
-        {
-            return InheritedGrantedSecurityQueryResult.Failure("Effect query service must not be null.", sourceKind);
-        }
-
-        if (context is null)
-        {
-            return InheritedGrantedSecurityQueryResult.Failure("Effect query context must not be null.", sourceKind);
-        }
-
-        if (!IsSingleKnownRole(role))
-        {
-            return InheritedGrantedSecurityQueryResult.Failure("Effect query role must be a single known role.", sourceKind);
-        }
-
-        if (sourceKind.HasValue && !Enum.IsDefined(sourceKind.Value))
-        {
-            return InheritedGrantedSecurityQueryResult.Failure("Effect source kind must be known.", sourceKind);
-        }
-
-        IReadOnlyList<EffectRequest> rawEffects = role switch
-        {
-            EffectQueryRole.Continuous => effectQueryService.GetContinuousEffects(context),
-            EffectQueryRole.Replacement => effectQueryService.GetReplacementEffects(context),
-            EffectQueryRole.Modifier => effectQueryService.GetModifierEffects(context),
-            EffectQueryRole.Restriction => effectQueryService.GetRestrictionEffects(context),
-            _ => Array.Empty<EffectRequest>(),
-        };
-
-        EffectRequest[] effects = rawEffects
-            .Where(effect => !sourceKind.HasValue || SourceKind(effect.Context) == sourceKind.Value)
-            .OrderBy(effect => effect.EffectId.Value, StringComparer.Ordinal)
-            .ToArray();
-
-        return InheritedGrantedSecurityQueryResult.Success(
-            effects,
-            sourceKind,
-            Values(context, role, sourceKind, effects));
-    }
-
     public static EffectContext WithSourceKind(
         EffectContext context,
         EffectSourceKind sourceKind,
@@ -297,24 +190,6 @@ public static class InheritedGrantedSecurityHelpers
         return EffectSourceKind.Native;
     }
 
-    public static IReadOnlyDictionary<string, object?> Values(
-        EffectQueryContext context,
-        EffectQueryRole role,
-        EffectSourceKind? sourceKind,
-        IReadOnlyList<EffectRequest> effects)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(effects);
-        return new ReadOnlyDictionary<string, object?>(
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [QueryScopeKey] = context.Scope,
-                [QueryRoleKey] = role.ToString(),
-                [SourceKindKey] = sourceKind?.ToString(),
-                [EffectIdsKey] = effects.Select(effect => effect.EffectId.Value).ToArray(),
-            });
-    }
-
     private static Dictionary<string, object?> CopyObjectValues(
         IReadOnlyDictionary<string, object?>? values)
     {
@@ -337,13 +212,6 @@ public static class InheritedGrantedSecurityHelpers
         return copy;
     }
 
-    private static bool IsSingleKnownRole(EffectQueryRole role)
-    {
-        return role is EffectQueryRole.Continuous
-            or EffectQueryRole.Replacement
-            or EffectQueryRole.Modifier
-            or EffectQueryRole.Restriction;
-    }
 }
 
 
@@ -400,12 +268,4 @@ public static class InheritedGrantedSecurityHelperFactory
             values);
     }
 
-    public static InheritedGrantedSecurityQueryResult Query(
-        IEffectQueryService effectQueryService,
-        EffectQueryRole role,
-        EffectQueryContext context,
-        EffectSourceKind? sourceKind = null)
-    {
-        return InheritedGrantedSecurityHelpers.Query(effectQueryService, role, context, sourceKind);
-    }
 }

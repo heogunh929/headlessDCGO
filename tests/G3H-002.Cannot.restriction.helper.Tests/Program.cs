@@ -17,7 +17,6 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Restriction target and source filters skip non matching restrictions", RestrictionFiltersSkipNonMatching),
     ("Metadata boolean restrictions are read from card and instance", MetadataRestrictionsAreRead),
     ("CardInstanceState modifiers and flags are read as restrictions", CardInstanceStateRestrictionsAreRead),
-    ("Effect query restriction requests are read from context values", EffectQueryRestrictionsAreRead),
     ("Restriction result values are deterministic", RestrictionResultValuesAreDeterministic),
     ("Invalid restriction input fails with explicit exception", InvalidRestrictionInputFails),
     ("CardEffectCommons factory creates headless restrictions", CardEffectCommonsFactoryCreatesRestrictions),
@@ -181,44 +180,6 @@ Task CardInstanceStateRestrictionsAreRead()
     AssertRestricted(RestrictionHelpers.CannotReturnToHand(TargetId, restrictions), RestrictionHelpers.CannotReturnToHandKey);
     AssertRestricted(RestrictionHelpers.CannotSuspend(TargetId, restrictions), RestrictionHelpers.CannotSuspendKey);
     AssertEqual(true, state.Flags[RestrictionHelpers.CannotSuspendKey], "state flag remains");
-    return Task.CompletedTask;
-}
-
-Task EffectQueryRestrictionsAreRead()
-{
-    var registry = new InMemoryEffectRegistry();
-    EffectContext context = new(
-        PlayerOne,
-        PlayerOne,
-        SourceId,
-        triggerEntityId: null,
-        targetEntityIds: new[] { TargetId },
-        values: new Dictionary<string, object?>
-        {
-            [RestrictionHelpers.RestrictionsKey] = new object[]
-            {
-                new Dictionary<string, object?>
-                {
-                    [RestrictionHelpers.RestrictionKindKey] = nameof(CannotRestrictionKind.Suspend),
-                    [RestrictionHelpers.RestrictionTargetEntityIdKey] = TargetId.Value,
-                    [RestrictionHelpers.RestrictionReasonKey] = "Queried restriction.",
-                },
-            },
-        });
-    EffectRequest request = new(new HeadlessEntityId("effect-restrict"), PlayerOne, "Continuous", context);
-    registry.Register(new EffectBinding(
-        request,
-        queryRoles: EffectQueryRole.Restriction,
-        queryScopes: new[] { "CannotSuspend" }));
-
-    IReadOnlyList<CannotRestriction> restrictions = RestrictionHelpers.QueryRestrictions(
-        registry,
-        new EffectQueryContext("CannotSuspend", targetEntityId: TargetId));
-    CannotRestrictionResult result = RestrictionHelpers.CannotSuspend(TargetId, restrictions);
-
-    AssertTrue(result.IsRestricted, "query restriction");
-    AssertContains(result.AppliedRestrictionIds[0], "effect-restrict", "effect id prefix");
-    AssertContains(result.Reason, "Queried restriction", "query reason");
     return Task.CompletedTask;
 }
 

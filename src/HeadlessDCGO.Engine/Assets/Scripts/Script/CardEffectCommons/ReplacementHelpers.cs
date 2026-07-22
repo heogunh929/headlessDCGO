@@ -386,15 +386,6 @@ public static class ReplacementHelpers
             .ToArray();
     }
 
-    public static IReadOnlyList<ReplacementEffect> QueryReplacements(
-        IEffectQueryService effectQueryService,
-        EffectQueryContext context)
-    {
-        ArgumentNullException.ThrowIfNull(effectQueryService);
-        ArgumentNullException.ThrowIfNull(context);
-        return ReadReplacements(effectRequests: effectQueryService.GetReplacementEffects(context));
-    }
-
     public static ReplacementResult PreventRemoval(
         HeadlessEntityId targetEntityId,
         IReadOnlyList<ReplacementEffect> replacements,

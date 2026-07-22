@@ -18,9 +18,6 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Inherited binding records source kind and host", InheritedBindingRecordsSourceKind),
     ("Granted binding records target and query metadata", GrantedBindingRecordsTarget),
     ("Security binding records security owner", SecurityBindingRecordsOwner),
-    ("Query filters inherited granted and security effects by role and scope", QueryFiltersByKindRoleAndScope),
-    ("Query returns deterministic ordered effect ids", QueryIsDeterministic),
-    ("Invalid query input returns explicit failure", InvalidQueryReturnsFailure),
     ("Source kind detection falls back to legacy boolean flags", SourceKindDetectionSupportsBooleanFlags),
     ("Assets facade delegates and source files stay inside G3L scope", AssetsFacadeAndSourceScope),
 };
@@ -139,66 +136,6 @@ Task SecurityBindingRecordsOwner()
     return Task.CompletedTask;
 }
 
-Task QueryFiltersByKindRoleAndScope()
-{
-    InMemoryEffectRegistry registry = RegistryWithMixedBindings();
-    var context = new EffectQueryContext("SharedScope", playerId: PlayerOne);
-
-    InheritedGrantedSecurityQueryResult inherited = InheritedGrantedSecurityHelpers.Query(
-        registry,
-        EffectQueryRole.Continuous,
-        context,
-        EffectSourceKind.Inherited);
-    InheritedGrantedSecurityQueryResult granted = InheritedGrantedSecurityHelpers.Query(
-        registry,
-        EffectQueryRole.Continuous,
-        context,
-        EffectSourceKind.Granted);
-    InheritedGrantedSecurityQueryResult security = InheritedGrantedSecurityHelpers.Query(
-        registry,
-        EffectQueryRole.Continuous,
-        context,
-        EffectSourceKind.Security);
-
-    AssertTrue(inherited.IsSuccess, "inherited query");
-    AssertEqual("inherited-a,inherited-b", JoinIds(inherited.Effects), "inherited ids");
-    AssertEqual("granted-a", JoinIds(granted.Effects), "granted ids");
-    AssertEqual("security-a", JoinIds(security.Effects), "security ids");
-    AssertSequence(new[] { "inherited-a", "inherited-b" }, Strings(inherited.Values[InheritedGrantedSecurityHelpers.EffectIdsKey]), "values ids");
-    return Task.CompletedTask;
-}
-
-Task QueryIsDeterministic()
-{
-    InMemoryEffectRegistry registry = RegistryWithMixedBindings();
-    var context = new EffectQueryContext("SharedScope", playerId: PlayerOne);
-
-    string first = Signature(InheritedGrantedSecurityHelpers.Query(registry, EffectQueryRole.Continuous, context));
-    string second = Signature(InheritedGrantedSecurityHelpers.Query(registry, EffectQueryRole.Continuous, context));
-
-    AssertEqual(first, second, "same signature");
-    AssertContains(first, "effects=granted-a,inherited-a,inherited-b,native-a,security-a", "deterministic order");
-    return Task.CompletedTask;
-}
-
-Task InvalidQueryReturnsFailure()
-{
-    InMemoryEffectRegistry registry = RegistryWithMixedBindings();
-    var context = new EffectQueryContext("SharedScope");
-
-    InheritedGrantedSecurityQueryResult nullService = InheritedGrantedSecurityHelpers.Query(null!, EffectQueryRole.Continuous, context);
-    InheritedGrantedSecurityQueryResult nullContext = InheritedGrantedSecurityHelpers.Query(registry, EffectQueryRole.Continuous, null!);
-    InheritedGrantedSecurityQueryResult invalidRole = InheritedGrantedSecurityHelpers.Query(registry, EffectQueryRole.Continuous | EffectQueryRole.Modifier, context);
-
-    AssertFalse(nullService.IsSuccess, "null service");
-    AssertContains(nullService.FailureReason, "service", "null service reason");
-    AssertFalse(nullContext.IsSuccess, "null context");
-    AssertContains(nullContext.FailureReason, "context", "null context reason");
-    AssertFalse(invalidRole.IsSuccess, "invalid role");
-    AssertContains(invalidRole.FailureReason, "single known role", "invalid role reason");
-    return Task.CompletedTask;
-}
-
 Task SourceKindDetectionSupportsBooleanFlags()
 {
     EffectContext inherited = Context(SourceId, new Dictionary<string, object?> { [InheritedGrantedSecurityHelpers.IsInheritedKey] = true });
@@ -221,15 +158,6 @@ Task AssetsFacadeAndSourceScope()
         HostId,
         EffectQueryRole.Continuous,
         new[] { "FacadeScope" }));
-
-    InheritedGrantedSecurityQueryResult result = InheritedGrantedSecurityHelperFactory.Query(
-        registry,
-        EffectQueryRole.Continuous,
-        new EffectQueryContext("FacadeScope"),
-        EffectSourceKind.Inherited);
-
-    AssertTrue(result.IsSuccess, "facade query");
-    AssertEqual("facade-inherited", JoinIds(result.Effects), "facade id");
 
     string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "InheritedGrantedSecurityHelpers.cs");
     string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "InheritedGrantedSecurityHelpers.cs");
@@ -285,16 +213,6 @@ EffectContext Context(
 string JoinIds(IEnumerable<EffectRequest> effects)
 {
     return string.Join(",", effects.Select(effect => effect.EffectId.Value));
-}
-
-string Signature(InheritedGrantedSecurityQueryResult result)
-{
-    return string.Join(
-        "|",
-        $"success={result.IsSuccess}",
-        $"kind={result.SourceKind}",
-        $"effects={JoinIds(result.Effects)}",
-        $"values={string.Join(";", result.Values.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}={ValueToString(pair.Value)}"))}");
 }
 
 string[] Strings(object? value)

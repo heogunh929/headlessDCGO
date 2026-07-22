@@ -19,7 +19,6 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Immune replacement filters source and mutation kind", ImmuneReplacementFiltersSourceAndMutationKind),
     ("Metadata replacements are read from card and instance", MetadataReplacementsAreRead),
     ("CardInstanceState replacements are read from modifiers and flags", CardInstanceStateReplacementsAreRead),
-    ("Effect query replacement requests are read from context values", EffectQueryReplacementsAreRead),
     ("Replacement result values are deterministic", ReplacementResultValuesAreDeterministic),
     ("Invalid redirect input fails with explicit exception", InvalidRedirectInputFails),
     ("CardEffectCommons factory creates headless replacements", CardEffectCommonsFactoryCreatesReplacements),
@@ -185,45 +184,6 @@ Task CardInstanceStateReplacementsAreRead()
     AssertTrue(ReplacementHelpers.PreventDeletion(TargetId, replacements).IsReplaced, "state prevent deletion");
     AssertTrue(ReplacementHelpers.PreventRemoval(TargetId, replacements).IsReplaced, "state prevent removal");
     AssertEqual(true, state.Flags[ReplacementHelpers.PreventRemovalKey], "state flag remains");
-    return Task.CompletedTask;
-}
-
-Task EffectQueryReplacementsAreRead()
-{
-    var registry = new InMemoryEffectRegistry();
-    EffectContext context = new(
-        PlayerOne,
-        PlayerOne,
-        SourceId,
-        triggerEntityId: null,
-        targetEntityIds: new[] { TargetId },
-        values: new Dictionary<string, object?>
-        {
-            [ReplacementHelpers.ReplacementsKey] = new object[]
-            {
-                new Dictionary<string, object?>
-                {
-                    [ReplacementHelpers.EventKindKey] = nameof(ReplacementEventKind.RemoveFromField),
-                    [ReplacementHelpers.ActionKindKey] = nameof(ReplacementActionKind.Prevent),
-                    [ReplacementHelpers.TargetEntityIdKey] = TargetId.Value,
-                    [ReplacementHelpers.ReasonKey] = "Queried replacement.",
-                },
-            },
-        });
-    EffectRequest request = new(new HeadlessEntityId("effect-replacement"), PlayerOne, "WhenRemoveField", context);
-    registry.Register(new EffectBinding(
-        request,
-        queryRoles: EffectQueryRole.Replacement,
-        queryScopes: new[] { "RemoveFromFieldReplacement" }));
-
-    IReadOnlyList<ReplacementEffect> replacements = ReplacementHelpers.QueryReplacements(
-        registry,
-        new EffectQueryContext("RemoveFromFieldReplacement", targetEntityId: TargetId));
-    ReplacementResult result = ReplacementHelpers.PreventRemoval(TargetId, replacements);
-
-    AssertTrue(result.IsReplaced, "query replacement");
-    AssertContains(result.AppliedReplacementIds[0], "effect-replacement", "effect id prefix");
-    AssertContains(result.Reason, "Queried replacement", "query reason");
     return Task.CompletedTask;
 }
 

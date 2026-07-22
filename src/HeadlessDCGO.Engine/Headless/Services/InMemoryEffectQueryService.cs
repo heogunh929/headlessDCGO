@@ -46,11 +46,6 @@ public sealed class InMemoryEffectQueryService : IEffectQueryService
         return Array.Empty<EffectRequest>();
     }
 
-    public bool HasEffect(HeadlessEntityId effectId)
-    {
-        return !effectId.IsEmpty && _effects.Any(effect => effect.EffectId == effectId);
-    }
-
     public void Clear()
     {
         _effects.Clear();
