@@ -78,3 +78,22 @@ ContinuousScopeEvaluation :49/:66/:307/:324 · PlayerScopeContinuousHelpers:78 �
 - **RD-RC-03/F1**: GainAlliancePlayerEffect STOP화로 PRIM-P0.AddSkillLiveSet 서브테스트 3종(LateEntrantGainsKeyword/OpponentExcluded/PredicateHonoured) 고아화 — 스위트가 기존 Scapegoat STOP으로 base-red라 스위트-레벨 diff에 마스킹됨. ②에서 Alliance grant를 AS-IS player-버킷 StaticEffect idiom으로 재하우징할 때 3종 재조준.
 - **F2(P2)**: PRIM-P0.TriggerGrantSetSplice — PlayerScopeTriggerGrantEffect(테스트-전용)의 ReclassifyKind Find arm 소멸 영향 가능; base-red 유지 확인, ② 시 재판정.
 - **F3(P2)**: SchedulerResolver 존치 사유 정정 — "live 필수"가 아니라 "테스트-바인딩 해소용, production은 전량 Unbound". ④ 타입 삭제 시 재판정.
+
+---
+
+## §5. 캠페인 ② joint 재하우징 결과 (2026-07-22 마감, J-1~J-4)
+
+**커밋 체인**: J-1 `ee5c41e8`(CanNotAttack/Block flip) → J-2 `894ee1e5`(CanNotUnsuspend 소생=RD-RC-02 해소·신규 witness J2-UnsuspendRevival 5종) → J-3 `96be57c0`(SecurityDP flip+fold arm 원자 절제) → J-4 `04edc2f1`(0-호출 15종 flip·Alliance 복원=F1 해소·funnel 2좌석 전삭).
+
+**계기판**: joint `.Register` 2→**0** (src 잔여 `.Register`=③ 스코프 3좌석: :1507 사문·:2899 테스트-전용·registrar:236). 실카드 grant 10장 전부 AS-IS 버킷 idiom. 전체 스위트 383/67 — **신규 0·base-red 탈출 3**(G9-035·G9-072·G9-074; 궤적 71→70→67). 다이제스트 4배치 전부 bit-identical. 적대리뷰 **GO**(P0/P1 없음).
+
+**해소 원장**: RD-RC-02(unsuspend 무발화→소생)·RD-RC-03/F1(Alliance 3서브테스트)·RD-W2-1(lossy 어댑터, grant-측).
+
+**신규 P2 원장 (적대리뷰 발원, ③에서 상환)**:
+- **RD-J-01**: grant-시 면역 거부 가드=발명(AS-IS는 무조건 부여+live CanUse 게이트) — 기존·Ba-P0-1 핀·전 시블링 일관. 일시-면역 시나리오에서만 관측 가능. 충실성 재판정 대상.
+- **RD-J-02**: LiftCauseCardCondition 주석 반전(실제=팩토리가 null→무조건 정규화) — 주석 수정.
+- **RD-J-03**: RD-W2-1 "완전 해소"는 과대 — read-측 BuildCausingEffectStandIn 기본-플래그 한계 잔존(RD-P6B-13, BT19_089 미포팅이라 live 결함 아님).
+- **RD-J-04**: witness 갭 — ST17_08 UntilOpponentTurnEnd를 실 HeadlessEndTurnCleanupFlow 경유로 미구동. 서브테스트 추가.
+- **RD-J-05**: G9-074:102 스테일 주석(삭제된 funnel 언급).
+
+**다음=③**: registrar:236·:1507·:2899 은퇴 + reader 잔존 클러스터 절제(RestrictionScan registry arm·JointRestrictionEffect·Continuous*Restriction 캐리어·만료 sweep 3종·cleanup RemoveWhere·GetEffectsForTiming 테스트 3스위트 재조준) + RD-J-02/04/05 동승 → ④ 타입 원자삭제.
