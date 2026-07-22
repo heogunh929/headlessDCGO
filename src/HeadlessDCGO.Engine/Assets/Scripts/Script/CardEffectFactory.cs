@@ -256,23 +256,37 @@ public static partial class CardEffectFactory
         return activateClass;
     }
 
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:645
-    // ReplaceBottomSecurityWithFaceUpOptionEffect. Zero consumers on the mirror corpus (no real card / no Tfx
-    // fixture references ReplaceBottomSecurityWithFaceUpOption{Main}Effect) — kept as the AS-IS-named entry
-    // point (matching the file's method-name-fidelity contract) rather than deleted, so a future card port of
-    // this exact text has somewhere to land. STOP (design item RD-P6C3-B1): the AS-IS body needs
-    // ContinuousController.instance (StartCoroutine host) + CardObjectController.AddHandCards/AddSecurityCard
-    // (the RD-P6C1-8/RD-P6C2-1 zone-move-statics gap, still unmodeled) + GManager.GetComponent<Effects>()
-    // (the AS-IS UI/VFX-only Effects component, cluster-1 §4 precedent — never ported headless-side). The
-    // equivalent live behavior (BT9_043's ReturnTopSecurityToHandThenUnsuspendSelfBody / IReduceSecurity /
-    // IAddSecurity sink primitives) already exists for the currently-witnessed cards; this legacy path is not
-    // on any live resolution route today.
-    public static Task ReplaceBottomSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
+    // (P4 ACTIVATED inline-mutation; RD-P6C3-B1 UN-STOP) 1:1 mirror of AS-IS CardEffectFactory.cs:645
+    // ReplaceBottomSecurityWithFaceUpOptionEffect. The substrate the earlier STOP cited is now ported: the
+    // StartCoroutine host = async/await; CardObjectController.AddHandCards (RD-R6-03) + AddSecurityCard
+    // (RD-P6C2-1) are the 1:1 zone-move statics; GManager.GetComponent<Effects>().CreateRecoveryEffect is
+    // UI/VFX only (cluster-1 §4 precedent — stripped). IReduceSecurity / IAddSecurity are the established sink
+    // primitives (BT9_043 idiom). NOTE (AS-IS-faithful): AS-IS AddSecurityCard(:1004) itself fires
+    // IAddSecurity, and this body fires it AGAIN after — the AS-IS double-fire is mirrored verbatim.
+    // Substrate translations: IEnumerator->async Task; `card.Owner.X`->`new Player(card.Context, card.Owner).X`;
+    // `.CanAddSecurity(activateClass)`->`.CanAddSecurity(activateClass.EffectSourceCard?.InstanceId)` (the
+    // PlaceToSecurityEffect :1196 mapping).
+    public static async Task ReplaceBottomSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
     {
-        throw new NotSupportedException(
-            "ReplaceBottomSecurityWithFaceUpOptionEffect (AS-IS CardEffectFactory.cs:645) needs " +
-            "ContinuousController.instance / CardObjectController.AddHandCards+AddSecurityCard / " +
-            "GManager.GetComponent<Effects>().CreateRecoveryEffect — unported substrate, design item RD-P6C3-B1.");
+        if (new Player(card.Context, card.Owner).SecurityCards.Count >= 1)
+        {
+            // AS-IS :651-660 Add Bottom Security Card to Hand.
+            CardSource bottomCard = new Player(card.Context, card.Owner).SecurityCards.Last();
+
+            await CardObjectController.AddHandCards(new List<CardSource>() { bottomCard }, false, activateClass);
+
+            await new IReduceSecurity(card.Context, card.Owner, refCollector: null, activateClass).ReduceSecurity();
+        }
+
+        // AS-IS :663-673 Place Face up as Bottom Security Card.
+        if (new Player(card.Context, card.Owner).CanAddSecurity(activateClass.EffectSourceCard?.InstanceId))
+        {
+            await CardObjectController.AddSecurityCard(card, toTop: false, faceUp: true);
+
+            // AS-IS :669 CreateRecoveryEffect (UI/VFX) — stripped per convention.
+
+            await new IAddSecurity(card).AddSecurity();
+        }
     }
 
     // (P4 KeyWord slice) TrainingEffect moved to KeyWordEffects/Training.cs (AS-IS 1:1)
@@ -778,17 +792,32 @@ public static partial class CardEffectFactory
         return activateClass;
     }
 
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:684
-    // ReplaceTopSecurityWithFaceUpOptionEffect (ADDED — absent on mirror). Zero consumers on the mirror corpus
-    // (no real card / no Tfx fixture) — same STOP as ReplaceBottomSecurityWithFaceUpOptionEffect above, design
-    // item RD-P6C3-B1 (ContinuousController.instance / CardObjectController.AddHandCards+AddSecurityCard /
-    // GManager.GetComponent<Effects>() — unported substrate).
-    public static Task ReplaceTopSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
+    // (P4 ACTIVATED inline-mutation; RD-P6C3-B1 UN-STOP) 1:1 mirror of AS-IS CardEffectFactory.cs:684
+    // ReplaceTopSecurityWithFaceUpOptionEffect. Same now-ported substrate as the Bottom variant above (AddHandCards
+    // RD-R6-03 / AddSecurityCard RD-P6C2-1 / IReduceSecurity / IAddSecurity; CreateRecoveryEffect = stripped VFX;
+    // AS-IS double IAddSecurity fire preserved). Differs from Bottom only in top vs bottom (SecurityCards.First()
+    // and toTop: true).
+    public static async Task ReplaceTopSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
     {
-        throw new NotSupportedException(
-            "ReplaceTopSecurityWithFaceUpOptionEffect (AS-IS CardEffectFactory.cs:684) needs " +
-            "ContinuousController.instance / CardObjectController.AddHandCards+AddSecurityCard / " +
-            "GManager.GetComponent<Effects>().CreateRecoveryEffect — unported substrate, design item RD-P6C3-B1.");
+        if (new Player(card.Context, card.Owner).SecurityCards.Count >= 1)
+        {
+            // AS-IS :690-699 Add Top Security Card to Hand.
+            CardSource topCard = new Player(card.Context, card.Owner).SecurityCards.First();
+
+            await CardObjectController.AddHandCards(new List<CardSource>() { topCard }, false, activateClass);
+
+            await new IReduceSecurity(card.Context, card.Owner, refCollector: null, activateClass).ReduceSecurity();
+        }
+
+        // AS-IS :702-712 Place Face up as Top Security Card.
+        if (new Player(card.Context, card.Owner).CanAddSecurity(activateClass.EffectSourceCard?.InstanceId))
+        {
+            await CardObjectController.AddSecurityCard(card, toTop: true, faceUp: true);
+
+            // AS-IS :708 CreateRecoveryEffect (UI/VFX) — stripped per convention.
+
+            await new IAddSecurity(card).AddSecurity();
+        }
     }
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:196
@@ -1195,15 +1224,12 @@ public static partial class CardEffectFactory
         bool CanResolveCondition(CardSource optionCard) =>
             new Player(optionCard.Context, optionCard.Owner).CanAddSecurity(placeToSecurityEffect.EffectSourceCard?.InstanceId);
 
-        // Zero consumers on the mirror corpus (the new-model PlayCardsBridge.cs already reimplements this
-        // AS-IS hook resolution directly against the sink — see its own citing comments at :111/:159/:161).
-        // STOP (design item RD-P6C3-B1, same CardObjectController.AddSecurityCard gap as
-        // ReplaceTopSecurityWithFaceUpOptionEffect above) — kept as the AS-IS-named entry point.
-        Task ResolutionCoroutine(CardSource optionCard)
+        // (RD-P6C3-B1 UN-STOP) AS-IS :1516-1519 — the ported CardObjectController.AddSecurityCard (RD-P6C2-1) is
+        // the 1:1 sink. IEnumerator->async Task; StartCoroutine->await. No CreateRecoveryEffect / extra IAddSecurity
+        // here (AS-IS PlaceToSecurity body has neither — AddSecurityCard fires its own IAddSecurity internally).
+        async Task ResolutionCoroutine(CardSource optionCard)
         {
-            throw new NotSupportedException(
-                "PlaceToSecurityEffect (AS-IS CardEffectFactory.cs:1497) needs CardObjectController.AddSecurityCard " +
-                "— unported substrate, design item RD-P6C3-B1.");
+            await CardObjectController.AddSecurityCard(optionCard, toTop, isFaceUp);
         }
     }
 

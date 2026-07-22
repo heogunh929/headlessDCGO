@@ -28,6 +28,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("EX8_037 W1: Lv.6 [Sakuyamon] 비X항체 위 코스트 1 대체진화(+진화원 Sakuyamon) → [Uka-no-Mitama] 토큰 플레이", EX8037_AltDigivolveThenPlaysUkaNoMitama),
     ("EX8_028 W1: 등록-검증 — Iceclad/Barrier/대체진화 3효과가 실제 구성 타입으로 등재", EX8028_RegistersIcecladBarrierAltDigivolve),
     ("EX8_068 W1: [Security] 발화 → [DS] Lv.5 이하 디지몬 무료 플레이", EX8068_SecurityPlaysDsDigimonFree),
+    ("EX8_068 W2: [Main] 발화 → 바닥 시큐리티 1장 손패로 + EX8_068 자신이 바닥 시큐리티(앞면) 배치 (RD-P6C3-B1 UN-STOP)", EX8068_MainReplacesBottomSecurityWithSelf),
     ("BT18_034 W1: [Start of Your Main Phase] 손패 1장 트래시→\"Discard\" 선택 → 상대 시큐리티 1장 트래시", BT18034_StartOfMainDiscardThenDestroySecurity),
     ("BT18_098 W1: [Main] 발화 → 자기 시큐리티 1장 트래시 + 상대 디지몬 DP-6000 + 시큐리티≤2면 바닥 배치", BT18098_MainTrashSecurityChangeDpAndReplace),
 };
@@ -258,6 +259,70 @@ async Task EX8068_SecurityPlaysDsDigimonFree()
     AssertTrue(ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(dsDigimon),
         "[Security]: the level-5-or-lower [DS] Digimon was played from hand without paying the cost — " +
         $"[debug prompts:{string.Join(" | ", policy.Seen)}]");
+}
+
+// EX8_068 W2 — the [Main] OptionSkill (ReplaceBottomSecurityWithFaceUpOptionMainEffect, AS-IS :83) whose body
+// was the RD-P6C3-B1 STOP seat. Drives the real ActivateOption lane end-to-end: the bottom security card is
+// added to hand, then EX8_068 itself is placed face-up as the new bottom security card (AS-IS
+// CardEffectFactory.cs:645 ReplaceBottomSecurityWithFaceUpOptionEffect).
+async Task EX8068_MainReplacesBottomSecurityWithSelf()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPilotMatchAsync(seed: 2802, MonoDecks("BT1_028", "BT1_028"));
+    EngineContext ctx = match.Context;
+    await ReachMainWaitAsync(match);
+    await ClearZoneAsync(match, P1, ChoiceZone.Security, ChoiceZone.Library);
+
+    // EX8_068 is a Blue Option (playCost 2) — its color requirement (OptionColorRequirement.Matches) opens the
+    // [Main] lane when P1 controls a Blue field permanent (BT9_103 recipe). Give ample memory to afford the play.
+    StageSynthetic(match, P1, "EXT1-BLUE", dp: 3000, level: 3, "1:battle:blue", colors: new[] { "Blue" });
+    // Two distinct security cards so "bottom" (last) vs "top" (first) is observable.
+    StageSynthetic(match, P1, "EXT1-SECTOP", dp: 1000, level: 3, "1:sec:top", zone: ChoiceZone.Security);
+    StageSynthetic(match, P1, "EXT1-SECBOT", dp: 2000, level: 4, "1:sec:bot", zone: ChoiceZone.Security);
+    HeadlessEntityId ex8068 = Stage(match, P1, "EX8_068", ChoiceZone.Hand, "1:hand:EX8068main");
+    ctx.MemoryController.Set(10);
+
+    HeadlessEntityId bottomId, topId;
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(ctx))
+    {
+        var secBefore = new Cec.Player(ctx, P1).SecurityCards;
+        AssertEqual(2, secBefore.Count, "staging produced exactly 2 security cards");
+        bottomId = secBefore.Last().InstanceId;
+        topId = secBefore.First().InstanceId;
+    }
+
+    LegalAction option = RequireLane(match, P1, HeadlessActionTypes.ActivateOption, ex8068,
+        "EX8_068's own [Main] OptionSkill must be offered (CanTriggerOptionMainEffect + Blue color enabler)");
+    await ApplyAsync(match, option);
+    await DriveUntilAsync(match, m => ZoneCards(m, P1, ChoiceZone.Security).Contains(ex8068) || m.IsTerminal());
+
+    // (1) the old bottom security card was added to the hand; (2) it left the security stack.
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Hand).Contains(bottomId),
+        "the bottom security card was added to P1's hand");
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.Security).Contains(bottomId),
+        "the old bottom security card left the security stack");
+    // (3) the top security card is untouched (only the BOTTOM was pulled).
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Security).Contains(topId),
+        "the top security card was NOT touched (Bottom variant pulls the bottom only)");
+    // (4) EX8_068 itself is now sitting in security, and NOT in hand/trash.
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Security).Contains(ex8068),
+        "EX8_068 placed itself as a security card (option did not go to trash)");
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.Hand).Contains(ex8068),
+        "EX8_068 is no longer in hand");
+    // (5) net security count unchanged (removed 1 bottom, added EX8_068 as new bottom).
+    AssertEqual(2, Count(match, P1, ChoiceZone.Security),
+        "security count unchanged: -1 (bottom to hand) +1 (EX8_068 placed) = net 2");
+
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(ctx))
+    {
+        // (6) EX8_068 is the BOTTOM (last) security card, placed FACE UP (faceUp:true).
+        var secAfter = new Cec.Player(ctx, P1).SecurityCards;
+        AssertEqual(ex8068.Value, secAfter.Last().InstanceId.Value,
+            "EX8_068 is the new BOTTOM (last) security card");
+        AssertEqual(topId.Value, secAfter.First().InstanceId.Value,
+            "the original top security card is still on top");
+        AssertTrue(SecurityFaceState.IsFaceUpInSecurity(ctx, ex8068),
+            "EX8_068 was placed FACE UP as the bottom security card");
+    }
 }
 
 // ═══════════════════════════════════ BT18_034 ═══════════════════════════════════
