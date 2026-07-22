@@ -84,14 +84,25 @@ EngineContext Context()
     return context;
 }
 
+// (W3c-final) Retargeted off the retired invented EffectRegistry NumericModifier cost fold onto the AS-IS
+// ChangeCostClass path: a self-scoped ±cost ChangeCostClass on the owner's UntilCalculateFixedCostEffect bucket,
+// read by the CanUse-gated GetChangedCostItselef/GetChangedPayingCost fold. `deltaKey` documents which resolve
+// path the caller exercises (play vs digivolution); the ChangeCostClass applies to the resolved cost either way.
+// isUpDown:true so the reduction respects the CannotReduceCost grant (Player.CanReduceCost), while +N increases.
 void RegisterCostModifier(EngineContext context, string deltaKey, int delta)
 {
-    var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [deltaKey] = delta };
-    var effectContext = new EffectContext(P1, P1, new HeadlessEntityId($"src:mod:{deltaKey}:{delta}"),
-        triggerEntityId: null, targetEntityIds: new[] { Card }, values: values);
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId($"mod:{deltaKey}:{delta}"), P1, "Continuous", effectContext),
-        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope }));
+    _ = deltaKey;
+    var carrier = new CardSource(context, new HeadlessEntityId($"cost-src:{delta}"), P1);
+    var changeCostClass = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ChangeCostClass();
+    changeCostClass.SetUpICardEffect($"Cost {delta:+#;-#;0}", _ => true, carrier);
+    changeCostClass.SetUpChangeCostClass(
+        changeCostFunc: (cs, cost, root, targetPermanents) => cost + delta,
+        cardSourceCondition: cs => cs is not null && cs.InstanceId == Card,
+        rootCondition: root => true,
+        isUpDown: () => true,
+        isCheckAvailability: () => false,
+        isChangePayingCost: () => true);
+    new Player(context, P1).UntilCalculateFixedCostEffect.Add(_ => changeCostClass);
 }
 
 // (R2-C ③) Grant the AS-IS kind-class CannotReduceCostClass on a P1 FIELD permanent (the live scan walks

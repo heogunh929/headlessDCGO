@@ -1114,12 +1114,11 @@ public sealed class CardSource
     // The single top-level pay-cost orchestrator the play / digivolve / option chokes call: base printed cost
     // (or, for a digivolution target, the minimum matching CostList entry) -> DigiXros / Assembly special
     // reductions (CanReduceCost-gated) -> the ChangeCostClass 2-group fold (GetChangedCostItselef then
-    // GetChangedPayingCost) -> Math.Max(0). AS-IS has NO registry; the mirror mid-migration additionally carries
-    // still-substrate LEGACY continuous cost bindings (BeforePayCostReduction / ChangePlayCostPlayer producers)
-    // whose AS-IS analog is an IChangeCostEffect folded below — those are UNIONed in as a substrate step
-    // (ContinuousModifierGate.FoldLegacy*CostModifiers) until their producers are new-model. CannotReduceCost is
-    // honoured UNIFORMLY through Player.CanReduceCost (both the legacy fold's canReduce knob AND, live inside the
-    // fold below, ChangeCostClass.GetCost's own veto) — a single immunity representation.
+    // GetChangedPayingCost) -> Math.Max(0). AS-IS has NO registry. (W3c-final) The former mirror-only UNION of
+    // substrate LEGACY continuous cost bindings is RETIRED — BeforePayCostReduction / ChangePlayCostPlayer / the
+    // hand-card digivolution-cost gate are all AS-IS ChangeCostClass effects, folded 1:1 below. CannotReduceCost is
+    // honoured UNIFORMLY through Player.CanReduceCost via ChangeCostClass.GetCost's own IsUpDown veto — a single
+    // immunity representation, exactly as AS-IS.
 
     /// <summary>(R2-C) 1:1 mirror of AS-IS <c>CardSource.PayingCost(root, targetPermanents, checkAvailability,
     /// ignoreLevel, FixedCost)</c> (CardSource.cs:635-658): the base printed play cost, or — for a single
@@ -1153,9 +1152,8 @@ public sealed class CardSource
     /// <summary>(R2-C) 1:1 mirror of AS-IS <c>CardSource.GetPayingCostWithBaseCost(baseCost, root,
     /// targetPermanents, checkAvailability, FixedCost)</c> (CardSource.cs:664-751): the FixedCost override, the
     /// DigiXros / Assembly special reductions (AS-IS :670-737), then <see cref="GetChangedCostItselef"/> +
-    /// <see cref="GetChangedPayingCost"/> and the 0 floor. The mirror UNION step folds the still-substrate
-    /// LEGACY continuous cost bindings via <see cref="ContinuousModifierGate.FoldLegacyPlayCostModifiers"/> /
-    /// <see cref="ContinuousModifierGate.FoldLegacyDigivolutionCostModifiers"/>.</summary>
+    /// <see cref="GetChangedPayingCost"/> and the 0 floor. (W3c-final) The former mirror-only substrate cost-fold
+    /// UNION step is retired; only the AS-IS ChangeCostClass fold remains.</summary>
     public int GetPayingCostWithBaseCost(int baseCost, SelectCardEffect.Root root, List<Permanent>? targetPermanents, bool checkAvailability = false, int FixedCost = -1)
     {
         // SUBSTRATE: the AS-IS cost scans (CanReduceCost / GetChangedCostItselef → CanUse → CheckEffectDisabledClass)
@@ -1236,24 +1234,13 @@ public sealed class CardSource
             }
         }
 
-        // ===== (UNION substrate) legacy continuous cost bindings — mirror mid-migration only =====
-        // `canReduce` is the live CannotReduceCost veto (Player.CanReduceCost), the SAME signal the new-model
-        // ChangeCostClass.GetCost re-derives below — one uniform immunity.
-        bool canReduce = ownerPlayer.CanReduceCost(targetPermanents, this);
-        if (isEvolution)
-        {
-            HeadlessEntityId digivolveTargetPermanentId =
-                (targetPermanents != null && targetPermanents.Count >= 1 && targetPermanents[0] != null)
-                    ? targetPermanents[0].InstanceId
-                    : default;
-            Cost = ContinuousModifierGate.FoldLegacyDigivolutionCostModifiers(Context, InstanceId, Cost, digivolveTargetPermanentId, canReduce);
-        }
-        else
-        {
-            Cost = ContinuousModifierGate.FoldLegacyPlayCostModifiers(Context, InstanceId, Cost, canReduce);
-        }
-
         // ===== AS-IS GetChangedCostItselef (:741) + GetChangedPayingCost (:743) — new-model IChangeCostEffect =====
+        // (W3c-final) The mirror mid-migration UNION step (ContinuousModifierGate.FoldLegacy*CostModifiers over the
+        // invented EffectRegistry NumericModifier cost bindings) was RETIRED: producer census reached 0 (no card
+        // registers a PlayCost/DigivolutionCost continuous NumericModifier; BeforePayCost / ChangePlayCostPlayer /
+        // the digivolution-cost gate are all expressed as the AS-IS ChangeCostClass, folded below). The AS-IS
+        // pipeline has NO such union — CanReduceCost immunity is honoured solely via ChangeCostClass.GetCost's own
+        // IsUpDown veto (Player.CanReduceCost), exactly as AS-IS.
         Cost = GetChangedCostItselef(Cost, root, targetPermanents, checkAvailability);
 
         Cost = GetChangedPayingCost(Cost, root, targetPermanents, checkAvailability);

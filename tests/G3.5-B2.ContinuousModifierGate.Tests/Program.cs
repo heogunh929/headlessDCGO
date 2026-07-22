@@ -48,21 +48,25 @@ void SecurityAttackBoost()
     AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).Strike, "+1 security attack");
 }
 
+// (W3c-final) Cost cases retargeted off the retired invented EffectRegistry NumericModifier cost fold onto the
+// AS-IS ChangeCostClass bucket path (CostBoard/AddBucketCostModifier). The floor (Math.Max(0)) lives in AS-IS
+// GetChangedCostItselef/GetChangedPayingCost 1:1. (The ±Security-Attack cases below keep the registry modifier
+// path — that is a separate, non-cost gate, not part of this retirement.)
 void PlayCostReduce()
 {
-    EngineContext context = Board();
-    RegisterModifier(context, Card, ModifierHelpers.PlayCostDeltaKey, -2, duration: null);
+    EngineContext context = CostBoard();
+    AddBucketCostModifier(context, Card, -2);
     AssertEqual(3, ContinuousModifierGate.ResolvePlayCost(context, Card, basePlayCost: 5), "-2 play cost");
 
-    EngineContext floored = Board();
-    RegisterModifier(floored, Card, ModifierHelpers.PlayCostDeltaKey, -5, duration: null);
+    EngineContext floored = CostBoard();
+    AddBucketCostModifier(floored, Card, -5);
     AssertEqual(0, ContinuousModifierGate.ResolvePlayCost(floored, Card, basePlayCost: 1), "play cost floored at 0");
 }
 
 void DigivolutionCostReduce()
 {
-    EngineContext context = Board();
-    RegisterModifier(context, Card, ModifierHelpers.DigivolutionCostDeltaKey, -1, duration: null);
+    EngineContext context = CostBoard();
+    AddBucketCostModifier(context, Card, -1);
     AssertEqual(3, ContinuousModifierGate.ResolveDigivolutionCost(context, Card, baseDigivolutionCost: 4), "-1 digivolution cost");
 }
 
@@ -102,6 +106,33 @@ EngineContext Board()
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(Card, new HeadlessEntityId("C1"), P1));
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(new HeadlessEntityId("p2:main:O1"), new HeadlessEntityId("O1"), P2));
     return context;
+}
+
+// A live match past None/Setup so the AS-IS ChangeCostClass fold's CanUse -> CanTrigger -> DoneStartGame gate
+// (and the Players_ForTurnPlayer player-scope scan that folds the bucket) run.
+EngineContext CostBoard()
+{
+    EngineContext context = Board();
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    return context;
+}
+
+// AS-IS ChangeCostClass on the owner's UntilCalculateFixedCostEffect bucket (self-scoped ±cost). isUpDown:true so
+// a reduction respects Player.CanReduceCost; here no immunity is granted so it always applies (floored at 0).
+void AddBucketCostModifier(EngineContext context, HeadlessEntityId cardId, int delta)
+{
+    var carrier = new CardSource(context, new HeadlessEntityId($"cost-src:{delta}"), P1);
+    var changeCostClass = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ChangeCostClass();
+    changeCostClass.SetUpICardEffect($"Cost {delta:+#;-#;0}", _ => true, carrier);
+    changeCostClass.SetUpChangeCostClass(
+        changeCostFunc: (cs, cost, root, targetPermanents) => cost + delta,
+        cardSourceCondition: cs => cs is not null && cs.InstanceId == cardId,
+        rootCondition: root => true,
+        isUpDown: () => true,
+        isCheckAvailability: () => false,
+        isChangePayingCost: () => true);
+    new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Player(context, P1).UntilCalculateFixedCostEffect.Add(_ => changeCostClass);
 }
 
 void RegisterModifier(EngineContext context, HeadlessEntityId cardId, string deltaKey, int delta, EffectDuration? duration)

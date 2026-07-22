@@ -143,6 +143,10 @@ EngineContext NewContext()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 9);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // Past None so the AS-IS ChangeCostClass fold's CanUse -> CanTrigger -> DoneStartGame gate passes (the
+    // canonical digivolution-cost gate is a real IChangeCostEffect, unlike the retired DigivolutionCostGateEffect
+    // workaround which bypassed CanUse). G7 tests below already SetPhase(Main) explicitly; this makes it uniform.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 

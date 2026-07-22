@@ -5,13 +5,12 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
-/// (B-2) Sibling of <c>ContinuousDpGate</c> for the other numeric metrics that continuous
-/// effects modify: Security Attack and play / digivolution cost. Each folds in card-targeted AND
-/// player-scope continuous modifiers (via <see cref="ContinuousScopeEvaluation"/>) and resolves them
-/// over a base value, mirroring the original per-access rescans. Because the modifiers are sourced from
-/// continuous registry bindings, an <see cref="HeadlessDCGO.Engine.Headless.Effects.EffectDuration"/>
-/// tag (F-1) makes a "+1 Security Attack until end of turn" effect expire automatically — no special
-/// handling needed here. With no registered continuous effects each method returns the base unchanged.
+/// (B-2) Sibling of <c>ContinuousDpGate</c>. Security Attack continuous modifiers still fold through the
+/// registry-sourced <see cref="ContinuousScopeEvaluation"/> path (an <see cref="EffectDuration"/> tag makes a
+/// "+1 Security Attack until end of turn" effect expire automatically). The play / digivolution COST wrappers
+/// (<see cref="ResolvePlayCost"/> / <see cref="ResolveDigivolutionCost"/>) are now thin delegates to the single
+/// AS-IS pay-cost orchestrator <c>CardSource.GetPayingCostWithBaseCost</c> — no substrate cost fold remains here
+/// (see the W3c-final retirement note below).
 /// </summary>
 public static class ContinuousModifierGate
 {
@@ -20,8 +19,8 @@ public static class ContinuousModifierGate
 
     // (R2-C) ResolvePlayCost / ResolveDigivolutionCost are now THIN DELEGATES to the single AS-IS pay-cost
     // orchestrator CardSource.GetPayingCostWithBaseCost — the play/digivolution-cost logic (DigiXros/Assembly,
-    // the GetChangedCostItselef/GetChangedPayingCost IChangeCostEffect fold, the legacy substrate NumericModifier
-    // union, the 0 floor) lives there 1:1. These wrappers are retained (not deleted) because direct test callers
+    // the GetChangedCostItselef/GetChangedPayingCost IChangeCostEffect fold, the 0 floor) lives there 1:1.
+    // These wrappers are retained (not deleted) because direct test callers
     // still use them; the mirror's live play/digivolve/option chokes call GetPayingCostWithBaseCost directly with
     // the real source root. The `Root.None` here matches the previous FoldPlayCost hard-coding for those direct
     // callers (root-dependent cost effects are exercised only via the live chokes, which thread the real root).
@@ -61,64 +60,21 @@ public static class ContinuousModifierGate
             ? inst.OwnerId
             : default;
         var cardSource = new CardSource(context, cardId, owner);
-        // A non-null target permanent forces the digivolution branch (digivolution-metric legacy fold + the
-        // moving card's own dispatch-first DigivolutionCostGateEffect); its InstanceId (possibly empty) is the
-        // AS-IS "digivolving FROM" permanent id threaded to the own-gated collection.
+        // A non-null target permanent forces the digivolution branch (isEvolution=true in
+        // GetPayingCostWithBaseCost); its InstanceId (possibly empty) is the AS-IS "digivolving FROM" permanent id
+        // threaded into the ChangeCostClass targetPermanents so a digivolution-gated gate can match on the top card.
         var targetPermanents = new List<Permanent> { new Permanent(context, digivolveTargetPermanentId, owner) };
         return cardSource.GetPayingCostWithBaseCost(baseDigivolutionCost, Assets.Scripts.Script.SelectCardEffect.Root.None, targetPermanents);
     }
 
-    // ===== (R2-C) LEGACY substrate cost fold — the mirror mid-migration NumericModifier bindings only =========
-    // The AS-IS cost pipeline (CardSource.GetPayingCostWithBaseCost) has NO registry. These helpers are the
-    // substrate half the mirror still needs while some continuous cost effects (BeforePayCostReduction /
-    // ChangePlayCostPlayer producers, the dispatch-first DigivolutionCostGateEffect) are expressed as legacy
-    // NumericModifier bindings rather than new-model IChangeCostEffect kind-classes. CardSource.
-    // GetPayingCostWithBaseCost UNIONs the result of these over the base cost, THEN runs the AS-IS-1:1 new-model
-    // scan (GetChangedCostItselef / GetChangedPayingCost). `playerCanReduce` is the live CannotReduceCost veto
-    // (Player.CanReduceCost) the caller already computed; it is ANDed with the (R2-C ③ transitional) registry
-    // CostReductionImmune so a mid-migration registry immunity keeps applying until ③ retires it.
-
-    /// <summary>(R2-C) Fold the mirror's legacy continuous PLAY-cost NumericModifier bindings over
-    /// <paramref name="cost"/>. Used by <see cref="CardSource.GetPayingCostWithBaseCost"/> as its substrate union
-    /// step.</summary>
-    public static int FoldLegacyPlayCostModifiers(
-        EngineContext context, HeadlessEntityId cardId, int cost, bool playerCanReduce)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        if (cardId.IsEmpty)
-        {
-            return cost;
-        }
-
-        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
-        return ModifierHelpers.ResolvePlayCost(cost, result.Modifiers, canReduceCost: playerCanReduce).FinalValue;
-    }
-
-    /// <summary>(R2-C) Fold the mirror's legacy continuous DIGIVOLUTION-cost NumericModifier bindings (registry +
-    /// the moving card's own dispatch-first <see cref="DigivolutionCostGateEffect"/>) over
-    /// <paramref name="cost"/>.</summary>
-    public static int FoldLegacyDigivolutionCostModifiers(
-        EngineContext context, HeadlessEntityId cardId, int cost,
-        HeadlessEntityId digivolveTargetPermanentId, bool playerCanReduce)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        if (cardId.IsEmpty)
-        {
-            return cost;
-        }
-
-        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId, digivolveTargetPermanentId);
-        IReadOnlyList<NumericModifier> ownGated =
-            DigivolutionCostGateEffect.CollectOwnGatedModifiers(context, cardId, digivolveTargetPermanentId);
-        IReadOnlyList<NumericModifier> modifiers = ownGated.Count == 0
-            ? result.Modifiers
-            : result.Modifiers.Concat(ownGated).ToArray();
-        return ModifierHelpers.ResolveDigivolutionCost(cost, modifiers, canReduceCost: playerCanReduce).FinalValue;
-    }
-
-    // (R2-C ③) The registry-key cost-immunity consumer CostReductionImmune (D-8/#5, ImmuneFrom*CostReductionKey)
-    // was RETIRED: the sole immunity representation is now the live AS-IS Player.CanReduceCost scan
-    // (ICannotReduceCostEffect / CannotReduceCostClass), which the cost pipeline already re-derives as
-    // `playerCanReduce`. The ReplacementHelpers.ImmuneFrom*CostReductionKey constants + the factory that produced
-    // them (CardEffectFactory.CanNotReduceCostStaticEffect) are now dead / flipped to the kind-class.
+    // ===== (W3c-final) LEGACY substrate cost fold — RETIRED =====================================================
+    // The former FoldLegacyPlayCostModifiers / FoldLegacyDigivolutionCostModifiers (the mirror mid-migration UNION
+    // of invented EffectRegistry NumericModifier cost bindings + the dispatch-first DigivolutionCostGateEffect over
+    // the base cost) are DELETED. Producer census reached 0: no card registers a PlayCost/DigivolutionCost
+    // continuous NumericModifier — BeforePayCost reductions, "your cards cost less" owner-scope reductions, and the
+    // hand-card digivolution-cost gate (ChangeDigivolutionCostStaticEffect) are all expressed as the AS-IS
+    // ChangeCostClass, folded 1:1 by CardSource.GetChangedCostItselef / GetChangedPayingCost. The AS-IS pipeline has
+    // NO such union; CanReduceCost immunity is the single live scan (ICannotReduceCostEffect / CannotReduceCostClass)
+    // that ChangeCostClass.GetCost's own IsUpDown veto consults. DigivolutionCostGateEffect (its only consumer) is
+    // likewise deleted. The registry-key CostReductionImmune (D-8/#5) was already retired to the same kind-class.
 }
