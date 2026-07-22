@@ -96,7 +96,6 @@ public static class ContinuousScopeEvaluation
             .Concat(faceUpSecurity)
             .GroupBy(effect => effect.EffectId.Value, StringComparer.Ordinal)
             .Select(group => group.First())
-            .Where(effect => !EffectInvalidation.IsEffectsDisabled(context, effect.Context.SourceEntityId))
             .Where(ConditionPasses)
             .Select(ResolveDynamicValue)
             .OrderBy(effect => effect.EffectId.Value, StringComparer.Ordinal)

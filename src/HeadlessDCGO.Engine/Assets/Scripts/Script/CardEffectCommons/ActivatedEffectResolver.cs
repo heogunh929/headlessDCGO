@@ -161,14 +161,9 @@ public static class ActivatedEffectResolver
             return false;
         }
 
-        // AS-IS CanActivate also gates on effect INVALIDATION (IsDisabled, ICardEffect.cs:421) — a card whose
-        // effects are currently nullified is per-pass excluded (2026-07-11 re-review: this was missing from the
-        // marker path while the scheduler half checked it in SchedulerGate).
-        if (EffectInvalidation.IsEffectsDisabled(context, cardInstanceId))
-        {
-            return false;
-        }
-
+        // Effect invalidation is the AS-IS per-effect gate (ICardEffect.IsDisabled → CheckEffectDisabledClass,
+        // consulted by CanTrigger) — the invented card-level EffectInvalidation registry check that used to sit
+        // here is retired (RC-3: producer 0, corpus 0; the AS-IS gate below covers it via each effect's CanUse).
         var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
         using var scope = Headless.Bridge.AmbientMatchContext.Enter(context);
         IReadOnlyList<ICardEffect> effects = card.EffectList(timing);
