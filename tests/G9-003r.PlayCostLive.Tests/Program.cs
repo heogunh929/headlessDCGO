@@ -7,12 +7,15 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 
-// G9-003: the headless mirror of the original CardEffectFactory play-cost factories
-// (ChangePlayCostStaticEffect / MandatorySelfPlayCostReduction). The headless play-cost engine already
-// pulls continuous cost modifiers from the EffectRegistry at play time (PlayCardAction ->
-// ContinuousModifierGate.ResolvePlayCost); these factories were the missing card-facing entry points.
-// This test drives the REAL resolution path: Factory.X(card,...).ToBinding() -> register -> the same
-// ResolvePlayCost call PlayCardAction makes returns the reduced cost, and the CanReduceCost guard holds.
+// RE-HOME of G9-003.PlayCostFactory (retired 2026-07-23 stale-pin teardown). The old suite's two structural
+// pins were retired with it (the ResolvePlayCost `canReduceCost:` legacy-param guard — the live cost-reduction
+// immunity rule is covered green by PRIM-P0.CannotReduceCost / FAILa-05.CannotReduceCostScope / G3E-001
+// "Cost reduction permission blocks up down reductions"; and setFixedCost:true→throws, a guard on the invented
+// factory contract, not a game rule). The BEHAVIORAL assertions below — continuous play-cost ± modifiers fold
+// into the paid cost, the reduction floors at 0, a dynamic (Func) amount folds, and a false condition makes the
+// grant inert — are re-driven UNCHANGED through the live cost pipeline (the exact ResolvePlayCost call
+// PlayCardAction makes; W3c cost-fold retirement). They pass on the live surface. Adjacent coverage:
+// G3.5-D8.CostReductionPipeline (folds ±play/digivolution cost via the AS-IS ChangeCostClass path).
 
 HeadlessPlayerId P1 = new(1);
 
@@ -22,8 +25,7 @@ var tests = new (string Name, Func<Task> Body)[]
         (card) => CardEffectFactory.MandatorySelfPlayCostReduction(4, card, null), baseCost: 6, expected: 2)),
     // ChangePlayCostStaticEffect gates on CardEffectCommons.IsPermanentExistsOnBattleArea(targetPermanent) — AS-IS
     // CardSource.cs:92-103 `PermanentsCondition`, requiring >=1 matching battle-area permanent, else it is a
-    // no-op (there is no real AS-IS card that plays it with an empty target list). withTargetPermanent places one
-    // for the card's owner and threads its id through ResolvePlayCost's targetPermanentIds.
+    // no-op. withTargetPermanent places one for the card's owner and threads its id through ResolvePlayCost.
     ("ChangePlayCostStaticEffect(-3) reduces a 5-cost card to 2", () => CostResolvesTo(
         (card) => CardEffectFactory.ChangePlayCostStaticEffect(-3, null, false, card, null, false), baseCost: 5, expected: 2, withTargetPermanent: true)),
     ("ChangePlayCostStaticEffect(+2) increases a 3-cost card to 5", () => CostResolvesTo(
@@ -34,8 +36,6 @@ var tests = new (string Name, Func<Task> Body)[]
         (card) => CardEffectFactory.MandatorySelfPlayCostReduction(() => 2, card, null), baseCost: 5, expected: 3)),
     ("condition:false makes the reduction inert (cost unchanged)", () => CostResolvesTo(
         (card) => CardEffectFactory.MandatorySelfPlayCostReduction(4, card, () => false), baseCost: 6, expected: 6)),
-    ("CanReduceCost:false blocks the reduction (the original CanReduceCost guard)", CanReduceCostGuardHolds),
-    ("setFixedCost:true throws rather than silently treating set as add", FixedCostThrows),
 };
 
 var failures = new List<string>();
@@ -55,11 +55,10 @@ async Task CostResolvesTo(Func<CardSource, ICardEffect> build, int baseCost, int
     EngineContext context = Context();
     var id = await PlaceInHand(context, P1, "CARD", playCost: baseCost);
     var source = new CardSource(context, id, P1);
-    // SEAM (post-stage-B): ChangeCostClass (returned by MandatorySelfPlayCostReduction /
-    // ChangePlayCostStaticEffect) is a new-model kind-class observed via the unioned
-    // NewModelContinuousScan.FoldPlayCost (AS-IS CardSource.GetChangedCostItselef/GetChangedPayingCost) —
-    // attach it to the card's own controller (the card is a hand card, not yet a permanent, so AS-IS scans
-    // its OWN EffectList too).
+    // SEAM: ChangeCostClass (returned by MandatorySelfPlayCostReduction / ChangePlayCostStaticEffect) is a
+    // new-model kind-class observed via the unioned NewModelContinuousScan.FoldPlayCost (AS-IS
+    // CardSource.GetChangedCostItselef/GetChangedPayingCost) — attach it to the card's own controller (the card
+    // is a hand card, not yet a permanent, so AS-IS scans its OWN EffectList too).
     using var _ambientScope = AmbientMatchContext.Enter(context);
     context.TurnController.SetPhase(HeadlessPhase.Main);
     ICardEffect effect = build(source);
@@ -74,35 +73,6 @@ async Task CostResolvesTo(Func<CardSource, ICardEffect> build, int baseCost, int
 
     int resolved = ContinuousModifierGate.ResolvePlayCost(context, id, baseCost, targetPermanentIds: targetPermanentIds);
     AssertEqual(expected, resolved, $"resolved play cost (base {baseCost})");
-}
-
-async Task CanReduceCostGuardHolds()
-{
-    EngineContext context = Context();
-    var id = await PlaceInHand(context, P1, "CARD", playCost: 6);
-    var source = new CardSource(context, id, P1);
-    // SEAM (post-stage-B): MandatorySelfPlayCostReduction returns ChangeCostClass, observed via the unioned
-    // FoldPlayCost fold; attach it to the card's controller.
-    using var _ambientScope = AmbientMatchContext.Enter(context);
-    context.TurnController.SetPhase(HeadlessPhase.Main);
-    ICardEffect effect = CardEffectFactory.MandatorySelfPlayCostReduction(4, source, null);
-    source.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
-
-    int withReduction = ContinuousModifierGate.ResolvePlayCost(context, id, basePlayCost: 6, canReduceCost: true);
-    int noReduction = ContinuousModifierGate.ResolvePlayCost(context, id, basePlayCost: 6, canReduceCost: false);
-    AssertEqual(2, withReduction, "reduction applies when CanReduceCost");
-    AssertEqual(6, noReduction, "reduction is blocked when CanReduceCost is false");
-}
-
-Task FixedCostThrows()
-{
-    EngineContext context = Context();
-    var source = new CardSource(context, new HeadlessEntityId("1:hand:X"), P1);
-    bool threw = false;
-    try { CardEffectFactory.ChangePlayCostStaticEffect(1, null, false, source, null, setFixedCost: true); }
-    catch (NotSupportedException) { threw = true; }
-    AssertTrue(threw, "setFixedCost:true throws NotSupportedException (no silent set-as-add)");
-    return Task.CompletedTask;
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -140,15 +110,14 @@ async Task<HeadlessEntityId> PlaceDigimon(EngineContext context, HeadlessPlayerI
     return id;
 }
 
-static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
 }
 
-// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
-// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class uses to surface its
+// printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
 sealed class TestCardEntityEffect : CEntity_Effect
 {
     private readonly ICardEffect _effect;

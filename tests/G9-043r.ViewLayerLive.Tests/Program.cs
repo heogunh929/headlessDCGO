@@ -5,9 +5,13 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// PRIM-W5-0 (G9-043): the card-query view layer (CardSource + Permanent members) that card predicates read.
-// Verifies the members compile AND evaluate off engine state, so `permanentCondition`/`cardCondition`
-// predicates can be honored.
+// RE-HOME of G9-043.ViewLayer (retired 2026-07-23 stale-pin teardown). The rehoused card-query view layer
+// (CardSource + Permanent members that card predicates read) is re-driven UNCHANGED off live engine state.
+// The single stale assertion in the old suite — a continuous +2000 DP fold made observable via the RETIRED
+// EffectRegistry registry path (CardEffectFactory.ChangeSelfDPStaticEffect → Permanent.DP) — was dropped: the
+// live DP-fold behaviour (continuous DP modifier folds into Permanent.DP via the AS-IS EffectList(None) bucket)
+// is covered green by W3c3-DpDeltaGrant and G3.5-N2.ContinuousBattleDp. Adjacent name/color/trait getter
+// coverage: G3D-002.Name.color.trait.requirement (exact/contains name, any/all color, exact/contains traits).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -15,7 +19,7 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("CardSource: colors/level/type/name/traits read off the definition", CardSourceViews),
-    ("Permanent: TopCard + DP(+modifier) + level + IsDigimon + sources", PermanentViews),
+    ("Permanent: TopCard + base DP + level + IsDigimon + sources read off live state", PermanentViews),
     ("Predicate honored: Func<Permanent,bool> evaluates (DP==0 & has-Lucemon)", PredicateEval),
 };
 
@@ -51,14 +55,6 @@ async Task PermanentViews()
     AssertTrue(perm.IsDigimon && perm.Level == 5, "Permanent level/type via TopCard");
     AssertTrue(perm.TopCard.EqualsCardName("MetalGreymon"), "TopCard reuses CardSource");
     AssertTrue(perm.DP == 5000, "base DP");
-    // continuous +2000 DP → effective DP folds it
-    // MIGRATION-NOTE (P7 test-fix): ChangeDPClass is a new-model kind-class with no ToBinding/EffectRegistry
-    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). Permanent.DP reads only the substrate
-    // EffectRegistry (ContinuousDpGate), not the AS-IS live scan, so there is no buildable way to make this grant
-    // observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
-    // silently weakened.
-    CardEffectFactory.ChangeSelfDPStaticEffect(2000, false, new CardSource(ctx, top, P1), null);
-    AssertTrue(perm.DP == 7000, "DP folds continuous modifier (5000+2000)");
     AssertTrue(perm.HasNoDigivolutionCards, "no sources");
 }
 

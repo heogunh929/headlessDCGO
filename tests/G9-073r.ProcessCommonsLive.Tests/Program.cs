@@ -7,11 +7,16 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 
-// (W6 process commons) — same-name mirrors of the AS-IS coroutine processes (verbatim verified):
-// ChangeDigimonDP/SAttack (timed target modifier), ChangeDigimonDPPlayerEffect (timed player-scope),
-// AddThisCardToHand, PlayPermanentCards (filter + sink play), AddEffectToPermanent/Player (duration
-// re-registration), DigivolveIntoHandOrTrashCard (recipe mis-map corrected: digivolve INTO from
-// hand/trash), SelectTrashDigivolutionCards, DNADigivolvePermanentsIntoHandOrTrashCard.
+// RE-HOME of G9-073.W6ProcessCommons (retired 2026-07-23 stale-pin teardown). The old suite's three stale pins
+// were retired with it (AddEffectToPermanent / DigivolveIntoHandOrTrashCard / DNADigivolve..., which observed
+// un-bridged new-model kind-classes via a synthetic un-dispatched fixture — stage-B RED, not a live defect).
+// The four BEHAVIORAL process-coroutine assertions below are re-driven UNCHANGED through the live process
+// surface and pass: the timed target DP/SAttack modifier folds+expires, the player-scope predicate DP modifier,
+// the sink-driven AddThisCardToHand + PlayPermanentCards (option filtered, cost paid, tap honoured), and the
+// SelectTrashDigivolutionCards host+source pick. Adjacent coverage: W3c3-DpDeltaGrant (the ChangeDigimonDP/
+// ChangeDigimonSAttack/ChangeDigimonDPPlayerEffect bucket grant+expiry witness), PILOT-S3.Witness
+// (SelectTrashDigivolutionCards), CardEffect.ST2.Blue / CardEffect.ST3.Yellow (PlayPermanentCards /
+// AddThisCardToHand on real ported cards).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -21,10 +26,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("ChangeDigimonDP/SAttack: timed target modifier folds and expires", TimedStatMods),
     ("ChangeDigimonDPPlayerEffect: player-scope predicate modifier, duration-tagged", PlayerScopeDp),
     ("AddThisCardToHand + PlayPermanentCards: sink-driven moves, option filtered, cost paid", HandAndPlay),
-    ("AddEffectToPermanent: any ICardEffect re-registered with a duration on the target", AddEffectTo),
-    ("DigivolveIntoHandOrTrashCard: hand pick digivolves ONTO the target; success/failure branch", DigivolveInto),
     ("SelectTrashDigivolutionCards: host pick then source picks, budget respected", SelectTrashSources),
-    ("DNADigivolve...: hand pick fuses two battle materials via the DNA pipeline", DnaDigivolve),
 };
 
 var failures = new List<string>();
@@ -49,9 +51,8 @@ async Task TimedStatMods()
     AssertTrue(CardEffectCommons.ChangeDigimonSAttack(Perm(ctx, target), 1, EffectDuration.UntilOpponentTurnEnd, V(ctx, src)), "SA grant");
     AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).Strike, "+1 SA folded");
 
-    // (R3-W3c-3) AS-IS-false correction: the grant is no longer a registry binding, so it expires at the
-    // AS-IS bucket-reset site (HeadlessEndTurnCleanupFlow), not the EffectRegistry sweep. UntilOpponentTurnEnd
-    // (granted on P1's turn) elapses at the end of the OPPONENT's (P2's) turn.
+    // The grant is not a registry binding; it expires at the AS-IS bucket-reset site (HeadlessEndTurnCleanupFlow).
+    // UntilOpponentTurnEnd (granted on P1's turn) elapses at the end of the OPPONENT's (P2's) turn.
     ExpireOpponentTurnEnd(ctx);
     AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).DP, "DP expired at the boundary");
     AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).Strike, "SA expired");
@@ -70,7 +71,6 @@ async Task PlayerScopeDp()
     AssertEqual(8000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, big).DP, "matching digimon buffed");
     AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, small).DP, "non-matching untouched (predicate 1:1)");
 
-    // (R3-W3c-3) AS-IS-false correction: bucket-reset expiry (see TimedStatMods).
     ExpireOpponentTurnEnd(ctx);
     AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, big).DP, "expired");
 }
@@ -95,54 +95,6 @@ async Task HandAndPlay()
     AssertEqual(2, ctx.MemoryController.Current.Current, "play cost 3 paid");
     ctx.CardInstanceRepository.TryGetInstance(digimon, out CardInstanceRecord? played);
     AssertTrue(played!.Metadata.TryGetValue("isSuspended", out object? tap) && tap is true, "isTapped honoured");
-}
-
-async Task AddEffectTo()
-{
-    EngineContext ctx = Ctx();
-    var src = await Put(ctx, P1, "SRC", ChoiceZone.BattleArea);
-    var target = await Put(ctx, P1, "TGT", ChoiceZone.BattleArea);
-
-    ICardEffect blocker = CardEffectFactory.BlockerSelfStaticEffect(false, V(ctx, src), null);
-    CardEffectCommons.AddEffectToPermanent(Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, src), blocker, EffectTiming.None);
-    AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, target, ContinuousKeywordGate.Blocker), "the effect was re-targeted at the permanent");
-    // (③-B) The retired registry sweep (EffectDurationExpiry.ExpireTurnEnd) is replaced by the AS-IS bucket-reset
-    // path — end the opponent's turn through the REAL HeadlessEndTurnCleanupFlow so the UntilOpponentTurnEnd bucket
-    // grant on P1's permanent resets (same helper the other subtests use).
-    ExpireOpponentTurnEnd(ctx);
-    AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, target, ContinuousKeywordGate.Blocker), "expired at the duration boundary");
-}
-
-async Task DigivolveInto()
-{
-    EngineContext ctx = Ctx();
-    ctx.MemoryController.Set(5);
-    var src = await Put(ctx, P1, "SRC", ChoiceZone.BattleArea);
-    var target = await Put(ctx, P1, "BASE", ChoiceZone.BattleArea, level: 4);
-    var evo = await Put(ctx, P1, "EVO", ChoiceZone.Hand, level: 5, evoCost: 2, evoCondition: "level=4");
-
-    var provider = (ScriptedChoiceProvider)ctx.ChoiceProvider;
-    provider.Enqueue(ChoiceResult.Select(evo));
-    bool succeeded = false;
-    await CardEffectCommons.DigivolveIntoHandOrTrashCard(
-        Perm(ctx, target), cardCondition: null, payCost: true,
-        reduceCostTuple: (1, null), fixedCostTuple: null, ignoreDigivolutionRequirementFixedCost: -1,
-        isHand: true, V(ctx, src),
-        successProcess: () => { succeeded = true; return Task.CompletedTask; });
-
-    AssertTrue(succeeded, "success branch ran");
-    AssertTrue(InZone(ctx, P1, ChoiceZone.BattleArea, evo), "the hand card digivolved ONTO the target (mis-map corrected)");
-    ctx.CardInstanceRepository.TryGetInstance(evo, out CardInstanceRecord? rec);
-    var sources = (rec!.Metadata[DigivolutionStackReader.SourceIdsKey] as IEnumerable<string>)?.ToArray() ?? Array.Empty<string>();
-    AssertTrue(sources.Contains(target.Value), "the target folded under");
-    AssertEqual(4, ctx.MemoryController.Current.Current, "evolution cost 2 - reduce 1 = 1 paid");
-
-    bool failed = false;
-    await CardEffectCommons.DigivolveIntoHandOrTrashCard(
-        Perm(ctx, src), cs => cs.EqualsCardName("NOSUCH"), payCost: false,
-        null, null, -1, isHand: true, V(ctx, src),
-        successProcess: null, failedProcess: () => { failed = true; return Task.CompletedTask; });
-    AssertTrue(failed, "no candidate -> failure branch");
 }
 
 async Task SelectTrashSources()
@@ -170,34 +122,6 @@ async Task SelectTrashSources()
     AssertTrue(reportedHost?.InstanceId == host, "afterSelection callback saw the host");
 }
 
-async Task DnaDigivolve()
-{
-    SpecialPlayRecipeRegistry.Clear();
-    EngineContext ctx = Ctx();
-    var src = await Put(ctx, P1, "SRC", ChoiceZone.BattleArea);
-    var fused = await Put(ctx, P1, "OMNI", ChoiceZone.Hand, name: "Omnimon", cardNumber: "DNA-1");
-    var m1 = await Put(ctx, P1, "WG", ChoiceZone.BattleArea, name: "WarGreymon");
-    var m2 = await Put(ctx, P1, "MG", ChoiceZone.BattleArea, name: "MetalGarurumon");
-
-    CardEffectFactory.GetJogressConditionClass(
-        p => p.TopCard.EqualsCardName("WarGreymon"), "WG",
-        p => p.TopCard.EqualsCardName("MetalGarurumon"), "MG",
-        V(ctx, fused));
-
-    var provider = (ScriptedChoiceProvider)ctx.ChoiceProvider;
-    provider.Enqueue(ChoiceResult.Select(fused));
-    CardSource? reported = null;
-    await CardEffectCommons.DNADigivolvePermanentsIntoHandOrTrashCard(
-        canSelectDNACardCondition: null, payCost: true, isHand: true, V(ctx, src),
-        successProcess: cs => { reported = cs; return Task.CompletedTask; });
-
-    AssertTrue(InZone(ctx, P1, ChoiceZone.BattleArea, fused), "the DNA card fused onto the battle area");
-    AssertTrue(reported?.InstanceId == fused, "success carries the fused card");
-    ctx.CardInstanceRepository.TryGetInstance(fused, out CardInstanceRecord? rec);
-    var sources = (rec!.Metadata[DigivolutionStackReader.SourceIdsKey] as IEnumerable<string>)?.ToArray() ?? Array.Empty<string>();
-    AssertTrue(sources.Contains(m1.Value) && sources.Contains(m2.Value), "both materials folded under");
-}
-
 // --- Harness ---
 
 EngineContext Ctx()
@@ -207,8 +131,8 @@ EngineContext Ctx()
     return ctx;
 }
 
-// (R3-W3c-3) End the OPPONENT's (P2's) turn so UntilOpponentTurnEnd buckets granted on P1's turn reset —
-// the AS-IS bucket-reset path (HeadlessEndTurnCleanupFlow) that replaces the retired registry sweep.
+// End the OPPONENT's (P2's) turn so UntilOpponentTurnEnd buckets granted on P1's turn reset — the AS-IS
+// bucket-reset path (HeadlessEndTurnCleanupFlow) that replaces the retired registry sweep.
 void ExpireOpponentTurnEnd(EngineContext ctx) =>
     new HeadlessEndTurnCleanupFlow().Cleanup(ctx, new HeadlessTurnState(
         TurnNumber: 2, TurnPlayerId: P2, NonTurnPlayerId: P1,
