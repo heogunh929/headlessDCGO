@@ -47,16 +47,28 @@ public static partial class CardEffectCommons
 
     #region DNA digivolve WITH a hand/trash card into a hand/trash card (AS-IS DNADigivolveEffects.cs:256) — STOP
 
-    /// <summary>(BRIDGE W3) AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> — STOP kept (strong
-    /// model), declared at the AS-IS signature so a verbatim ported card COMPILES against it and fails LOUDLY
-    /// at activation. Rationale (per the substrate's own throw-stub + the bridge map): the AS-IS body selects a
-    /// DNA-capable card from hand/trash to be one material, TEMPORARILY plays it as a real throwaway permanent
-    /// (<c>PlayTempPermanent</c>/<c>CardObjectController.CreateNewPermanent</c>) so it can be jointly evaluated
-    /// with a field permanent, resolves ordering, executes the jogress play via <c>PlayCardClass</c>, and
-    /// UN-plays the temp permanent on failure. That "play a transient permanent mid-effect-resolution, with
-    /// rollback" machinery has no headless substrate surface — approximating it (e.g. evaluating the material
-    /// while still in hand) would change the joint-evaluation and trigger semantics, so per the
-    /// no-simplification rule this stays a STOP until the transient-permanent substrate exists.</summary>
+    /// <summary>(BRIDGE W3 · RD-W3 DNA-temp) AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> —
+    /// declared at the AS-IS signature so a verbatim ported card COMPILES against it and fails LOUDLY at
+    /// activation. The AS-IS body selects a DNA-capable card from hand/trash to be one material, TEMPORARILY
+    /// materialises it as a permanent (<c>PlayTempPermanent</c>/<c>CardObjectController.CreateNewPermanent</c>) so
+    /// it can be jointly evaluated with a field permanent, resolves ordering, executes the jogress via
+    /// <c>PlayCardClass.SetJogress</c>, and UN-plays the temp permanent on failure.
+    ///
+    /// DESIGN DECISION RESOLVED (RD-S3-BT17_095, proven by tests/DNATEMP-Witness.Tests): the transient-permanent
+    /// machinery IS now expressible — the entity-less pure-predicate transient = a read-only <c>Permanent</c> VIEW
+    /// over the card's own id + <c>snapshotZone: BattleArea</c> (TopCard = the card; field-membership answered from
+    /// the snapshot, no zone mutation/trigger); the REAL material = <c>CardObjectController.CreateNewPermanent</c>
+    /// (live); rollback = the public <c>CardObjectController.AddHandCard(card, isDraw)</c> (live); the jogress
+    /// itself = <c>CardSource.CanJogressFromTargetPermanent</c> + <c>PlayCardClass.SetJogress</c> (live, to the MIG4
+    /// collapse leaf). The prior "no headless substrate surface" rationale is RETRACTED.
+    ///
+    /// This overload nonetheless stays a STOP: (1) the mirror's LIVE effect-driven DNA-from-hand/trash path is
+    /// <c>FusionDigivolveHelpers.FuseAsync</c> (the SpecialPlay architecture the ported <c>TfxDnaFromHand</c> /
+    /// tests/PRIM.DnaFromHand use) — a 1:1 PlayTempPermanent port here would be an unverified PARALLEL path; and
+    /// (2) the raw helper has NO live ported caller (its AS-IS callers EX11_059/EX6_072 are unported), so per the
+    /// completion-before-porting / witness-selection rules its full interactive-flow port is deferred to those
+    /// cards' own witness-selected unit. BT17_095's &lt;Delay&gt; (which hand-rolls the same mechanism in-card) is
+    /// the resolved witness of the family — see BT17_095.cs.</summary>
     public static Task DNADigivolveWithHandOrTrashCardIntoHandOrTrash(
         Func<CardSource, bool> targetCardCondition,
         Func<Permanent, bool> permanentCondition,
@@ -70,9 +82,11 @@ public static partial class CardEffectCommons
         Func<Task> failedProcess = null,
         bool isOptional = true) =>
         throw new NotSupportedException(
-            "DNA-with-temporary-material is not modeled — STOP (strong model). See the substrate stub in " +
-            "Script/CardEffectCommons.cs (DNADigivolveWithHandOrTrashCardIntoHandOrTrash) and " +
-            "docs/audit/rebuild_bridge_w3_notes.md.");
+            "DNA-with-temporary-material: the transient-permanent mechanism IS modeled (RD-S3-BT17_095 resolved — " +
+            "SnapshotZone view + CreateNewPermanent + AddHandCard + SetJogress, witnessed by DNATEMP-Witness). This " +
+            "raw AS-IS helper stays a STOP: the live effect-driven DNA-from-hand path is FusionDigivolveHelpers." +
+            "FuseAsync (TfxDnaFromHand/PRIM.DnaFromHand), and this helper has no live ported caller (EX11_059/" +
+            "EX6_072 unported) — its full interactive-flow port is deferred to those cards' witness. See BT17_095.cs.");
 
     #endregion
 

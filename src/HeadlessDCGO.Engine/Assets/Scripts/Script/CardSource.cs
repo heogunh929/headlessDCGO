@@ -739,6 +739,69 @@ public sealed class CardSource
         return false;
     }
 
+    /// <summary>(RD-S3-BT17_095 — temp-material DNA family) 1:1 mirror of AS-IS
+    /// <c>CardSource.CanJogressFromTargetPermanent(targetPermanent, PayCost)</c> (CardSource.cs:2799-2839): the
+    /// SINGULAR jogress-root capacity check — given ONE candidate root permanent, THIS card can jogress if the
+    /// root is one of the owner's battle-area Digimon, <see cref="CanPlayJogress"/> holds, some JogressCondition
+    /// has an element the root satisfies (<c>EvoRootCondition</c>), and the root is <c>!CanNotEvolve</c> (the burst
+    /// cost payable when PayCost). Distinct from the two-target <see cref="CanJogressFromTargetPermanents"/>: this
+    /// is the "the OTHER root is already fixed/validated, does this one qualify for SOME slot" form BT17_095's
+    /// &lt;Delay&gt; execution uses after its temp hand-material was jointly pre-validated. ADAPTATIONS:
+    /// <c>jogressCondition</c> = the mirror <see cref="CardSourceAsIsPlayAccessors.JogressConditionOf"/> accessor;
+    /// <c>targetPermanent.TopCard.Owner.GetBattleAreaDigimons()</c> / <c>Owner.MaxMemoryCost</c> →
+    /// <c>new Player(Context, …).*</c> (the CanBurstDigivolutionFromTargetPermanent idiom). The AS-IS PayCost cost
+    /// re-check builds a 2-slot list <c>{ targetPermanent, new Permanent(new List&lt;CardSource&gt;()) }</c> — the
+    /// second an ENTITY-LESS EMPTY placeholder for the not-yet-chosen root; that empty permanent carries no cards,
+    /// so it contributes NO cost modifier and NO DP to <see cref="GetChangedCostItselef"/>. The mirror has no
+    /// entity-less empty-permanent surface (Permanent is entity-backed), so the cost call passes just
+    /// <c>{ targetPermanent }</c> — behaviourally identical (documented ADAPTATION; and BT17_095's sole caller
+    /// passes PayCost=false, so this branch is not exercised there).</summary>
+    public bool CanJogressFromTargetPermanent(Permanent targetPermanent, bool PayCost)
+    {
+        if (targetPermanent != null)
+        {
+            if (targetPermanent.TopCard != null)
+            {
+                foreach (JogressCondition condition in this.JogressConditionOf())
+                {
+                    if (new Player(Context, targetPermanent.TopCard.Owner).GetBattleAreaDigimons().Contains(targetPermanent))
+                    {
+                        if (this.CanPlayJogress(PayCost))
+                        {
+                            if (condition != null)
+                            {
+                                if (condition.elements.ToList().Count((element) => element.EvoRootCondition(targetPermanent)) >= 1)
+                                {
+                                    if (!this.CanNotEvolve(targetPermanent))
+                                    {
+                                        if (PayCost)
+                                        {
+                                            int cost = condition.cost;
+
+                                            // ADAPTATION (see summary): AS-IS threads a second ENTITY-LESS empty
+                                            // Permanent placeholder (no cards ⇒ no cost/DP contribution); the mirror
+                                            // omits it (no entity-less empty-permanent surface).
+                                            cost = GetChangedCostItselef(cost, SelectCardEffect.Root.Hand, new List<Permanent>() { targetPermanent }, checkAvailability: true);
+
+                                            if (new Player(Context, Owner).MaxMemoryCost < cost)
+                                            {
+                                                return false;
+                                            }
+                                        }
+
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>(P6C1 — RD-P6C1-2 RESOLVED) 1:1 mirror of AS-IS
     /// <c>CardSource.CanBurstDigivolutionFromTargetPermanent(targetPermanent, PayCost)</c> (CardSource.cs:3211-3260):
     /// the supplied owner field/breeding Digimon can burst-digivolve into this card — <see cref="CanPlayBurst"/>

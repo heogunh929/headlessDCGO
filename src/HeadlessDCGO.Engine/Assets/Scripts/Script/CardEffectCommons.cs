@@ -2741,10 +2741,17 @@ public static partial class CardEffectCommons
     }
 
     /// <summary>AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> (DNADigivolveEffects.cs:256)
-    /// — plays a TEMPORARY permanent from hand/trash as one DNA material mid-flow (PlayTempPermanent +
-    /// rollback). That transient-permanent machinery has no headless surface. STOP.</summary>
+    /// — plays a TEMPORARY permanent from hand/trash as one DNA material mid-flow (PlayTempPermanent + rollback).
+    /// RD-S3-BT17_095 RESOLVED: that transient-permanent machinery IS now modeled (SnapshotZone Permanent view for
+    /// the pure-predicate transient + CreateNewPermanent for the real material + AddHandCard rollback + SetJogress,
+    /// witnessed by tests/DNATEMP-Witness.Tests). This raw substrate entry stays a STOP — the live effect-driven
+    /// DNA-from-hand path is FusionDigivolveHelpers.FuseAsync, and this helper has no live ported caller (its full
+    /// port is deferred to a witness-selected caller). See the AS-IS-signature overload in
+    /// CardEffectCommons/DNADigivolveEffects.cs and BT17_095.cs (the resolved family witness).</summary>
     public static Task DNADigivolveWithHandOrTrashCardIntoHandOrTrash(CardSource sourceCard) =>
-        throw new NotSupportedException("DNA-with-temporary-material is not modeled — STOP (strong model).");
+        throw new NotSupportedException(
+            "DNA-with-temporary-material: mechanism modeled (RD-S3-BT17_095 resolved, DNATEMP-Witness); raw helper " +
+            "STOP — live path is FusionDigivolveHelpers.FuseAsync, no live ported caller. See BT17_095.cs.");
 
     // AS-IS AddEffectToPermanent(targetPermanent, effectDuration, card, cardEffect, timing) lives at its AS-IS path
     // in the sibling partial file CardEffectCommons/GiveEffect/GiveEffectToPermanentOrPlayer.cs (mirror-into-asis-file

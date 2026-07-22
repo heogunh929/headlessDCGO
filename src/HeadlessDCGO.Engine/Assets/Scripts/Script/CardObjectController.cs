@@ -388,6 +388,16 @@ public static class CardObjectController
     /// <c>Owner.HandCards.Add</c> = the zone mover's ->Hand insert; everything after (:638+ Instantiate/animation/
     /// AlignHand/SE) is UI (stripped). The batch/cause ids stamp the derived OnAddHand window (see
     /// <see cref="AddHandCards"/>).</summary>
+    /// <summary>(RD-P6C1-8 residual RESOLVED) Public 1:1 of the AS-IS single-card
+    /// <c>CardObjectController.AddHandCard(cardSource, isDraw)</c> (CardObjectController.cs:625-636) — the
+    /// entry the temp-material DNA ROLLBACK (BT17_095 &lt;Delay&gt; / DNADigivolveEffects failed-flow) calls to
+    /// un-materialize a temp material back to hand. Delegates to the private batch-stamped body with a fresh
+    /// add-hand batch id and NO cause (a plain restore, not an effect-driven add) — the AS-IS single AddHandCard
+    /// likewise has no OnAddHand cut-in beyond the ACE/window scaffolding the PLURAL <see cref="AddHandCards"/>
+    /// owns.</summary>
+    public static Task AddHandCard(CardSource cardSource, bool isDraw, CancellationToken cancellationToken = default) =>
+        AddHandCard(cardSource, isDraw, cardSource.Context.NextAddHandBatchId(), causeEffectId: null, cancellationToken);
+
     private static async Task AddHandCard(
         CardSource cardSource, bool isDraw, long addHandBatchId, HeadlessEntityId? causeEffectId, CancellationToken cancellationToken)
     {
