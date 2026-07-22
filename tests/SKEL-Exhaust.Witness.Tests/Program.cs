@@ -12,9 +12,9 @@ using HeadlessDCGO.Engine.Headless.Services;
 // (docs/audit/primitive_residual_census_2026-07-22.md §2/§3). Groups:
 //   (1) MinMax_DP_Cost_Level predicates rehoused to their mirrored paths (IsMaxDP/IsMinDP/IsMaxLevel/
 //       IsMinLevel/IsMinLevelBoard/IsMaxCost/IsMinCost/IsMinDigivolutionCards + GetNonMaxCostPermanents).
-//   (2) GiveEffect grants: GainCanNotBeDeletedByBattle (rehoused), StartOfMainAttack (RD-3A-01 STOP),
-//       ChangeDigimonLinkMax (latent), ChangeDigivolutionCostPlayerEffect / GainIgnoreDigivolutionRequirement-
-//       PlayerEffect (latent, Func-returning).
+//   (2) GiveEffect grants: GainCanNotBeDeletedByBattle (rehoused), StartOfMainAttack (RD-3A-01 resolved — live
+//       1:1 port, GiveEffectToPermanent/StartOfMainAttack.cs), ChangeDigimonLinkMax (latent),
+//       ChangeDigivolutionCostPlayerEffect / GainIgnoreDigivolutionRequirementPlayerEffect (latent, Func-returning).
 //   (3) TrainingClass (latent keyword body) — construction + guard smoke.
 //   (4) SelectTrashLinkedCards — STOP-guard contract (guards short-circuit; the interactive loop throws
 //       NotSupportedException per design item RD-SKEL-01).
@@ -133,18 +133,28 @@ ActivateClass MakeEffect(EngineContext ctx, HeadlessPlayerId owner, HeadlessEnti
         "GainCanNotBeDeletedByBattle: null target -> refused (false)");
 }
 
-// (2b) StartOfMainAttack — RD-3A-01 STOP contract. On main, campaign ④ retired the invented EffectRegistry
-// cluster (EffectBinding / StartOfMainAttackEffect); ③-A judged the AS-IS mandatory-attack grant a "needs a
-// new firing window" port with 0 live callers, so the monolith surface is a NotSupportedException STOP. The
-// rehoused home file declares no member. This subtest pins the STOP contract, not a registered binding.
+// (2b) StartOfMainAttack — RD-3A-01 resolved: the OnStartMainPhase firing window is fully wired (see the home
+// file's header), so the grant is now a live 1:1 port. Minimal live-contract check (W3-SpecialWitness owns the
+// full loop — grant surfacing, CanUse gating, and the mandatory-attack firing itself): the grant call succeeds
+// and the target's UntilOwnerTurnEndEffects gains an entry whose GetCardEffect selector yields the mandatory-
+// attack ActivateClass at EffectTiming.OnStartMainPhase and nothing at EffectTiming.None.
 {
     EngineContext ctx = NewCtx(P1, 40006);
     HeadlessEntityId attacker = PlaceDigimon(ctx, P1, "MAINATK", dp: 4000, level: 4, cost: 4);
-    var host = new CardSource(ctx, attacker, P1, P1);
-    bool stopThrew = false;
-    try { CardEffectCommons.StartOfMainAttack(Perm(ctx, attacker, P1), host); }
-    catch (NotSupportedException) { stopThrew = true; }
-    Check(stopThrew, "StartOfMainAttack: valid args hit the RD-3A-01 STOP (NotSupportedException)");
+    ActivateClass cardEffect = MakeEffect(ctx, P1, attacker, "main-atk-affecting-effect");
+    Permanent target = Perm(ctx, attacker, P1);
+    bool threw = false;
+    try { _ = CardEffectCommons.StartOfMainAttack(target, cardEffect); }
+    catch (Exception e) { threw = true; Console.Error.WriteLine(e); }
+    Check(!threw, "StartOfMainAttack: grant call succeeds (RD-3A-01 resolved, no STOP)");
+
+    var atMain = Perm(ctx, attacker, P1).EffectList(EffectTiming.OnStartMainPhase)
+        .FirstOrDefault(e => e.EffectName == "Attack with this Digimon");
+    Check(atMain is not null, "StartOfMainAttack: the granted mandatory-attack ActivateClass surfaces at OnStartMainPhase (UntilOwnerTurnEndEffects)");
+
+    var atNone = Perm(ctx, attacker, P1).EffectList(EffectTiming.None)
+        .FirstOrDefault(e => e.EffectName == "Attack with this Digimon");
+    Check(atNone is null, "StartOfMainAttack: timing-gated — does NOT surface at None (GetCardEffect returns null off-window)");
 }
 
 // (2c) ChangeDigimonLinkMax (latent, both overloads): grants a link-max delta without throwing.
