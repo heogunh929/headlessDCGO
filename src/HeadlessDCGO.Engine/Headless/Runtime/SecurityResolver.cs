@@ -860,10 +860,6 @@ public sealed class SecurityResolver
         // OnDestroyedAnyone cut-in window (printed FortitudeEffect / granted GainFortitude bucket).
     }
 
-    /// <summary>(W6 tail) binding-values keys for security-card DP grants (AS-IS ChangeSecurityDigimonCardDPPlayerEffect).</summary>
-    public const string SecurityCardDpDeltaKey = "securityCardDpDelta";
-    public const string SecurityCardPredicateKey = "securityCardDpDelta.cardCondition";
-
     private static bool TryReadSecurityDigimonDp(
         EngineContext context,
         HeadlessEntityId cardId,
@@ -885,46 +881,19 @@ public sealed class SecurityResolver
             return false;
         }
 
-        // (W6 tail) AS-IS ChangeSecurityDigimonCardDPPlayerEffect (ChangeCardDPClass): fold registered
-        // security-card DP grants whose card predicate accepts this revealed card.
-        foreach (Effects.EffectRequest effect in context.EffectRegistry.GetContinuousEffects(
-            new Services.EffectQueryContext(ContinuousModifierGate.Scope)))
-        {
-            if (!effect.Context.Values.TryGetValue(SecurityCardDpDeltaKey, out object? raw) || raw is not int delta || delta == 0)
-            {
-                continue;
-            }
-
-            if (effect.Context.Values.TryGetValue(
-                    ContinuousScopeEvaluation.ConditionKey, out object? rawCond)
-                && rawCond is Func<bool> condition && !condition())
-            {
-                continue;
-            }
-
-            if (effect.Context.Values.TryGetValue(SecurityCardPredicateKey, out object? rawPred)
-                && rawPred is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate
-                && !predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, instance.OwnerId, instance.OwnerId)))
-            {
-                continue;
-            }
-
-            securityDp += delta;
-        }
-
         // (RD-7 Part A / design item RD7-71) AS-IS a security Digimon battles with its CardDP (CardSource.CardDP,
         // CardSource.cs:2383) — a SEPARATE fold that scans ONLY IChangeCardDPEffect (the single implementer
-        // ChangeCardDPClass = the securityCardDpDelta grants folded above), NOT the permanent-DP pipeline. So
-        // generic continuous DP effects (ContinuousDpGate: DP-boosts/reductions, reduction-immunity, LinkedDP)
+        // ChangeCardDPClass = the ChangeSecurityDigimonCardDPPlayerEffect grants), NOT the permanent-DP pipeline.
+        // So generic continuous DP effects (ContinuousDpGate: DP-boosts/reductions, reduction-immunity, LinkedDP)
         // do NOT touch a security Digimon's battle DP. The previous ContinuousDpGate.ResolveDp fold (D-A2)
         // wrongly leaked those permanent-DP effects into the security battle; removed to mirror CardDP.
 
-        // (RD-P6B-18) UNION the NEW-model IChangeCardDPEffect scan (AS-IS CardSource.CardDP): a new-model
-        // ChangeCardDPClass (ChangeSecurityDigimonCardDPStaticEffect) registers no binding, so the legacy
-        // securityCardDpDelta fold above never sees it. AS-IS CardDP's CardCondition gates on
-        // attackProcess.SecurityDigimon == this — the revealed card IS that security Digimon, so establish it
-        // before the fold (nested ambient enter is safe; FoldCardDp clamps >= 0). Interface-disjoint from the
-        // legacy fold, so no double-count.
+        // (J-3) The AS-IS IChangeCardDPEffect scan (AS-IS CardSource.CardDP) is now the SOLE reader of
+        // ChangeSecurityDigimonCardDPPlayerEffect grants: the producer builds a ChangeCardDPClass
+        // (ChangeSecurityDigimonCardDPStaticEffect) into the owning player's EffectList(None) bucket, which
+        // FoldCardDp scans (the legacy securityCardDpDelta registry-fold arm is excised — reader-neutral flip).
+        // AS-IS CardDP's CardCondition gates on attackProcess.SecurityDigimon == this — the revealed card IS that
+        // security Digimon, so establish it before the fold (nested ambient enter is safe; FoldCardDp clamps >= 0).
         using (AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context))
         {
             Assets.Scripts.Script.AttackProcess.For(context).SecurityDigimon = cardId;
@@ -934,8 +903,8 @@ public sealed class SecurityResolver
         return true;
     }
 
-    /// <summary>(RD-P6B-18) Public accessor for a security Digimon's resolved battle DP (base DP + DP modifiers +
-    /// the legacy securityCardDpDelta fold + the new-model IChangeCardDPEffect scan, AS-IS CardSource.CardDP).
+    /// <summary>(RD-P6B-18) Public accessor for a security Digimon's resolved battle DP (base DP +
+    /// the AS-IS IChangeCardDPEffect scan, AS-IS CardSource.CardDP — the sole ChangeSecurityDigimonCardDP reader).
     /// The production security-battle path uses <see cref="TryReadSecurityDigimonDp"/> directly; this exposes the
     /// same computation for callers/tests that read a security Digimon's battle DP outside the loop.</summary>
     public static bool TryGetSecurityDigimonBattleDp(EngineContext context, HeadlessEntityId cardId, out int securityDp)

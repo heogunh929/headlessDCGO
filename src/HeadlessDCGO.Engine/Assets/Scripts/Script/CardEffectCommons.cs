@@ -1477,27 +1477,14 @@ public static partial class CardEffectCommons
     }
 
     /// <summary>AS-IS <c>ChangeSecurityDigimonCardDPPlayerEffect</c> (GiveEffectToPlayer/ChangeCardDP.cs:10,
-    /// verbatim): security Digimon gain ±DP for security battles (SecurityResolver folds the grant).</summary>
+    /// verbatim): security Digimon gain ±DP for security battles.
+    /// (J-3) CardSource-only substrate entry: routes to the AS-IS 1:1 body (home file) — the owning player's
+    /// duration bucket gets a <c>ChangeCardDPClass</c> (via <c>ChangeSecurityDigimonCardDPStaticEffect</c>) that
+    /// <c>SecurityResolver.TryReadSecurityDigimonDp</c> folds via the AS-IS <c>IChangeCardDPEffect</c> scan
+    /// (NewModelContinuousScan.FoldCardDp). No cause is threaded (the AS-IS body has no immunity guard).</summary>
     public static bool ChangeSecurityDigimonCardDPPlayerEffect(
-        Func<CardSource, bool>? cardCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard)
-    {
-        if (changeValue == 0)
-        {
-            return false;
-        }
-
-        var extra = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [Headless.Runtime.SecurityResolver.SecurityCardDpDeltaKey] = changeValue,
-        };
-        if (cardCondition is not null)
-        {
-            extra[Headless.Runtime.SecurityResolver.SecurityCardPredicateKey] = cardCondition;
-        }
-
-        return GainToPlayerScope(effectDuration, sourceCard, "changeSecurityCardDp", permanentCondition: null,
-            extraValues: extra, scopeOverride: ContinuousModifierGate.Scope);
-    }
+        Func<CardSource, bool>? cardCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard) =>
+        ChangeSecurityDigimonCardDPPlayerEffectImpl(cardCondition, changeValue, effectDuration, card: sourceCard);
 
     /// <summary>AS-IS <c>StartOfMainAttack</c> (GiveEffect/StartOfMainAttack.cs:5, verbatim): until the
     /// owner's turn end, at the start of the owner's main phase this Digimon MUST attack (the offer cannot
