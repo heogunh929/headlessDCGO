@@ -1,5 +1,6 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -110,11 +111,13 @@ async Task SuspendThenDeleteE2E()
 ChoiceRequest DeleteRequest(EngineContext context, HeadlessEntityId selfId)
 {
     var card = new CardSource(context, selfId, P1);
-    int DeletionMaxDp() => CardEffectCommons.MaxDpDeleteThreshold(card,
+    var probeActivate = new ActivateClass();
+    int DeletionMaxDp() => new Player(context, P1).MaxDP_DeleteEffect(
         8000 + 3000 * CardEffectCommons.MatchConditionPermanentCount(card,
             id => CardEffectCommons.IsBattleAreaDigimon(card, id)
                 && CardEffectCommons.IsSuspended(card, id)
-                && id != card.InstanceId));
+                && id != card.InstanceId),
+        probeActivate);
     bool CanDelete(HeadlessEntityId id) =>
         CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) && CardEffectCommons.CurrentDp(card, id) <= DeletionMaxDp();
 

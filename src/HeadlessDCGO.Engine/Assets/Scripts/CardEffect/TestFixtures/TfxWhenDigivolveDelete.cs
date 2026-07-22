@@ -70,16 +70,18 @@ public sealed class TfxWhenDigivolveDelete : CEntity_Effect
                 await selectPermanentEffect.Activate();
             }
 
+            ActivateClass deleteActivateClass = new ActivateClass();
+
             // ② You may delete 1 of your opponent's Digimon with DP <= the dynamic threshold.
-            int DeletionMaxDp() => CardEffectCommons.MaxDpDeleteThreshold(card,
+            int DeletionMaxDp() => new Player(card.Context, card.Owner).MaxDP_DeleteEffect(
                 8000 + 3000 * CardEffectCommons.MatchConditionPermanentCount(card,
                     id => CardEffectCommons.IsBattleAreaDigimon(card, id)
                         && CardEffectCommons.IsSuspended(card, id)
-                        && id != card.InstanceId));
+                        && id != card.InstanceId),
+                deleteActivateClass);
             bool CanDelete(HeadlessEntityId id) =>
                 CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) && CardEffectCommons.CurrentDp(card, id) <= DeletionMaxDp();
 
-            ActivateClass deleteActivateClass = new ActivateClass();
             deleteActivateClass.SetUpICardEffect(
                 "Delete 1 of your opponent's Digimon (DP threshold scales with suspended Digimon).",
                 CanUseConditionTrue, card);

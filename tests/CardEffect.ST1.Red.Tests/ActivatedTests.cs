@@ -40,17 +40,19 @@ internal static class ActivatedTests
         // Base 4000 -> the 5000-DP Digimon is NOT a candidate (covered by ST1_15_Candidates). With a +2000
         // delete-threshold raise active, the same 5000-DP Digimon becomes deletable (4000 + 2000 = 6000).
         (EngineContext context, _, _, _) = await ThreeOpponents(deferred: true);
-        var raise = new EffectBinding(
-            new EffectRequest(new HeadlessEntityId("raise:delthreshold"), P1, "Continuous",
-                new EffectContext(P1, P1, new HeadlessEntityId("raise:src"), triggerEntityId: null,
-                    targetEntityIds: System.Array.Empty<HeadlessEntityId>(),
-                    values: new Dictionary<string, object?>(StringComparer.Ordinal) { ["maxDpDeleteDelta"] = 2000 })),
-            keywords: null, EffectQueryRole.Continuous, new[] { "DeleteThreshold" }, effect: null, duration: null);
-        context.EffectRegistry.Register(raise);
+        // (RC-2 re-aim) the raise rides the AS-IS surface: a ChangeDPDeleteEffectMaxDPClass (+2000) in P1's
+        // player None bucket, folded live by Player.MaxDP_DeleteEffect — the invented registry
+        // DeleteThreshold binding is retired.
+        var raiseSource = new CardSource(context, new HeadlessEntityId("p1:battle:RAISER"), P1);
+        var raiseClass = new ChangeDPDeleteEffectMaxDPClass();
+        raiseClass.SetUpICardEffect("+2000 delete threshold", _ => true, raiseSource);
+        raiseClass.SetUpChangeDPDeleteEffectMaxDPClass((maxDP, _) => maxDP + 2000);
+        new Player(context, P1).PermanentEffects.Add(
+            CardEffectCommons.GetCardEffectByEffectTiming(EffectTiming.None, raiseClass));
 
         // (re-aim) drive the AS-IS ActivateClass coroutine with a DEFERRED provider and read the surfaced
-        // SelectPermanentEffect request (the live rule surface — MaxDpDeleteThreshold is a live EffectRegistry
-        // continuous query, so the raise is honoured). The 5000-DP Digimon now qualifies -> all 3 are candidates.
+        // SelectPermanentEffect request (the live rule surface — Player.MaxDP_DeleteEffect folds the player
+        // bucket live, so the raise is honoured). The 5000-DP Digimon now qualifies -> all 3 are candidates.
         ChoiceRequest request = await OpenSelect(context, Main(new ST1_15(), context));
         AssertEqual(3, request.Candidates.Count, "with +2000 threshold, the 5000-DP Digimon is now a candidate");
     }

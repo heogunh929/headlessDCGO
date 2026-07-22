@@ -4629,34 +4629,6 @@ public static partial class CardEffectCommons
     /// original <c>CardSource.CanNotTrashFromDigivolutionCards</c>). Stamped on the source instance.</summary>
     public const string TrashProtectedKey = "cannotTrashFromDigivolution";
 
-    /// <summary>Query scope for the dynamic delete-DP threshold raise effects (mirror of
-    /// <c>MaxDP_DeleteEffect</c>'s raise-able cap).</summary>
-    public const string MaxDpDeleteScope = "DeleteThreshold";
-
-    /// <summary>The per-player additive delta a delete-threshold-raise effect carries.</summary>
-    public const string MaxDpDeleteDeltaKey = "maxDpDeleteDelta";
-
-    /// <summary>Mirror of the original <c>card.Owner.MaxDP_DeleteEffect(baseThreshold, ...)</c>: the current
-    /// delete-DP threshold for the card's owner = <paramref name="baseThreshold"/> plus any raise effects
-    /// (continuous bindings scoped to <see cref="MaxDpDeleteScope"/> carrying <see cref="MaxDpDeleteDeltaKey"/>
-    /// for that owner). A "delete a Digimon with N DP or less" gate compares against this, not a flat base.</summary>
-    public static int MaxDpDeleteThreshold(CardSource card, int baseThreshold)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        int total = baseThreshold;
-        foreach (EffectRequest effect in card.Context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(MaxDpDeleteScope)))
-        {
-            if (effect.Context.OwnerPlayerId == card.Owner
-                && effect.Context.Values.TryGetValue(MaxDpDeleteDeltaKey, out object? raw)
-                && raw is int delta)
-            {
-                total += delta;
-            }
-        }
-
-        return total;
-    }
-
     /// <summary>Mirror of the original target gate
     /// <c>permanent.DigivolutionCards.Count(c =&gt; !c.CanNotTrashFromDigivolutionCards(...))</c>: the number of
     /// the host permanent's digivolution (under) cards that are NOT trash-protected.</summary>

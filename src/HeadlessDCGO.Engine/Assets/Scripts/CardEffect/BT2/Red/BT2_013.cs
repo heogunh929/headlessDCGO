@@ -43,7 +43,7 @@ public sealed class BT2_013 : CEntity_Effect
             {
                 if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
                 {
-                    if (CardEffectCommons.CurrentDp(card, id) <= CardEffectCommons.MaxDpDeleteThreshold(card, baseThreshold: 2000))
+                    if (CardEffectCommons.CurrentDp(card, id) <= new Player(card.Context, card.Owner).MaxDP_DeleteEffect(2000, activateClass))
                     {
                         return true;
                     }
