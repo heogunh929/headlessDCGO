@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT17.Red;
+using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX6.White;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -34,8 +35,10 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("SnapshotZone transient joint-eval (design decision Option 2): a HAND Lv.6 Garurumon evaluated via new Permanent(id, owner, snapshotZone:BattleArea) SATISFIES AD1_025's field-membership-wrapped jogress element; WITHOUT the snapshot it FAILS", SnapshotTransientEval),
     ("CanJogressFromTargetPermanent (singular, ported): AD1_025 + a battle-area Lv.6 Greymon root → true; a non-jogress-root (Agumon Lv.3) → false", SingularJogressCheck),
-    ("BT17_095 <Delay> end-to-end: delete self → temp hand-material co-eval → materialize → jogress collapse reaches the MIG4 detach leaf with BOTH roots resolved (same boundary as FRAME-Write)", DelayEndToEndToMig4),
+    ("BT17_095 <Delay> end-to-end: delete self → temp hand-material co-eval → materialize → jogress collapse runs to completion (MIG4-DISCARDEVOROOTS landed) — AD1_025 surviving with BOTH roots stacked underneath (full collapse WRITE)", DelayEndToEndToMig4),
     ("Rollback half: CardObjectController.AddHandCard(material, false) un-materializes a battle-area temp material back to its owner's hand", RollbackUnmaterialize),
+    ("EX6_072 helper gate — CanJogressWithHandOrTrash (ported co-eval): AD1_025 in hand WITH a field Lv.6 [Greymon] + a hand Lv.6 [Garurumon] passes; missing the hand material FAILS; a false targetCardCondition FAILS (control)", Ex6072HelperGate),
+    ("EX6_072 [Main] end-to-end (raw DNADigivolveWithHandOrTrash helper): DNA-target select → From-Battle-Area branch → field-root + temp hand-material co-eval → materialize → jogress collapse completes — AD1_025 surviving with BOTH roots stacked underneath (full collapse WRITE)", Ex6072MainEndToEndToMig4),
 };
 
 int failed = 0;
@@ -141,6 +144,9 @@ async Task DelayEndToEndToMig4()
 
     using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
 
+    // ample memory so the jogress cost gate passes end-to-end (the collapse now completes — see below).
+    match.Context.MemoryController.Set(10);
+
     // flag the field Greymon as would-leave-field (the AS-IS delay premise).
     new Cec.Permanent(match.Context, grey, P1).willBeRemoveField = true;
 
@@ -161,20 +167,21 @@ async Task DelayEndToEndToMig4()
     var delay = new BT17_095().CardEffects(Cec.EffectTiming.WhenRemoveField, selfCard)
         .OfType<Cec.ActivateICardEffect>().First();
 
-    bool reachedMig4 = false;
-    try
-    {
-        await delay.Activate(new Hashtable());
-    }
-    catch (NotSupportedException nse) when (
-        nse.Message.Contains("DISCARDEVOROOTS", StringComparison.OrdinalIgnoreCase) ||
-        nse.Message.Contains("DiscardEvoRoots", StringComparison.Ordinal))
-    {
-        reachedMig4 = true;
-    }
+    // (MIG4-DISCARDEVOROOTS-PUTTOTRASH LANDED — see FRAME-Write.Witness Test 3) the jogress bare-detach leaf is
+    // now a live 1:1 port, so the <Delay> SuccessProcess runs the temp-material DNA END-TO-END instead of hitting
+    // the old MIG4 STOP: co-eval the hand material → materialize it → jogress-collapse the field root + the
+    // materialized material into AD1_025.
+    await delay.Activate(new Hashtable());
 
-    AssertTrue(reachedMig4,
-        "the <Delay> SuccessProcess co-evaluated the temp hand-material, materialized it, passed CanJogressFromTargetPermanent, and drove PlayCardClass.SetJogress into the jogress collapse — reaching the pre-existing MIG4 bare-detach leaf (both roots resolved; the collapse's final write is gated only on that separate MIG4 design item)");
+    List<Cec.Permanent> field = new Cec.Player(match.Context, P1).GetFieldPermanents();
+    Cec.Permanent? omniPerm = field.FirstOrDefault(p => p.InstanceId == omni);
+    AssertTrue(omniPerm is not null,
+        "AD1_025 is the surviving jogress permanent (the field Greymon + the materialized hand Garurumon collapsed into it)");
+    IReadOnlyList<Cec.CardSource> omniSources = omniPerm!.DigivolutionCards;
+    AssertTrue(omniSources.Any(s => s.InstanceId == grey) && omniSources.Any(s => s.InstanceId == garu),
+        "both roots — the field Greymon AND the temp hand-material Garurumon (materialized then consumed) — are stacked underneath AD1_025 (full collapse WRITE; the temp material became a real digivolution source)");
+    AssertTrue(field.All(p => p.InstanceId != grey && p.InstanceId != garu),
+        "neither root survives as a standalone field permanent (bare-detached into the jogress stack)");
 }
 
 // ═══════════════════════════════ Test 4: the rollback half ═══════════════════════════════
@@ -198,6 +205,85 @@ async Task RollbackUnmaterialize()
         "AddHandCard(material, false) returned the temp material to the owner's hand (the AS-IS rollback un-play)");
     AssertTrue(!zones.GetCards(P1, ChoiceZone.BattleArea).Contains(garu),
         "the material no longer occupies the battle area (it was withdrawn from the field)");
+}
+
+// ═══════════════════════════════ Test 5: EX6_072 helper gate (ported co-eval) ═══════════════════════════════
+
+async Task Ex6072HelperGate()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewMatchAsync(seed: 8501);
+    await ReachMainWaitAsync(match);
+
+    HeadlessEntityId omni = Stage(match, P1, "AD1_025", "1:hand:omni", zone: ChoiceZone.Hand, register: true);
+    HeadlessEntityId grey = StageSynthetic(match, P1, "WGREY", dp: 6000, level: 6, "1:battle:wgrey", name: "WarGreymon");
+    HeadlessEntityId garuHand = StageSynthetic(match, P1, "MGARU", dp: 6000, level: 6, "1:hand:mgaru", name: "MetalGarurumon", zone: ChoiceZone.Hand);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var omniCard = new Cec.CardSource(match.Context, omni, P1);
+    var owner = new Cec.Player(match.Context, P1);
+
+    // hand→hand DNA: one root is a field permanent, the other a hand card (isWithHandCard/isIntoHandCard = true).
+    // The recipe co-eval runs PermanentFulfillsRequirement/CardFulfillsRequirement over the SnapshotZone temp view.
+    AssertTrue(Cec.CardEffectCommons.CanJogressWithHandOrTrash(omniCard, owner, isWithHandCard: true, isIntoHandCard: true, targetCardCondition: _ => true),
+        "AD1_025 in hand + a field Lv.6 Greymon root + a hand Lv.6 Garurumon material satisfies the ported recipe co-eval");
+
+    AssertTrue(!Cec.CardEffectCommons.CanJogressWithHandOrTrash(omniCard, owner, isWithHandCard: true, isIntoHandCard: true, targetCardCondition: _ => false),
+        "control: a false targetCardCondition gates the whole helper off");
+
+    // Withdraw the hand material — no hand card fills the remaining root → the recipe cannot be completed.
+    await match.Context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, garuHand, ChoiceZone.Hand, ChoiceZone.None));
+    AssertTrue(!Cec.CardEffectCommons.CanJogressWithHandOrTrash(omniCard, owner, isWithHandCard: true, isIntoHandCard: true, targetCardCondition: _ => true),
+        "control: with the hand Garurumon material gone, no hand card fills the second root → the gate is false");
+}
+
+// ═══════════════════════════════ Test 6: EX6_072 [Main] full flow to the MIG4 boundary ═══════════════════════════════
+
+async Task Ex6072MainEndToEndToMig4()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewMatchAsync(seed: 8601);
+    await ReachMainWaitAsync(match);
+
+    HeadlessEntityId ex6 = Stage(match, P1, "EX6_072", "1:battle:ex6", zone: ChoiceZone.BattleArea, register: false);
+    HeadlessEntityId omni = Stage(match, P1, "AD1_025", "1:hand:omni", zone: ChoiceZone.Hand, register: true);
+    HeadlessEntityId grey = StageSynthetic(match, P1, "WGREY", dp: 6000, level: 6, "1:battle:wgrey", name: "WarGreymon");
+    HeadlessEntityId garu = StageSynthetic(match, P1, "MGARU", dp: 6000, level: 6, "1:hand:mgaru", name: "MetalGarurumon", zone: ChoiceZone.Hand);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+
+    // The jogress pays cost (EX6_072 passes payCost:true) — give the owner ample memory so CanPlayJogress' cost gate passes.
+    match.Context.MemoryController.Set(10);
+
+    // Each selection is unambiguous after the canTargetCondition filter — pick the first selectable candidate
+    // (the DNA target = AD1_025; the From-Battle-Area bool branch = index 0; the field root; the hand material).
+    policy.On(_ => true, req =>
+    {
+        ChoiceCandidate? sel = req.Candidates.FirstOrDefault(c => c.IsSelectable);
+        if (sel is not null)
+        {
+            return ChoiceResult.Select(sel.Id);
+        }
+
+        return req.CanSkip ? ChoiceResult.Skip() : (req.Candidates.Count > 0 ? ChoiceResult.Select(req.Candidates[0].Id) : ChoiceResult.Skip());
+    }, oneShot: false);
+
+    var ex6Card = new Cec.CardSource(match.Context, ex6, P1);
+    var main = new EX6_072().CardEffects(Cec.EffectTiming.OptionSkill, ex6Card)
+        .OfType<Cec.ActivateICardEffect>().First();
+
+    // The raw helper runs the full temp-material DNA flow END-TO-END (MIG4-DISCARDEVOROOTS landed — the jogress
+    // collapse completes): DNA-target select → From-Battle-Area branch → field root + temp hand-material co-eval →
+    // materialize (CreateNewPermanent) → CanJogressFromTargetPermanents → PlayCardClass.SetJogress → collapse WRITE.
+    await main.Activate(new Hashtable());
+
+    List<Cec.Permanent> field = new Cec.Player(match.Context, P1).GetFieldPermanents();
+    Cec.Permanent? omniPerm = field.FirstOrDefault(p => p.InstanceId == omni);
+    AssertTrue(omniPerm is not null,
+        "AD1_025 is the surviving jogress permanent (EX6_072's [Main] collapsed the field Greymon + the materialized hand Garurumon into it)");
+    IReadOnlyList<Cec.CardSource> omniSources = omniPerm!.DigivolutionCards;
+    AssertTrue(omniSources.Any(s => s.InstanceId == grey) && omniSources.Any(s => s.InstanceId == garu),
+        "both roots — the field Greymon AND the temp hand-material Garurumon (materialized via CreateNewPermanent, then consumed) — are stacked underneath AD1_025 (full collapse WRITE through the raw DNADigivolveWithHandOrTrash helper)");
+    AssertTrue(field.All(p => p.InstanceId != grey && p.InstanceId != garu),
+        "neither root survives as a standalone field permanent (bare-detached into the jogress stack)");
 }
 
 // ═══════════════════════════════ assertions ═══════════════════════════════

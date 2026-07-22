@@ -32,6 +32,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT6_067 W1: [When Digivolving] IsMinCost — 상대 최저코스트 디지몬만 삭제, 고코스트 control 생존", BT6067_MinCostDeletesOnlyLowest),
     ("BT6_095 W1: [Main] IsMinDP — 상대 최저DP 디지몬만 삭제, 고DP control 생존", BT6095_MinDpDeletesOnlyLowest),
     ("BT2_112 W1: [When Attacking] IsMaxDP — 최고DP 방어자 공격 시 게이트 true(+언서스펜드), 비-최고 시 false(control 제외)", BT2112_MaxDpUnsuspendsOnAttackingHighest),
+    ("AD1_013 W1: [On Play] IsMinDigivolutionCards — predicate gates on the opponent's FEWEST-source Digimon (min true / higher-stack false control); SelectPermanent(Destroy) deletes ONLY the min, the deeper-stack control survives", AD1013_MinDigivolutionCardsGatesDelete),
 };
 
 int failed = 0;
@@ -177,6 +178,54 @@ async Task BT2112_MaxDpUnsuspendsOnAttackingHighest()
         "[When Attacking] IsMaxDP: after attacking the highest-DP defender, this Digimon was unsuspended");
 }
 
+// ═══════════════════════════════════ AD1_013 (IsMinDigivolutionCards) ═══════════════════════════════════
+
+async Task AD1013_MinDigivolutionCardsGatesDelete()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewMatchAsync(seed: 10131);
+    await ReachMainWaitAsync(match);
+
+    HeadlessEntityId host = StageSynthetic(match, P1, "AD1-013-HOST", dp: 6000, level: 6, "1:battle:013host");
+    // Opponent Digimon: minPerm has ZERO digivolution cards, deepPerm has ONE (a deeper stack) → minPerm is the
+    // UNIQUE fewest-source opponent Digimon (the metric IsMinDigivolutionCards ranks).
+    HeadlessEntityId minPerm = StageSynthetic(match, P2, "AD1-013-MIN", dp: 3000, level: 4, "2:battle:013min");
+    HeadlessEntityId deepPerm = StageSynthetic(match, P2, "AD1-013-DEEP", dp: 3000, level: 4, "2:battle:013deep");
+    HeadlessEntityId under = StageSynthetic(match, P2, "AD1-013-UNDER", dp: 1000, level: 2, "2:under:013u", zone: ChoiceZone.None);
+    AttachSource(match, deepPerm, under);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+
+    // (a) predicate subtest (+control) — the card-facing IsMinDigivolutionCards the card's canTargetCondition gates on.
+    HeadlessPlayerId enemy = Cec.CardEffectCommons.OpponentOf(new Cec.CardSource(match.Context, host, P1));
+    var minView = new Cec.Permanent(match.Context, minPerm, P2);
+    var deepView = new Cec.Permanent(match.Context, deepPerm, P2);
+    AssertTrue(Cec.CardEffectCommons.IsMinDigivolutionCards(minView, enemy),
+        "IsMinDigivolutionCards: the opponent's ZERO-source Digimon is the fewest → TRUE");
+    AssertTrue(!Cec.CardEffectCommons.IsMinDigivolutionCards(deepView, enemy),
+        "control: the opponent's deeper (1-source) Digimon is NOT the fewest → FALSE");
+
+    // (b) behaviour — drive AD1_013 [On Play] end-to-end; the SelectPermanent(Destroy) gate admits ONLY the min.
+    var card = new Cec.CardSource(match.Context, host, P1);
+    var effect = new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.AD1.Blue.AD1_013();
+    List<Cec.ICardEffect> onPlayEffects = effect.CardEffects(Cec.EffectTiming.OnEnterFieldAnyone, card);
+    var onPlay = (Cfx.ActivateClass)onPlayEffects.First(); // [On Play] (the first OnEnterFieldAnyone arm; [When Digivolving] shares the body)
+
+    policy.On(_ => true, req =>
+    {
+        ChoiceCandidate? sel = req.Candidates.FirstOrDefault(c => c.IsSelectable);
+        return sel is not null
+            ? ChoiceResult.Select(sel.Id)
+            : (req.CanSkip ? ChoiceResult.Skip() : ChoiceResult.Select(req.Candidates[0].Id));
+    }, oneShot: false);
+
+    await onPlay.Activate(new System.Collections.Hashtable());
+
+    AssertTrue(!ZoneCards(match, P2, ChoiceZone.BattleArea).Contains(minPerm),
+        "[On Play] IsMinDigivolutionCards: the opponent's fewest-source (0) Digimon was deleted");
+    AssertTrue(ZoneCards(match, P2, ChoiceZone.BattleArea).Contains(deepPerm),
+        "the opponent's deeper-stack (1-source) Digimon was NOT deleted (IsMinDigivolutionCards scoping verified)");
+}
+
 // ═══════════════════════════════════ harness (PILOT-S6 template) ═══════════════════════════════════
 
 async Task<(DcgoMatch Match, PolicyChoiceProvider Policy)> NewMatchAsync(int seed)
@@ -288,6 +337,24 @@ HeadlessEntityId StageSynthetic(DcgoMatch match, HeadlessPlayerId owner, string 
 
     Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     return id;
+}
+
+// Attach `under` as a digivolution card beneath the permanent topped by `top` (the canonical `sourceIds`
+// metadata shape DigivolutionStackReader reads — EXEMPLAR-T3B idiom). `under` must not itself occupy a field zone.
+void AttachSource(DcgoMatch match, HeadlessEntityId top, HeadlessEntityId under)
+{
+    EngineContext ctx = match.Context;
+    if (!ctx.CardInstanceRepository.TryGetInstance(top, out CardInstanceRecord? rec) || rec is null)
+    {
+        throw new InvalidOperationException($"missing top instance {top.Value}");
+    }
+
+    List<string> ids = rec.Metadata.TryGetValue(DigivolutionStackReader.SourceIdsKey, out object? raw) && raw is string[] arr
+        ? arr.ToList()
+        : new List<string>();
+    ids.Add(under.Value);
+    var meta = new Dictionary<string, object?>(rec.Metadata, StringComparer.Ordinal) { [DigivolutionStackReader.SourceIdsKey] = ids.ToArray() };
+    ctx.CardInstanceRepository.Upsert(rec with { Metadata = meta });
 }
 
 static void SetSuspended(DcgoMatch match, HeadlessEntityId id, bool suspended)
