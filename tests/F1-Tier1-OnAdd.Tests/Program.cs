@@ -473,7 +473,7 @@ async Task SinkFlush(EngineContext ctx, Action<MatchStateMutationSink> build)
 {
     var sink = new MatchStateMutationSink(
         ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
-        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        ctx.GameEventQueue, context: ctx);
     build(sink);
     await sink.FlushAsync();
 }

@@ -80,7 +80,7 @@ async Task BounceToDeck()
     var foe = await PlaceDigimon(context, P2, "FOE");
 
     var sink = new MatchStateMutationSink(
-        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
+        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.GameEventQueue);
     // (이연③-d) re-targeted the retired invented DeckBottomBounceEffect → the AS-IS
     // DeckBottomBounceClass(target).DeckBounce() sink helper (CardEffectCommons.ReturnToDeckBottom).
     CardEffectCommons.ReturnToDeckBottom(sink, new CardSource(context, src, P1), foe);

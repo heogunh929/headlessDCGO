@@ -452,7 +452,7 @@ public sealed class MultipleSkills
         {
                 var sink = new MatchStateMutationSink(
                     _context.CardInstanceRepository, _context.LogSink, _context.ZoneMover, _context.MemoryController,
-                    _context.EffectRegistry, _context.GameEventQueue, context: _context);
+                    _context.GameEventQueue, context: _context);
 
                 try
                 {

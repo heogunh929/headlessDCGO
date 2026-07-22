@@ -84,50 +84,15 @@ public sealed record SkillInfo
         return new PendingEffect(Request, Mode);
     }
 
-    public EffectBinding ToBinding(
-        IReadOnlyList<string>? keywords = null,
-        EffectQueryRole queryRoles = EffectQueryRole.None,
-        IReadOnlyList<string>? queryScopes = null)
-    {
-        return new EffectBinding(Request, keywords, queryRoles, queryScopes);
-    }
+    // (④) ToBinding(...) DELETED — lowered SkillInfo to the invented EffectBinding (registry producer 0).
 
     public SkillInfo WithMetadata(IReadOnlyDictionary<string, object?> metadata)
     {
         return new SkillInfo(Definition, Request, Mode, Priority, Sequence, metadata);
     }
 
-    public static SkillInfo FromEffect(
-        IHeadlessCardEffect effect,
-        HeadlessPlayerId controllerId,
-        EffectContext context,
-        EffectResolutionMode? mode = null,
-        int priority = 0,
-        long sequence = 0,
-        IReadOnlyDictionary<string, object?>? metadata = null)
-    {
-        ArgumentNullException.ThrowIfNull(effect);
-        ArgumentNullException.ThrowIfNull(context);
-
-        EffectResolutionMode resolvedMode = mode
-            ?? (effect.Definition.IsBackgroundProcess
-                ? EffectResolutionMode.Background
-                : EffectResolutionMode.MainStack);
-
-        var request = new EffectRequest(
-            effect.Definition.EffectId,
-            controllerId,
-            effect.Definition.Timing,
-            context);
-
-        return new SkillInfo(
-            effect.Definition,
-            request,
-            resolvedMode,
-            priority,
-            sequence,
-            metadata);
-    }
+    // (④) FromEffect(IHeadlessCardEffect, ...) DELETED — the invented scheduler-effect contract is gone and this
+    // factory had no src caller.
 
     private static IReadOnlyDictionary<string, object?> CopyMetadata(
         IReadOnlyDictionary<string, object?>? metadata)

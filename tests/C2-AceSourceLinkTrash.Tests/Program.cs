@@ -232,7 +232,7 @@ async Task DeleteHost(EngineContext context, HeadlessEntityId host)
 {
     var sink = new MatchStateMutationSink(
         context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
-        context.EffectRegistry, context.GameEventQueue, currentTurnPlayer: () => P1);
+        context.GameEventQueue, currentTurnPlayer: () => P1);
 
     var values = new Dictionary<string, object?>(StringComparer.Ordinal) { ["targetEntityId"] = host.Value };
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("src"), values));

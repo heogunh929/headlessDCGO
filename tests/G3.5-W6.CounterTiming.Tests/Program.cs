@@ -181,27 +181,3 @@ static async Task StepOnceDriveAsync(DcgoMatch match)
     await match.StepAsync();
 }
 
-internal sealed class RecordingFakeEffect : IHeadlessCardEffect
-{
-    public RecordingFakeEffect(string effectId, string sourceId, string timing)
-    {
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId(effectId), new HeadlessEntityId(sourceId), name: effectId, timing: timing);
-    }
-
-    public CardEffectDefinition Definition { get; }
-
-    public int ResolveCalls { get; private set; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        ResolveCalls++;
-        return ValueTask.FromResult(EffectResult.Success("fake resolved"));
-    }
-}
-

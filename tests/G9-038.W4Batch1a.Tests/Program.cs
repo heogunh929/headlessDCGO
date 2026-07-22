@@ -153,7 +153,7 @@ async Task AscensionSelf()
 // --- Helpers -------------------------------------------------------------
 
 MatchStateMutationSink Sink(EngineContext context) => new(
-    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue, context: context);
+    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.GameEventQueue, context: context);
 
 bool InBattle(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId id) =>
     context.ZoneMover is IZoneStateReader r && r.GetCards(owner, ChoiceZone.BattleArea).Contains(id);

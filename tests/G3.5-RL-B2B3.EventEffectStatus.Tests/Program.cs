@@ -124,7 +124,7 @@ async Task SchedulerCountsUnbound()
 
 async Task RealResolverReportsUnbound()
 {
-    var resolver = CardEffectSchedulerResolver.Create(new InMemoryEffectRegistry());
+    var resolver = CardEffectSchedulerResolver.Create();
     var scheduler = new EffectScheduler(new EffectResolutionQueue(), resolver);
     scheduler.Enqueue(CreateRequest("unbound-effect"));
 

@@ -226,7 +226,7 @@ void PlaceInNone(EngineContext context, HeadlessEntityId id, HeadlessPlayerId ow
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("def"), owner));
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null);
 
 EffectMutation Delete(HeadlessEntityId cardId, HeadlessEntityId deleterId) =>
     new(MatchStateMutationSink.DeleteKind, deleterId,

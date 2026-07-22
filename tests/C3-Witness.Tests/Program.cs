@@ -359,7 +359,7 @@ string[] Sources(EngineContext context, HeadlessEntityId host) =>
 MatchStateMutationSink Sink(EngineContext context) =>
     new MatchStateMutationSink(
         context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
-        context.EffectRegistry, context.GameEventQueue, currentTurnPlayer: () => P1, context: context);
+        context.GameEventQueue, currentTurnPlayer: () => P1, context: context);
 
 async Task DeleteHost(EngineContext context, HeadlessEntityId host)
 {

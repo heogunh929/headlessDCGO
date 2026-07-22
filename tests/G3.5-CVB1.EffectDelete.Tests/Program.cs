@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
@@ -70,8 +71,14 @@ async Task ContinuousReplacementPrevents()
     RegisterPreventDeletion(context, Target, owner: P2);
     MatchStateMutationSink sink = Sink(context);
 
-    sink.Apply(Delete(Target));
-    await sink.FlushAsync();
+    // (④) The effect-delete immunity scan (Permanent.CanBeDestroyed → ICardEffect.CanUse → CheckEffectDisabledClass)
+    // reads GManager.instance (AmbientMatchContext) — production drives deletes inside the game loop's scope, so
+    // enter it here (the sibling live scans self-enter; the Permanent getter relies on the caller's scope).
+    using (AmbientMatchContext.Enter(context))
+    {
+        sink.Apply(Delete(Target));
+        await sink.FlushAsync();
+    }
 
     AssertTrue(InZone(context, P2, ChoiceZone.BattleArea, Target), "continuous-protected target stays on the field");
     AssertFalse(InZone(context, P2, ChoiceZone.Trash, Target), "continuous-protected target not trashed");
@@ -79,27 +86,42 @@ async Task ContinuousReplacementPrevents()
 
 // --- Helpers -------------------------------------------------------------
 
+// (④) pass the EngineContext so the effect-delete path's new-model deletion-immunity scan
+// (Permanent.CanBeDestroyed(), guarded by `_context is not null`) is consulted — the live seam that
+// replaces the retired registry `preventDeletion` binding.
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context: context);
 
 EffectMutation Delete(HeadlessEntityId cardId) =>
     new(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId.Value });
 
+// (④ harness rewire) The invented EffectRegistry continuous "preventDeletion" binding is deleted; the
+// effect-delete path now reads the AS-IS-literal Permanent.CanBeDestroyed() / NewModelContinuousScan
+// .HasCanNotBeDestroyed scan (ICanNotBeDestroyedEffect over field permanents — the same seam the battle
+// resolvers consult, exercised end-to-end by G3.5-R2-1). Grant the immunity the way a real card does: attach a
+// live CanNotBeDestroyedClass kind-class (CardEffectFactory.CanNotBeDestroyedStaticEffect, scoped to this card)
+// to the card's live effect list.
 void RegisterPreventDeletion(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner)
 {
-    var effectContext = new EffectContext(
-        owner, owner, new HeadlessEntityId($"src:{cardId.Value}"),
-        triggerEntityId: null, targetEntityIds: new[] { cardId },
-        values: new Dictionary<string, object?>(StringComparer.Ordinal) { ["preventDeletion"] = true });
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId($"prevent:{cardId.Value}"), owner, "Continuous", effectContext),
-        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }));
+    var holder = new CardSource(context, cardId, owner);
+    using (AmbientMatchContext.Enter(context))
+    {
+        holder.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(
+            CardEffectFactory.CanNotBeDestroyedStaticEffect(
+                permanentCondition: p => p is not null && p.InstanceId == cardId,
+                isInheritedEffect: false, card: holder, condition: () => true, effectName: "cannot-be-deleted"));
+    }
 }
 
 async Task<EngineContext> SetupTargetOnField()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 12);
+    // (④) The live immunity scan (ICardEffect.CanTrigger) gates on DoneStartGame (== turn phase past None) and
+    // scans gameContext.Players_ForTurnPlayer — both empty in a raw context. Seat the players and enter Main so
+    // the continuous kind-class the effect-delete path now reads is live (no pump / full match needed here).
+    context.TurnController.Initialize(new[] { P1, P2 }, firstPlayerId: P2);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(Target, new HeadlessEntityId("P2-M01"), P2));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, Target, ChoiceZone.None, ChoiceZone.BattleArea));
     return context;
@@ -122,3 +144,12 @@ bool ReadFlag(EngineContext context, HeadlessEntityId cardId, string key) =>
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertFalse(bool v, string label) { if (v) throw new InvalidOperationException($"{label}: expected false."); }
+
+// (④) attaches a built kind-class to a card's live effect list (the seam a ported card uses); no timing key
+// so it surfaces at EffectTiming.None (the continuous-scan read point).
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

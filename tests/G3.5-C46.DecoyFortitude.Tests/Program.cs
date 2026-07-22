@@ -174,7 +174,7 @@ void SetSources(EngineContext context, HeadlessEntityId cardId, params string[] 
 }
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null);
 
 EffectMutation Delete(HeadlessEntityId cardId, HeadlessEntityId deleterId) =>
     new(MatchStateMutationSink.DeleteKind, deleterId,

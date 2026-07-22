@@ -110,7 +110,7 @@ async Task CollisionForcesBlock()
 
     // Grant Collision to the attacker via the mutation sink (grant path), then confirm the flag is set.
     MatchStateMutationSink sink = new(match.Context.CardInstanceRepository, log: null,
-        match.Context.ZoneMover, memory: null, match.Context.EffectRegistry);
+        match.Context.ZoneMover, memory: null, match.Context.GameEventQueue);
     sink.Apply(new EffectMutation("GrantCollision", new HeadlessEntityId("granter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = attacker.Value }));
     await sink.FlushAsync();

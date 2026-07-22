@@ -104,7 +104,7 @@ async Task ApplyDelete(EngineContext context, HeadlessEntityId targetId)
     // new-model interface scan (RD-P6B-10/12) — without it, _context is null and only the registry-only
     // fallback (unconditional restrictions from bindings) runs.
     var sink = new MatchStateMutationSink(
-        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue, context: context);
+        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.GameEventQueue, context: context);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["targetEntityId"] = targetId.Value }));
     await sink.FlushAsync();

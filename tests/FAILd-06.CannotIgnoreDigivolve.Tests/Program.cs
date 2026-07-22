@@ -45,14 +45,13 @@ async Task Run(bool grantIgnoreColor, bool cannotIgnore, bool expectLegal)
     // Player.CanIgnoreDigivolutionRequirement walks the field permanents' EffectList(None); the effect is no
     // longer a registry binding.
     var target = await PlaceBase(context, "BLUEBASE", "Blue", 4, cannotIgnore ? "TfxCannotIgnoreDigivolution" : null);
-    var evo = await PlaceEvolve(context, "EVO", "Red@4", 2);
-
-    if (grantIgnoreColor)
-    {
-        // ignore the COLOUR part of the requirement (level 4 still matches) — makes the digivolve legal.
-        context.EffectRegistry.Register(new ContinuousSelfRestrictionEffect(
-            new CardSource(context, evo, P1), DigivolveAction.IgnoreColorRequirementKey, false, null).ToBinding("ignore-color"));
-    }
+    // (campaign ④) The old-model ContinuousSelfRestrictionEffect(IgnoreColorRequirementKey) + EffectRegistry
+    // binding is deleted. Grant the ignore-the-colour-requirement via the AS-IS new-model self
+    // IgnoreColorConditionClass instead: the evolving card carries the TfxOptionIgnoreColor fixture on its
+    // definition (dispatched by CardNumber), which the LIVE veto path CanIgnoreColorRequirement reads through
+    // CardSource.IgnoreColorConditionActive (region 3 = the card itself) — even for a hand card. The CannotIgnore
+    // lock (TfxCannotIgnoreDigivolution on the field target) still negates it via CanIgnoreDigivolutionRequirement.
+    var evo = await PlaceEvolve(context, "EVO", "Red@4", 2, grantIgnoreColor);
 
     ActionProcessResult result = await new DigivolveAction()
         .ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), context);
@@ -74,11 +73,13 @@ async Task<HeadlessEntityId> PlaceBase(EngineContext context, string tag, string
     return id;
 }
 
-async Task<HeadlessEntityId> PlaceEvolve(EngineContext context, string tag, string requirement, int cost)
+async Task<HeadlessEntityId> PlaceEvolve(EngineContext context, string tag, string requirement, int cost, bool ignoreColor = false)
 {
     var cards = (CardDatabase)context.CardRepository;
     var defId = new HeadlessEntityId(tag);
-    cards.Upsert(new CardRecord(defId, tag, tag,
+    // The CardNumber (2nd positional) drives effect dispatch; TfxOptionIgnoreColor emits the AS-IS new-model
+    // self IgnoreColorConditionClass at EffectTiming.None, granting this card's own ignore-colour requirement.
+    cards.Upsert(new CardRecord(defId, ignoreColor ? "TfxOptionIgnoreColor" : tag, tag,
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 6000, ["level"] = 5, ["fixedDigivolutionCost"] = cost },
         CardType: "Digimon", EvolutionCondition: requirement));
     var id = new HeadlessEntityId($"p1:hand:{tag}");

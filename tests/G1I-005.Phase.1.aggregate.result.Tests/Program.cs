@@ -93,6 +93,15 @@ void PredecessorTestProjectsExist()
 {
     foreach (var goal in phase1Goals)
     {
+        // (④) G1F-006's test project was RETIRED with the invented EffectRegistry cluster deletion (its whole
+        // subject — the IEffectQueryService/EffectBinding role-and-scope query contract — no longer exists in
+        // the engine). Its historical result document is still asserted above; only the live-project check is
+        // waived for the retired goal.
+        if (goal.Id == "G1F-006")
+        {
+            continue;
+        }
+
         string projectDirectory = Path.Combine(root, "tests", goal.TestProjectDirectory);
         string projectFile = Path.Combine(projectDirectory, $"{goal.TestProjectDirectory}.csproj");
         AssertTrue(Directory.Exists(projectDirectory), $"{goal.Id} test project directory exists");

@@ -12,7 +12,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Strict gate turns an unbound effect into a failure", StrictUnboundFails),
     ("Strict failure carries the gate marker and effect id", StrictFailureCarriesMarker),
     ("Lenient mode keeps the unbound effect draining (default)", LenientUnboundDrains),
-    ("Strict gate does not affect a bound effect", BoundEffectUnaffected),
+    // (④) "Strict gate does not affect a bound effect" RETIRED — the scheduler-resolve-a-bound-effect-body
+    // path (InMemoryEffectRegistry.Register(EffectBinding) + IHeadlessCardEffect body) is permanently DELETED;
+    // nothing is ever bound, so there is no surviving equivalent to assert against. The strict/lenient UNBOUND
+    // gate behaviour (the live surface) remains fully witnessed by the three subtests above.
 };
 
 var failures = new List<string>();
@@ -34,7 +37,7 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 async Task StrictUnboundFails()
 {
-    EffectScheduler scheduler = BuildScheduler(strictUnbound: true, out _);
+    EffectScheduler scheduler = BuildScheduler(strictUnbound: true);
     scheduler.Enqueue(Request("missing-fx", "OnPlay"), EffectResolutionMode.MainStack);
 
     IReadOnlyList<EffectResult> results = await scheduler.ResolveAllAsync();
@@ -48,7 +51,7 @@ async Task StrictUnboundFails()
 
 async Task StrictFailureCarriesMarker()
 {
-    EffectScheduler scheduler = BuildScheduler(strictUnbound: true, out _);
+    EffectScheduler scheduler = BuildScheduler(strictUnbound: true);
     scheduler.Enqueue(Request("missing-fx", "OnDeletion"), EffectResolutionMode.MainStack);
 
     EffectResult result = (await scheduler.ResolveAllAsync())[0];
@@ -61,7 +64,7 @@ async Task StrictFailureCarriesMarker()
 
 async Task LenientUnboundDrains()
 {
-    EffectScheduler scheduler = BuildScheduler(strictUnbound: false, out _);
+    EffectScheduler scheduler = BuildScheduler(strictUnbound: false);
     scheduler.Enqueue(Request("missing-fx", "OnPlay"), EffectResolutionMode.MainStack);
 
     IReadOnlyList<EffectResult> results = await scheduler.ResolveAllAsync();
@@ -71,27 +74,13 @@ async Task LenientUnboundDrains()
     AssertEqual(1, scheduler.TotalUnboundCount, "counted as an unbound coverage gap");
 }
 
-async Task BoundEffectUnaffected()
-{
-    EffectScheduler scheduler = BuildScheduler(strictUnbound: true, out InMemoryEffectRegistry registry);
-    var effect = new NoOpEffect("bound-fx", "src", "OnPlay");
-    registry.Register(new EffectBinding(Request("bound-fx", "OnPlay"), effect: effect));
-    scheduler.Enqueue(Request("bound-fx", "OnPlay"), EffectResolutionMode.MainStack);
-
-    EffectResult result = (await scheduler.ResolveAllAsync())[0];
-
-    AssertTrue(result.Resolved, "bound effect resolves under strict gate");
-    AssertEqual(1, effect.ResolveCalls, "bound effect body ran");
-}
-
 // --- Harness -------------------------------------------------------------
 
-EffectScheduler BuildScheduler(bool strictUnbound, out InMemoryEffectRegistry registry)
+EffectScheduler BuildScheduler(bool strictUnbound)
 {
-    registry = new InMemoryEffectRegistry();
     return new EffectScheduler(
         new EffectResolutionQueue(),
-        CardEffectSchedulerResolver.Create(registry, sinkFactory: _ => new RecordingEffectMutationSink(), strictUnbound: strictUnbound));
+        CardEffectSchedulerResolver.Create(strictUnbound: strictUnbound));
 }
 
 EffectRequest Request(string effectId, string timing) =>
@@ -116,28 +105,4 @@ static void AssertTrue(bool value, string label)
 static void AssertFalse(bool value, string label)
 {
     if (value) throw new InvalidOperationException($"{label}: expected false.");
-}
-
-internal sealed class NoOpEffect : IHeadlessCardEffect
-{
-    public NoOpEffect(string effectId, string sourceId, string timing)
-    {
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId(effectId), new HeadlessEntityId(sourceId), name: effectId, timing: timing);
-    }
-
-    public CardEffectDefinition Definition { get; }
-
-    public int ResolveCalls { get; private set; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        ResolveCalls++;
-        return ValueTask.FromResult(EffectResult.Success("ok"));
-    }
 }

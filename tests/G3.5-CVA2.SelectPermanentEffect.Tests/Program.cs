@@ -307,7 +307,7 @@ void SetSources(EngineContext context, HeadlessEntityId host, HeadlessEntityId s
 }
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null);
 
 IZoneStateReader Zones(EngineContext context) => (IZoneStateReader)context.ZoneMover;
 

@@ -344,7 +344,7 @@ public static class ActivatedEffectResolver
         var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
         IReadOnlyList<HeadlessPlayerId> players = ResolvePlayers(context, controller);
         var sink = new MatchStateMutationSink(
-            context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue,
+            context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.GameEventQueue,
             // (FR-P3) pass the EngineContext so a deletion/suspend/return honours PLAYER-SCOPE restrictions with
             // an arbitrary permanentCondition ("your <X> Digimon cannot be ..."), not just the card's own self.
             // Passing `context` also means an activated play (e.g. ActivatedPlayFromUnderEffect →

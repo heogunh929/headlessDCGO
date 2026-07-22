@@ -163,7 +163,7 @@ async Task<EngineContext> Field(params (string Id, HeadlessPlayerId Owner)[] car
 
 async Task DeleteBy(EngineContext context, HeadlessEntityId targetId, HeadlessEntityId deleter)
 {
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry, context.GameEventQueue, context: context);
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.GameEventQueue, context: context);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, deleter,
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = targetId.Value }));
     await sink.FlushAsync();

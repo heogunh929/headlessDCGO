@@ -98,41 +98,37 @@ async Task DigivolveControl()
 
 // --- Restriction registration --------------------------------------------
 
+// (④ harness rewire) The invented EffectRegistry JointRestrictionEffect bindings are deleted; the attack/
+// digivolve gates now read the AS-IS-literal NewModelContinuousScan (ICanNotAttackTargetDefendingPermanentEffect
+// / ICanNotDigivolveEffect over field permanents). Grant each restriction the way a real card does: attach a
+// live kind-class (CardEffectFactory.CanNotAttackStaticEffect / CanNotDigivolveStaticEffect) to a field
+// permanent's live effect list, with the attacker/defender (resp. under-card) scoping carried by the
+// kind-class's own attackerCondition/defenderCondition (resp. permanentCondition) predicates.
 void RegisterCannotAttack(EngineContext context, HeadlessEntityId attackerId, HeadlessPlayerId owner, HeadlessEntityId scopedDefender)
 {
-    // The restriction is ABOUT the attacker (the continuous query targets attackerId). The DEFENDER scope
-    // is encoded as the restriction's SourceEntityId — CannotAttack(attackerId, …, defenderId) matches
-    // defenderId against restriction.SourceEntityId (restriction.TargetEntityId would scope the attacker).
-    // The simple `cannotAttack` flag yields a GLOBAL restriction, so use the explicit object form.
-    Register(context, attackerId, owner, new Dictionary<string, object?>(StringComparer.Ordinal)
+    var holder = new CardSource(context, attackerId, owner);
+    using (AmbientMatchContext.Enter(context))
     {
-        // (joint-migration) canonical joint: this attacker cannot attack the scoped defender specifically.
-        [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotAttackKey)] =
-            (Func<CardSource, CardSource?, bool>)((subject, defender) =>
-                subject.InstanceId == attackerId && defender is not null && defender.InstanceId == scopedDefender),
-    });
+        holder.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(
+            CardEffectFactory.CanNotAttackStaticEffect(
+                attackerCondition: a => a is not null && a.InstanceId == attackerId,
+                // null defender = direct attack (blanket "cannot attack anything") — NOT restricted here.
+                defenderCondition: d => d is not null && d.InstanceId == scopedDefender,
+                isInheritedEffect: false, card: holder, condition: () => true, effectName: "cannot-attack-scoped"));
+    }
 }
 
 void RegisterCannotDigivolve(EngineContext context, HeadlessEntityId targetCardId, HeadlessPlayerId owner)
 {
-    Register(context, targetCardId, owner, new Dictionary<string, object?>(StringComparer.Ordinal)
+    var holder = new CardSource(context, targetCardId, owner);
+    using (AmbientMatchContext.Enter(context))
     {
-        [RestrictionHelpers.CannotDigivolveKey] = true,
-        // (joint-migration) canonical joint: this under-card cannot be digivolved onto.
-        [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotDigivolveKey)] =
-            (Func<CardSource, CardSource?, bool>)((subject, _) => subject.InstanceId == targetCardId),
-    });
-}
-
-void Register(EngineContext context, HeadlessEntityId aboutCardId, HeadlessPlayerId owner, Dictionary<string, object?> values)
-{
-    var effectId = new HeadlessEntityId($"restrict:{aboutCardId.Value}:{string.Join(",", values.Keys)}");
-    var effectContext = new EffectContext(
-        owner, owner, new HeadlessEntityId($"src:{aboutCardId.Value}"),
-        triggerEntityId: null, targetEntityIds: new[] { aboutCardId }, values: values);
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(effectId, owner, "Continuous", effectContext),
-        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }));
+        holder.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(
+            CardEffectFactory.CanNotDigivolveStaticEffect(
+                permanentCondition: p => p is not null && p.InstanceId == targetCardId,
+                cardCondition: null,
+                isInheritedEffect: false, card: holder, condition: () => true, effectName: "cannot-digivolve-onto"));
+    }
 }
 
 // --- Harness -------------------------------------------------------------
@@ -267,5 +263,14 @@ static async Task StepOnceDriveAsync(DcgoMatch match)
 {
     using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
     await match.StepAsync();
+}
+
+// (④) attaches a built kind-class to a card's live effect list (the seam a ported card uses); no timing key
+// so it surfaces at EffectTiming.None (the continuous-scan read point).
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
 }
 

@@ -120,21 +120,6 @@ void RegisterReactor(EngineContext context, HeadlessEntityId cardId, HeadlessPla
 int LibraryCount(EngineContext context, HeadlessPlayerId player) =>
     ((IZoneStateReader)context.ZoneMover).GetCards(player, ChoiceZone.Library).Count;
 
-RecordingFakeEffect Register(EngineContext context, string effectId, string sourceId, string timing)
-{
-    var effect = new RecordingFakeEffect(effectId, sourceId, timing);
-    context.EffectRegistry.Register(new EffectBinding(CreateRequest(effectId, sourceId, timing), effect: effect));
-    return effect;
-}
-
-static EffectRequest CreateRequest(string effectId, string sourceId, string timing)
-{
-    var player = new HeadlessPlayerId(2);
-    return new EffectRequest(
-        new HeadlessEntityId(effectId), player, timing,
-        new EffectContext(player, player, new HeadlessEntityId(sourceId), triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>()));
-}
-
 // --- Match harness (trimmed from G2G-004) --------------------------------
 
 void DeclareDirectAttack(DcgoMatch match)
@@ -270,28 +255,4 @@ static void AssertEqual<T>(T expected, T actual, string label)
 static void AssertTrue(bool value, string label)
 {
     if (!value) throw new InvalidOperationException($"{label}: expected true.");
-}
-
-internal sealed class RecordingFakeEffect : IHeadlessCardEffect
-{
-    public RecordingFakeEffect(string effectId, string sourceId, string timing)
-    {
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId(effectId), new HeadlessEntityId(sourceId), name: effectId, timing: timing);
-    }
-
-    public CardEffectDefinition Definition { get; }
-
-    public int ResolveCalls { get; private set; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        ResolveCalls++;
-        return ValueTask.FromResult(EffectResult.Success("fake resolved"));
-    }
 }

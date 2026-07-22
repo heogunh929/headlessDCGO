@@ -64,47 +64,9 @@ public static class PlayerScopeContinuousHelpers
     /// <paramref name="cardZoneName"/> is the evaluated card's current zone (for <see cref="ScopeZoneKey"/>
     /// filtering); null when unknown.
     /// </summary>
-    public static IReadOnlyList<EffectRequest> CollectApplicable(
-        IEffectQueryService effectQueryService,
-        string scope,
-        HeadlessPlayerId cardOwner,
-        CardRecord? card,
-        string? cardZoneName = null)
-    {
-        ArgumentNullException.ThrowIfNull(effectQueryService);
-        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
-
-        var applicable = new List<EffectRequest>();
-        foreach (EffectRequest effect in effectQueryService.GetContinuousEffects(new EffectQueryContext(scope)))
-        {
-            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
-            if (!ReadBool(values, PlayerScopeKey))
-            {
-                continue;
-            }
-
-            // Owner-scoped effects apply only to ScopePlayerId's permanents; any-player effects apply to either
-            // player's (the per-card predicate then decides).
-            if (!ReadBool(values, ScopeAnyPlayerKey)
-                && (!TryReadPlayer(values, ScopePlayerIdKey, out HeadlessPlayerId scopePlayer) || scopePlayer != cardOwner))
-            {
-                continue;
-            }
-
-            if (ReadString(values, ScopeZoneKey) is string scopeZone
-                && !string.Equals(scopeZone, cardZoneName, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (ConditionMatches(values, card))
-            {
-                applicable.Add(effect);
-            }
-        }
-
-        return applicable;
-    }
+    // (④) CollectApplicable(IEffectQueryService, ...) DELETED — queried the deleted EffectRegistry surface
+    // (producer 0); its only caller (ContinuousScopeEvaluation.ApplicableEffects player-scope arm) is retired.
+    // The const scope keys + ConditionMatches survive (still referenced by other scans).
 
     /// <summary>Whether <paramref name="card"/> satisfies the effect's optional scope condition.</summary>
     public static bool ConditionMatches(IReadOnlyDictionary<string, object?> values, CardRecord? card)

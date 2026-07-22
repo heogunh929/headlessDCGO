@@ -160,7 +160,7 @@ async Task<(DcgoMatch, HeadlessEntityId, HeadlessEntityId, HeadlessEntityId, Hea
 
 async Task DeleteByEffect(DcgoMatch match, EngineContext ctx, HeadlessEntityId cardId)
 {
-    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry, context: ctx);
+    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, context: ctx);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId.Value }));
     await sink.FlushAsync();

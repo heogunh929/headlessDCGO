@@ -72,7 +72,7 @@ async Task AddMemory(EngineContext context, HeadlessPlayerId owner, int amount)
     using var _ambient = AmbientMatchContext.Enter(context);
     var srcId = new HeadlessEntityId($"{owner.Value}:battle:SRC");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(srcId, new HeadlessEntityId("DEF:SRC"), owner, Metadata: new Dictionary<string, object?>()));
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue, context: context);
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController, context.GameEventQueue, context: context);
     sink.Apply(new EffectMutation(MatchStateMutationSink.AddMemoryKind, srcId,
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = amount }));
     await sink.FlushAsync();

@@ -2069,7 +2069,7 @@ public sealed class CardSource
     public bool HasSaveText =>
         Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? saveRecord) && saveRecord is not null
         && Headless.Runtime.DeletionReplacementGate.HasReplacementKeyword(
-            saveRecord, Headless.Runtime.DeletionReplacementGate.HasSaveKey, Headless.Runtime.ContinuousKeywordGate.Save, Context.EffectRegistry);
+            saveRecord, Headless.Runtime.DeletionReplacementGate.HasSaveKey, Headless.Runtime.ContinuousKeywordGate.Save);
 
     // (R1-e boundary) The AS-IS printed-cost engine — CardSource.EvoCosts's BaseEvoCostsFromEntity projection,
     // CostList, PayingCost/GetPayingCostWithBaseCost, GetChangedLinkCost's value fold — is NOT rehoused here: it

@@ -81,7 +81,11 @@ async Task StartMainPhaseFires()
 
 async Task EndMainPhaseDormantOnEntry()
 {
-    (DcgoMatch match, RecordingFakeEffect effect) = await CreateMatchAsync(TriggerTimings.OnEndMainPhase);
+    // (④ harness rewire) The registry-bound RecordingFakeEffect substrate is deleted. Re-express the SAME
+    // negative guard on the live path: a real CardSource-bound probe keyed to OnEndMainPhase must NOT fire
+    // when only ENTERING main (the SkillWindowSupply window for OnEndMainPhase — an AS-IS dead timing — never
+    // opens on main entry), so ResolveCalls stays 0.
+    (DcgoMatch match, TurnBoundaryProbe effect) = await CreateLiveMatchAsync(EffectTiming.OnEndMainPhase);
     await AdvanceToMainAsync(match, P1);
     AssertEqual(0, effect.ResolveCalls, "OnEndMainPhase stays dormant when only entering main");
 }
@@ -148,25 +152,6 @@ static async Task StepOnceAsync(DcgoMatch match)
 
 // --- Harness (mirrors G3.5-W1b) ------------------------------------------
 
-async Task<(DcgoMatch Match, RecordingFakeEffect Effect)> CreateMatchAsync(string timing)
-{
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
-    CardDatabase cards = (CardDatabase)context.CardRepository;
-    for (int index = 1; index <= 12; index++)
-    {
-        cards.Upsert(Digimon($"P1-M{index:D2}"));
-        cards.Upsert(Digimon($"P2-M{index:D2}"));
-    }
-
-    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
-    MatchSetupConfig setup = MatchSetupConfig.Create(new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1);
-    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
-
-    var effect = new RecordingFakeEffect("fx", "src", timing);
-    context.EffectRegistry.Register(new EffectBinding(CreateRequest("fx", "src", timing), effect: effect));
-    return (match, effect);
-}
-
 // (harness triage) Live variant for the RDW-07-CLOSED OnStartMainPhase timing: a real CardSource-bound
 // ActivateClass probe, collected via the mirror SkillInfo scan (same shape as TfxOnLeaveFieldCounter).
 async Task<(DcgoMatch Match, TurnBoundaryProbe Effect)> CreateLiveMatchAsync(EffectTiming timing)
@@ -194,14 +179,6 @@ async Task<(DcgoMatch Match, TurnBoundaryProbe Effect)> CreateLiveMatchAsync(Eff
     return (match, effect);
 }
 
-static EffectRequest CreateRequest(string effectId, string sourceId, string timing)
-{
-    var player = new HeadlessPlayerId(1);
-    return new EffectRequest(
-        new HeadlessEntityId(effectId), player, timing,
-        new EffectContext(player, player, new HeadlessEntityId(sourceId), triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>()));
-}
-
 static CardRecord Digimon(string id) =>
     new(new HeadlessEntityId(id), id, $"{id} Card", new Dictionary<string, object?>(), CardType: "Digimon");
 
@@ -221,31 +198,7 @@ static void AssertTrue(bool value, string label)
     if (!value) throw new InvalidOperationException($"{label}: expected true.");
 }
 
-internal sealed class RecordingFakeEffect : IHeadlessCardEffect
-{
-    public RecordingFakeEffect(string effectId, string sourceId, string timing)
-    {
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId(effectId), new HeadlessEntityId(sourceId), name: effectId, timing: timing);
-    }
-
-    public CardEffectDefinition Definition { get; }
-
-    public int ResolveCalls { get; private set; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        ResolveCalls++;
-        return ValueTask.FromResult(EffectResult.Success("fake resolved"));
-    }
-}
-
-// (harness triage) TEST-LOCAL live replacement for RecordingFakeEffect, used only for the RDW-07-CLOSED
+// (harness triage) TEST-LOCAL live probe, used for the RDW-07-CLOSED
 // OnStartMainPhase subtest: an uncapped ActivateClass reactor bound to a given AS-IS null-payload
 // turn-boundary EffectTiming, collected by the live SkillInfo scan (same shape as TfxOnLeaveFieldCounter /
 // G3.5-W1b's TurnBoundaryProbe).

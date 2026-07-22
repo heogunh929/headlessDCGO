@@ -74,7 +74,7 @@ async Task TrashLink()
 // --- Helpers -------------------------------------------------------------
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry, context.GameEventQueue);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.GameEventQueue);
 
 EffectMutation Mut(string kind, HeadlessEntityId target, int count)
 {

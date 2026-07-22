@@ -20,12 +20,11 @@ public static class CardLeavePlayCleanup
     /// then drop its registered bindings. Idempotent — flags are only ever set true, never cleared.</summary>
     public static void OnDeleted(
         ICardInstanceRepository repository,
-        EffectRegistry? effectRegistry,
         EngineContext? context,
         HeadlessEntityId cardId)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        if (effectRegistry is null || cardId.IsEmpty)
+        if (cardId.IsEmpty)
         {
             return;
         }
@@ -33,20 +32,19 @@ public static class CardLeavePlayCleanup
         if (repository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null)
         {
             var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
-            SnapshotPostReplacementKeywords(effectRegistry, context, cardId, metadata, repository);
+            SnapshotPostReplacementKeywords(context, cardId, metadata, repository);
             repository.Upsert(record with { Metadata = metadata });
         }
 
-        OnLeftPlay(effectRegistry, cardId);
+        OnLeftPlay(cardId);
     }
 
     /// <summary>Non-deletion departure (bounce / deck / stack placement). (③-B) The registry binding drop is
     /// RETIRED — the EffectRegistry producer is 0, so it was a dead write; the live continuous scan is over on-field
     /// permanents, so a departed card is no longer scanned. The seam is kept (its four call-sites remain wired) for
     /// the AS-IS "leaving the field ends the card's effects" contract.</summary>
-    public static void OnLeftPlay(EffectRegistry? effectRegistry, HeadlessEntityId cardId)
+    public static void OnLeftPlay(HeadlessEntityId cardId)
     {
-        _ = effectRegistry;
         _ = cardId;
     }
 
@@ -86,13 +84,11 @@ public static class CardLeavePlayCleanup
     /// record-parameters block (DP / Level / Cost / Names / Traits / permanent identity) — same seam, same
     /// moment (after the windows are decided, before the trash moves).</summary>
     public static void SnapshotPostReplacementKeywords(
-        EffectRegistry effectRegistry,
         EngineContext? context,
         HeadlessEntityId cardId,
         Dictionary<string, object?> metadata,
         ICardInstanceRepository? repository = null)
     {
-        ArgumentNullException.ThrowIfNull(effectRegistry);
         ArgumentNullException.ThrowIfNull(metadata);
 
         if (repository is not null)

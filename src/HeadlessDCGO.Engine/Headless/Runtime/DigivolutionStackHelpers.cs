@@ -213,7 +213,7 @@ public static class DigivolutionStackHelpers
     /// <param name="honorProtection">(C-3) AS-IS effect-trash (<c>ITrashDigivolutionCards</c>) filters
     /// <c>CanNotTrashFromDigivolutionCards</c>-protected sources OUT of the window; the DELETION path
     /// (<c>DiscardEvoRoots</c>) does NOT (no keyword check) and passes false. The scan args
-    /// (<paramref name="effectRegistry"/>/<paramref name="context"/>/<paramref name="causingEffectSourceId"/>)
+    /// (<paramref name="context"/>/<paramref name="causingEffectSourceId"/>)
     /// are the AS-IS <c>CanNotTrashFromDigivolutionCards(source, _cardEffect)</c> inputs; supplied only on the
     /// effect-trash path.</param>
     public static Task<int> TrashSourcesAsync(
@@ -225,10 +225,9 @@ public static class DigivolutionStackHelpers
         CancellationToken cancellationToken = default,
         GameEventQueue? gameEventQueue = null,
         bool honorProtection = true,
-        IEffectQueryService? effectRegistry = null,
         Bridge.EngineContext? context = null,
         HeadlessEntityId causingEffectSourceId = default) =>
-        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, ChoiceZone.Trash, cancellationToken, gameEventQueue, honorProtection, effectRegistry, context, causingEffectSourceId);
+        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, ChoiceZone.Trash, cancellationToken, gameEventQueue, honorProtection, context, causingEffectSourceId);
 
     /// <summary>(W6 process) Trash SPECIFIC digivolution sources of <paramref name="hostId"/> (AS-IS
     /// <c>ITrashDigivolutionCards(permanent, selectedCards, …)</c>). Returns the count trashed.</summary>
@@ -239,7 +238,6 @@ public static class DigivolutionStackHelpers
         IReadOnlyList<HeadlessEntityId> cardIds,
         CancellationToken cancellationToken = default,
         GameEventQueue? gameEventQueue = null,
-        IEffectQueryService? effectRegistry = null,
         Bridge.EngineContext? context = null,
         HeadlessEntityId causingEffectSourceId = default)
     {
@@ -421,7 +419,6 @@ public static class DigivolutionStackHelpers
         CancellationToken cancellationToken,
         GameEventQueue? gameEventQueue = null,
         bool honorProtection = true,
-        IEffectQueryService? effectRegistry = null,
         Bridge.EngineContext? context = null,
         HeadlessEntityId causingEffectSourceId = default)
     {

@@ -105,13 +105,12 @@ public sealed class BT1_089 : CEntity_Effect
                     // (이연④-f) AS-IS BT1_089:56 gates the move on `permanent.CanMove` — the LIVE ICanNotMoveEffect
                     // scan (Permanent.CanMove). This is the interface-scan half; it sees every CanNotMove producer
                     // through the field/player EffectList (CanNotMoveEffect implements ICanNotMoveEffect; EX7_014
-                    // emits CanNotMoveClass). The registry-half read below (RestrictionScan CannotMoveKey) is now
-                    // DEAD — its sole producer CanNotMoveEffect no longer writes the CannotMoveKey binding (ToBinding
-                    // registry-half retired, 이연④-f); it stays false and is retained only pending the atomic
-                    // registry-scan deletion.
+                    // emits CanNotMoveClass). (④) The registry-half read (RestrictionScan CannotMoveKey) is now
+                    // DELETED — its sole producer CanNotMoveEffect no longer writes the CannotMoveKey binding
+                    // (ToBinding registry-half retired, 이연④-f) and the scan was permanently empty (producer 0),
+                    // so it reduced to constant-false; Permanent.CanMove is the sole live gate.
                     if (top.IsDigimon && top.HasLevel && top.Level >= 3
-                        && new Permanent(context, breeding[0]).CanMove
-                        && !HeadlessDCGO.Engine.Headless.Runtime.RestrictionScan.IsRestricted(context, RestrictionHelpers.CannotMoveKey, breeding[0], default))
+                        && new Permanent(context, breeding[0]).CanMove)
                     {
                         await context.ZoneMover.MoveBreedingToBattleAsync(card.Owner, 1);
                     }

@@ -404,7 +404,7 @@ EngineContext NewContext()
 }
 
 MatchStateMutationSink NewSink(EngineContext ctx) =>
-    new MatchStateMutationSink(ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+    new MatchStateMutationSink(ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.GameEventQueue, context: ctx);
 
 void Script(EngineContext ctx, params ChoiceResult[] choices)
 {

@@ -76,7 +76,7 @@ async Task Run(string kind, Protect protect, bool expectStays)
     }
 
     var sink = new MatchStateMutationSink(
-        ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.GameEventQueue, context: ctx);
     using (AmbientMatchContext.Enter(ctx))
     {
         sink.Apply(new EffectMutation(kind, src,

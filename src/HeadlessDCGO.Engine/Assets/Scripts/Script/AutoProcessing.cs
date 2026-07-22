@@ -702,7 +702,7 @@ public sealed class AutoProcessing
             _context.MemoryController, _context.TurnController.Current.TurnPlayerId).ConfigureAwait(false);
 
         // Not a deletion: bindings drop, but no post-deletion keyword snapshot (nothing may respond).
-        CardLeavePlayCleanup.OnLeftPlay(_context.EffectRegistry, permanent.InstanceId);
+        CardLeavePlayCleanup.OnLeftPlay(permanent.InstanceId);
         await _context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(permanent.OwnerId, permanent.InstanceId, zone, ChoiceZone.Trash),
             cancellationToken).ConfigureAwait(false);

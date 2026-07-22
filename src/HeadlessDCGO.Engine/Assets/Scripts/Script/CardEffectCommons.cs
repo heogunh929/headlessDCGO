@@ -158,7 +158,7 @@ public static partial class CardEffectCommons
 
         var sink = new MatchStateMutationSink(
             context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
-            context.EffectRegistry, context.GameEventQueue, context: context);
+            context.GameEventQueue, context: context);
         foreach (HeadlessEntityId target in targets)
         {
             sink.Apply(new EffectMutation(
@@ -205,7 +205,7 @@ public static partial class CardEffectCommons
 
         var sink = new MatchStateMutationSink(
             context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
-            context.EffectRegistry, context.GameEventQueue, context: context);
+            context.GameEventQueue, context: context);
         foreach (Permanent target in targetPermanents.Where(p => p is not null && !p.InstanceId.IsEmpty))
         {
             sink.Apply(new EffectMutation(
@@ -245,7 +245,7 @@ public static partial class CardEffectCommons
 
         var sink = new MatchStateMutationSink(
             context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
-            context.EffectRegistry, context.GameEventQueue, context: context);
+            context.GameEventQueue, context: context);
         foreach (Permanent target in targetPermanents.Where(p => p is not null && !p.InstanceId.IsEmpty))
         {
             sink.Apply(new EffectMutation(
@@ -314,7 +314,7 @@ public static partial class CardEffectCommons
                 targetPermanent.InstanceId, trashCount, fromBottom: !isFromTop,
                 gameEventQueue: sourceCard.Context.GameEventQueue,
                 // (C-3) effect-trash honours CanNotTrashFromDigivolutionCards (BT9_109) via TrashProtectionScan.
-                effectRegistry: sourceCard.Context.EffectRegistry, context: sourceCard.Context,
+                context: sourceCard.Context,
                 causingEffectSourceId: sourceCard.InstanceId).ConfigureAwait(false);
         if (trashed > 0)
         {
@@ -345,7 +345,7 @@ public static partial class CardEffectCommons
                 targetPermanent.InstanceId, trashCount, fromBottom: !isFromTop,
                 gameEventQueue: sourceCard.Context.GameEventQueue,
                 // (C-3) effect-trash honours CanNotTrashFromDigivolutionCards (BT9_109) via TrashProtectionScan.
-                effectRegistry: sourceCard.Context.EffectRegistry, context: sourceCard.Context,
+                context: sourceCard.Context,
                 causingEffectSourceId: sourceCard.InstanceId);
 
     // (C-3 재상환 P2-2) The stack-trash gates of the sink path (MatchStateMutationSink, TrashDigivolutionCardsKind):
@@ -561,7 +561,7 @@ public static partial class CardEffectCommons
         // ported continuous/trigger effects (MatchStateMutationSink defaults its enter-play hook to
         // context.RegisterEnteredCardEffects) — the AS-IS PlayCardClass.PlayCard() enter-play semantics.
         new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-            context.EffectRegistry, context.GameEventQueue, context: context);
+            context.GameEventQueue, context: context);
 
     private static async Task Branch(bool success, Func<Task>? successProcess, Func<Task>? failureProcess)
     {
@@ -2242,7 +2242,7 @@ public static partial class CardEffectCommons
             int trashed = await Headless.Runtime.DigivolutionStackHelpers.TrashSpecificSourcesAsync(
                 context.CardInstanceRepository, context.ZoneMover, hostId, picks, cancellationToken, context.GameEventQueue,
                 // (C-3) effect-trash (DigiBurst) honours CanNotTrashFromDigivolutionCards (BT9_109) via TrashProtectionScan.
-                context.EffectRegistry, context, sourceCard.InstanceId).ConfigureAwait(false);
+                context, sourceCard.InstanceId).ConfigureAwait(false);
             trashedTotal += trashed;
 
             if (afterSelectionCoroutine is not null)

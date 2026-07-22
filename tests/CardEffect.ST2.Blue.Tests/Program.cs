@@ -403,7 +403,7 @@ async Task DriveActivate(EngineContext context, ActivateClass effect)
     }
 }
 
-IReadOnlyList<EffectBinding> RegisterContinuous(EngineContext context, CEntity_Effect effect, string number, HeadlessEntityId source) =>
+IReadOnlyList<HeadlessEntityId> RegisterContinuous(EngineContext context, CEntity_Effect effect, string number, HeadlessEntityId source) =>
     CardEffectRegistrar.RegisterOnEnterPlay(context, effect, number, new CardSource(context, source, P1));
 
 async Task<(HeadlessEntityId Top, HeadlessEntityId Source)> SelfStack(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId top)
@@ -452,7 +452,7 @@ async Task PlaceDigimon(EngineContext context, HeadlessPlayerId owner, HeadlessE
 }
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController, context.EffectRegistry);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController);
 
 bool InZone(EngineContext context, HeadlessPlayerId player, ChoiceZone zone, HeadlessEntityId id) =>
     ((IZoneStateReader)context.ZoneMover).GetCards(player, zone).Contains(id);

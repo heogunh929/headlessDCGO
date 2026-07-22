@@ -152,7 +152,7 @@ async Task PlayForCostPaysCost()
     sel.SetUp(P1, _ => true, 1, false, false, SelectCardEffect.Mode.PlayForCost, SelectCardEffect.Root.Hand, new HeadlessEntityId("src"));
     sel.SetPlayCost(2);
 
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController, context.EffectRegistry);
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController);
     sel.Apply(sink, new[] { card });
     await sink.FlushAsync();
 
@@ -163,7 +163,7 @@ async Task PlayForCostPaysCost()
 // --- Helpers -------------------------------------------------------------
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null);
 
 IZoneStateReader Zones(EngineContext context) => (IZoneStateReader)context.ZoneMover;
 

@@ -392,7 +392,7 @@ public sealed class GameFlowProcessor
                         // (P1) leave-play cleanup before the move: snapshot the
                         // post-deletion keywords, then drop the dead card's bindings (previously leaked).
                         ClearPendingDeletion(context, cardId);
-                        CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, cardId);
+                        CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context, cardId);
                         // (P0-4/RD-4) this deferred-deletion finisher previously moved only the top card,
                         // stranding the dead permanent's digivolution sources in ChoiceZone.None. Mirror
                         // AS-IS DiscardEvoRoots (sources → trash, before the top) here too.
@@ -418,7 +418,7 @@ public sealed class GameFlowProcessor
                     dpZeroBatchId ??= context.NextDeletionBatchId();
                     var sink = new MatchStateMutationSink(
                         context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
-                        context.EffectRegistry, context.GameEventQueue, context: context,
+                        context.GameEventQueue, context: context,
                         explicitDeletionBatchId: dpZeroBatchId);
                     sink.Apply(new EffectMutation(
                         MatchStateMutationSink.DeleteKind,
@@ -636,7 +636,7 @@ public sealed class GameFlowProcessor
         }
 
         // Not a deletion: bindings drop, but no post-deletion keyword snapshot (nothing may respond).
-        CardLeavePlayCleanup.OnLeftPlay(context.EffectRegistry, cardId);
+        CardLeavePlayCleanup.OnLeftPlay(cardId);
         await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(playerId, cardId, zone, ChoiceZone.Trash),
             cancellationToken).ConfigureAwait(false);
@@ -1060,7 +1060,7 @@ public sealed class GameFlowProcessor
 
                 var sink = new Effects.MatchStateMutationSink(
                     context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
-                    context.EffectRegistry, context.GameEventQueue, context: context);
+                    context.GameEventQueue, context: context);
                 sink.Apply(new Effects.EffectMutation(
                     Effects.MatchStateMutationSink.DeleteKind, sourceId,
                     new Dictionary<string, object?>(StringComparer.Ordinal) { [Effects.MatchStateMutationSink.TargetEntityIdKey] = id.Value }));

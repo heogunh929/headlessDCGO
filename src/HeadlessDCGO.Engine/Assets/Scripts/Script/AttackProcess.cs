@@ -705,7 +705,7 @@ public sealed class AttackProcess
 
         var sink = new MatchStateMutationSink(
             _context.CardInstanceRepository, log: null, _context.ZoneMover, memory: null,
-            _context.EffectRegistry, _context.GameEventQueue, context: _context);
+            _context.GameEventQueue, context: _context);
         sink.Apply(new EffectMutation(
             MatchStateMutationSink.DeleteKind,
             attackerId,

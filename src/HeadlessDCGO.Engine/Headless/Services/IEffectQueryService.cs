@@ -2,31 +2,10 @@ namespace HeadlessDCGO.Engine.Headless.Services;
 
 using HeadlessDCGO.Engine.Headless.Effects;
 
-public interface IEffectQueryService
-{
-    // (③-B) GetEffectsForTiming(string) is RETIRED — the timing-keyed registry read had no live src consumer once
-    // the registry producer reached 0 (trigger collection scans the field via AutoProcessingTriggerCollector, not
-    // a registry timing query). Removed from the contract and both implementations.
-
-    IReadOnlyList<EffectRequest> GetContinuousEffects(EffectQueryContext context);
-
-    IReadOnlyList<EffectRequest> GetReplacementEffects(EffectQueryContext context);
-
-    IReadOnlyList<EffectRequest> GetModifierEffects(EffectQueryContext context);
-
-    IReadOnlyList<EffectRequest> GetRestrictionEffects(EffectQueryContext context);
-
-}
-
-[Flags]
-public enum EffectQueryRole
-{
-    None = 0,
-    Continuous = 1,
-    Replacement = 2,
-    Modifier = 4,
-    Restriction = 8,
-}
+// (④) interface IEffectQueryService + [Flags] enum EffectQueryRole DELETED — the invented EffectRegistry
+// query surface (GetContinuousEffects/GetReplacement/GetModifier/GetRestrictionEffects + the role flags) had
+// producer 0 and no surviving consumer. EffectQueryContext survives (the continuous-scope query key still used
+// by ContinuousScopeEvaluation + ContinuousEffectEvaluator.BuildValues).
 
 public sealed record EffectQueryContext
 {

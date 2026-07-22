@@ -145,8 +145,7 @@ public sealed class SelectAndDigivolveEffect : IActivatedCardEffect
         CardEffectRegistrar.RegisterCard(context, sourceId, Card.Owner);
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Select-and-digivolve is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -196,8 +195,7 @@ public sealed class DeferredCardEffect : IActivatedCardEffect
 
     public string Reason { get; }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Card effect not yet ported: {Reason}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -258,8 +256,7 @@ public sealed class ModeChoiceEffect : IActivatedCardEffect
             : available[0].Branch;
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Mode-choice effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -362,8 +359,7 @@ public sealed class DnaFromHandOrTrashActivatedEffect : IActivatedCardEffect
 
     public string Description { get; }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"DNA-from-hand/trash effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -456,8 +452,7 @@ public sealed class ReturnSelfDigivolutionCardsToDeckEffect : IActivatedCardEffe
             }));
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Return-digivolution-to-deck effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -511,8 +506,7 @@ public sealed class ReplaceBottomSecurityWithFaceUpEffect : IActivatedCardEffect
         sink.Apply(new EffectMutation(MatchStateMutationSink.AddToSecurityKind, Card.InstanceId, values));
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Replace-bottom-security effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -543,8 +537,7 @@ public sealed class InformationalRevealEffect : IActivatedCardEffect
         // No state change: a reveal exposes cards to the opponent, which the full-information model already has.
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Informational reveal effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -594,8 +587,7 @@ public sealed class MaterialSaveActivatedEffect : IActivatedCardEffect
             }));
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Material-save effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -638,8 +630,7 @@ public sealed class ReturnThisCardToHandEffect : IActivatedCardEffect
             new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value }));
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Return-to-hand effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -707,8 +698,7 @@ public sealed class PlayOptionCardEffect : IActivatedCardEffect
         return EffectChoiceHelpers.CreatePermanentRequest(Card.Owner, Description, minCount: CanEndNotMax ? 0 : max, maxCount: max, canSkip: CanEndNotMax, candidates);
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Play-option effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -882,8 +872,7 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
     // (uniform-사멸 flip) explicit IEffectBody half REMOVED — the interface died with the uniform
     // ActivatedEffect corpus; the public BuildRequest/Apply surface is unchanged.
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Play-from-under effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -969,8 +958,7 @@ public sealed class SelectHandAttachToOwnStackThenMemoryEffect : IActivatedCardE
         }
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Select-hand-attach-to-own-stack effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -1046,8 +1034,7 @@ public sealed class SelectDeDigivolveThenConditionalDestroyEffect : IActivatedCa
         }
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Select-de-digivolve-then-conditional-destroy effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -1113,8 +1100,7 @@ public sealed class MassDeDigivolveThenConditionalDestroyEffect : IActivatedCard
         }
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Mass-de-digivolve-then-conditional-destroy effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -1201,8 +1187,7 @@ public sealed class ChooseCountThenTrashDigivolutionEffect : IActivatedCardEffec
         }
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Choose-count-then-trash-digivolution effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -1284,8 +1269,7 @@ public sealed class OpponentBinaryChoiceEffect : IActivatedCardEffect
         }
     }
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Opponent-binary-choice effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -1378,8 +1362,7 @@ public sealed class ActivatedSelectAndPlayFromZonesEffect : IActivatedCardEffect
     // (uniform-사멸 flip) explicit IEffectBody half REMOVED — the interface died with the uniform
     // ActivatedEffect corpus; the public BuildRequest/Apply surface is unchanged.
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Multi-zone select-and-play effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }
 
 
@@ -1431,6 +1414,5 @@ public sealed class ActivatedDrawThenDiscardEffect : IActivatedCardEffect
             (Card.Owner, Card.Owner), _drawAmount, _trashAmount, Card,
             _canTrash, _canNoSelect, _canEndNotMax, cancellationToken);
 
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Draw-then-discard effect is resolved via the activation flow, not registered: {Description}");
+    // (④) ToBinding(string) DELETED — dead old-model activated lowering to the invented EffectBinding.
 }

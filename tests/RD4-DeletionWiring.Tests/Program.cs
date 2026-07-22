@@ -49,7 +49,7 @@ async Task DeleteViaSink(EngineContext ctx, HeadlessEntityId target)
 {
     var sink = new MatchStateMutationSink(
         ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null,
-        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        ctx.GameEventQueue, context: ctx);
     sink.Apply(new EffectMutation(
         MatchStateMutationSink.DeleteKind,
         new HeadlessEntityId("test:killer"),

@@ -51,7 +51,7 @@ EngineContext Board(string cardNumber, out HeadlessEntityId cardId, string cardT
     return context;
 }
 
-IReadOnlyList<EffectBinding> Register(EngineContext context, CEntity_Effect effect, string cardNumber, HeadlessEntityId cardId) =>
+IReadOnlyList<HeadlessEntityId> Register(EngineContext context, CEntity_Effect effect, string cardNumber, HeadlessEntityId cardId) =>
     CardEffectRegistrar.RegisterOnEnterPlay(context, effect, cardNumber, new CardSource(context, cardId, P1));
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }

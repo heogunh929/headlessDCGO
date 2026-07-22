@@ -185,7 +185,7 @@ async Task ApplyKind(EngineContext context, HeadlessEntityId target, string kind
 // IsRestrictedFromCause -> HasCannotReturnToHand/HasCannotReturnToLibrary) silently never fired — passing it
 // costs nothing for the legacy-only paths this suite ALSO exercises (they never read `_context`).
 MatchStateMutationSink Sink(EngineContext context) => new(
-    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue,
+    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.GameEventQueue,
     context: context);
 
 bool ReadBool(EngineContext context, HeadlessEntityId id, string key) =>

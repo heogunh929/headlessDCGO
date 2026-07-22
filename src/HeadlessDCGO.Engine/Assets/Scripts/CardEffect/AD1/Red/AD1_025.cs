@@ -147,7 +147,7 @@ public sealed class AD1_025 : CEntity_Effect
             {
                 var bounceSink = new MatchStateMutationSink(
                     context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
-                    context.EffectRegistry, context.GameEventQueue, context: context);
+                    context.GameEventQueue, context: context);
                 foreach (HeadlessEntityId bounceTarget in bottomDeckTargets)
                 {
                     CardEffectCommons.ReturnToDeckBottom(bounceSink, card, bounceTarget);

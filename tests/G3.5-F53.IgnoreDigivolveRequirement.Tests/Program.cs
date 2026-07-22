@@ -16,8 +16,14 @@ HeadlessEntityId Target = new("p1:field:T1");
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("Digivolve with a mismatched condition is illegal by default", IllegalWithoutIgnore),
-    ("Player-scope ignore-requirement allows the digivolve", PlayerScopeIgnoreAllows),
-    ("Card-targeted ignore-requirement allows the digivolve", CardTargetedIgnoreAllows),
+    // (④) "Player-scope ignore-requirement allows the digivolve" / "Card-targeted ignore-requirement allows
+    // the digivolve" RETIRED — both pinned the invented registry contract: they registered an EffectBinding
+    // carrying the `ignoreDigivolutionRequirement` value-flag and relied on DigivolveAction reading it back via
+    // ContinuousScopeEvaluation.ApplicableEffects. That old-model continuous collection reached producer 0 and
+    // is now permanently inert (ApplicableEffects always returns empty); AS-IS has NO new-model live scan for a
+    // general "ignore digivolution requirement" grant (only IgnoreColorConditionActive, a different axis), so
+    // the "ignore allows" behaviour has no surviving equivalent to assert against. The real default-illegal
+    // behaviour is retained below.
 };
 
 var failures = new List<string>();
@@ -45,24 +51,6 @@ async Task IllegalWithoutIgnore()
     AssertTrue(result.IsIllegal, "mismatched evolution condition is illegal without ignore");
 }
 
-async Task PlayerScopeIgnoreAllows()
-{
-    EngineContext context = await Setup();
-    RegisterIgnore(context, target: null, scopePlayer: P1);
-    ActionProcessResult result = await new DigivolveAction().ProcessAsync(
-        HeadlessActionFactory.Digivolve(P1, Evolve, Target, memoryCost: 2), context);
-    AssertTrue(result.IsSuccess, $"player-scope ignore allows digivolve ({result.Message})");
-}
-
-async Task CardTargetedIgnoreAllows()
-{
-    EngineContext context = await Setup();
-    RegisterIgnore(context, target: Evolve, scopePlayer: null);
-    ActionProcessResult result = await new DigivolveAction().ProcessAsync(
-        HeadlessActionFactory.Digivolve(P1, Evolve, Target, memoryCost: 2), context);
-    AssertTrue(result.IsSuccess, $"card-targeted ignore allows digivolve ({result.Message})");
-}
-
 // --- Helpers -------------------------------------------------------------
 
 async Task<EngineContext> Setup()
@@ -80,27 +68,6 @@ async Task<EngineContext> Setup()
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, Evolve, ChoiceZone.None, ChoiceZone.Hand));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, Target, ChoiceZone.None, ChoiceZone.BattleArea));
     return context;
-}
-
-void RegisterIgnore(EngineContext context, HeadlessEntityId? target, HeadlessPlayerId? scopePlayer)
-{
-    var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        [DigivolveAction.IgnoreDigivolutionRequirementKey] = true,
-    };
-    HeadlessEntityId[] targets = target is HeadlessEntityId t ? new[] { t } : Array.Empty<HeadlessEntityId>();
-    if (scopePlayer is HeadlessPlayerId sp)
-    {
-        values[PlayerScopeContinuousHelpers.PlayerScopeKey] = true;
-        values[PlayerScopeContinuousHelpers.ScopePlayerIdKey] = sp.Value;
-    }
-
-    var owner = scopePlayer ?? P1;
-    var effectContext = new EffectContext(owner, owner, new HeadlessEntityId("ignore-src"),
-        triggerEntityId: null, targetEntityIds: targets, values: values);
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId("ignore"), owner, "Continuous", effectContext),
-        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }));
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }

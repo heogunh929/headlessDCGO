@@ -300,7 +300,7 @@ async Task BounceViaSink(EngineContext ctx, string kind, params HeadlessEntityId
 {
     var sink = new HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink(
         ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
-        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        ctx.GameEventQueue, context: ctx);
     foreach (HeadlessEntityId target in targets)
     {
         sink.Apply(new HeadlessDCGO.Engine.Headless.Effects.EffectMutation(
@@ -419,7 +419,7 @@ async Task DeleteBatchViaSink(EngineContext ctx, params HeadlessEntityId[] targe
 {
     var sink = new HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink(
         ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
-        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        ctx.GameEventQueue, context: ctx);
     foreach (HeadlessEntityId target in targets)
     {
         sink.Apply(new HeadlessDCGO.Engine.Headless.Effects.EffectMutation(

@@ -3,17 +3,11 @@ namespace HeadlessDCGO.Engine.Headless.Effects;
 using System.Collections.ObjectModel;
 using HeadlessDCGO.Engine.Headless.Services;
 
-public interface IHeadlessCardEffect
-{
-    CardEffectDefinition Definition { get; }
-
-    CardEffectCanResolveResult CanResolve(CardEffectResolveContext context);
-
-    ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default);
-}
+// (④) interface IHeadlessCardEffect DELETED — the invented scheduler-resolve effect contract. Its bound
+// bodies were served through EffectRegistry.Find(...).Effect (producer 0 → always Unbound), so no live effect
+// ever resolved through it. Its sole implementers (KeywordBaseBatch1/2Effect) drop the interface but keep their
+// Definition/CanResolve/ResolveAsync members as plain methods (the surviving CardEffectDefinition /
+// CardEffectResolveContext / CardEffectCanResolveResult types still describe them).
 
 public sealed record CardEffectDefinition
 {
@@ -257,86 +251,5 @@ public sealed class RecordingEffectMutationSink : IEffectMutationSink
     }
 }
 
-public sealed class HeadlessCardEffectResolver
-{
-    public async ValueTask<EffectResult> ResolveAsync(
-        IHeadlessCardEffect effect,
-        EffectRequest request,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(effect);
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(mutations);
-
-        cancellationToken.ThrowIfCancellationRequested();
-        var context = new CardEffectResolveContext(request);
-        CardEffectCanResolveResult check = effect.CanResolve(context)
-            ?? CardEffectCanResolveResult.Failure("Card effect CanResolve returned null.");
-
-        if (!check.CanResolve)
-        {
-            // (RD-10) a resolution-time gate failure is a FIZZLE, not an error — AS-IS skips it and continues
-            // the window (MultipleSkills.cs:122-126). Report Skipped so the scheduler dequeues it and keeps
-            // draining, instead of wedging the queue on a permanently-unresolvable head.
-            return EffectResult.Skipped(
-                check.Message ?? "Card effect cannot resolve.",
-                MergeValues(effect, check.Values));
-        }
-
-        try
-        {
-            EffectResult? result = await effect
-                .ResolveAsync(context, mutations, cancellationToken)
-                .ConfigureAwait(false);
-
-            return result ?? EffectResult.Failure(
-                "Card effect ResolveAsync returned null.",
-                MergeValues(effect, null));
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (HeadlessDCGO.Engine.Headless.Runtime.DeferredChoicePendingException)
-        {
-            // W7: the effect is suspending to ask the agent for a choice. Propagate so the scheduler
-            // resolver converts it into a Suspended result (effect stays queued and re-runs).
-            throw;
-        }
-        catch (Exception ex)
-        {
-            return EffectResult.Failure(
-                "Card effect resolver failed.",
-                MergeValues(
-                    effect,
-                    new Dictionary<string, object?>
-                    {
-                        ["error"] = ex.Message,
-                        ["errorType"] = ex.GetType().Name,
-                    }));
-        }
-    }
-
-    private static IReadOnlyDictionary<string, object?> MergeValues(
-        IHeadlessCardEffect effect,
-        IReadOnlyDictionary<string, object?>? values)
-    {
-        var merged = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            ["effectId"] = effect.Definition.EffectId.Value,
-            ["sourceEntityId"] = effect.Definition.SourceEntityId.Value,
-            ["timing"] = effect.Definition.Timing,
-        };
-
-        if (values is not null)
-        {
-            foreach (KeyValuePair<string, object?> pair in values)
-            {
-                merged[pair.Key] = pair.Value;
-            }
-        }
-
-        return merged;
-    }
-}
+// (④) class HeadlessCardEffectResolver DELETED — it drove IHeadlessCardEffect bodies for the scheduler-resolve
+// path (producer 0 → never reached). Removed with the interface.

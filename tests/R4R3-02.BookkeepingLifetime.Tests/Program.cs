@@ -278,7 +278,7 @@ async Task<HeadlessEntityId> PlaceInHand(EngineContext context, string tag)
 
 MatchStateMutationSink NewSink(EngineContext context) => new(
     context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
-    context.EffectRegistry, context.GameEventQueue, context: context);
+    context.GameEventQueue, context: context);
 
 EffectMutation Mutation(string kind, HeadlessEntityId target, Dictionary<string, object?>? extra = null)
 {

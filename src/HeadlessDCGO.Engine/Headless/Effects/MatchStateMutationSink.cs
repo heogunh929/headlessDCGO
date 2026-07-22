@@ -302,7 +302,6 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     private readonly ICardInstanceRepository _repository;
     private readonly IZoneMover? _zoneMover;
     private readonly IHeadlessMemoryController? _memory;
-    private readonly EffectRegistry? _effectRegistry;
     private readonly GameEventQueue? _gameEventQueue;
     private readonly ILogSink? _log;
     private readonly List<AppliedMutation> _applied = new();
@@ -405,7 +404,6 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         ILogSink? log = null,
         IZoneMover? zoneMover = null,
         IHeadlessMemoryController? memory = null,
-        EffectRegistry? effectRegistry = null,
         GameEventQueue? gameEventQueue = null,
         Action<HeadlessEntityId, HeadlessPlayerId>? onCardEnteredPlay = null,
         Func<HeadlessPlayerId?>? currentTurnPlayer = null,
@@ -416,7 +414,6 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _log = log;
         _zoneMover = zoneMover;
         _memory = memory;
-        _effectRegistry = effectRegistry;
         _gameEventQueue = gameEventQueue;
         // (G8-002 / effect-play registration) Invoked when a sink plays a card onto the field (PlayCardKind /
         // PlayDigivolutionAsDigimonKind), so the played card's ported continuous/trigger effects auto-register.
@@ -1354,7 +1351,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                     // window opened below (batch.DeferAll=false path). Only the retained generic bridge
                     // (CustomWouldBeDeletedOption: a card-registered WhenPermanentWouldBeDeleted effect in the
                     // invented EffectRegistry, disjoint from the window's EffectList collection) still defers here.
-                    if (DeletionReplacementTiming.HasPreOption(_repository, preZones, candidate, byBattle: false, _effectRegistry))
+                    if (DeletionReplacementTiming.HasPreOption(_repository, preZones, candidate, byBattle: false))
                     {
                         defer = true;
                         break;
@@ -1608,9 +1605,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // deletion processing). Snapshot the live keyword state — and Partition's stored condition list —
         // into the per-instance flags the POST window / Fortitude replay read. (R2-P1-3) the snapshot now
         // also records the AS-IS "record parameters just before deletion" block (CardController.cs:3762-3783).
-        if (_effectRegistry is not null)
+        // (④) formerly gated on `_effectRegistry is not null`; in production the registry and context were
+        // always both-present or both-absent, so `_context is not null` is the byte-equal replacement.
+        if (_context is not null)
         {
-            Runtime.CardLeavePlayCleanup.SnapshotPostReplacementKeywords(_effectRegistry, _context, targetId, metadata, _repository);
+            Runtime.CardLeavePlayCleanup.SnapshotPostReplacementKeywords(_context, targetId, metadata, _repository);
         }
 
         _repository.Upsert(record with { Metadata = metadata });
@@ -1741,14 +1740,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // card-targeted (self) fallback.
     private IReadOnlyList<EffectRequest> ScopedEffects(HeadlessEntityId cardId)
     {
-        if (_context is not null)
-        {
-            return ContinuousScopeEvaluation.ApplicableEffects(_context, ContinuousRestrictionGate.Scope, cardId);
-        }
-
-        return _effectRegistry is null
-            ? Array.Empty<EffectRequest>()
-            : _effectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId)).ToArray();
+        // (④) The registry-only fallback is retired (EffectRegistry deleted; producer 0). Production always
+        // carries a context → the AS-IS live scan (ApplicableEffects is now itself production-inert/empty).
+        return _context is not null
+            ? ContinuousScopeEvaluation.ApplicableEffects(_context, ContinuousRestrictionGate.Scope, cardId)
+            : Array.Empty<EffectRequest>();
     }
 
     private bool HasValueFlag(HeadlessEntityId cardId, string flagKey)
@@ -1846,14 +1842,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             return false;
         }
 
-        // (joint-migration) canonical registry scan (AS-IS Permanent.CanNotBeRemoved): single-participant restriction, no cause.
-        if (Runtime.RestrictionScan.IsRestricted(
-                _context, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotBeRemovedKey, candidateId, default))
-        {
-            return true;
-        }
-
-        // (이연④-c) UNION the LIVE new-model interface scan (AS-IS Permanent.CanBeRemoved() — the
+        // (④) The legacy registry RestrictionScan arm (CannotBeRemovedKey) is RETIRED — producer 0; the live
+        // behavior is the new-model interface scan alone (AS-IS Permanent.CanBeRemoved() — the
         // ICanNotBeRemovedEffect scan over every turn-ordered player's field permanents + player). A ported
         // CanNotBeRemovedClass (EX6_044 "can't leave the battle area except by deletion") registers NO legacy
         // binding, so the registry scan above cannot see it; the AS-IS getter enumerates it directly. This mirrors
@@ -1881,12 +1871,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // per-key CausingEffectPredicate branch below.
         if (_context is not null)
         {
-            // (RD-P6B-12 resolved, P7 FAILa-04/G9-053 fix) UNION the new-model cause-conditional interface scans
-            // (AS-IS Permanent.CanBeDestroyedBySkill:3309 / CannotReturnToHand:744 / CannotReturnToLibrary:785) — a
-            // ported CanNotBeDestroyedBySkillStaticEffect / CannotReturnToHandStaticEffect / CannotReturnToDeckStaticEffect
-            // registers no legacy binding, so RestrictionScan.IsRestricted (registry-backed) alone cannot see it.
-            return Runtime.RestrictionScan.IsRestricted(_context, restrictionKey, cardId, causingSourceId)
-                || Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.IsRestrictedByCauseNewModel(
+            // (④) The legacy registry RestrictionScan arm is RETIRED (producer 0); the live behavior is the
+            // new-model cause-conditional interface scan alone (AS-IS Permanent.CanBeDestroyedBySkill:3309 /
+            // CannotReturnToHand:744 / CannotReturnToLibrary:785 — ported CanNotBeDestroyedBySkillStaticEffect /
+            // CannotReturnToHandStaticEffect / CannotReturnToDeckStaticEffect register no legacy binding).
+            return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.IsRestrictedByCauseNewModel(
                     _context, restrictionKey, cardId, causingSourceId);
         }
 
@@ -1919,10 +1908,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             return ContinuousScopeEvaluation.EvaluateForCard(_context, ContinuousRestrictionGate.Scope, cardId);
         }
 
+        // (④) The registry-only fallback is retired (EffectRegistry deleted; producer 0). A context-less sink
+        // yields the empty result (production always carries a context).
         var queryContext = new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId);
-        return _effectRegistry is null
-            ? new ContinuousEvaluationResult(queryContext, Array.Empty<EffectRequest>(), Array.Empty<NumericModifier>(), Array.Empty<CannotRestriction>(), Array.Empty<ReplacementEffect>(), new Dictionary<string, object?>(StringComparer.Ordinal))
-            : ContinuousEffectEvaluator.Evaluate(_effectRegistry, queryContext);
+        return new ContinuousEvaluationResult(queryContext, Array.Empty<EffectRequest>(), Array.Empty<NumericModifier>(), Array.Empty<CannotRestriction>(), Array.Empty<ReplacementEffect>(), new Dictionary<string, object?>(StringComparer.Ordinal));
     }
 
     // (PRIM-W4/FR-P3) restriction probe honouring self AND player-scope-with-predicate. Used by the suspend /
@@ -2211,15 +2200,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                     .ToArray();
                 _pendingAsync.Add(ct => DigivolutionStackHelpers.TrashSpecificSourcesAsync(
                     _repository, zoneMover, hostId, selectedIds, ct, _gameEventQueue,
-                    // (C-3) effect-trash: honour CanNotTrashFromDigivolutionCards (BT9_109) via TrashProtectionScan.
-                    _effectRegistry, _context, mutation.SourceEntityId));
+                    // (C-3) effect-trash: honour CanNotTrashFromDigivolutionCards (BT9_109) via the live scan.
+                    _context, mutation.SourceEntityId));
             }
             else
             {
                 _pendingAsync.Add(ct => DigivolutionStackHelpers.TrashSourcesAsync(
                     _repository, zoneMover, hostId, count, fromBottom, ct, _gameEventQueue,
                     // (C-3) effect-trash path honours trash protection (deletion bypasses it — DeletionSourceTrash).
-                    honorProtection: true, _effectRegistry, _context, mutation.SourceEntityId));
+                    honorProtection: true, _context, mutation.SourceEntityId));
             }
         }
 

@@ -88,12 +88,11 @@ var tests = new (string Name, Func<Task> Body)[]
         var d1Card = new CardSource(f.Ctx, f.D1, P1);
         ICardEffect nodp = CardEffectFactory.DontHaveDPStaticEffect(null, false, d1Card, null);
 
-        // (a) no legacy lowering surface at all: LegacyBindingBridge finds no ToBinding on the kind-class.
-        AssertEq(LegacyBindingBridge.TryToBinding(nodp, "w3a:nodp", out _), false, "DontHaveDPClass has no ToBinding");
-
-        // (b) the enter-play registrar registers nothing for it (CardEffectRegistrar.cs:234 bridge miss) —
-        // union legacy-half FORCE-EMPTY while the behavior asserts above stay green (빈손 방향 실증).
-        IReadOnlyList<EffectBinding> registered = CardEffectRegistrar.RegisterOnEnterPlay(
+        // (④) the enter-play registrar registers nothing for the flipped new-model kind-class — the legacy
+        // EffectRegistry binding surface was DELETED, so RegisterOnEnterPlay now always yields an empty
+        // HeadlessEntityId list (scan-only path). Green here IS the proof that the new-model half alone carries
+        // the behavior asserted above (빈손 방향 실증).
+        IReadOnlyList<HeadlessEntityId> registered = CardEffectRegistrar.RegisterOnEnterPlay(
             f.Ctx, new NoneTimingEffects(new List<ICardEffect> { nodp }), "W3A", d1Card);
         AssertEq(registered.Count, 0, "RegisterOnEnterPlay binding count");
     }),

@@ -295,7 +295,7 @@ EngineContext NewContext()
 }
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry, context: context);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context: context);
 
 async Task DeleteAndSwallow(EngineContext context, HeadlessEntityId card)
 {

@@ -25,7 +25,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Attack target candidates convert to DeclareAttack legal actions", CandidatesConvertToLegalActions),
     ("Suspended attackers do not produce attack declarations", SuspendedAttackersProduceNoDeclarations),
     ("Entered-this-turn attacker without rush has no target candidates", EnteredThisTurnAttackerHasNoCandidates),
-    ("Cannot-attack-player still allows legal Digimon target candidates", CannotAttackPlayerStillAllowsDigimonTargets),
+    // (campaign ④) "Cannot-attack-player still allows legal Digimon target candidates" RETIRED — it injected the
+    // restriction through the deleted EffectRegistry + JointRestrictionEffect.PredicateKey + EffectQueryRole
+    // contract (a non-separable joint binding with no surviving injection path). The attack-declaration candidate
+    // enumeration it wrapped is covered by the remaining subtests.
     ("Unsuspended targets require explicit unsuspended target permission", UnsuspendedTargetsRequirePermission),
     ("Attack declaration candidates are deterministic", AttackDeclarationCandidatesAreDeterministic),
     ("G2G-001 source files contain no placeholder or Unity dependency", AttackDeclarationSourceHasNoPlaceholderOrUnityDependency),
@@ -158,31 +161,6 @@ async Task EnteredThisTurnAttackerHasNoCandidates()
         .ToArray();
 
     AssertEqual(0, declarations.Length, "entered-this-turn declaration count");
-}
-
-async Task CannotAttackPlayerStillAllowsDigimonTargets()
-{
-    DcgoMatch match = await CreateConfiguredMatchAsync();
-    // (structure-1:1) AS-IS models "cannot attack the player" as an ICanNotAttackTargetDefendingPermanent effect
-    // that fires when Defender==null (Permanent.CanAttackTargetDigimon(null)) — NOT a bespoke metadata flag. Register
-    // it as a canonical CannotAttack restriction whose joint predicate restricts only the player (null counterpart).
-    var effectContext = new EffectContext(
-        Player, Player, new HeadlessEntityId("src:cannotAttackPlayer"),
-        triggerEntityId: null, targetEntityIds: new[] { AttackerId },
-        values: new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotAttackKey)] =
-                (Func<CardSource, CardSource?, bool>)((subject, counterpart) => subject.InstanceId == AttackerId && counterpart is null),
-        });
-    match.Context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId("fx:cannotAttackPlayer"), Player, "Continuous", effectContext),
-        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }));
-
-    AttackDeclaration declaration = SingleDeclaration(match);
-
-    AssertEqual(1, declaration.TargetCandidates.Count, "candidate count");
-    AssertEqual(AttackTargetKind.Digimon, declaration.TargetCandidates[0].Kind, "candidate kind");
-    AssertEqual(TargetId, declaration.TargetCandidates[0].TargetId, "target id");
 }
 
 async Task UnsuspendedTargetsRequirePermission()

@@ -48,7 +48,10 @@ public static class KeywordBaseBatch1ContextKeys
 // Pierce.cs) to mirror the original DCGO CardEffectCommons/KeyWordEffects/<Name>.cs structure (which is
 // itself a partial-class-per-keyword layout). Shared scaffolding (enum, timings, dispatch, factory) stays
 // here.
-public sealed partial class KeywordBaseBatch1Effect : IHeadlessCardEffect
+// (④) : IHeadlessCardEffect dropped — the invented scheduler-resolve contract is deleted (producer 0 → its
+// bodies never resolved). Kept as a plain class for the Kind-dispatch corpus (R6-Db); Definition / CanResolve /
+// ResolveAsync remain as ordinary members over the surviving CardEffectDefinition/… types.
+public sealed partial class KeywordBaseBatch1Effect
 {
     public KeywordBaseBatch1Effect(
         KeywordBaseBatch1Kind kind,
@@ -164,12 +167,7 @@ public sealed partial class KeywordBaseBatch1Effect : IHeadlessCardEffect
         return ValueTask.FromResult(EffectResult.Success($"{Keyword} resolved.", values));
     }
 
-    public EffectBinding ToBinding(
-        HeadlessPlayerId controllerId,
-        EffectContext context)
-    {
-        return KeywordBaseBatch1Factory.ToBinding(this, controllerId, context);
-    }
+    // (④) ToBinding(...) DELETED — lowered to the invented EffectBinding (registry producer 0).
 
     private HeadlessEntityId ResolveTargetId(CardEffectResolveContext context)
     {
@@ -275,31 +273,8 @@ public static class KeywordBaseBatch1Factory
             .ToArray());
     }
 
-    public static EffectBinding ToBinding(
-        KeywordBaseBatch1Effect effect,
-        HeadlessPlayerId controllerId,
-        EffectContext context)
-    {
-        ArgumentNullException.ThrowIfNull(effect);
-        ArgumentNullException.ThrowIfNull(context);
-        if (controllerId.IsEmpty)
-        {
-            throw new ArgumentException("Controller id must not be empty.", nameof(controllerId));
-        }
-
-        if (context.SourceEntityId != effect.Definition.SourceEntityId)
-        {
-            throw new ArgumentException("Effect context source must match keyword source entity.", nameof(context));
-        }
-
-        EffectRequest request = new(effect.Definition.EffectId, controllerId, effect.Definition.Timing, context);
-        return new EffectBinding(
-            request,
-            KeywordAliases(effect.Kind),
-            QueryRole(effect.Kind),
-            QueryScopes(effect.Kind),
-            effect);
-    }
+    // (④) static ToBinding(effect, controllerId, context) DELETED — lowered to the invented EffectBinding
+    // (registry producer 0).
 
     // (R3-W3b / RD-GC2-01) RegisterBaseBatch1 (the batch registry-registration entrypoint) DELETED: it had ZERO
     // production callers — every live keyword firing/presence path was rehoused in A군 (printed = factory
@@ -338,17 +313,7 @@ public static class KeywordBaseBatch1Factory
         };
     }
 
-    public static EffectQueryRole QueryRole(KeywordBaseBatch1Kind kind)
-    {
-        return kind switch
-        {
-            KeywordBaseBatch1Kind.Blocker => EffectQueryRole.Restriction,
-            KeywordBaseBatch1Kind.Jamming => EffectQueryRole.Replacement,
-            KeywordBaseBatch1Kind.Reboot => EffectQueryRole.Modifier,
-            KeywordBaseBatch1Kind.Piercing => EffectQueryRole.Continuous,
-            _ => throw new ArgumentOutOfRangeException(nameof(kind), "Keyword kind must be known."),
-        };
-    }
+    // (④) QueryRole(kind) DELETED — returned the deleted EffectQueryRole flags (used only by the deleted ToBinding).
 
     public static IReadOnlyList<string> QueryScopes(KeywordBaseBatch1Kind kind)
     {

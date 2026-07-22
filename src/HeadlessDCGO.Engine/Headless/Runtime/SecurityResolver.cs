@@ -836,7 +836,7 @@ public sealed class SecurityResolver
         // flag rides the trashed (possibly Fortitude/Save-revived) instance. No-op on the plain non-windowed loss.
         BattleResolver.ClearBattlePreWindowMarkers(context, attackerId);
 
-        CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, attackerId);
+        CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context, attackerId);
         await DeletionSourceTrash.TrashEvoSourcesAsync(
             context.CardInstanceRepository, context.ZoneMover, attackerId, gameEventQueue: null, cancellationToken,
             context.MemoryController, context.TurnController.Current.TurnPlayerId).ConfigureAwait(false);

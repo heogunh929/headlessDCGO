@@ -56,7 +56,7 @@ public sealed class TfxDestroy : CEntity_Effect
                 // immunity / deletion-prevention gate filters (source = this card, cannotBeDeleted honoured).
                 var sink = new MatchStateMutationSink(
                     context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-                    context.EffectRegistry, context.GameEventQueue, context: context);
+                    context.GameEventQueue, context: context);
                 foreach (HeadlessEntityId target in targets)
                 {
                     if (!target.IsEmpty)

@@ -144,7 +144,7 @@ void SetSources(EngineContext ctx, HeadlessEntityId host, params HeadlessEntityI
 }
 
 MatchStateMutationSink Sink(EngineContext ctx) => new(
-    ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.EffectRegistry, ctx.GameEventQueue);
+    ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.GameEventQueue);
 
 EngineContext Ctx(bool deferred = false)
 {

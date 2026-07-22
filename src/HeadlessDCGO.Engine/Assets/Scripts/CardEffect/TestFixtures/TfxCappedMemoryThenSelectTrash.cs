@@ -53,7 +53,7 @@ public sealed class TfxCappedMemoryThenSelectTrash : CEntity_Effect
                     EngineContext context = card.Context;
                     var sink = new MatchStateMutationSink(
                         context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-                        context.EffectRegistry, context.GameEventQueue, context: context);
+                        context.GameEventQueue, context: context);
                     sink.Apply(new EffectMutation(
                         MatchStateMutationSink.AddMemoryKind, card.InstanceId,
                         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = 2 }));

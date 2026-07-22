@@ -117,14 +117,6 @@ bool IsSuspended(DcgoMatch match, HeadlessEntityId cardId)
     return record.Metadata.TryGetValue("isSuspended", out object? raw) && raw is bool flag && flag;
 }
 
-static EffectRequest CreateRequest(string effectId, string sourceId, string timing)
-{
-    var player = new HeadlessPlayerId(2);
-    return new EffectRequest(
-        new HeadlessEntityId(effectId), player, timing,
-        new EffectContext(player, player, new HeadlessEntityId(sourceId), triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>()));
-}
-
 async Task<DcgoMatch> CreateConfiguredMatchAsync()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 71);
@@ -241,28 +233,4 @@ static void AssertTrue(bool value, string label)
 static void AssertFalse(bool value, string label)
 {
     if (value) throw new InvalidOperationException($"{label}: expected false.");
-}
-
-internal sealed class RecordingFakeEffect : IHeadlessCardEffect
-{
-    public RecordingFakeEffect(string effectId, string sourceId, string timing)
-    {
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId(effectId), new HeadlessEntityId(sourceId), name: effectId, timing: timing);
-    }
-
-    public CardEffectDefinition Definition { get; }
-
-    public int ResolveCalls { get; private set; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        ResolveCalls++;
-        return ValueTask.FromResult(EffectResult.Success("fake resolved"));
-    }
 }

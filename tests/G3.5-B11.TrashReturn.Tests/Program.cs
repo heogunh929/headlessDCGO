@@ -78,7 +78,7 @@ async Task<(EngineContext, HeadlessEntityId)> TrashedCard()
 
 async Task ApplyAsync(EngineContext context, EffectMutation mutation)
 {
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry, context.GameEventQueue);
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.GameEventQueue);
     sink.Apply(mutation);
     await sink.FlushAsync();
 }

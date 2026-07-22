@@ -57,7 +57,7 @@ async Task Run(bool immune, bool expectRemoved)
     SetMeta(ctx, host, DigivolutionStackReader.SourceIdsKey, new[] { under.Value });
 
     var sink = new MatchStateMutationSink(
-        ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.GameEventQueue, context: ctx);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeDigivolveKind, new HeadlessEntityId("p2:cause"),
         new Dictionary<string, object?>(StringComparer.Ordinal)
         {

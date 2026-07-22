@@ -865,5 +865,5 @@ public sealed class SelectCardEffect
 
     private static MatchStateMutationSink NewSink(EngineContext context) =>
         new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-            context.EffectRegistry, context.GameEventQueue, context: context);
+            context.GameEventQueue, context: context);
 }

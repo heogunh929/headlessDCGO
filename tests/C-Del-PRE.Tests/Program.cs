@@ -77,7 +77,7 @@ async Task GateInvisibleNotDeferred()
     // deferred, so opening the AS-IS cut-in window here cannot collide with the gate.
     var zones = (IZoneStateReader)context.ZoneMover;
     var record = Record(context, card);
-    bool gateSees = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, record, byBattle: false, context.EffectRegistry);
+    bool gateSees = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, record, byBattle: false);
     AssertFalse(gateSees, "the gate does NOT detect the fixture (HasPreOption false) — no double-fire");
 
     await DeleteAndDrive(context, card);
@@ -156,7 +156,7 @@ async Task WindowSparesRetiredKeyword()
     CardEffectRegistrar.RegisterCard(context, card, P1);
 
     var zones = (IZoneStateReader)context.ZoneMover;
-    bool gateSees = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, card), byBattle: false, context.EffectRegistry);
+    bool gateSees = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, card), byBattle: false);
     AssertFalse(gateSees, "the retired gate does NOT defer the keyword (HasPreOption false) — the gate firing half is retired");
 
     await DeleteAndDrive(context, card);
@@ -178,7 +178,7 @@ EngineContext NewContext()
 }
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry, context: context);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context: context);
 
 async Task DeleteAndDrive(EngineContext context, HeadlessEntityId card)
 {

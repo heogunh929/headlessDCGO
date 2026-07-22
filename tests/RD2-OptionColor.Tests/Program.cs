@@ -162,6 +162,11 @@ Check(MatchesFor(new[] { "Red" }, new[] { (ChoiceZone.BreedingArea, "Red") }),
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 263);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (④) the fixture is now the AS-IS new-model IgnoreColorConditionClass; its CanUse/IsDisabled rides
+    // the live GManager surface, which needs the ambient match scope + a live phase (DoneStartGame) —
+    // both seated for free in real gameplay.
+    ctx.TurnController.SetPhase(HeadlessDCGO.Engine.Headless.Runtime.HeadlessPhase.Main);
+    using var _ambient = HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(ctx);
     var cards = (CardDatabase)ctx.CardRepository;
     // Red option whose card number dispatches the self ignore-color fixture; NO field permanent.
     var optDef = new HeadlessEntityId("IGN");

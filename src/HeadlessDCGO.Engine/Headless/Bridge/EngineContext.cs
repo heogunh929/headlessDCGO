@@ -27,7 +27,6 @@ public sealed class EngineContext
         EngineTaskRunner taskRunner,
         EffectScheduler effectScheduler,
         ContinuousContext? continuousContext = null,
-        EffectRegistry? effectRegistry = null,
         GameEventQueue? gameEventQueue = null,
         IHeadlessPlayerStatusController? playerStatusController = null)
     {
@@ -44,7 +43,6 @@ public sealed class EngineContext
         LogSink = logSink ?? throw new ArgumentNullException(nameof(logSink));
         TaskRunner = taskRunner ?? throw new ArgumentNullException(nameof(taskRunner));
         EffectScheduler = effectScheduler ?? throw new ArgumentNullException(nameof(effectScheduler));
-        EffectRegistry = effectRegistry ?? new InMemoryEffectRegistry();
         GameEventQueue = gameEventQueue ?? new GameEventQueue();
         OptionalPromptQueue = new OptionalPromptQueue();
         MulliganCoordinator = new MulliganCoordinator();
@@ -92,8 +90,6 @@ public sealed class EngineContext
     public EngineTaskRunner TaskRunner { get; }
 
     public EffectScheduler EffectScheduler { get; }
-
-    public EffectRegistry EffectRegistry { get; }
 
     public GameEventQueue GameEventQueue { get; }
 
@@ -379,7 +375,6 @@ public sealed class EngineContext
         var zoneMover = new InMemoryZoneMover(randomSource);
         var memoryController = new InMemoryHeadlessMemoryController();
 
-        var effectRegistry = new InMemoryEffectRegistry();
         // Hoisted so the mutation sink can open non-zone-move timing windows (CV-A4: OnTapped/OnUntapped)
         // on the same queue the EngineContext exposes.
         var gameEventQueue = new GameEventQueue();
@@ -391,9 +386,8 @@ public sealed class EngineContext
         var effectScheduler = new EffectScheduler(
             new EffectResolutionQueue(),
             CardEffectSchedulerResolver.Create(
-                effectRegistry,
                 sinkFactory: _ => new MatchStateMutationSink(
-                    cardInstanceRepository, logSink, zoneMover, memoryController, effectRegistry, gameEventQueue,
+                    cardInstanceRepository, logSink, zoneMover, memoryController, gameEventQueue,
                     // (PRIM-W4 AceOverflow) turn-relative memory sign for a leaving ACE's overflow penalty.
                     currentTurnPlayer: () => selfRef?.TurnController.Current.TurnPlayerId,
                     // (FR-P3) EngineContext so restriction/immunity checks honour player-scope predicates AND the
@@ -422,7 +416,6 @@ public sealed class EngineContext
             logSink,
             new EngineTaskRunner(),
             effectScheduler,
-            effectRegistry: effectRegistry,
             gameEventQueue: gameEventQueue);
         selfRef = context;
         return context;
@@ -443,7 +436,6 @@ public sealed class EngineContext
         RegisterService<ILogSink>(LogSink);
         RegisterService(TaskRunner);
         RegisterService(EffectScheduler);
-        RegisterService(EffectRegistry);
         RegisterService(GameEventQueue);
         RegisterService(OptionalPromptQueue);
         RegisterService(MulliganCoordinator);

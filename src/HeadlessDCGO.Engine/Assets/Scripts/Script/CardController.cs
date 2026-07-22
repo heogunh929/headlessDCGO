@@ -1228,7 +1228,7 @@ public class ITrashDigivolutionCards
             context.CardInstanceRepository, context.ZoneMover, permanentTargetFixed.InstanceId,
             trashDigivolutionCardsFixed.Select(cs => cs.InstanceId).ToArray(),
             cancellationToken, gameEventQueue: context.GameEventQueue,
-            effectRegistry: context.EffectRegistry, context: context,
+            context: context,
             causingEffectSourceId: causeId).ConfigureAwait(false);
 
         foreach (CardSource cardSource in trashDigivolutionCardsFixed)

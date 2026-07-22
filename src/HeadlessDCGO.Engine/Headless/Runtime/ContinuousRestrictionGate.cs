@@ -67,13 +67,11 @@ public static class ContinuousRestrictionGate
     private static CannotRestrictionResult JointResult(
         EngineContext context, string kind, HeadlessEntityId subjectId, HeadlessEntityId? counterpartId,
         string appliedTag, string noun) =>
-        (RestrictionScan.IsRestricted(context, kind, subjectId, counterpartId ?? default)
-            // (P6 STAGE B) UNION the new-model interface scan (AS-IS Permanent.CanSuspend/CanUnsuspend/
-            // CanBlock/CanAttackTargetDigimon, CardSource.CanNotEvolve) alongside the legacy registry scan.
-            // Ported kind-classes (CanNotUnsuspendClass, CannotBlockClass, …) implement the marker interfaces
-            // and register no binding, so the interface scan is their only path; the two are interface-disjoint
-            // (legacy joint-restriction effects are `: ICardEffect` only) — no double count.
-            || Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.IsRestrictedNewModel(context, kind, subjectId, counterpartId))
+        // (④) The legacy registry RestrictionScan arm is RETIRED (JointRestrictionEffect producer 0 → the
+        // registry scan was permanently empty); the live behavior is the new-model interface scan alone (AS-IS
+        // Permanent.CanSuspend/CanUnsuspend/CanBlock/CanAttackTargetDigimon, CardSource.CanNotEvolve — ported
+        // kind-classes CanNotUnsuspendClass/CannotBlockClass/… register no binding, so this is their only path).
+        (Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.IsRestrictedNewModel(context, kind, subjectId, counterpartId))
             ? CannotRestrictionResult.Success(true, $"Cannot {noun}.", new[] { appliedTag }, Array.Empty<string>(), new Dictionary<string, object?>())
             : CannotRestrictionResult.Success(false, $"No {noun} restriction.", Array.Empty<string>(), Array.Empty<string>(), new Dictionary<string, object?>());
 

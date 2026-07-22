@@ -78,7 +78,6 @@ public static partial class CardEffectCommons
             context.CardInstanceRepository, context.ZoneMover, permanent.InstanceId,
             selectedCards.Select(cs => cs.InstanceId).ToList(),
             gameEventQueue: context.GameEventQueue,
-            effectRegistry: context.EffectRegistry,
             context: context,
             causingEffectSourceId: activateClass.EffectSourceCard.InstanceId).ConfigureAwait(false);
 

@@ -325,7 +325,7 @@ public sealed class BattleResolver
             // (P1) leave-play cleanup BEFORE the move (and before Fortitude reads the keyword state):
             // snapshot the dead card's post-deletion keywords, then drop its bindings — previously the
             // battle path never dropped them, so a battle-deleted card's continuous effects kept applying.
-            CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, participant.InstanceId);
+            CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context, participant.InstanceId);
             // (C-Del 3c-1b) a PRE-windowed casualty kept willBeRemoveField=true (no replacement cleared it). AS-IS
             // Destroy() resets it as the card is trashed (:3591) — clear the transient PRE-window markers so no
             // stale flag rides the trashed instance.
@@ -451,7 +451,7 @@ public sealed class BattleResolver
         // EvadeSelfEffect / FragmentSelfEffect — the production path, registered via ContinuousKeywordGate)
         // defers the battle deletion like a metadata-flagged one. Previously only the test-set metadata
         // flags were visible here, so a real card's grant never opened the battle-loss PRE window.
-        return DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, record, byBattle: true, context.EffectRegistry);
+        return DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, record, byBattle: true);
     }
 
     /// <summary>(C-Del 3c-1b PRE cut-in transport) Open the AS-IS "would be deleted" PRE cut-in window

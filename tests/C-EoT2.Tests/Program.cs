@@ -407,15 +407,13 @@ static class ContextFactory
         var logSink = new NullLogSink();
         var zoneMover = new InMemoryZoneMover(randomSource);
         var memoryController = new InMemoryHeadlessMemoryController();
-        var effectRegistry = new InMemoryEffectRegistry();
         var gameEventQueue = new GameEventQueue();
         EngineContext? selfRef = null;
         var effectScheduler = new EffectScheduler(
             new EffectResolutionQueue(),
             CardEffectSchedulerResolver.Create(
-                effectRegistry,
                 sinkFactory: _ => new MatchStateMutationSink(
-                    cardInstanceRepository, logSink, zoneMover, memoryController, effectRegistry, gameEventQueue,
+                    cardInstanceRepository, logSink, zoneMover, memoryController, gameEventQueue,
                     currentTurnPlayer: () => selfRef?.TurnController.Current.TurnPlayerId,
                     context: selfRef),
                 strictUnbound: false));
@@ -425,7 +423,7 @@ static class ContextFactory
             new InMemoryRuleQueryService(), new InMemoryHeadlessTurnController(), choiceController,
             new InMemoryHeadlessAttackController(), memoryController, logSink,
             new HeadlessDCGO.Engine.Headless.Coroutines.EngineTaskRunner(), effectScheduler,
-            effectRegistry: effectRegistry, gameEventQueue: gameEventQueue);
+            gameEventQueue: gameEventQueue);
         selfRef = context;
         return context;
     }

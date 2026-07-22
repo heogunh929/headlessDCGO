@@ -175,7 +175,7 @@ async Task<EngineContext> EffectDeleteSetup(bool suspended, bool hasEvade)
 }
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null);
 
 EffectMutation Delete(HeadlessEntityId cardId) =>
     new(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),

@@ -167,7 +167,7 @@ async Task DeleteViaSink(EngineContext ctx, params HeadlessEntityId[] targets)
 {
     var sink = new MatchStateMutationSink(
         ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
-        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        ctx.GameEventQueue, context: ctx);
     foreach (HeadlessEntityId target in targets)
     {
         sink.Apply(new EffectMutation(

@@ -207,7 +207,7 @@ public sealed class BT23_057 : CEntity_Effect
                         EngineContext context = card.Context;
                         var topSink = new MatchStateMutationSink(
                             context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
-                            context.EffectRegistry, context.GameEventQueue, context: context);
+                            context.GameEventQueue, context: context);
                         foreach (CardSource cs in selectedCards)
                         {
                             topSink.Apply(new EffectMutation(

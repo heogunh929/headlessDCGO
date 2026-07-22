@@ -144,7 +144,7 @@ public static class DeletionReplacementGate
     // scope — DeletionReplacementTiming.cs is not a *Gate.cs file) via AmbientMatchContext.Current — the same
     // AsyncLocal handle NewModelContinuousScan's own methods self-scope from. A caller that already entered the
     // match's ambient scope (real gameplay, or a test that does so explicitly) is covered for free.
-    internal static bool HasReplacementKeyword(CardInstanceRecord record, string metadataFlag, string keyword, EffectRegistry? effectRegistry) =>
+    internal static bool HasReplacementKeyword(CardInstanceRecord record, string metadataFlag, string keyword) =>
         ReadFlag(record.Metadata, metadataFlag)
         || (AmbientMatchContext.Current is EngineContext ambient && ContinuousKeywordGate.HasKeyword(ambient, record.InstanceId, keyword));
 

@@ -180,7 +180,7 @@ public sealed class P_048 : CEntity_Effect
                             EngineContext context = card.Context;
                             var bottomSink = new MatchStateMutationSink(
                                 context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
-                                context.EffectRegistry, context.GameEventQueue, context: context);
+                                context.GameEventQueue, context: context);
                             foreach (CardSource cs in cardSources)
                             {
                                 bottomSink.Apply(new EffectMutation(

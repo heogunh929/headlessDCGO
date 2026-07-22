@@ -72,7 +72,7 @@ async Task RealCardRoutesToWindow(string cardNum, EffectTiming timing, bool unsu
 
     // (A1) the retired gate does NOT recognise the printed keyword — no gate firing / no double-fire path.
     var zones = (IZoneStateReader)context.ZoneMover;
-    bool gateSees = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, card), byBattle: false, context.EffectRegistry);
+    bool gateSees = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, card), byBattle: false);
     AssertFalse(gateSees, $"{cardNum}: the retired gate is BLIND to the printed keyword (HasPreOption false)");
 
     // (A2) the AS-IS PRE cut-in window's collection DOES see the printed keyword while the card is a marked target.
@@ -95,8 +95,8 @@ async Task RealCardGateBlind(string cardNum)
     CardEffectRegistrar.RegisterCard(context, card, P1);
 
     var zones = (IZoneStateReader)context.ZoneMover;
-    bool gateBattle = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, card), byBattle: true, context.EffectRegistry);
-    bool gateEffect = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, card), byBattle: false, context.EffectRegistry);
+    bool gateBattle = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, card), byBattle: true);
+    bool gateEffect = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, card), byBattle: false);
     AssertFalse(gateBattle || gateEffect, $"{cardNum}: the retired gate is BLIND to the printed keyword (HasPreOption false both causes)");
 }
 
@@ -151,7 +151,7 @@ async Task MaterialSaveViaWindow()
 
     // The retired gate is BLIND to the printed keyword.
     var zones = (IZoneStateReader)context.ZoneMover;
-    AssertFalse(DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, holder), byBattle: false, context.EffectRegistry),
+    AssertFalse(DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, holder), byBattle: false),
         "the retired gate is BLIND to the printed Material Save (HasPreOption false)");
 
     MatchStateMutationSink sink = Sink(context);
@@ -259,7 +259,7 @@ EngineContext NewContext()
 }
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry, context: context);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context: context);
 
 EffectMutation Delete(HeadlessEntityId cardId) =>
     new(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("2:battle:FOE"),

@@ -14,7 +14,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Mutation without target falls back to the source instance", FallsBackToSourceInstance),
     ("Unknown mutation kind is recorded as unsupported", UnknownKindIsUnsupported),
     ("Mutation for a missing instance is recorded as skipped", MissingInstanceIsSkipped),
-    ("Default engine resolves Blocker keyword into real hasBlocker state", DefaultEngineAppliesBlockerEndToEnd),
+    // (campaign ④) "Default engine resolves Blocker keyword into real hasBlocker state" RETIRED — it drove the
+    // sink through the deleted EffectRegistry + KeywordBaseBatch1Effect.ToBinding + scheduler bound-body resolve
+    // path (all removed). The real sink-mutation behavior it shared is covered by the direct sink.Apply subtests
+    // above (GrantBlocker/GrantRush/fallback/unsupported/skipped).
     ("Sink source has no placeholder or Unity dependency", SinkSourceHasNoPlaceholderOrUnityDependency),
 };
 
@@ -123,41 +126,6 @@ Task MissingInstanceIsSkipped()
     return Task.CompletedTask;
 }
 
-async Task DefaultEngineAppliesBlockerEndToEnd()
-{
-    EngineContext context = EngineContext.CreateDefault();
-    var player = new HeadlessPlayerId(1);
-    var cardId = new HeadlessEntityId("kw-card");
-    var defId = new HeadlessEntityId("def-kw");
-
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(cardId, defId, player));
-
-    MatchState state = MatchState
-        .CreateInitial(new[] { player })
-        .WithCardInstance(new CardInstanceState(cardId, defId, player))
-        .PlaceCard(cardId, ChoiceZone.BattleArea);
-
-    var effectContext = new EffectContext(
-        player,
-        cardId,
-        new Dictionary<string, object?>
-        {
-            [KeywordBaseBatch1ContextKeys.MatchState] = state,
-            [KeywordBaseBatch1ContextKeys.TargetEntityId] = cardId,
-        });
-
-    KeywordBaseBatch1Effect effect = KeywordBaseBatch1Factory.Create(KeywordBaseBatch1Kind.Blocker, cardId);
-    EffectBinding binding = effect.ToBinding(player, effectContext);
-    context.EffectRegistry.Register(binding);
-
-    context.EffectScheduler.Enqueue(binding.Request, EffectResolutionMode.MainStack);
-    EffectResult result = await context.EffectScheduler.ResolveNextAsync();
-
-    AssertTrue(result.Resolved, "resolved");
-    AssertEqual(1, ReadValue<int>(result, "appliedMutationCount"), "applied mutation count");
-    AssertTrue(ReadFlag(context.CardInstanceRepository, "kw-card", "hasBlocker"), "hasBlocker applied to real state");
-}
-
 Task SinkSourceHasNoPlaceholderOrUnityDependency()
 {
     string path = Path.Combine(
@@ -188,16 +156,6 @@ static bool ReadFlag(ICardInstanceRepository repository, string instanceId, stri
     }
 
     return record.Metadata.TryGetValue(key, out object? value) && value is true;
-}
-
-static T ReadValue<T>(EffectResult result, string key)
-{
-    if (!result.Values.TryGetValue(key, out object? value) || value is not T typedValue)
-    {
-        throw new InvalidOperationException($"Expected value '{key}' with type {typeof(T).Name}.");
-    }
-
-    return typedValue;
 }
 
 static void AssertTrue(bool condition, string label)

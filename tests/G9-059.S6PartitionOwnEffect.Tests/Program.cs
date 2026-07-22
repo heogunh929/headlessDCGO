@@ -34,7 +34,7 @@ async Task Check(int sourceOwner, bool expectOwn)
     var target = await Place(ctx, P1, "TARGET");
     var source = await Place(ctx, new HeadlessPlayerId(sourceOwner), "SOURCE");
 
-    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.GameEventQueue, context: ctx);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, source,
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["targetEntityId"] = target.Value }));
     await sink.FlushAsync();

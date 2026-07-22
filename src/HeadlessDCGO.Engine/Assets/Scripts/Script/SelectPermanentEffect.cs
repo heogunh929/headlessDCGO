@@ -811,7 +811,7 @@ public sealed class SelectPermanentEffect
 
     private static MatchStateMutationSink NewSink(EngineContext context) =>
         new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-            context.EffectRegistry, context.GameEventQueue, context: context);
+            context.GameEventQueue, context: context);
 
     /// <summary>AS-IS <c>ParameterComparer.Enumerate(list, k)</c> — all k-element combinations (no mirror
     /// ParameterComparer exists; local index-based enumeration, lazily yielded).</summary>

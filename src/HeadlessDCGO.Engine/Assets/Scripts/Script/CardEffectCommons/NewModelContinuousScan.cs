@@ -108,8 +108,21 @@ public static class NewModelContinuousScan
 
     private static ICardEffect BuildCausingEffectStandIn(EngineContext context, HeadlessEntityId causingSourceId)
     {
-        CardSource? source = causingSourceId.IsEmpty ? null : Headless.Runtime.RestrictionScan.MakeSource(context, causingSourceId);
+        CardSource? source = causingSourceId.IsEmpty ? null : MakeSource(context, causingSourceId);
         return new CausingEffectStandIn(source);
+    }
+
+    /// <summary>(④) Build a CardSource for a live instance, or null when the instance/owner is unknown. Rehoused
+    /// from the retired <c>RestrictionScan</c> — its sole surviving caller is this file.</summary>
+    internal static CardSource? MakeSource(EngineContext context, HeadlessEntityId id)
+    {
+        if (context is null || id.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) || rec is null || rec.OwnerId.IsEmpty)
+        {
+            return null;
+        }
+
+        return new CardSource(context, id, rec.OwnerId, rec.OwnerId);
     }
 
     // AS-IS gate: `!TopCard.CanNotBeAffected(cardEffect)` (SUBSTRATE ADAPTATION 1). A null TopCard (no live

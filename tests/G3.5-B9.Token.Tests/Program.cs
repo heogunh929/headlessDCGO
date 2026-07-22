@@ -96,7 +96,7 @@ EngineContext NewContext()
 }
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry, context.GameEventQueue);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.GameEventQueue);
 
 async Task ApplyAsync(EngineContext context, EffectMutation mutation)
 {

@@ -113,7 +113,7 @@ async Task ByBattleCauseNotSavedFromEffect()
     await Place(ctx, P2, "FOE", dp: 3000);
     Register(ctx, card, P1);
 
-    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry, context: ctx);
+    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, context: ctx);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("2:battle:FOE"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.Value }));
     await sink.FlushAsync();

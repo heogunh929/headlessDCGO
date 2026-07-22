@@ -207,7 +207,7 @@ async Task Drive(EngineContext ctx, EffectMutation mutation)
 {
     var sink = new MatchStateMutationSink(
         ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
-        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        ctx.GameEventQueue, context: ctx);
     sink.Apply(mutation);
     await sink.FlushAsync();
 }

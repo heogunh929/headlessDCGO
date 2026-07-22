@@ -14,7 +14,10 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("G3I-002 goal row and predecessor are satisfied", GoalRowAndPredecessorAreSatisfied),
     ("AS-IS continuous effect references are recorded", AsIsContinuousReferencesAreRecorded),
-    ("Registry continuous effects are collected by query scope", RegistryContinuousEffectsAreCollected),
+    // (④) RegistryContinuousEffectsAreCollected removed: it drove the DELETED
+    // ContinuousEffectEvaluator.Evaluate(IEffectQueryService/registry, EffectQueryContext) overload (InMemoryEffectRegistry
+    // + EffectBinding + EffectQueryRole, the invented registry). The surviving ContinuousEvaluationRequest /
+    // Recalculate / Factory evaluation paths are retained below.
     ("Card instance and state metadata are recalculated together", MetadataSourcesAreRecalculatedTogether),
     ("State mutation changes recalculated modifier result", StateMutationChangesRecalculation),
     ("Continuous restrictions and replacements are exposed together", RestrictionsAndReplacementsAreExposedTogether),
@@ -82,42 +85,6 @@ Task AsIsContinuousReferencesAreRecorded()
     AssertContains(changePlayCost, "Cost = _changeValue()", "AS-IS fixed play cost recalculation");
     AssertContains(cannotAttack, "CanNotAttackStaticEffect", "AS-IS cannot attack static effect");
     AssertContains(cannotAttack, "return condition == null || condition()", "AS-IS condition re-evaluation");
-    return Task.CompletedTask;
-}
-
-Task RegistryContinuousEffectsAreCollected()
-{
-    var registry = new InMemoryEffectRegistry();
-    EffectRequest matching = CreateEffect(
-        "effect-continuous-a",
-        new Dictionary<string, object?>
-        {
-            [ModifierHelpers.DpDeltaKey] = 1000,
-            [RestrictionHelpers.CannotAttackKey] = true,
-            [ReplacementHelpers.PreventRemovalKey] = true,
-        });
-    EffectRequest wrongScope = CreateEffect(
-        "effect-continuous-b",
-        new Dictionary<string, object?> { [ModifierHelpers.DpDeltaKey] = 9000 });
-
-    registry.Register(new EffectBinding(
-        matching,
-        queryRoles: EffectQueryRole.Continuous,
-        queryScopes: new[] { "ContinuousRecalculation" }));
-    registry.Register(new EffectBinding(
-        wrongScope,
-        queryRoles: EffectQueryRole.Continuous,
-        queryScopes: new[] { "OtherScope" }));
-
-    ContinuousEvaluationResult result = ContinuousEffectEvaluator.Evaluate(
-        registry,
-        new EffectQueryContext("ContinuousRecalculation", targetEntityId: TargetId));
-
-    AssertSequence(new[] { "effect-continuous-a" }, result.ContinuousEffects.Select(effect => effect.EffectId.Value).ToArray(), "continuous ids");
-    AssertEqual(4000, result.ResolveDp(3000, TargetId).FinalValue, "resolved DP");
-    AssertTrue(RestrictionHelpers.CannotAttack(TargetId, result.Restrictions).IsRestricted, "cannot attack");
-    AssertTrue(ReplacementHelpers.PreventRemoval(TargetId, result.Replacements).IsReplaced, "prevent removal");
-    AssertEqual(1, result.Values["continuousEffectCount"], "continuous effect count");
     return Task.CompletedTask;
 }
 
@@ -233,7 +200,6 @@ Task InvalidInputFailsExplicitly()
     AssertThrows<ArgumentNullException>(() => new ContinuousEvaluationRequest(null!));
     AssertThrows<ArgumentException>(() => new EffectQueryContext(" "));
     AssertThrows<ArgumentNullException>(() => ContinuousEffectEvaluator.Evaluate(null!));
-    AssertThrows<ArgumentNullException>(() => ContinuousEffectEvaluator.Evaluate(null!, new EffectQueryContext("ContinuousRecalculation")));
     return Task.CompletedTask;
 }
 

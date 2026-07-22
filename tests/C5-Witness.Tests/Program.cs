@@ -376,7 +376,7 @@ async Task<DcgoMatch> DriveTrashSourceEss(string hostDefinition)
     // OnDigivolutionCardDiscarded window before the physical move).
     var sink = new MatchStateMutationSink(
         context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController,
-        context.EffectRegistry, context.GameEventQueue, context: context);
+        context.GameEventQueue, context: context);
     sink.Apply(new EffectMutation(
         MatchStateMutationSink.TrashDigivolutionCardsKind,
         new HeadlessEntityId("wit:cause"),
@@ -713,7 +713,7 @@ void ApplyDelete(DcgoMatch match, HeadlessEntityId source, HeadlessEntityId targ
     EngineContext context = match.Context;
     var sink = new MatchStateMutationSink(
         context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController,
-        context.EffectRegistry, context.GameEventQueue, context: context);
+        context.GameEventQueue, context: context);
     sink.Apply(new EffectMutation(
         MatchStateMutationSink.DeleteKind,
         source,

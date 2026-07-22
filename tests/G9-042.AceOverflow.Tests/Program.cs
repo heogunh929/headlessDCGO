@@ -48,7 +48,7 @@ async Task Leave(string kind, ChoiceZone fromZone, bool ace, bool flipped, bool 
 
     var sink = new MatchStateMutationSink(
         context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
-        context.EffectRegistry, context.GameEventQueue, currentTurnPlayer: () => P1);
+        context.GameEventQueue, currentTurnPlayer: () => P1);
 
     var values = new Dictionary<string, object?>(StringComparer.Ordinal) { ["targetEntityId"] = id.Value };
     if (ignore) { values[AceOverflowGate.IgnoreOverflowKey] = true; }

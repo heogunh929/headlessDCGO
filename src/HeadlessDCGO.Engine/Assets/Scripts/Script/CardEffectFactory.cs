@@ -122,10 +122,10 @@ public static partial class CardEffectFactory
 
     // (P4 slice) CanNotAttackStaticEffect + CanNotAttackSelfStaticEffect moved to CardEffectFactory/CanNotAttack.cs (AS-IS 1:1)
 
-    /// <summary>(joint-migration) Canonical CannotAttack — <paramref name="predicate"/> is the AS-IS joint
-    /// <c>CanNotAttack(attacker, defender)</c> (defender may be null when the gate has no specific defender).</summary>
-    public static ICardEffect CanNotAttackJointStaticEffect(Func<CardSource, CardSource?, bool> predicate, CardSource card, Func<bool>? condition = null) =>
-        new JointRestrictionEffect(card, RestrictionHelpers.CannotAttackKey, predicate, condition);
+    // (④) CanNotAttackJointStaticEffect DELETED — it built the invented JointRestrictionEffect (registry
+    // producer 0, fed only the deleted RestrictionScan). Had no src caller. The AS-IS CannotAttack path is the
+    // new-model CanNotAttackTargetDefendingPermanentClass (CanNotAttackStaticEffect, separate attacker/defender
+    // conditions), seen by NewModelContinuousScan.CanNotAttack.
 
     // (R3-F1 fold) AS-IS 1:1 port of DCGO CardEffectFactory.cs:63 Gain1MemoryTamerOpponentDigimonEffect — was the
     // mirror-invented TriggeredGainMemoryEffect; now the uniform ActivateClass (ActivateICardEffect, visible to the
@@ -430,39 +430,11 @@ public static partial class CardEffectFactory
 
     // (P4 KeyWord slice) AllianceStaticEffect moved to KeyWordEffects/Alliance.cs (AS-IS 1:1)
 
-    // (PRIM-P0 AddSkillClass) player-scope keyword grants — "your Digimon (matching permanentCondition) gain
-    // <keyword>". These are the headless port target for AS-IS AddSkillClass whose getEffects grants a
-    // <keyword>SelfEffect to a live-matched set: the player-scope binding re-evaluates the set per query, so a
-    // Digimon that enters AFTER the grant still gains the keyword (proven in PRIM-P0.AddSkillLiveSet.Tests).
-    /// <summary>(PRIM-P0 AddSkill) grants Piercing to the owner's matching Digimon (player-scope).</summary>
-    public static ICardEffect PiercingStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Piercing, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
-
-    /// <summary>(PRIM-P0 AddSkill) grants Blitz to the owner's matching Digimon (player-scope).</summary>
-    public static ICardEffect BlitzStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Blitz, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
-
-    /// <summary>(PRIM-P0 AddSkill) grants Retaliation to the owner's matching Digimon (player-scope).</summary>
-    public static ICardEffect RetaliationStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Retaliation, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
-
-    // (P4 KeyWord slice) ScapegoatStaticEffect moved to KeyWordEffects/Scapegoat.cs (AS-IS 1:1)
-
-    /// <summary>(PRIM-P0 AddSkill) grants Decoy (deletion-replacement) to the owner's matching Digimon (player-scope).</summary>
-    public static ICardEffect DecoyStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Decoy, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
-
-    /// <summary>(PRIM-P0 AddSkill) grants Barrier to the owner's matching Digimon (player-scope).</summary>
-    public static ICardEffect BarrierStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Barrier, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
-
-    /// <summary>(PRIM-P0 AddSkill) AS-IS AddSkillClass whose getEffects splices a TRIGGERED activated effect onto
-    /// a live-matched set: <paramref name="nestedTriggeredEffect"/> (built to read the triggering card via
-    /// TriggerEntityId and apply the per-card predicate + a nested activated resolution) fires for any event whose
-    /// actor is <paramref name="scopePlayer"/> (the live set). The nested effect's ToBinding sets the granted
-    /// timing.</summary>
-    public static ICardEffect GrantTriggeredEffectToScopedSet(CardSource card, HeadlessPlayerId scopePlayer, ICardEffect nestedTriggeredEffect, bool scopeAnyPlayer = false) =>
-        new PlayerScopeTriggerGrantEffect(card, scopePlayer, nestedTriggeredEffect, scopeAnyPlayer);
+    // (④) The player-scope keyword-grant statics (Piercing/Blitz/Retaliation/Decoy/Barrier StaticEffect) and
+    // GrantTriggeredEffectToScopedSet DELETED — they built the invented ContinuousPlayerScopeKeywordEffect /
+    // PlayerScopeTriggerGrantEffect carriers (registry producer 0). 2-hop real-card production census = 0 (only
+    // the retired PRIM-P0.AddSkillLiveSet / TriggerGrantSetSplice test scaffolding called them). The AS-IS
+    // AddSkillClass keyword-grant port is a later corpus decision (design item RD-④E-PSKEYWORD / RD-④E-TRIGGERGRANT).
 
     // (P4 KeyWord slice) JammingStaticEffect moved to KeyWordEffects/Jamming.cs (AS-IS 1:1)
     // (P4 KeyWord slice) AscensionSelfEffect moved to KeyWordEffects/Ascension.cs (AS-IS 1:1)
@@ -1613,7 +1585,7 @@ public static partial class CardEffectFactory
     public static ICardEffect DigiXrosEffect(CardSource card, int costReduction, params SpecialPlayMaterial[] materials)
     {
         SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(SpecialPlayKind.DigiXros, materials, MemoryCost: 0));
-        return new SpecialPlayRecipeMarkerEffect(card);
+        return BareCauseEffect.For((CardSource?)null);  // (④) inert effect-list occupant; recipe lives in SpecialPlayRecipeRegistry (Register above)
     }
 
     /// <summary>(PRIM special-play) DigiXros whose material slots may ALSO be satisfied by cards from the TRASH
@@ -1629,7 +1601,7 @@ public static partial class CardEffectFactory
         SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(
             SpecialPlayKind.DigiXros, materials, MemoryCost: 0, Condition: null,
             MaxTrashCount: maxTrashCount, MaxUnderTamerCount: maxUnderTamerCount));
-        return new SpecialPlayRecipeMarkerEffect(card);
+        return BareCauseEffect.For((CardSource?)null);  // (④) inert effect-list occupant; recipe lives in SpecialPlayRecipeRegistry (Register above)
     }
 
     /// <summary>A material slot matched by card name (the name-equality subset of a DigiXros condition).</summary>
@@ -1654,7 +1626,7 @@ public static partial class CardEffectFactory
         var target = new SpecialPlayMaterial(digimonCondition, "Burst target Digimon");
         SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(
             SpecialPlayKind.Burst, new[] { target }, MemoryCost: cost, Condition: condition, TamerCondition: tamerCondition));
-        return new SpecialPlayRecipeMarkerEffect(card);
+        return BareCauseEffect.For((CardSource?)null);  // (④) inert effect-list occupant; recipe lives in SpecialPlayRecipeRegistry (Register above)
     }
 
     // (P4 KeyWord slice) BlastDNADigivolveEffect moved to KeyWordEffects/BlastDNADigivolution.cs (AS-IS 1:1)
@@ -1665,7 +1637,7 @@ public static partial class CardEffectFactory
     public static ICardEffect JogressEffectFromNames(CardSource card, Func<bool>? condition, params string[] names)
     {
         SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(SpecialPlayKind.DnaDigivolve, NameMaterials(names), MemoryCost: 0, Condition: condition));
-        return new SpecialPlayRecipeMarkerEffect(card);
+        return BareCauseEffect.For((CardSource?)null);  // (④) inert effect-list occupant; recipe lives in SpecialPlayRecipeRegistry (Register above)
     }
 
     /// <summary>(Jogress by levels) AS-IS <c>AddJogressLevelsClass</c> — makes THIS card count as extra level(s)
@@ -1700,7 +1672,7 @@ public static partial class CardEffectFactory
     public static ICardEffect JogressEffect(CardSource card, Func<bool>? condition, params SpecialPlayMaterial[] materials)
     {
         SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(SpecialPlayKind.DnaDigivolve, materials, MemoryCost: 0, Condition: condition));
-        return new SpecialPlayRecipeMarkerEffect(card);
+        return BareCauseEffect.For((CardSource?)null);  // (④) inert effect-list occupant; recipe lives in SpecialPlayRecipeRegistry (Register above)
     }
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:752 GetJogressConditionClass. Replaces

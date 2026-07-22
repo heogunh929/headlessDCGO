@@ -27,34 +27,16 @@ public static class OptionColorRequirement
         }
 
         // (1) AS-IS "ignore color requirement" effects (IIgnoreColorConditionEffect) — scanned over field
-        // permanents + players + ITSELF (CardSource.cs:263-303). Mirrored by the IgnoreColorRequirementKey (the
-        // same key the digivolve color-ignore consumes) across two source sets:
-        //   (1a) field/player-scope granted ignore-color that APPLIES to the option (registry-backed, condition-aware).
-        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, optionCardId))
-        {
-            if (effect.Context.Values.TryGetValue(DigivolveAction.IgnoreColorRequirementKey, out object? raw) && raw is true)
-            {
-                return true;
-            }
-        }
-
-        //   (1b) the option's OWN ignore-color effect — the option is in hand (unregistered), so its continuous
-        //   effects are dispatch-built (the same no-register build the face-up-security source scan uses) and
-        //   scanned, honouring each effect's condition gate (AS-IS CanUse).
-        foreach (EffectRequest effect in CardEffectRegistrar.BuildContinuousRequests(context, optionCardId, owner, ContinuousRestrictionGate.Scope))
-        {
-            if (effect.Context.Values.TryGetValue(DigivolveAction.IgnoreColorRequirementKey, out object? raw) && raw is true
-                && CardSource.EffectConditionPasses(effect))
-            {
-                return true;
-            }
-        }
-
-        //   (1c) (EXEMPLAR-T1) NEW-model IIgnoreColorConditionEffect kind-classes — routes (1a)/(1b) only see
-        //   LEGACY key-lowered bindings; a P6-rebuild card's IgnoreColorConditionClass (e.g. LM_054/BT19_091)
-        //   registers nothing there. The mirror CardSource.IgnoreColorConditionActive IS the AS-IS three-region
-        //   ignore scan verbatim (field permanents → players → the card itself, CardSource.cs:263-303), so this
-        //   gate consults it directly — same surface CanNotPlayThisOption/MatchColorRequirement read.
+        // permanents + players + ITSELF (CardSource.cs:263-303). (④) The legacy key-lowered routes (1a) the
+        // registry-backed ApplicableEffects scan and (1b) the option's own dispatch-built continuous scan
+        // (CardEffectRegistrar.BuildContinuousRequests) are RETIRED: their only producers were OLD-model ToBinding
+        // carriers (now deleted), so both were production-inert. The live path is (1c) — the NEW-model
+        // IIgnoreColorConditionEffect kind-class scan, which IS the AS-IS three-region ignore scan verbatim.
+        //   (1c) (EXEMPLAR-T1) NEW-model IIgnoreColorConditionEffect kind-classes — a P6-rebuild card's
+        //   IgnoreColorConditionClass (e.g. LM_054/BT19_091). The mirror CardSource.IgnoreColorConditionActive IS
+        //   the AS-IS three-region ignore scan verbatim (field permanents → players → the card itself,
+        //   CardSource.cs:263-303), so this gate consults it directly — same surface
+        //   CanNotPlayThisOption/MatchColorRequirement read.
         if (new CardSource(context, optionCardId, owner, owner).IgnoreColorConditionActive())
         {
             return true;

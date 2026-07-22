@@ -124,9 +124,9 @@ async Task Bt19DecodeBattleOffersNothing()
     var zones = (IZoneStateReader)ctx.ZoneMover;
 
     // The retired gate never offers the printed keyword (either cause).
-    AssertFalse(DeletionReplacementTiming.HasPreOption(ctx.CardInstanceRepository, zones, record!, byBattle: false, ctx.EffectRegistry),
+    AssertFalse(DeletionReplacementTiming.HasPreOption(ctx.CardInstanceRepository, zones, record!, byBattle: false),
         "the retired gate is BLIND to the printed Decode (effect cause)");
-    AssertFalse(DeletionReplacementTiming.HasPreOption(ctx.CardInstanceRepository, zones, record!, byBattle: true, ctx.EffectRegistry),
+    AssertFalse(DeletionReplacementTiming.HasPreOption(ctx.CardInstanceRepository, zones, record!, byBattle: true),
         "the retired gate is BLIND to the printed Decode (battle cause)");
 
     // EFFECT would-be-delete: the window collects the printed DecodeSelfEffect.
@@ -182,7 +182,7 @@ async Task Bt16PartitionPerColourGroup()
 
 async Task DeleteByEffect(DcgoMatch match, EngineContext ctx, HeadlessEntityId cardId)
 {
-    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry, context: ctx);
+    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, context: ctx);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId.Value }));
     await sink.FlushAsync();

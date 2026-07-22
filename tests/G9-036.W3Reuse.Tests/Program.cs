@@ -93,7 +93,7 @@ async Task ReplaceBottomSecurity()
 async Task Apply(EngineContext context, Action<MatchStateMutationSink> apply)
 {
     var sink = new MatchStateMutationSink(
-        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
+        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.GameEventQueue);
     apply(sink);
     await sink.FlushAsync();
 }

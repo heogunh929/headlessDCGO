@@ -98,7 +98,7 @@ async Task NoPlayTrashesAllSources()
 
 async Task PlaySourceForFree(EngineContext ctx, HeadlessEntityId host, HeadlessEntityId source)
 {
-    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry, context: ctx);
+    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, context: ctx);
     sink.Apply(new EffectMutation(MatchStateMutationSink.PlayCardKind, host,
         new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -187,7 +187,7 @@ async Task<(DcgoMatch Match, HeadlessEntityId Card)> SetupInteractiveDelete()
 
         // An effect deletes the card -> the sink opens the PRE cut-in, PAUSES on the interactive optional, and
         // PROMOTES the batch to a deferred deletion (FlushAsync swallows the pause; the ForCutIn window is parked).
-        var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry, context: context);
+        var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context: context);
         sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, foe,
             new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.Value }));
         await sink.FlushAsync();
@@ -239,7 +239,7 @@ async Task<(EngineContext Ctx, HeadlessEntityId C1, HeadlessEntityId C2)> Delete
     HeadlessEntityId c2 = PlaceFixture(ctx, P1, class2, "1:battle:B");
     HeadlessEntityId foe = PlaceFixture(ctx, P2, "FOE", "2:battle:FOE", register: false);
 
-    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry, context: ctx);
+    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, context: ctx);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, foe,
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = c1.Value }));
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, foe,

@@ -50,7 +50,7 @@ public sealed class DeletionReplacementTiming
     /// SecurityResolver StackSkillInfos → GetSkillInfos → printed / granted ActivateClass). Only the retained
     /// generic bridge (CustomWouldBeDeletedOption: a card-registered WhenPermanentWouldBeDeleted effect in the
     /// invented EffectRegistry, disjoint from the window's EffectList collection) surfaces here.</summary>
-    public static IReadOnlyList<string> PreOptions(ICardInstanceRepository repository, IZoneStateReader zones, CardInstanceRecord record, bool byBattle, EffectRegistry? effectRegistry = null)
+    public static IReadOnlyList<string> PreOptions(ICardInstanceRepository repository, IZoneStateReader zones, CardInstanceRecord record, bool byBattle)
     {
         var options = new List<string>();
 
@@ -61,8 +61,8 @@ public sealed class DeletionReplacementTiming
     }
 
     /// <summary>Whether a deletion of this card should be DEFERRED for an optional PRE replacement decision.</summary>
-    public static bool HasPreOption(ICardInstanceRepository repository, IZoneStateReader zones, CardInstanceRecord record, bool byBattle, EffectRegistry? effectRegistry = null) =>
-        PreOptions(repository, zones, record, byBattle, effectRegistry).Count > 0;
+    public static bool HasPreOption(ICardInstanceRepository repository, IZoneStateReader zones, CardInstanceRecord record, bool byBattle) =>
+        PreOptions(repository, zones, record, byBattle).Count > 0;
 
     /// <summary>(#3) Context-aware PRE options. (C-Del 3c-2b) With the 8 keyword replacements retired to the
     /// AS-IS PRE cut-in window, only the retained generic bridge (CustomWouldBeDeletedOption, a card-registered

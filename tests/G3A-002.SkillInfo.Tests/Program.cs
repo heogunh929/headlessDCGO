@@ -11,9 +11,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("G3A-002 goal row and predecessor are satisfied", GoalRowAndPredecessorAreSatisfied),
     ("AS-IS SkillInfo metadata references are recorded", AsIsSkillInfoReferencesAreRecorded),
     ("SkillInfo stores typed effect request metadata", SkillInfoStoresTypedMetadata),
-    ("SkillInfo creates request from IHeadlessCardEffect definition", SkillInfoCreatesRequestFromEffect),
-    ("Background effect defaults to background resolution mode", BackgroundEffectDefaultsToBackgroundMode),
-    ("SkillInfo converts to pending effect and registry binding", SkillInfoConvertsToPendingEffectAndBinding),
+    // (④) SkillInfoCreatesRequestFromEffect + BackgroundEffectDefaultsToBackgroundMode removed: they exercised
+    // the DELETED SkillInfo.FromEffect factory (driven by an IHeadlessCardEffect, also deleted). The surviving
+    // SkillInfo ctor/metadata/ToPendingEffect surface is retained.
+    ("SkillInfo converts to a pending effect", SkillInfoConvertsToPendingEffect),
     ("SkillInfo metadata snapshot is immutable and normalized", SkillInfoMetadataSnapshotIsImmutable),
     ("SkillInfo rejects mismatched definition request pairs", SkillInfoRejectsMismatchedPairs),
     ("SkillInfo rejects invalid metadata mode and sequence", SkillInfoRejectsInvalidMetadata),
@@ -124,41 +125,7 @@ Task SkillInfoStoresTypedMetadata()
     return Task.CompletedTask;
 }
 
-Task SkillInfoCreatesRequestFromEffect()
-{
-    var effect = new TestCardEffect(CreateDefinition("effect-from-card", "OnAttack"));
-    EffectContext context = CreateContext(effect.Definition.SourceEntityId);
-
-    SkillInfo skill = SkillInfo.FromEffect(
-        effect,
-        playerOne,
-        context,
-        priority: 2,
-        sequence: 9,
-        metadata: new Dictionary<string, object?> { ["window"] = "attack" });
-
-    AssertEqual(effect.Definition, skill.Definition, "definition");
-    AssertEqual(effect.Definition.EffectId, skill.Request.EffectId, "request effect");
-    AssertEqual(effect.Definition.Timing, skill.Request.Timing, "request timing");
-    AssertEqual(playerOne, skill.Request.ControllerId, "controller");
-    AssertEqual(EffectResolutionMode.MainStack, skill.Mode, "default mode");
-    AssertEqual(2, skill.Priority, "priority");
-    AssertEqual(9L, skill.Sequence, "sequence");
-    AssertEqual("attack", skill.Metadata["window"], "metadata");
-    return Task.CompletedTask;
-}
-
-Task BackgroundEffectDefaultsToBackgroundMode()
-{
-    var effect = new TestCardEffect(CreateDefinition("background-effect", "RulesTiming", isBackground: true));
-    SkillInfo skill = SkillInfo.FromEffect(effect, playerOne, CreateContext(effect.Definition.SourceEntityId));
-
-    AssertTrue(skill.IsBackgroundProcess, "background flag");
-    AssertEqual(EffectResolutionMode.Background, skill.Mode, "background mode");
-    return Task.CompletedTask;
-}
-
-Task SkillInfoConvertsToPendingEffectAndBinding()
+Task SkillInfoConvertsToPendingEffect()
 {
     CardEffectDefinition definition = CreateDefinition("effect-bind", "OnPlay");
     SkillInfo skill = new(
@@ -167,18 +134,11 @@ Task SkillInfoConvertsToPendingEffectAndBinding()
         EffectResolutionMode.RuleProcess);
 
     PendingEffect pending = skill.ToPendingEffect();
-    EffectBinding binding = skill.ToBinding(
-        new[] { " OnPlay ", "Draw" },
-        EffectQueryRole.Continuous,
-        new[] { "field" });
 
+    // (④) the ToBinding half (EffectBinding/EffectQueryRole, the invented registry lowering surface) was DELETED;
+    // the surviving ToPendingEffect queue bridge is retained.
     AssertEqual(skill.Request, pending.Request, "pending request");
     AssertEqual(EffectResolutionMode.RuleProcess, pending.Mode, "pending mode");
-    AssertEqual(skill.Request, binding.Request, "binding request");
-    AssertEqual(2, binding.Keywords.Count, "keywords");
-    AssertEqual("OnPlay", binding.Keywords[0], "trimmed keyword");
-    AssertTrue(binding.HasRole(EffectQueryRole.Continuous), "query role");
-    AssertEqual("field", binding.QueryScopes[0], "query scope");
     return Task.CompletedTask;
 }
 
@@ -230,8 +190,6 @@ Task SkillInfoRejectsInvalidMetadata()
     ExpectThrows<ArgumentOutOfRangeException>(() => new SkillInfo(definition, request, (EffectResolutionMode)999));
     ExpectThrows<ArgumentOutOfRangeException>(() => new SkillInfo(definition, request, sequence: -1));
     ExpectThrows<ArgumentException>(() => new SkillInfo(definition, request, metadata: new Dictionary<string, object?> { [" "] = 1 }));
-    ExpectThrows<ArgumentNullException>(() => SkillInfo.FromEffect(null!, playerOne, CreateContext(definition.SourceEntityId)));
-    ExpectThrows<ArgumentNullException>(() => SkillInfo.FromEffect(new TestCardEffect(definition), playerOne, null!));
     return Task.CompletedTask;
 }
 
@@ -525,25 +483,3 @@ static void AssertFalse(bool value, string label)
     }
 }
 
-sealed class TestCardEffect : IHeadlessCardEffect
-{
-    public TestCardEffect(CardEffectDefinition definition)
-    {
-        Definition = definition;
-    }
-
-    public CardEffectDefinition Definition { get; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context)
-    {
-        return CardEffectCanResolveResult.Success();
-    }
-
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        return ValueTask.FromResult(EffectResult.Success());
-    }
-}

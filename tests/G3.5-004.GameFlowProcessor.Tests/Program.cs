@@ -62,10 +62,11 @@ async Task EmptyContextReachesStable()
 
 async Task LoopResolvesQueuedEffects()
 {
+    // (campaign ④) The invented EffectRegistry + IHeadlessCardEffect bound-body path is deleted; the scheduler
+    // now always drains a queued request as an Unbound no-op (Resolved=true, still counted). This still proves
+    // the flow processor's genuine behavior: a queued effect is drained to a stable fixpoint and the queue empties.
     EngineContext context = EngineContext.CreateDefault();
-    var effect = new RecordingFakeEffect("fx-loop", "src-loop");
     EffectRequest request = CreateRequest("fx-loop", "src-loop");
-    context.EffectRegistry.Register(new EffectBinding(request, effect: effect));
     context.EffectScheduler.Enqueue(request, EffectResolutionMode.MainStack);
 
     var processor = new GameFlowProcessor();
@@ -74,16 +75,15 @@ async Task LoopResolvesQueuedEffects()
     AssertTrue(result.IsStable, "stable");
     AssertTrue(result.ProgressedAny, "progressed");
     AssertEqual(1, result.ResolvedEffectCount, "resolved count");
-    AssertEqual(1, effect.ResolveCalls, "effect invoked");
     AssertEqual(0, context.EffectScheduler.PendingCount, "queue drained");
 }
 
 async Task LoopPausesForPendingChoice()
 {
+    // (campaign ④) A pending choice must pause the loop BEFORE the queued effect is drained — unchanged genuine
+    // behavior; the bound-body fake is gone, but the queued request still stays pending while a choice is open.
     EngineContext context = EngineContext.CreateDefault();
-    var effect = new RecordingFakeEffect("fx-paused", "src-paused");
     EffectRequest request = CreateRequest("fx-paused", "src-paused");
-    context.EffectRegistry.Register(new EffectBinding(request, effect: effect));
     context.EffectScheduler.Enqueue(request, EffectResolutionMode.MainStack);
 
     context.ChoiceController.RequestChoice(CardRequest(new HeadlessPlayerId(1)));
@@ -93,7 +93,6 @@ async Task LoopPausesForPendingChoice()
 
     AssertTrue(result.PausedForChoice, "paused for choice");
     AssertEqual(0, result.ResolvedEffectCount, "nothing resolved while paused");
-    AssertEqual(0, effect.ResolveCalls, "effect not invoked while paused");
     AssertEqual(1, context.EffectScheduler.PendingCount, "effect stays pending");
 }
 
@@ -194,34 +193,4 @@ static string FindRepositoryRoot()
     }
 
     throw new InvalidOperationException("Repository root with 'src' and 'docs' was not found.");
-}
-
-internal sealed class RecordingFakeEffect : IHeadlessCardEffect
-{
-    public RecordingFakeEffect(string effectId, string sourceId)
-    {
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId(effectId),
-            new HeadlessEntityId(sourceId),
-            name: effectId,
-            timing: "Main");
-    }
-
-    public CardEffectDefinition Definition { get; }
-
-    public int ResolveCalls { get; private set; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context)
-    {
-        return CardEffectCanResolveResult.Success();
-    }
-
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        ResolveCalls++;
-        return ValueTask.FromResult(EffectResult.Success("fake resolved"));
-    }
 }

@@ -5,8 +5,9 @@
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 
+using System.Collections;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Runtime;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class TfxOptionIgnoreColor : CEntity_Effect
 {
@@ -15,16 +16,17 @@ public sealed class TfxOptionIgnoreColor : CEntity_Effect
         var effects = new List<ICardEffect>();
         if (timing == EffectTiming.None)
         {
-            // unconditional self ignore-color (gate null).
-            // (P6 compile fix, semantics preserved) The factory UseRequirements was re-ported to the AS-IS 1:1
-            // shape (required cardCondition; CanUse gated on a MATCHING OWNER FIELD PERMANENT, and it returns the
-            // new-model IgnoreColorConditionClass, which BuildContinuousRequests does not lower — stage-B scan
-            // pending). This fixture's tested semantics (tests/RD2-OptionColor: an option in hand with NO field
-            // permanent is playable via its OWN ignore-color) ride the legacy continuous flag that
-            // OptionColorRequirement.Matches path (1b) reads, so construct the exact effect the old
-            // UseRequirements(card) with all-null optionals returned.
-            effects.Add(new ContinuousSelfRestrictionEffect(
-                card, DigivolveAction.IgnoreColorRequirementKey, isInheritedEffect: false, condition: null));
+            // (④) unconditional self ignore-color. The old-model ContinuousSelfRestrictionEffect (which wrote
+            // DigivolveAction.IgnoreColorRequirementKey, read by the retired OptionColorRequirement path 1b) is
+            // deleted. Emit the AS-IS new-model IgnoreColorConditionClass instead (IIgnoreColorConditionEffect),
+            // which the LIVE path 1c (CardSource.IgnoreColorConditionActive — the AS-IS three-region ignore scan,
+            // region 3 = the card itself) sees even for a hand card. cardCondition = this card; CanUse always true
+            // (unconditional), preserving tests/RD2-OptionColor (an option in hand with NO field permanent is
+            // playable via its OWN ignore-color).
+            var ignore = new IgnoreColorConditionClass();
+            ignore.SetUpICardEffect("Ignore color requirements", _ => true, card);
+            ignore.SetUpIgnoreColorConditionClass(cardCondition: cs => cs == card);
+            effects.Add(ignore);
         }
 
         return effects;

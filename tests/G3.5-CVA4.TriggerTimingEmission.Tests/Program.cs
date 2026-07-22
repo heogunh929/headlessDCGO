@@ -98,7 +98,7 @@ async Task SinkWithoutQueueIsSafe()
 {
     EngineContext context = await SetupCardOnField();
     // No GameEventQueue passed — emission must be a no-op, not a crash.
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null);
     sink.Apply(new EffectMutation(MatchStateMutationSink.SuspendKind, new HeadlessEntityId("src"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = Card.Value }));
     await sink.FlushAsync();
@@ -127,7 +127,7 @@ async Task BattleEmitsOnEndBattle()
 // --- Helpers -------------------------------------------------------------
 
 MatchStateMutationSink Sink(EngineContext context) =>
-    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry, context.GameEventQueue);
+    new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.GameEventQueue);
 
 GameEvent Moved(ChoiceZone from, ChoiceZone to) =>
     new(1, GameEventType.CardMoved, $"{from}->{to}", new Dictionary<string, object?>(StringComparer.Ordinal))

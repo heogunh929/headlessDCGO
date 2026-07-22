@@ -52,7 +52,7 @@ public sealed class TfxPlayCard : CEntity_Effect
                     // (MatchStateMutationSink.ApplyPlayCard). Cost-free play of the pre-selected top-library card.
                     var sink = new MatchStateMutationSink(
                         context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-                        context.EffectRegistry, context.GameEventQueue, context: context);
+                        context.GameEventQueue, context: context);
                     sink.Apply(new EffectMutation(
                         MatchStateMutationSink.PlayCardKind,
                         card.InstanceId,

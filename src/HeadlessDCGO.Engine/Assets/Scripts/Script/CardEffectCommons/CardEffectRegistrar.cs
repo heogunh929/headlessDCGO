@@ -126,57 +126,13 @@ public static class CardEffectRegistrar
         return 0;
     }
 
-    /// <summary>(faceup security) Build — but do NOT register — a card instance's CONTINUOUS (EffectTiming.None,
-    /// non-activated) effect requests, so a face-up security card can be scanned as a live continuous-effect
-    /// source WITHOUT the lifecycle of a registry binding (AS-IS re-scans <c>player.SecurityCards where
-    /// !IsFlipped</c> live in every getter; there is no registration). Only the None timing is built — a security
-    /// card's triggered/activated timings must NOT fire (AS-IS trigger collection scans the field only). Only
-    /// bindings carrying the Continuous role for <paramref name="scope"/> are returned (matching how registered
-    /// continuous effects are queried). Returns empty for an un-ported card.</summary>
-    public static IReadOnlyList<EffectRequest> BuildContinuousRequests(
-        EngineContext context, HeadlessEntityId instanceId, HeadlessPlayerId controller, string scope)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
-        if (instanceId.IsEmpty
-            || !context.CardInstanceRepository.TryGetInstance(instanceId, out CardInstanceRecord? instance)
-            || instance is null
-            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
-            || def is null
-            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect)
-            || effect is null)
-        {
-            return Array.Empty<EffectRequest>();
-        }
+    // (④) BuildContinuousRequests DELETED — it lowered a face-up-security card's OLD-model continuous effects to
+    // EffectBinding via the deleted LegacyBindingBridge. Its only producers were OLD-model ToBinding carriers (all
+    // deleted); real cards are new-model kind-classes with no ToBinding, so it produced nothing for them. Both
+    // callers (ContinuousScopeEvaluation.CollectFaceUpSecuritySourced + OptionColorRequirement path 1b) are
+    // retired — the live paths are the AS-IS interface scans (NewModelContinuousScan / IgnoreColorConditionActive).
 
-        var card = new CardSource(context, instanceId, controller, instance.OwnerId);
-        var requests = new List<EffectRequest>();
-        int index = 0;
-        foreach (ICardEffect cardEffect in effect.CardEffects(EffectTiming.None, card))
-        {
-            // Activated effects never lower to a continuous request — legacy marker (IActivatedCardEffect)
-            // or new-model AS-IS contract (ActivateICardEffect) alike.
-            if (cardEffect is IActivatedCardEffect or ActivateICardEffect)
-            {
-                continue;
-            }
-
-            // (P6 stage A) LEGACY-BRIDGE lowering only: an old-model effect still lowers to its EffectBinding
-            // (byte-identical to the pre-flip path); a NEW-model kind-class effect has no ToBinding — it is
-            // served by the live is-interface scan (stage B), so it contributes no request here.
-            if (LegacyBindingBridge.TryToBinding(cardEffect, $"faceupsec:{instanceId.Value}:{def.CardNumber}:None:{index++}", out EffectBinding? binding)
-                && binding is not null
-                && binding.HasRole(EffectQueryRole.Continuous)
-                && binding.QueryScopes.Contains(scope, StringComparer.Ordinal))
-            {
-                requests.Add(binding.Request);
-            }
-        }
-
-        return requests;
-    }
-
-    public static IReadOnlyList<EffectBinding> RegisterOnEnterPlay(
+    public static IReadOnlyList<HeadlessEntityId> RegisterOnEnterPlay(
         EngineContext context,
         CEntity_Effect effect,
         string cardNumber,
@@ -208,7 +164,6 @@ public static class CardEffectRegistrar
         // factories call SpecialPlayRecipeRegistry.Register — a DIFFERENT, live registry), so the enumeration itself
         // must still run even though no binding is produced. Nulls / activated effects need no special handling now
         // that nothing is lowered.
-        var registered = new List<EffectBinding>();
         _ = cardNumber;
         foreach (EffectTiming timing in AllTimings)
         {
@@ -218,7 +173,8 @@ public static class CardEffectRegistrar
             }
         }
 
-        return registered;
+        // (④) Always empty — the invented EffectBinding is deleted; nothing is registered (see above).
+        return Array.Empty<HeadlessEntityId>();
     }
 }
 

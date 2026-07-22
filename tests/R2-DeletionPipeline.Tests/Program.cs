@@ -231,7 +231,7 @@ async Task RecordParametersSnapshot()
 
     var sink = new MatchStateMutationSink(
         ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
-        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        ctx.GameEventQueue, context: ctx);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("effect:deleter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = top.Value }));
     await sink.FlushAsync();
@@ -286,7 +286,7 @@ async Task<(DcgoMatch Match, HeadlessEntityId A, HeadlessEntityId B)> SetupTwoCa
     {
         var sink = new MatchStateMutationSink(
             ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
-            ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+            ctx.GameEventQueue, context: ctx);
         foreach (HeadlessEntityId target in new[] { a, b })
         {
             sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("effect:deleter"),
@@ -333,7 +333,7 @@ async Task<(DcgoMatch Match, HeadlessEntityId A, HeadlessEntityId Source)> Setup
     {
         var sink = new MatchStateMutationSink(
             ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
-            ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+            ctx.GameEventQueue, context: ctx);
         sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("effect:deleter"),
             new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = a.Value }));
         await sink.FlushAsync();

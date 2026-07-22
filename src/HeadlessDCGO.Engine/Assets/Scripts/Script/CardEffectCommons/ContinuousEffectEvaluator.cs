@@ -147,23 +147,7 @@ public static class ContinuousEffectEvaluator
             BuildValues(request.QueryContext, continuousEffects, modifiers, restrictions, replacements));
     }
 
-    public static ContinuousEvaluationResult Evaluate(
-        IEffectQueryService effectQueryService,
-        EffectQueryContext queryContext,
-        CardRecord? card = null,
-        CardInstanceRecord? instance = null,
-        CardInstanceState? state = null)
-    {
-        ArgumentNullException.ThrowIfNull(effectQueryService);
-        ArgumentNullException.ThrowIfNull(queryContext);
-
-        IReadOnlyList<EffectRequest> continuousEffects = effectQueryService
-            .GetContinuousEffects(queryContext)
-            .OrderBy(effect => effect.EffectId.Value, StringComparer.Ordinal)
-            .ToArray();
-
-        return Evaluate(new ContinuousEvaluationRequest(queryContext, continuousEffects, card, instance, state));
-    }
+    // (④) Evaluate(IEffectQueryService, ...) DELETED — queried the deleted EffectRegistry surface (producer 0).
 
     public static ContinuousEvaluationResult Recalculate(ContinuousEvaluationRequest request)
     {
@@ -223,13 +207,5 @@ public static class ContinuousEffectEvaluatorFactory
             new ContinuousEvaluationRequest(queryContext, continuousEffects, card, instance, state));
     }
 
-    public static ContinuousEvaluationResult QueryAndEvaluate(
-        IEffectQueryService effectQueryService,
-        EffectQueryContext queryContext,
-        CardRecord? card = null,
-        CardInstanceRecord? instance = null,
-        CardInstanceState? state = null)
-    {
-        return ContinuousEffectEvaluator.Evaluate(effectQueryService, queryContext, card, instance, state);
-    }
+    // (④) QueryAndEvaluate(IEffectQueryService, ...) DELETED — queried the deleted EffectRegistry surface.
 }

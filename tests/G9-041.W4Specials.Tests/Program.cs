@@ -83,7 +83,7 @@ async Task CanNotBeAttacked()
 // --- Helpers -------------------------------------------------------------
 
 MatchStateMutationSink Sink(EngineContext context) => new(
-    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
+    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.GameEventQueue);
 
 IReadOnlyList<HeadlessEntityId> Zone(EngineContext context, HeadlessPlayerId owner, ChoiceZone zone) =>
     context.ZoneMover is IZoneStateReader r ? r.GetCards(owner, zone) : Array.Empty<HeadlessEntityId>();

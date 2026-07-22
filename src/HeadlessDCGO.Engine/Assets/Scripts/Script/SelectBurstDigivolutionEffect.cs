@@ -309,7 +309,7 @@ public class SelectBurstDigivolutionEffect
                         // carrier (the established HandBounceClaass mirror). One flush = one AS-IS bounce call.
                         var sink = new MatchStateMutationSink(
                             context.CardInstanceRepository, log: null, context.ZoneMover,
-                            memory: context.MemoryController, context.EffectRegistry, context.GameEventQueue,
+                            memory: context.MemoryController, context.GameEventQueue,
                             context: context);
 
                         sink.Apply(new EffectMutation(

@@ -125,7 +125,7 @@ public static partial class CardEffectCommons
                 targetPermanent.InstanceId,
                 targets.Where(cs => cs != null).Select(cs => cs.InstanceId).ToList(),
                 gameEventQueue: context.GameEventQueue,
-                effectRegistry: context.EffectRegistry, context: context,
+                context: context,
                 causingEffectSourceId: sourceCard.InstanceId).ConfigureAwait(false);
 
             if (trashed > 0)
@@ -211,7 +211,7 @@ public static partial class CardEffectCommons
             context.CardInstanceRepository, context.ZoneMover,
             targetPermanent.InstanceId, trashTargets,
             gameEventQueue: context.GameEventQueue,
-            effectRegistry: context.EffectRegistry, context: context,
+            context: context,
             causingEffectSourceId: sourceCard.InstanceId).ConfigureAwait(false);
     }
 

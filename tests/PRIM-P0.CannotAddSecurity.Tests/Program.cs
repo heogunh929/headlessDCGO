@@ -84,7 +84,7 @@ async Task CausingPredicateHonored()
 async Task AddToSecurityFrom(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId card, HeadlessEntityId cause)
 {
     using var _ambient = AmbientMatchContext.Enter(context);
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue, context: context);
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController, context.GameEventQueue, context: context);
     sink.Apply(new EffectMutation(MatchStateMutationSink.AddToSecurityKind, cause,
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.Value }));
     await sink.FlushAsync();
@@ -116,7 +116,7 @@ async Task<HeadlessEntityId> PlaceInTrash(EngineContext context, HeadlessPlayerI
 async Task AddToSecurity(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId card)
 {
     using var _ambient = AmbientMatchContext.Enter(context);
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue, context: context);
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController, context.GameEventQueue, context: context);
     sink.Apply(new EffectMutation(MatchStateMutationSink.AddToSecurityKind, new HeadlessEntityId($"src:{owner.Value}"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.Value }));
     await sink.FlushAsync();

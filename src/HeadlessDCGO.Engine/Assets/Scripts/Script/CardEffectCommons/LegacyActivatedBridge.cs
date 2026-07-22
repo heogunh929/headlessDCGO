@@ -25,41 +25,13 @@
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
-using System.Collections.Concurrent;
-using System.Reflection;
-using HeadlessDCGO.Engine.Headless.Effects;
-
 /// <summary>LEGACY-BRIDGE base for the OLD-model activated primitives (pre-rebuild
 /// <c>IActivatedCardEffect</c> marker interface, now a class so old primitives inherit the new abstract
 /// <see cref="ICardEffect"/> and stay addable to the new card surface). NOT part of the AS-IS model — the
-/// AS-IS activated contract is <see cref="ActivateICardEffect"/>, which no legacy type implements.</summary>
+/// AS-IS activated contract is <see cref="ActivateICardEffect"/>, which no legacy type implements.
+/// (④) IActivatedCardEffect retires later with R6-Da′; the sibling LegacyBindingBridge class is DELETED —
+/// it reflectively lowered OLD-model effects to the invented EffectBinding (registry producer 0; all
+/// ToBinding-bearing carriers deleted, so it always returned false).</summary>
 public abstract class IActivatedCardEffect : ICardEffect
 {
-}
-
-/// <summary>LEGACY-BRIDGE lowering of an OLD-model effect to an <see cref="EffectBinding"/>. The old
-/// <c>ICardEffect</c> interface carried <c>ToBinding(string)</c> as a contract member; the new abstract
-/// <see cref="ICardEffect"/> (AS-IS 1:1) has no such member, but every old-model class still declares the
-/// method. This single reflective dispatch preserves the old registration path byte-for-byte for the
-/// un-re-ported corpus without touching ~90 legacy class declarations; a NEW-model effect (no ToBinding
-/// method) returns false — the flip's live-enumeration path serves it instead.</summary>
-public static class LegacyBindingBridge
-{
-    private static readonly ConcurrentDictionary<Type, MethodInfo?> ToBindingByType = new();
-
-    public static bool TryToBinding(ICardEffect cardEffect, string effectId, out EffectBinding? binding)
-    {
-        ArgumentNullException.ThrowIfNull(cardEffect);
-        binding = null;
-        MethodInfo? method = ToBindingByType.GetOrAdd(
-            cardEffect.GetType(),
-            static type => type.GetMethod("ToBinding", BindingFlags.Public | BindingFlags.Instance, new[] { typeof(string) }));
-        if (method is null || method.ReturnType != typeof(EffectBinding))
-        {
-            return false;
-        }
-
-        binding = (EffectBinding)method.Invoke(cardEffect, new object[] { effectId })!;
-        return binding is not null;
-    }
 }

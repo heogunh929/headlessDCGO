@@ -347,7 +347,7 @@ EngineContext Context(HeadlessPlayerId turnPlayer)
     return context;
 }
 
-IReadOnlyList<EffectBinding> Register(EngineContext context, CEntity_Effect effect, string number, HeadlessEntityId source) =>
+IReadOnlyList<HeadlessEntityId> Register(EngineContext context, CEntity_Effect effect, string number, HeadlessEntityId source) =>
     CardEffectRegistrar.RegisterOnEnterPlay(context, effect, number, new CardSource(context, source, P1));
 
 async Task PlaceDigimon(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId id, int level, int sources, int dp)

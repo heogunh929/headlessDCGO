@@ -81,22 +81,21 @@ async Task SecurityBattleReplacementSaves()
 
 // --- Continuous prevent-deletion replacement registration ----------------
 
+// (④ harness rewire) The invented EffectRegistry continuous "preventDeletion" binding is deleted; battle
+// deletion now reads the AS-IS-literal BattleDeletionGate → NewModelContinuousScan.HasCanNotBeDestroyed scan
+// (ICanNotBeDestroyedEffect over field permanents). Grant the immunity the way a real card does: attach a live
+// CanNotBeDestroyedClass kind-class (CardEffectFactory.CanNotBeDestroyedStaticEffect, scoped to this card) to
+// the card's live effect list — the same seam the battle resolvers consult.
 void RegisterPreventDeletion(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner)
 {
-    var effectId = new HeadlessEntityId($"prevent-del:{cardId.Value}");
-    var effectContext = new EffectContext(
-        owner,
-        owner,
-        new HeadlessEntityId($"src:{cardId.Value}"),
-        triggerEntityId: null,
-        targetEntityIds: new[] { cardId },
-        values: new Dictionary<string, object?>(StringComparer.Ordinal) { ["preventDeletion"] = true });
-
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(effectId, owner, "Continuous", effectContext),
-        keywords: null,
-        EffectQueryRole.Continuous,
-        new[] { ContinuousRestrictionGate.Scope }));
+    var holder = new CardSource(context, cardId, owner);
+    using (AmbientMatchContext.Enter(context))
+    {
+        holder.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(
+            CardEffectFactory.CanNotBeDestroyedStaticEffect(
+                permanentCondition: p => p is not null && p.InstanceId == cardId,
+                isInheritedEffect: false, card: holder, condition: () => true, effectName: "cannot-be-deleted"));
+    }
 }
 
 // --- Harness (pump, G3.5-005 F68 idiom) ----------------------------------
@@ -282,4 +281,13 @@ void AssertInZone(DcgoMatch match, HeadlessPlayerId player, ChoiceZone zone, Hea
 static void AssertFalse(bool value, string label)
 {
     if (value) throw new InvalidOperationException($"{label}: expected false.");
+}
+
+// (④) attaches a built kind-class to a card's live effect list (the seam a ported card uses); no timing key
+// so it surfaces at EffectTiming.None (the continuous-scan read point).
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
 }

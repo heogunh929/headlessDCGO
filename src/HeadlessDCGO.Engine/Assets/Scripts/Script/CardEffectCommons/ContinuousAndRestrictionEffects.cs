@@ -28,83 +28,7 @@ using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectF
 /// and OptionColorRequirement (the AS-IS UseRequirements / IgnoreColorConditionClass has no lowered kind-class yet —
 /// stage-B continuous scan pending). Retire alongside that stage-B decision. (Cf. SelfKeywordByNameEffect /
 /// RD-SELFKW-BYNAME.)</summary>
-public sealed class ContinuousSelfRestrictionEffect : ICardEffect
-{
-    public ContinuousSelfRestrictionEffect(CardSource card, string restrictionKey, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null, Func<CardSource, bool>? counterpartPredicate = null)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(restrictionKey);
-        Card = card;
-        RestrictionKey = restrictionKey;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-        CausingEffectPredicate = causingEffectPredicate;
-        CounterpartPredicate = counterpartPredicate;
-    }
-
-    public CardSource Card { get; }
-
-    public string RestrictionKey { get; }
-
-    public bool IsInheritedEffect { get; }
-
-    public Func<bool>? Condition { get; }
-
-    /// <summary>(FR2/M-2) AS-IS cardEffectCondition — the restriction only blocks effects whose causing effect's
-    /// SOURCE card matches this. Null = blocks any effect.</summary>
-    public Func<CardSource, bool>? CausingEffectPredicate { get; }
-
-    /// <summary>(W6-G) AS-IS defenderCondition/attackerCondition — the restriction only applies when the COUNTERPART
-    /// (blocker for BeBlocked, attacker for BeAttacked) matches this predicate; embedded into the canonical joint
-    /// predicate (<c>JointRestrictionEffect.PredicateKey</c>) and evaluated by <c>RestrictionScan</c>. Null = any counterpart.</summary>
-    public Func<CardSource, bool>? CounterpartPredicate { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [RestrictionHelpers.RestrictionTargetEntityIdKey] = Card.InstanceId.Value,
-            [RestrictionHelpers.RestrictionSourceEntityIdKey] = Card.InstanceId.Value,
-            [RestrictionKey] = true,
-        };
-        if (CausingEffectPredicate is not null)
-        {
-            values[RestrictionHelpers.CausingEffectPredicateKey] = CausingEffectPredicate;
-        }
-
-        // (joint-migration) canonical joint predicate synthesised from this SELF restriction:
-        // subject = this card; the 2nd arg (counterpart participant OR causing effect source) must satisfy any
-        // provided predicate (cp==null + a predicate ⇒ not restricted, mirroring IsRestrictedFromCause).
-        HeadlessEntityId selfId = Card.InstanceId;
-        Func<CardSource, bool>? causing = CausingEffectPredicate;
-        Func<CardSource, bool>? counterpart = CounterpartPredicate;
-        values[JointRestrictionEffect.PredicateKey(RestrictionKey)] = (Func<CardSource, CardSource?, bool>)((subject, cp) =>
-            subject.InstanceId == selfId
-            && (causing is null || (cp is not null && causing(cp)))
-            && (counterpart is null || (cp is not null && counterpart(cp))));
-
-        if (IsInheritedEffect)
-        {
-            values[ContinuousScopeEvaluation.InheritedEffectKey] = true;
-        }
-
-        if (Condition is not null)
-        {
-            values[ContinuousScopeEvaluation.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
-        // Role Continuous (not Restriction): ContinuousRestrictionGate.Evaluate reads restrictions off the
-        // CONTINUOUS-role effects (ContinuousScopeEvaluation.EvaluateForCard -> GetContinuousEffects ->
-        // RestrictionHelpers.ReadRestrictions on their values), the same seam ContinuousSelfModifierEffect
-        // rides. This also gets condition / inherited honouring for free.
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
-    }
-}
+// (④) class ContinuousSelfRestrictionEffect DELETED — invented old-model EffectBinding carrier (registry producer 0; no real-card producer). Its live path is the AS-IS new-model kind-class / interface scan.
 
 
 /// <summary>(PRIM-W1) A continuous PLAYER-SCOPE restriction — the restriction analogue of the player-scope
@@ -121,120 +45,7 @@ public sealed class ContinuousSelfRestrictionEffect : ICardEffect
 /// <see cref="JointRestrictionEffect"/> does not carry that immunity term, so retargeting P0R to it would lose the
 /// exemption behaviour — no faithful flip exists until a printed-player-scope-restriction kind-class is ported.
 /// Retire alongside that corpus decision. (Cf. SelfKeywordByNameEffect / RD-SELFKW-BYNAME.)</summary>
-public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
-{
-    private readonly HeadlessPlayerId _scopePlayerId;
-
-    private readonly bool _scopeAnyPlayer;
-
-    public ContinuousPlayerScopeRestrictionEffect(CardSource card, HeadlessPlayerId scopePlayerId, string restrictionKey, string? scopeCardType, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? scopePredicate = null, Func<CardSource, bool>? causingEffectPredicate = null, bool scopeAnyPlayer = false)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(restrictionKey);
-        Card = card;
-        // (R3-W3c-1) carry the printing card as the base EffectSourceCard so that, when this restriction effect is
-        // passed AS-IS as the causing `cardEffect` to a subject's CanNotBeAffected scan (the :283 immunity exemption,
-        // AS-IS Permanent.cs:2267 `cardEffect1`), the immunity's SkillCondition can read the causing effect's source.
-        SetEffectSourceCard(card);
-        _scopePlayerId = scopePlayerId;
-        RestrictionKey = restrictionKey;
-        ScopeCardType = scopeCardType;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-        ScopePredicate = scopePredicate;
-        CausingEffectPredicate = causingEffectPredicate;
-        _scopeAnyPlayer = scopeAnyPlayer;
-    }
-
-    public CardSource Card { get; }
-
-    public string RestrictionKey { get; }
-
-    public string? ScopeCardType { get; }
-
-    public bool IsInheritedEffect { get; }
-
-    public Func<bool>? Condition { get; }
-
-    public Func<CardSource, bool>? ScopePredicate { get; }
-
-    public Func<CardSource, bool>? CausingEffectPredicate { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
-            [PlayerScopeContinuousHelpers.ScopePlayerIdKey] = _scopePlayerId.Value,
-            [RestrictionKey] = true,
-        };
-        if (_scopeAnyPlayer)
-        {
-            // (#5) apply to ANY player's matching cards — the ScopePredicate decides (e.g. "the OPPONENT's
-            // Digimon", via p.OwnerId), mirroring the AS-IS playerCondition over the payer.
-            values[PlayerScopeContinuousHelpers.ScopeAnyPlayerKey] = true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(ScopeCardType))
-        {
-            values[PlayerScopeContinuousHelpers.ScopeCardTypeKey] = ScopeCardType;
-        }
-
-        if (ScopePredicate is not null)
-        {
-            values[PlayerScopeContinuousHelpers.ScopePredicateKey] = ScopePredicate;
-        }
-
-        if (CausingEffectPredicate is not null)
-        {
-            values[RestrictionHelpers.CausingEffectPredicateKey] = CausingEffectPredicate;
-        }
-
-        // (joint-migration) additively emit the canonical joint predicate synthesised from this PLAYER-SCOPE
-        // restriction: subject membership = (anyPlayer OR owner==scopePlayer) ∧ cardType ∧ scopePredicate; the 2nd
-        // arg (causing effect source) must satisfy any causing predicate (mirrors PlayerScopeContinuousHelpers +
-        // IsRestrictedFromCause).
-        HeadlessPlayerId scopePlayer = _scopePlayerId;
-        bool anyPlayer = _scopeAnyPlayer;
-        string? scopeType = ScopeCardType;
-        Func<CardSource, bool>? scopePred = ScopePredicate;
-        Func<CardSource, bool>? causingP = CausingEffectPredicate;
-        // (P0-restr) AS-IS checks `!TopCard.CanNotBeAffected(cardEffect)` on the SUBJECT for a PRINTED player-scope
-        // cannot-attack / cannot-block (Permanent.cs:2267/2290 attack, :2194 block player-scan) — a subject immune to
-        // the printing card's effects is exempt. Only these kinds are immunity-checked in AS-IS (CanMove/CanSuspend/
-        // CanUnsuspend do NOT check it), so the term is scoped to the confirmed set to avoid inventing immunity.
-        // (R3-W3c-1) The immunity term is rehomed from the registry gate (ContinuousImmunityGate.BlocksOpponentEffect,
-        // which read the joint predicate registered by the OLD-model CanNotAffectedStaticEffect) to the AS-IS-literal
-        // live scan `!subject.CanNotBeAffected(this)` — AS-IS passes the restriction effect itself as `cardEffect1`
-        // (Permanent.cs:2267/2290), and this effect (`ContinuousPlayerScopeRestrictionEffect`) IS that ICardEffect.
-        // This is part of the RD-W3A-01 consumer-side rehousing that unblocks the CanNotAffectedStaticEffect flip.
-        ICardEffect self = this;
-        bool immunityChecked = RestrictionKey == RestrictionHelpers.CannotAttackKey || RestrictionKey == RestrictionHelpers.CannotBlockKey;
-        values[JointRestrictionEffect.PredicateKey(RestrictionKey)] = (Func<CardSource, CardSource?, bool>)((subject, cp) =>
-            (anyPlayer || subject.Owner == scopePlayer)
-            && (string.IsNullOrWhiteSpace(scopeType) || (subject.IsCardType(scopeType)))
-            && (scopePred is null || scopePred(subject))
-            && (causingP is null || (cp is not null && causingP(cp)))
-            && (!immunityChecked || !subject.CanNotBeAffected(self)));
-
-        if (IsInheritedEffect)
-        {
-            values[ContinuousScopeEvaluation.InheritedEffectKey] = true;
-        }
-
-        if (Condition is not null)
-        {
-            values[ContinuousScopeEvaluation.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
-    }
-}
+// (④) class ContinuousPlayerScopeRestrictionEffect DELETED — invented old-model EffectBinding carrier (registry producer 0; no real-card producer). Its live path is the AS-IS new-model kind-class / interface scan.
 
 
 // (이연④-e) The old-model `DisplayDetailEffect` (inert tooltip-text mirror of AS-IS `AddDetailClass`) was DELETED
@@ -274,70 +85,7 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
 /// AddSkillClass live-set semantics). NO invention-free kind-class flip exists for a player-scope keyword grant
 /// (this IS the AddSkillClass port), exactly the SelfKeywordByNameEffect / RD-SELFKW-BYNAME situation. Retire
 /// alongside a MindLink/AddSkillClass keyword-corpus decision.</summary>
-public sealed class ContinuousPlayerScopeKeywordEffect : ICardEffect
-{
-    private readonly HeadlessPlayerId _scopePlayerId;
-
-    public ContinuousPlayerScopeKeywordEffect(CardSource card, HeadlessPlayerId scopePlayerId, string keywordName, string? scopeCardType, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? scopePredicate = null)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keywordName);
-        Card = card;
-        _scopePlayerId = scopePlayerId;
-        KeywordName = keywordName;
-        ScopeCardType = scopeCardType;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-        ScopePredicate = scopePredicate;
-    }
-
-    public CardSource Card { get; }
-
-    public string KeywordName { get; }
-
-    public string? ScopeCardType { get; }
-
-    public bool IsInheritedEffect { get; }
-
-    public Func<bool>? Condition { get; }
-
-    public Func<CardSource, bool>? ScopePredicate { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
-            [PlayerScopeContinuousHelpers.ScopePlayerIdKey] = _scopePlayerId.Value,
-        };
-        if (!string.IsNullOrWhiteSpace(ScopeCardType))
-        {
-            values[PlayerScopeContinuousHelpers.ScopeCardTypeKey] = ScopeCardType;
-        }
-
-        if (ScopePredicate is not null)
-        {
-            values[PlayerScopeContinuousHelpers.ScopePredicateKey] = ScopePredicate;
-        }
-
-        if (IsInheritedEffect)
-        {
-            values[ContinuousScopeEvaluation.InheritedEffectKey] = true;
-        }
-
-        if (Condition is not null)
-        {
-            values[ContinuousScopeEvaluation.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: new[] { KeywordName }, EffectQueryRole.Continuous, queryScopes: null, effect: null, duration: null);
-    }
-}
+// (④) class ContinuousPlayerScopeKeywordEffect DELETED — invented old-model EffectBinding carrier (registry producer 0; no real-card producer). Its live path is the AS-IS new-model kind-class / interface scan.
 
 
 /// <summary>(PRIM-P0 AddSkill) The headless mirror of AS-IS AddSkillClass whose getEffects splices a TRIGGERED
@@ -354,57 +102,7 @@ public sealed class ContinuousPlayerScopeKeywordEffect : ICardEffect
 /// seam. NO invention-free flip exists (this IS the AddSkillClass triggered-grant port; it is also the blocked
 /// primitive RD-P6C3-C1 — a NEW-model nested effect throws NotSupportedException). Retire alongside the AddSkillClass
 /// corpus decision. (Cf. SelfKeywordByNameEffect / RD-SELFKW-BYNAME.)</summary>
-public sealed class PlayerScopeTriggerGrantEffect : ICardEffect
-{
-    public PlayerScopeTriggerGrantEffect(CardSource card, HeadlessPlayerId scopePlayer, ICardEffect nestedEffect, bool scopeAnyPlayer = false)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(nestedEffect);
-        Card = card;
-        ScopePlayer = scopePlayer;
-        NestedEffect = nestedEffect;
-        ScopeAnyPlayer = scopeAnyPlayer;
-    }
-
-    public CardSource Card { get; }
-
-    public HeadlessPlayerId ScopePlayer { get; }
-
-    public ICardEffect NestedEffect { get; }
-
-    public bool ScopeAnyPlayer { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        // (P6 cluster3) old-model lowering via LegacyBindingBridge (ToBinding left the ICardEffect contract);
-        // a NEW-model nested effect on this grant path has no grant store yet — STOP, design item RD-P6C3-C1.
-        if (!LegacyBindingBridge.TryToBinding(NestedEffect, effectId, out EffectBinding? inner) || inner is null)
-        {
-            throw new NotSupportedException(
-                $"PlayerScopeTriggerGrantEffect: nested '{NestedEffect.GetType().Name}' is a NEW-model effect — no legacy ToBinding lowering (design item RD-P6C3-C1).");
-        }
-
-        Headless.Effects.EffectContext ctx = inner.Request.Context;
-        var values = new Dictionary<string, object?>(ctx.Values, StringComparer.Ordinal)
-        {
-            [AutoProcessingTriggerCollector.TriggerGrantKey] = true,
-            [Headless.Effects.PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
-        };
-        if (ScopeAnyPlayer)
-        {
-            values[Headless.Effects.PlayerScopeContinuousHelpers.ScopeAnyPlayerKey] = true;
-        }
-        else
-        {
-            values[Headless.Effects.PlayerScopeContinuousHelpers.ScopePlayerIdKey] = ScopePlayer.Value;
-        }
-
-        var newCtx = new Headless.Effects.EffectContext(ctx.SourcePlayerId, ctx.OwnerPlayerId, ctx.SourceEntityId, ctx.TriggerEntityId, ctx.TargetEntityIds, values);
-        return new EffectBinding(
-            new EffectRequest(inner.Request.EffectId, inner.Request.ControllerId, inner.Request.Timing, newCtx),
-            inner.Keywords, inner.QueryRoles, inner.QueryScopes, inner.Effect, inner.Duration);
-    }
-}
+// (④) class PlayerScopeTriggerGrantEffect DELETED — invented old-model EffectBinding carrier (registry producer 0; no real-card producer). Its live path is the AS-IS new-model kind-class / interface scan.
 
 
 /// <summary>
@@ -421,88 +119,7 @@ public sealed class PlayerScopeTriggerGrantEffect : ICardEffect
 /// witness-retarget pass; kept meanwhile so the gate coverage is not lost. (Cf. SelfKeywordByNameEffect /
 /// RD-SELFKW-BYNAME.)
 /// </summary>
-public sealed class PlayerScopeModifierEffect : ICardEffect
-{
-    public PlayerScopeModifierEffect(CardSource card, string deltaKey, int changeValue, string? scopeCardType, Func<bool>? condition, string? scopeZone = null, Func<CardSource, bool>? scopePredicate = null, bool scopeAnyPlayer = false)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(deltaKey);
-        Card = card;
-        DeltaKey = deltaKey;
-        ChangeValue = changeValue;
-        ScopeCardType = scopeCardType;
-        Condition = condition;
-        ScopeZone = scopeZone;
-        ScopePredicate = scopePredicate;
-        ScopeAnyPlayer = scopeAnyPlayer;
-    }
-
-    public CardSource Card { get; }
-
-    public string DeltaKey { get; }
-
-    public int ChangeValue { get; }
-
-    public string? ScopeCardType { get; }
-
-    public Func<bool>? Condition { get; }
-
-    public string? ScopeZone { get; }
-
-    public Func<CardSource, bool>? ScopePredicate { get; }
-
-    public bool ScopeAnyPlayer { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
-            [PlayerScopeContinuousHelpers.ScopePlayerIdKey] = Card.Owner.Value,
-            [DeltaKey] = ChangeValue,
-        };
-        if (!string.IsNullOrWhiteSpace(ScopeCardType))
-        {
-            values[PlayerScopeContinuousHelpers.ScopeCardTypeKey] = ScopeCardType;
-        }
-
-        if (!string.IsNullOrWhiteSpace(ScopeZone))
-        {
-            values[PlayerScopeContinuousHelpers.ScopeZoneKey] = ScopeZone;
-        }
-
-        if (ScopePredicate is not null)
-        {
-            values[PlayerScopeContinuousHelpers.ScopePredicateKey] = ScopePredicate;
-        }
-
-        if (ScopeAnyPlayer)
-        {
-            values[PlayerScopeContinuousHelpers.ScopeAnyPlayerKey] = true;
-        }
-
-        if (Condition is not null)
-        {
-            values[ContinuousScopeEvaluation.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller,
-            Card.Owner,
-            Card.InstanceId,
-            triggerEntityId: null,
-            targetEntityIds: Array.Empty<HeadlessEntityId>(),
-            values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null,
-            EffectQueryRole.Continuous,
-            new[] { ContinuousModifierGate.Scope },
-            effect: null,
-            duration: null);
-    }
-}
+// (④) class PlayerScopeModifierEffect DELETED — invented old-model EffectBinding carrier (registry producer 0; no real-card producer). Its live path is the AS-IS new-model kind-class / interface scan.
 
 
 // (이연④-b RD-IMM-01 RESOLVED) The old-model `ContinuousImmunityEffect` (ICardEffect-only, invisible to the live
@@ -579,21 +196,7 @@ public sealed class BareCauseEffect : ICardEffect
 /// <summary>(PRIM-W5) A no-op effect returned by the special-play factories. The real work (registering the
 /// card's SpecialPlayRecipe) happens in the factory; this marker just occupies the card's effect list and is
 /// never consumed (role None).</summary>
-public sealed class SpecialPlayRecipeMarkerEffect : ICardEffect
-{
-    public SpecialPlayRecipeMarkerEffect(CardSource card) => Card = card;
-
-    public CardSource Card { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var context = new EffectContext(Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "None", context),
-            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: null, duration: null);
-    }
-}
+// (④) class SpecialPlayRecipeMarkerEffect DELETED — invented old-model EffectBinding carrier (registry producer 0; no real-card producer). Its live path is the AS-IS new-model kind-class / interface scan.
 
 
 // (이연④-c) The old-model `ChangeCardNamesEffect` (ICardEffect-only, invisible to the live `CardSource.CardNames`
@@ -667,44 +270,7 @@ public sealed class CanNotSelectBySkillEffect : ICardEffect, ICanNotSelectBySkil
 /// (subject-scope ∧ counterpart/causing predicate) form, so a non-separable predicate is preserved and a port can
 /// copy the AS-IS predicate verbatim. The 2nd arg is polymorphic per kind (defender / attacker / blocker / causing
 /// source); null when the check has no counterpart.</summary>
-public sealed class JointRestrictionEffect : ICardEffect
-{
-    /// <summary>Binding-values key carrying the joint predicate for restriction <paramref name="kind"/>.</summary>
-    public static string PredicateKey(string kind) => "joint.restrict:" + kind;
-
-    private readonly string _kind;
-    private readonly Func<CardSource, CardSource?, bool> _predicate;
-    private readonly Func<bool>? _condition;
-
-    public JointRestrictionEffect(CardSource card, string kind, Func<CardSource, CardSource?, bool> predicate, Func<bool>? condition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
-        ArgumentNullException.ThrowIfNull(predicate);
-        Card = card;
-        _kind = kind;
-        _predicate = predicate;
-        _condition = condition;
-    }
-
-    public CardSource Card { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey(_kind)] = _predicate };
-        if (_condition is not null)
-        {
-            values[ContinuousScopeEvaluation.ConditionKey] = _condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
-    }
-}
+// (④) class JointRestrictionEffect DELETED — invented old-model EffectBinding carrier (registry producer 0; no real-card producer). Its live path is the AS-IS new-model kind-class / interface scan.
 
 
 // (이연④-c) The old-model `CanNotBeRemovedEffect` (ICardEffect-only, invisible to the live AS-IS
