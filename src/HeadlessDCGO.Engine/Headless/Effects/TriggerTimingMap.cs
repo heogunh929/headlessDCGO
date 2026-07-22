@@ -89,10 +89,31 @@ public static class TriggerTimingMap
         {
             timings.Add(TriggerTimings.OnLeaveField);
             // (design item R2-P2-2) AS-IS WhenRemoveField is a PRE cut-in (stacked BEFORE the move fixes the
-            // list); headless derives it POST-move — latent until a WhenRemoveField registrant is ported.
+            // list, DestroyPermanentsClass.Destroy CardController.cs:3699 — ~150 lines before the trash at :3846/
+            // :3852); headless derives it POST-move here — latent until a WhenRemoveField registrant is ported.
             // AS-IS also stacks the OnRemovedField cut-in inside CardObjectController.RemoveField itself
             // (:512-524), which the no-trigger no-DP trash still routes through — a nuance folded into the
             // same design item.
+            //
+            // A8 구조골 GOAL 3 재판정 (2026-07-22) — STAYS a latent design item (genuine unported dependency, no
+            // witness card):
+            //   * The PRE cut-in TRANSPORT already exists for WINDOW-FORM cut-ins (MatchStateMutationSink.cs:1384-
+            //     1473 stacks WhenPermanentWouldBeDeleted → WhenRemoveField via ForCutIn collect-before-removal),
+            //     but a BOUND (registry) self-scoped WhenRemoveField reactor is routed through THIS post-move
+            //     scheduler-half derivation, NOT that pre-trash window (AD1_025's promotion kept self-scoped
+            //     WhenRemoveField/OnRemovedField per-card on the scheduler half, only OnLeaveFieldAnyone went to the
+            //     EventBroadcast bridge). So the sink PRE window is a structural no-op for a bound reactor today.
+            //   * Pre-removal READ infra partially exists but is NOT wired for this path: Permanent.SnapshotZone
+            //     (Permanent.cs:76-86, the ZoneFrom snapshot) is populated on EXACTLY ONE site — the
+            //     CanTriggerOnPermanentLeave gate (CardEffectCommons.cs:1336-1353); the ~66 other new Permanent(...)
+            //     sites pass snapshotZone=null. RecordParametersJustBeforeRemoveField (CardLeavePlayCleanup.cs:140-
+            //     229) snapshots DP/Level/Cost/Names at the AS-IS moment, reusable by a future registrant.
+            //   * NO ported card registers a bound self-scoped WhenRemoveField reactor that reads pre-trash field
+            //     state (C-4 witness BT9_081 = a subject-id/count [On Deletion] check; D-2 witness AD1_025 =
+            //     anyone-scoped bridge). Per witness-selection discipline the PRE-vs-POST divergence is currently
+            //     UNOBSERVABLE, so building the scheduler-half PRE collection + SnapshotZone threading now would be
+            //     0-consumer infra that only endangers the live POST-move derivation (digest). Resume condition: a
+            //     WhenRemoveField registrant that reads pre-trash field state is ported to serve as the witness.
             timings.Add(TriggerTimings.WhenRemoveField);
             // F-6.5: OnRemovedField is the original's field-leave synonym alongside WhenRemoveField.
             timings.Add(TriggerTimings.OnRemovedField);

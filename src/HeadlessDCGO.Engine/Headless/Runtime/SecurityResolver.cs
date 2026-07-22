@@ -836,6 +836,32 @@ public sealed class SecurityResolver
         // flag rides the trashed (possibly Fortitude/Save-revived) instance. No-op on the plain non-windowed loss.
         BattleResolver.ClearBattlePreWindowMarkers(context, attackerId);
 
+        // (RD-R4B6-P1-2 / A8 구조골 GOAL 2) collect-BEFORE-removal OnDestroyedAnyone / OnLeaveFieldAnyone window,
+        // while the losing attacker is STILL on the battle area — the sibling of the field-battle finisher
+        // (BattleResolver.cs:293-303), the DP-zero sweep (GameFlowProcessor.cs:864-870) and the effect-delete sink
+        // (MatchStateMutationSink.cs:1526-1531). AS-IS the security-battle loss exits through the SAME
+        // IBattle.Battle → DestroyPermanentsClass(LoserPermanents).Destroy() as a field battle
+        // (CardController.cs:4179 → :4705 → :3736-3756), whose StackSkillInfos(OnDeletion / OnLeaveFieldAnyone) is
+        // the sole thing that opens the anyone-scoped leave window with the dead card still on the field. Without
+        // this, an uncapped anyone-scoped OnLeaveFieldAnyone reactor never fired for a security-battle death (the
+        // CardMoved-derived collect below sees the attacker already in the trash). Single loser (the attacker; the
+        // revealed security card never had field presence), byBattleCause (this loss is by battle) — the same cause
+        // the PRE cut-in window threads (ByBattleCauseKey), byEffectCause:false, isDPZero:false.
+        using (AmbientMatchContext.Scope _leaveScope = AmbientMatchContext.Enter(context))
+        {
+            var loserPermanents = new List<Permanent> { new Permanent(context, attackerId, attackerOwner) };
+            var finisherAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+            // AS-IS builds a FRESH OnDeletionHashtable per StackSkillInfos (CardController.cs:3736/3749).
+            await finisherAutoProcessing.StackSkillInfos(
+                Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                    loserPermanents, byEffectCause: false, byBattleCause: true, isDPZero: false),
+                EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
+            await finisherAutoProcessing.StackSkillInfos(
+                Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                    loserPermanents, byEffectCause: false, byBattleCause: true, isDPZero: false),
+                EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
+        }
+
         CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context, attackerId);
         await DeletionSourceTrash.TrashEvoSourcesAsync(
             context.CardInstanceRepository, context.ZoneMover, attackerId, gameEventQueue: null, cancellationToken,

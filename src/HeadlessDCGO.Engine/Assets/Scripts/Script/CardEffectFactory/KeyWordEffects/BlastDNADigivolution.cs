@@ -296,7 +296,16 @@ public partial class CardEffectFactory
                     "(Player.fieldCardFrames / PreferredFrame / new Permanent(List) / frame-indexed " +
                     "CreateNewPermanent) and its zone statics are unported (design items RD-P6C1-1/-8). " +
                     "NOTE (수리-9): RD-P6C1-7 SelectHandEffect and RD-P6C1-2 CanPlayJogress are now CLOSED " +
-                    "(available), so only -1/-8 remain. docs/audit/rebuild_p6_cluster1_notes.md.");
+                    "(available), so only -1/-8 remain. " +
+                    "A8 구조골 GOAL 1 재판정 (2026-07-22): the sibling [Blast Digivolve] (BlastDigivolveEffect) " +
+                    "was RESOLVED this pass because it needs only the READ side of the slot model " +
+                    "(CanPlayCardTargetFrame/PermanentFrame — live). This DNA path needs the WRITE side, which " +
+                    "is genuinely unportable as-is: PreferredFrame() (CardSource.cs:2290) selects an empty slot " +
+                    "by Unity CANVAS GEOMETRY (Frame.transform.parent.localPosition + a hardcoded UI layout " +
+                    "order) — headless has no slot array or canvas positions to mirror 1:1, so PreferredFrame + " +
+                    "the frame-indexed CreateNewPermanent(perm, frameID) placement + SetJogress(frameIDs) have " +
+                    "no substrate translation without inventing a slot geometry (forbidden). STOP stands on " +
+                    "RD-P6C1-1(write)/-8. docs/audit/rebuild_p6_cluster1_notes.md.");
             }
         }
 
