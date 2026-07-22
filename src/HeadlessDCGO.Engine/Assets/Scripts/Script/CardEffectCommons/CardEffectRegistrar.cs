@@ -198,44 +198,25 @@ public static class CardEffectRegistrar
         // the same class GetOrCreate would have created — behaviour-neutral there, load-bearing for the flip.
         card.cEntity_EffectController.cEntity_Effect = effect;
 
+        // (③-A) The LEGACY-BRIDGE enter-play lowering block is RETIRED — the last EffectRegistry.Register producer
+        // seat in this registrar. It formerly lowered an OLD-model effect (one still exposing ToBinding) to an
+        // EffectBinding and registered it; a census confirms it now feeds ONLY test-only continuous classes (real
+        // cards' continuous effects are new-model kind-classes with no ToBinding — they registered nothing and are
+        // served by the live is-interface scans / EffectList enumeration). With the seat gone, RegisterOnEnterPlay
+        // ATTACHES cEntity_Effect (above — load-bearing for the flip) and registers NOTHING, returning an empty list.
+        //
+        // The per-timing CardEffects(timing, card) enumeration is PRESERVED (empty body): some factories register
+        // their real payload as a CONSTRUCTION side-effect when CardEffects is materialised (e.g. the special-play
+        // factories call SpecialPlayRecipeRegistry.Register — a DIFFERENT, live registry), so the enumeration itself
+        // must still run even though no binding is produced. Nulls / activated effects need no special handling now
+        // that nothing is lowered.
         var registered = new List<EffectBinding>();
-        int index = 0;
+        _ = cardNumber;
         foreach (EffectTiming timing in AllTimings)
         {
             foreach (ICardEffect cardEffect in effect.CardEffects(timing, card))
             {
-                // (REGRESSION fix) A factory can legitimately return null from CardEffects when the card has no
-                // live board state (e.g. PierceSelfEffect returns null with no live Permanent/TopCard — Pierce.cs:44).
-                // Every AS-IS scan boundary filters nulls (mirror CEntity_EffectController.GetCardEffects:217
-                // `.Filter(x => x != null)`); this non-AS-IS enter-play registrar enumerates CardEffects directly,
-                // so it must tolerate the same nulls rather than feed them to LegacyBindingBridge.ThrowIfNull.
-                if (cardEffect is null)
-                {
-                    continue;
-                }
-
-                // Activated / choice effects are resolved via the activation flow, not auto-registered —
-                // legacy marker (IActivatedCardEffect) or new-model AS-IS contract (ActivateICardEffect) alike
-                // (AS-IS has NO enter-play registration at all: availability is the live EffectList scan,
-                // AutoProcessing.cs:770-887).
-                if (cardEffect is IActivatedCardEffect or ActivateICardEffect)
-                {
-                    continue;
-                }
-
-                // (P6 stage A) LEGACY-BRIDGE lowering only: an old-model effect keeps its EffectBinding
-                // registration (byte-identical path — the stage-B gate consumers still scan the registry). A
-                // NEW-model kind-class effect (IChangeDPEffect/… over the abstract ICardEffect) has no
-                // ToBinding and registers NOTHING: its availability is the live per-card
-                // CardEffects(timing, card) enumeration, which the stage-B is-interface scan reads. Until
-                // stage B lands, new-model continuous effects are intentionally invisible to the old gates
-                // (documented RED — rebuild_p6_stageA_notes.md §5).
-                if (LegacyBindingBridge.TryToBinding(cardEffect, $"{card.InstanceId.Value}:{cardNumber}:{timing}:{index++}", out EffectBinding? binding)
-                    && binding is not null)
-                {
-                    context.EffectRegistry.Register(binding);
-                    registered.Add(binding);
-                }
+                _ = cardEffect;
             }
         }
 

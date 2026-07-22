@@ -13,46 +13,12 @@ using SelectPermanentEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPe
 using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition;
 
 
-/// <summary>(W6 tail) the AS-IS <c>StartOfMainAttack</c> activate body: at the owner's main-phase start,
-/// open a MANDATORY attack offer for the granted Digimon (AS-IS SetCanNotSelectNotAttack — cannot decline;
-/// player or any Digimon).</summary>
-public sealed class StartOfMainAttackEffect : Headless.Effects.IHeadlessCardEffect
-{
-    private readonly EngineContext _context;
-    private readonly HeadlessEntityId _attackerId;
-
-    public StartOfMainAttackEffect(EngineContext context, HeadlessEntityId attackerId)
-    {
-        _context = context ?? throw new ArgumentNullException(nameof(context));
-        _attackerId = attackerId;
-    }
-
-    public Headless.Effects.CardEffectDefinition Definition => new(
-        new HeadlessEntityId($"start-of-main-attack:{_attackerId.Value}"), _attackerId,
-        "[Start of Your Main Phase] Attack with this Digimon.", Headless.Effects.TriggerTimings.OnStartMainPhase,
-        isOptional: false);
-
-    public Headless.Effects.CardEffectCanResolveResult CanResolve(Headless.Effects.CardEffectResolveContext context)
-    {
-        bool onField = _context.ZoneMover is IZoneStateReader zones &&
-            _context.CardInstanceRepository.TryGetInstance(_attackerId, out CardInstanceRecord? rec) && rec is not null &&
-            zones.GetCards(rec.OwnerId, ChoiceZone.BattleArea).Contains(_attackerId);
-        return onField
-            ? Headless.Effects.CardEffectCanResolveResult.Success()
-            : Headless.Effects.CardEffectCanResolveResult.Failure("The granted Digimon is no longer on the battle area.");
-    }
-
-    public ValueTask<Headless.Effects.EffectResult> ResolveAsync(
-        Headless.Effects.CardEffectResolveContext context,
-        Headless.Effects.IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        Headless.Runtime.EffectDrivenAttack.RequestChoice(
-            _context, _attackerId,
-            new Headless.Runtime.EffectAttackOptions(WithoutTap: false, AllowPlayerTarget: true, AllowDigimonTarget: true, TargetUnsuspended: true));
-        return ValueTask.FromResult(Headless.Effects.EffectResult.Success("Attack offer opened."));
-    }
-}
+// (③-A) StartOfMainAttackEffect DELETED — the invented IHeadlessCardEffect registry payload for
+// CardEffectCommons.StartOfMainAttack (the retired EffectRegistry.Register producer seat at CardEffectCommons.cs
+// ~:1507). It opened an OnStartMainPhase attack offer via EffectDrivenAttack.RequestChoice off a duration-tagged
+// trigger binding — NOT the AS-IS shape (an inline ActivateClass mandatory SelectAttackEffect offer stored in
+// Permanent.UntilOwnerTurnEndEffects). With the substrate method STOP-guarded (design item RD-3A-01) it had zero
+// producers, so it is removed with its registry seat; port the AS-IS ActivateClass body 1:1 when a caller appears.
 
 
 // (R3-C2b-2 fold) TriggeredMemoryEffect DELETED — the invented old-model "[When …] gain/lose N memory" effect

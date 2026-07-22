@@ -1486,32 +1486,18 @@ public static partial class CardEffectCommons
         Func<CardSource, bool>? cardCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard) =>
         ChangeSecurityDigimonCardDPPlayerEffectImpl(cardCondition, changeValue, effectDuration, card: sourceCard);
 
-    /// <summary>AS-IS <c>StartOfMainAttack</c> (GiveEffect/StartOfMainAttack.cs:5, verbatim): until the
-    /// owner's turn end, at the start of the owner's main phase this Digimon MUST attack (the offer cannot
-    /// be declined; player or any Digimon). Registered as a duration-tagged trigger binding whose effect
-    /// opens the attack offer.</summary>
-    public static void StartOfMainAttack(Permanent? targetPermanent, CardSource sourceCard)
-    {
-        ArgumentNullException.ThrowIfNull(sourceCard);
-        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty)
-        {
-            return;
-        }
-
-        EngineContext context = sourceCard.Context;
-        HeadlessEntityId attackerId = targetPermanent.InstanceId;
-        var effectContext = new EffectContext(
-            sourceCard.Controller, sourceCard.Owner, attackerId,
-            triggerEntityId: null, targetEntityIds: new[] { attackerId },
-            values: new Dictionary<string, object?>(StringComparer.Ordinal));
-        context.EffectRegistry.Register(new EffectBinding(
-            new EffectRequest(
-                new HeadlessEntityId($"{sourceCard.InstanceId.Value}:startOfMainAttack:{attackerId.Value}"),
-                sourceCard.Controller, Headless.Effects.TriggerTimings.OnStartMainPhase, effectContext),
-            keywords: null, EffectQueryRole.None, queryScopes: null,
-            effect: new StartOfMainAttackEffect(context, attackerId),
-            duration: EffectDuration.UntilOwnerTurnEnd));
-    }
+    /// <summary>(③-A) AS-IS <c>StartOfMainAttack</c> (GiveEffect/GiveEffectToPermanent/StartOfMainAttack.cs:5):
+    /// until the owner's turn end, at the start of the owner's main phase this Digimon MUST attack (the offer
+    /// cannot be declined; player or any Digimon). The AS-IS body is NOT a bucket-idiom kind-class/reader grant —
+    /// it builds an inline <c>ActivateClass</c> that drives a MANDATORY <c>SelectAttackEffect</c> attack offer
+    /// (SetCanNotSelectNotAttack) added to <c>Permanent.UntilOwnerTurnEndEffects</c> at OnStartMainPhase. Porting
+    /// it 1:1 needs the OnStartMainPhase auto-fire window to drive that mandatory attack offer — a firing path
+    /// with no live precedent (0 callers exercise it) — so this is the "needs a new firing window" branch, not the
+    /// J-1..J-4 straightforward grant. The invented <c>StartOfMainAttackEffect</c> registry payload is retired
+    /// (registry producer seat removed). Port 1:1 into the skeleton home file when a caller appears.</summary>
+    public static void StartOfMainAttack(Permanent? targetPermanent, CardSource sourceCard) =>
+        throw new NotSupportedException(
+            "design item RD-3A-01: AS-IS StartOfMainAttack grant unported (registry producer retired; port 1:1 when a caller appears).");
 
     /// <summary>AS-IS <c>GetCardEffectFromHashtable</c> (GetFromHashtable.cs:10) — headless the CAUSING
     /// effect is represented by its SOURCE CARD.</summary>
@@ -2857,49 +2843,19 @@ public static partial class CardEffectCommons
     // rule) — W3 resolved RD-P6C3-C1 there (AS-IS duration-bucket store for new-model effects; the OLD-model
     // registry-lowering path is preserved there as the batch-C transitional).
 
-    /// <summary>(PRIM-P0 B.O.5-tail) AS-IS temp <c>AddEffectToPermanent</c> for a SELF-[On Deletion] grant — the
-    /// nested effect must fire ON the target's OWN removal (e.g. EX8_059 "1 Digimon gains '[On Deletion] ...'
-    /// until end of turn"). Same as <see cref="AddEffectToPermanent"/> but stamps the binding SurviveOwnLeave (so
-    /// leave-play cleanup does not drop it before OnDeletion resolves) + DelayedOneShot (removed after it fires),
-    /// with the <paramref name="effectDuration"/> as the backstop for a non-deletion departure. The nested effect
-    /// should be built with the TARGET's CardSource and self-gate on the deletion subject (TriggerEntityId).</summary>
+    /// <summary>(③-A) AS-IS temp <c>AddEffectToPermanent</c> for a SELF-[On Deletion] grant — the nested effect
+    /// must fire ON the target's OWN removal (e.g. EX8_059 "1 Digimon gains '[On Deletion] ...' until end of turn").
+    /// This substrate helper has NO AS-IS original (invented "PRIM-P0 B.O.5-tail" temp: it lowered an old-model
+    /// ICardEffect via LegacyBindingBridge to a SurviveOwnLeave/DelayedOneShot registry trigger binding). Its sole
+    /// real-card target EX8_059 is an unported skeleton, so there is NO live caller (only the base-red witness
+    /// tests/PRIM-P0.GrantTriggeredToPermanent). The registry producer seat is retired; the AS-IS bucket idiom
+    /// (<see cref="AddEffectToPermanent"/>'s timing-keyed delegate store, read by the live EffectList(timing)
+    /// window) does not carry the SurviveOwnLeave/DelayedOneShot self-removal metadata, so a 1:1 port needs that
+    /// live self-deletion firing window built first. STOP until then.</summary>
     public static void AddSelfRemovalEffectToPermanent(
-        Permanent? targetPermanent, EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(cardEffect);
-        _ = timing;
-        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty)
-        {
-            return;
-        }
-
-        // (P6 cluster3) old-model lowering via LegacyBindingBridge — NEW-model effect = STOP (RD-P6C3-C1).
-        if (!LegacyBindingBridge.TryToBinding(
-                cardEffect,
-                $"{card.InstanceId.Value}:addSelfRemovalEffect:{targetPermanent.InstanceId.Value}:{Guid.NewGuid():N}",
-                out EffectBinding? binding) || binding is null)
-        {
-            throw new NotSupportedException(
-                $"AddSelfRemovalEffectToPermanent: '{cardEffect.GetType().Name}' is a NEW-model effect — no new-model permanent grant store exists yet (design item RD-P6C3-C1).");
-        }
-
-        var values = new Dictionary<string, object?>(binding.Request.Context.Values, StringComparer.Ordinal)
-        {
-            [AutoProcessingTriggerCollector.SurviveOwnLeaveKey] = true,
-            [AutoProcessingTriggerCollector.DelayedOneShotKey] = true,
-        };
-        var retargeted = new EffectContext(
-            binding.Request.Context.SourcePlayerId,
-            binding.Request.Context.OwnerPlayerId,
-            binding.Request.Context.SourceEntityId,
-            binding.Request.Context.TriggerEntityId,
-            targetEntityIds: new[] { targetPermanent.InstanceId },
-            values: values);
-        card.Context.EffectRegistry.Register(new EffectBinding(
-            new EffectRequest(binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing, retargeted),
-            binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, effectDuration));
-    }
+        Permanent? targetPermanent, EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing) =>
+        throw new NotSupportedException(
+            "design item RD-3A-02: AS-IS self-[On Deletion] permanent grant unported (registry producer retired; port 1:1 to the AS-IS bucket idiom when a live self-removal firing window and a caller appear).");
 
     // (R3-C2b-2) AS-IS `AddEffectToPlayer(effectDuration, card, cardEffect, timing, getCardEffect = null)` — the
     // SINGLE AS-IS method — now lives in its AS-IS home file next to AddEffectToPermanent:

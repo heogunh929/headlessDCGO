@@ -21,9 +21,11 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("tractable: a triggered grant fires at its timing while the target is alive ([End of Turn] +2)", FiresAtTiming),
     ("tractable: the grant expires at its duration boundary and no longer fires", ExpiresAtBoundary),
-    ("self-[On Deletion]: survives leave-play cleanup, fires on the target's real deletion (+2), self-removes", SelfDeletionFires),
-    ("self-[On Deletion]: target-scoped — another card's deletion does NOT fire it", SelfDeletionScoped),
-    ("self-[On Deletion]: after the duration expires it no longer fires on deletion", SelfDeletionExpires),
+    // (③-A) The three self-[On Deletion] subtests below pinned the RETIRED registry surface
+    // (ctx.EffectRegistry.GetEffectsForTiming(OnDeletion) after AddSelfRemovalEffectToPermanent lowered an
+    // old-model ICardEffect into a SurviveOwnLeave/DelayedOneShot registry trigger binding). That EffectRegistry
+    // producer seat is gone; the substrate STOPs (RD-3A-02). Retargeted to a single retirement witness.
+    ("self-[On Deletion]: the invented registry substrate is retired — AddSelfRemovalEffectToPermanent STOPs (RD-3A-02)", SelfDeletionRetired),
 };
 
 var failures = new List<string>();
@@ -58,40 +60,31 @@ async Task ExpiresAtBoundary()
     AssertEqual(0, ctx.MemoryController.Current.Current, "after expiry the grant no longer fires");
 }
 
-async Task SelfDeletionFires()
-{
-    EngineContext ctx = Ctx();
-    var src = await Put(ctx, "SRC", 4000);
-    var target = await Put(ctx, "TGT", 0);   // 0-DP -> really swept
-    GrantSelfDeletion(ctx, src, target);
-    ctx.MemoryController.Set(0);
-    await Sweep(ctx);
-    AssertEqual(2, ctx.MemoryController.Current.Current, "survived cleanup and fired on the target's deletion");
-    AssertEqual(0, ctx.EffectRegistry.GetEffectsForTiming(TriggerTimings.OnDeletion).Count, "self-removed after firing");
-}
-
-async Task SelfDeletionScoped()
-{
-    EngineContext ctx = Ctx();
-    var src = await Put(ctx, "SRC", 4000);
-    var target = await Put(ctx, "TGT", 4000);   // survives
-    await Put(ctx, "OTH", 0);                    // this one is deleted
-    GrantSelfDeletion(ctx, src, target);
-    ctx.MemoryController.Set(0);
-    await Sweep(ctx);
-    AssertEqual(0, ctx.MemoryController.Current.Current, "another card's deletion did NOT fire the target's grant");
-}
-
-async Task SelfDeletionExpires()
+async Task SelfDeletionRetired()
 {
     EngineContext ctx = Ctx();
     var src = await Put(ctx, "SRC", 4000);
     var target = await Put(ctx, "TGT", 0);
-    GrantSelfDeletion(ctx, src, target);
-    ctx.MemoryController.Set(0);
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);   // UntilOpponentTurnEnd expires the grant first
-    await Sweep(ctx);
-    AssertEqual(0, ctx.MemoryController.Current.Current, "expired before the deletion -> no fire");
+    // (③-A) The invented AddSelfRemovalEffectToPermanent lowered an old-model ICardEffect into a
+    // SurviveOwnLeave/DelayedOneShot EffectRegistry trigger binding — the last EffectRegistry.Register producer
+    // seat in CardEffectCommons. It has NO AS-IS original and NO live caller (EX8_059 is an unported skeleton), so
+    // the seat is retired and the substrate STOPs (RD-3A-02) until a live self-removal firing window + caller
+    // exists. Witness the retirement instead of the old registry surface.
+    ICardEffect nested = new LocalMemoryProbe(
+        V(ctx, target), EffectTiming.OnDestroyedAnyone, amount: 2, "[On Deletion] Gain 2 memory.",
+        triggerGate: rc => rc.EffectContext.TriggerEntityId is HeadlessEntityId subj && subj == target,
+        isOptional: false);
+    bool threw = false;
+    try
+    {
+        CardEffectCommons.AddSelfRemovalEffectToPermanent(Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, src), nested, EffectTiming.OnDestroyedAnyone);
+    }
+    catch (NotSupportedException ex) when (ex.Message.Contains("RD-3A-02"))
+    {
+        threw = true;
+    }
+
+    AssertEqual(true, threw, "AddSelfRemovalEffectToPermanent STOPs (RD-3A-02) — invented registry substrate retired");
 }
 
 // --- Harness -------------------------------------------------------------
@@ -102,24 +95,9 @@ void GrantEndTurn(EngineContext ctx, HeadlessEntityId src, HeadlessEntityId targ
     CardEffectCommons.AddEffectToPermanent(Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, src), nested, EffectTiming.OnEndTurn);
 }
 
-void GrantSelfDeletion(EngineContext ctx, HeadlessEntityId src, HeadlessEntityId target)
-{
-    ICardEffect nested = new LocalMemoryProbe(
-        V(ctx, target), EffectTiming.OnDestroyedAnyone, amount: 2, "[On Deletion] Gain 2 memory.",
-        triggerGate: rc => rc.EffectContext.TriggerEntityId is HeadlessEntityId subj && subj == target,
-        isOptional: false);
-    CardEffectCommons.AddSelfRemovalEffectToPermanent(Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, src), nested, EffectTiming.OnDestroyedAnyone);
-}
-
 async Task EmitEndTurn(EngineContext ctx)
 {
     TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnEndTurn, actor: P1, subject: default);
-    await new GameFlowProcessor().RunToStableAsync(ctx);
-}
-
-async Task Sweep(EngineContext ctx)
-{
-    await DpZeroDeletionHelpers.SweepAsync(ctx, new[] { P1, P2 });
     await new GameFlowProcessor().RunToStableAsync(ctx);
 }
 
