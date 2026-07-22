@@ -59,6 +59,18 @@ async Task DeferredOptionE2E()
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(foe, new HeadlessEntityId("FOE"), P2));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, foe, ChoiceZone.None, ChoiceZone.BattleArea));
 
+    // A SECOND opponent Digimon so the bounce select (maxCount 1, canNoSelect false, canEndNotMax false) is a
+    // genuine agent decision. With a SINGLE candidate the AS-IS forced-selection shortcut
+    // (SelectPermanentEffect.cs:531 — pool.Count == maxCount auto-selects without a player choice, AS-IS
+    // EndSelect_RPC) resolves the target immediately and never suspends; two candidates make it a real choice.
+    // (distinct id prefix so the ResolveChoice-lane filter `Contains(foe.Value)` below stays unambiguous — a
+    // "FOE2"-style id would contain "p2:battle:FOE" and collide with the FOE lane).
+    cards.Upsert(new CardRecord(new HeadlessEntityId("BYSTANDER"), "BYSTANDER", "Tyrannomon",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000 }, CardType: "Digimon"));
+    var bystander = new HeadlessEntityId("p2:battle:BYSTANDER");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(bystander, new HeadlessEntityId("BYSTANDER"), P2));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, bystander, ChoiceZone.None, ChoiceZone.BattleArea));
+
     // 1) Activate the option. Its [Main] select suspends -> pending choice, cost paid ONCE (5 -> 2).
     LegalAction activate = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.ActivateOption);
     RlStepResult afterActivate = await env.StepAsync(activate);
@@ -74,6 +86,7 @@ async Task DeferredOptionE2E()
     AssertTrue(!afterResolve.HasPendingChoice, "no pending choice after the activation resumes");
     AssertTrue(InZone(context, P2, ChoiceZone.Hand, foe), "opponent Digimon was bounced to its owner's hand");
     AssertTrue(!InZone(context, P2, ChoiceZone.BattleArea, foe), "opponent Digimon left the battle area");
+    AssertTrue(InZone(context, P2, ChoiceZone.BattleArea, bystander), "the unchosen bystander stayed on the battle area");
     AssertEqual(2, context.MemoryController.Current.Current, "memory NOT re-paid on resume (still 2)");
 }
 

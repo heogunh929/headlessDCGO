@@ -69,6 +69,11 @@ EngineContext Board()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 602);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (harness triage) DoneStartGame gate: the option's OptionSkill activated effect is resolved via the DIRECT
+    // ActivatedEffectResolver path, which re-checks CanTrigger (ActivatedEffectResolver.cs:513 -> ICardEffect
+    // CanTrigger -> DoneStartGame). Before phase None -> the body is skipped (activated == 0). AS-IS an option is
+    // only ever activated mid-play (DoneStartGame already true, past None). Set a live phase.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     context.MemoryController.Set(5);
     return context;
 }

@@ -39,10 +39,18 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 async Task DrawsOnAttack()
 {
     EngineContext ctx = await Setup();
+    // Faithful drive (C2r): the OnAllyAttack "[When Attacking]" window is opened SOLELY by the inline
+    // StackSkillInfos(OnAllyAttack) inside a REAL attack declaration (AttackProcess.cs:290-295). The synthetic
+    // OnAllyAttack event conversion in SkillWindowSupply was retired at the C2r flip (a raw OnAllyAttack event is
+    // no longer supply-converted), so emitting the event directly is a dead path. Declare a real attack and let
+    // the game-loop pump drain the stacked ActivateClass — the same drive AttackPermanentAction uses in play.
+    CardEffectRegistrar.RegisterCard(ctx, Attacker, P1);
     int before = HandCount(ctx, P1);
-    TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnAllyAttack, actor: P1, subject: Attacker);
+    LegalAction attack = HeadlessActionFactory.DeclareAttack(P1, Attacker, P2, targetId: null, isDirectAttack: true);
+    ActionProcessResult result = new HeadlessDCGO.Engine.Headless.Runtime.AttackPermanentAction().Process(attack, ctx);
+    AssertEqual(true, result.IsSuccess, $"attack declared ({result.Message})");
     await new GameFlowProcessor().RunToStableAsync(ctx);
-    AssertEqual(before + 1, HandCount(ctx, P1), "the attacker's [When Attacking] draw 1 resolved via the bridge");
+    AssertEqual(before + 1, HandCount(ctx, P1), "the attacker's [When Attacking] draw 1 resolved via the real-attack bridge");
 }
 
 async Task DrawsOnDeclaration()
@@ -186,22 +194,45 @@ async Task BroadcastEndBattleWinnerFires()
 {
     (EngineContext ctx, HeadlessEntityId winner, HeadlessEntityId loser) = await SetupEndBattle();
     int before = HandCount(ctx, P1);
-    // Emit OnEndBattle actor-only (no subject) with battle-result metadata, as BattleResolver does.
-    TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnEndBattle, actor: P1, subject: default,
-        extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["winnerIds"] = winner.Value, ["loserIds"] = loser.Value });
-    await new GameFlowProcessor().RunToStableAsync(ctx);
-    AssertEqual(before + 1, HandCount(ctx, P1), "the winner card's [End of Battle] draw fired via the event-broadcast bridge (read event.winnerIds)");
+    // Faithful drive: the OnEndBattle "[End of Battle]" window is opened SOLELY by the inline
+    // StackSkillInfos(battle.hashtable, OnEndBattle) inside BattleResolver.FinalizeAsync (BattleResolver.cs:397-402,
+    // AS-IS CardController.cs:4718). The winner gate CanTriggerWhenWinBattle reads the RICH battle object
+    // (WinnerPermanents list / WasTie / LoserCard), which the flat OnEndBattle carrier GameEvent cannot carry —
+    // so supply-converting the emitted event would be a fabrication. Open the window the way the resolver does:
+    // build the battle payload with the winner card's permanent among the winners, then let the pump drain it.
+    await DriveEndBattleWindow(ctx, winnerPerm: (winner, P1), loserPerm: (loser, P2));
+    AssertEqual(before + 1, HandCount(ctx, P1), "the winner card's [End of Battle] draw fired via the real OnEndBattle window (WhenWinBattle read the battle payload)");
 }
 
 async Task BroadcastEndBattleNonWinnerScoped()
 {
     (EngineContext ctx, HeadlessEntityId winner, HeadlessEntityId loser) = await SetupEndBattle();
     int before = HandCount(ctx, P1);
-    // The winner card is NOT among winnerIds (only the loser is) -> its win-gated effect must NOT fire.
-    TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnEndBattle, actor: P1, subject: default,
-        extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["winnerIds"] = loser.Value, ["loserIds"] = winner.Value });
-    await new GameFlowProcessor().RunToStableAsync(ctx);
+    // The winner card's permanent is NOT among the battle's WinnerPermanents (only the opponent is a winner) ->
+    // CanTriggerWhenWinBattle's `permanent.cardSources.Contains(card)` fails -> its win-gated effect must NOT fire.
+    await DriveEndBattleWindow(ctx, winnerPerm: (loser, P2), loserPerm: (winner, P1));
     AssertEqual(before, HandCount(ctx, P1), "a non-winner card's win-gated effect did not fire");
+}
+
+// Open the AS-IS OnEndBattle window exactly as BattleResolver.FinalizeAsync does (BattleResolver.cs:280-402):
+// build the rich battle payload via BuildBattleResultPayload and StackSkillInfos(battle.hashtable, OnEndBattle)
+// under the ambient match scope; the game-loop pump drains the stacked ActivateClass reactors.
+async Task DriveEndBattleWindow(EngineContext ctx, (HeadlessEntityId Id, HeadlessPlayerId Owner) winnerPerm, (HeadlessEntityId Id, HeadlessPlayerId Owner) loserPerm)
+{
+    var winners = new List<HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent>
+        { new(ctx, winnerPerm.Id, winnerPerm.Owner) };
+    var losers = new List<HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent>
+        { new(ctx, loserPerm.Id, loserPerm.Owner) };
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.IBattle battle =
+        HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.BuildBattleResultPayload(
+            winnerPermanents: winners, winnerPermanentsReal: winners,
+            loserPermanents: losers, loserPermanentsReal: losers, loserCard: null!, wasTie: false);
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        await HeadlessDCGO.Engine.Assets.Scripts.Script.AutoProcessing.For(ctx).StackSkillInfos(
+            battle.hashtable, HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnEndBattle);
+    }
+    await new GameFlowProcessor().RunToStableAsync(ctx);
 }
 
 // P1 has the TfxWinBattleDraw card in play + library; an opponent card sits in play as the loser.

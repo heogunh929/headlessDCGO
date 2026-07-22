@@ -29,6 +29,12 @@ async Task MainOnly()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 913);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (harness triage) DoneStartGame gate: the [Main] OptionSkill's CanTrigger (re-checked on the direct
+    // ActivateMainOfOptionSide path, ActivatedEffectResolver.cs:513) returns false before the game start
+    // (phase None). AS-IS this re-run only happens mid-play (BT25_104 shared WD/WA), where DoneStartGame is
+    // already true — past phase None. Set a live phase so the discriminator (IsMainOptionEffect, already live)
+    // is what's under test, not the pre-game guard.
+    ctx.TurnController.SetPhase(HeadlessDCGO.Engine.Headless.Runtime.HeadlessPhase.Main);
     ctx.MemoryController.Set(0);
 
     var cards = (CardDatabase)ctx.CardRepository;

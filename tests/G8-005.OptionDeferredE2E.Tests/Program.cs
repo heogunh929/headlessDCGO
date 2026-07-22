@@ -38,6 +38,10 @@ async Task CommitOnceResumeApplies()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 805, deferredChoice: true);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (harness triage) DoneStartGame gate: the OptionSkill activated effect (and its resume ResolveAsync) is a
+    // DIRECT resolve that re-checks CanTrigger -> DoneStartGame; before phase None it is skipped and never reaches
+    // (nor suspends at) the choice. AS-IS an option is activated mid-play, past phase None. Set a live phase.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     context.MemoryController.Set(5);
     CardDatabase cards = (CardDatabase)context.CardRepository;
 

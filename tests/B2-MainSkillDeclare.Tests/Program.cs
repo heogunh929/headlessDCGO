@@ -181,6 +181,7 @@ async Task DeclinedDeclarationConsumesCap()
     // accept (ICardEffect.cs:1117-1121). The resolver's `declarative` flavor mirrors this exactly.
     EngineContext context = EngineContext.CreateDefault(randomSeed: 17, deferredChoice: true);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main); // past None -> DoneStartGame true (CanDeclareAt -> CanUse -> CanTrigger gate)
     var cards = (CardDatabase)context.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxMainOptionalDraw"), "TfxMainOptionalDraw", "MO",
         new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
@@ -219,6 +220,7 @@ async Task<EngineContext> SetupWithDeclarer(HeadlessPlayerId owner, int seedLibr
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 9);
     context.TurnController.Initialize(new[] { P1, P2 }, owner);
+    context.TurnController.SetPhase(HeadlessPhase.Main); // past None -> DoneStartGame true (CanDeclareAt -> CanUse -> CanTrigger gate)
     var cards = (CardDatabase)context.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxMainDeclareDraw"), "TfxMainDeclareDraw", "MD",
         new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
