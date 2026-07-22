@@ -678,6 +678,131 @@ public sealed class CardSource
         }
     }
 
+    /// <summary>(P6C1 — RD-P6C1-2 RESOLVED) 1:1 mirror of AS-IS
+    /// <c>CardSource.CanJogressFromTargetPermanents(targetPermanents, PayCost)</c> (CardSource.cs:2846-2894): the
+    /// two supplied permanents can DNA-digivolve into this card — this card's <c>CanPlayJogress</c> holds and some
+    /// JogressCondition's ordered element-pair is satisfied by the two targets (each slot's <c>EvoRootCondition</c>
+    /// + the <c>!CanNotEvolve</c> restriction gate). ADAPTATIONS: <c>jogressCondition</c> = the mirror
+    /// <see cref="CardSourceAsIsPlayAccessors.JogressConditionOf"/> accessor; AS-IS <c>ParameterComparer.Enumerate(
+    /// targetPermanents, 2)</c> = the local <see cref="OrderedPairs"/> ordered-pair enumeration (the same idiom
+    /// <see cref="CanPlayJogress"/> uses). Every dependency (<see cref="CanPlayJogress"/>, <see cref="CanNotEvolve"/>,
+    /// <c>JogressConditionElement.EvoRootCondition</c>) is live — the former RD-P6C1-2 STOP is retired now the cost
+    /// engine (<see cref="GetChangedCostItselef"/>, consumed inside <see cref="CanPlayJogress"/> only when
+    /// PayCost) has landed (R2-C).</summary>
+    public bool CanJogressFromTargetPermanents(List<Permanent> targetPermanents, bool PayCost)
+    {
+        if (targetPermanents != null)
+        {
+            if (targetPermanents.Count == 2)
+            {
+                if (this.CanPlayJogress(PayCost))
+                {
+                    foreach (JogressCondition condition in this.JogressConditionOf())
+                    {
+                        if (condition != null)
+                        {
+                            List<Permanent[]> permanentsList = OrderedPairs(targetPermanents).ToList();
+
+                            foreach (Permanent[] permanents in permanentsList)
+                            {
+                                if (condition.elements.Length == permanents.Length)
+                                {
+                                    bool canJogress = true;
+
+                                    for (int i = 0; i < permanents.Length; i++)
+                                    {
+                                        if (permanents[i] != null)
+                                        {
+                                            if (permanents[i].TopCard != null)
+                                            {
+                                                if ((!condition.elements[i].EvoRootCondition(permanents[i])) || this.CanNotEvolve(permanents[i]))
+                                                {
+                                                    canJogress = false;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (canJogress)
+                                    {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>(P6C1 — RD-P6C1-2 RESOLVED) 1:1 mirror of AS-IS
+    /// <c>CardSource.CanBurstDigivolutionFromTargetPermanent(targetPermanent, PayCost)</c> (CardSource.cs:3211-3260):
+    /// the supplied owner field/breeding Digimon can burst-digivolve into this card — <see cref="CanPlayBurst"/>
+    /// holds, the target matches <c>digimonCondition</c> and is <c>!CanNotEvolve</c>, and a DISTINCT owner
+    /// battle-area Tamer matches <c>tamerCondition</c> and is <c>!CannotReturnToHand</c> (with the burst cost payable
+    /// when PayCost). ADAPTATIONS: <c>burstDigivolutionCondition</c> = the mirror
+    /// <see cref="CardSourceAsIsPlayAccessors.BurstDigivolutionConditionOf"/> accessor (captured once, the
+    /// <see cref="CanPlayBurst"/> idiom); <c>targetPermanent.TopCard.Owner.*</c> / <c>Owner.*</c> (AS-IS Player) →
+    /// <c>new Player(Context, ...).*</c> (the CardSource.cs:571 idiom). RD-P6C1-2 STOP retired (cost engine landed,
+    /// R2-C).</summary>
+    public bool CanBurstDigivolutionFromTargetPermanent(Permanent targetPermanent, bool PayCost)
+    {
+        if (targetPermanent != null)
+        {
+            if (targetPermanent.TopCard != null)
+            {
+                if (new Player(Context, targetPermanent.TopCard.Owner).GetFieldPermanents().Contains(targetPermanent) || new Player(Context, targetPermanent.TopCard.Owner).GetBreedingAreaPermanents().Contains(targetPermanent))
+                {
+                    if (this.CanPlayBurst(PayCost))
+                    {
+                        BurstDigivolutionCondition burstDigivolutionCondition = this.BurstDigivolutionConditionOf();
+
+                        if (burstDigivolutionCondition != null)
+                        {
+                            if (!this.CanNotEvolve(targetPermanent))
+                            {
+                                if (burstDigivolutionCondition.digimonCondition(targetPermanent))
+                                {
+                                    foreach (Permanent tamer in new Player(Context, Owner).GetBattleAreaPermanents())
+                                    {
+                                        if (tamer != targetPermanent)
+                                        {
+                                            if (burstDigivolutionCondition.tamerCondition(tamer))
+                                            {
+                                                if (!tamer.CannotReturnToHand(null))
+                                                {
+                                                    if (PayCost)
+                                                    {
+                                                        int cost = burstDigivolutionCondition.cost;
+
+                                                        cost = GetChangedCostItselef(cost, SelectCardEffect.Root.Hand, new List<Permanent>() { targetPermanent }, checkAvailability: true);
+
+                                                        if (new Player(Context, Owner).MaxMemoryCost < cost)
+                                                        {
+                                                            return false;
+                                                        }
+                                                    }
+
+                                                    return true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>(R4 S3b) AS-IS <c>CardSource.CanPlayFromHandDuringMainPhase</c> (CardSource.cs:139-178) — the
     /// main-phase CanSelect() hand term. FRAME ADAPTATIONS (the mirror has no frame/slot model, zones are
     /// lists — established section-header adaptation, capacity half = design item RD-P6C1-2):

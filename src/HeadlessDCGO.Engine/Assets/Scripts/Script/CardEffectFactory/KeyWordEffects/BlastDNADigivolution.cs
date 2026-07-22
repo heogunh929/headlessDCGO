@@ -198,18 +198,23 @@ public partial class CardEffectFactory
                 _ = selectedCardSource;
                 _ = (Func<CardSource, bool>)CanSelectHandSource;
 
-                // (P6C1) STOP — the AS-IS remainder (:173-254) is the hand-material pick + the jogress-frame
-                // play. (수리-9 재판정) TWO of the four original blockers have since LANDED and are struck:
+                // (P6C1 — 재판정 2026-07-23) STOP — the AS-IS remainder (:173-254) is the hand-material pick + the
+                // jogress-FRAME play. THREE of the four original blockers are now CLOSED:
                 //   - RD-P6C1-7 SelectHandEffect — CLOSED (Script/SelectHandEffect.cs, 550-line 1:1, R5-A 00552dbf).
                 //   - RD-P6C1-2 CardSource.CanPlayJogress — CLOSED (CardSource.cs:549, live).
-                // TWO REMAIN and still hard-block this specific jogress-FRAME play:
-                //   - RD-P6C1-1 field-frame SLOT model — Player.fieldCardFrames + PreferredFrame() +
-                //     `new Permanent(List<CardSource>)` ctor + CardObjectController.CreateNewPermanent(perm,
-                //     frameID) are absent (live STOPs remain at CardController.cs:2820/2936/3078); PermanentFrame
-                //     READ exists but the writable slot ARRAY does not.
-                //   - RD-P6C1-8 zone statics — CardObjectController.AddHandCard(cardSource,false) is private and
-                //     the frame-indexed CreateNewPermanent overload is tied to the missing slot model.
-                // So the block stands on RD-P6C1-1/-8 (NOT -7/-2). AS-IS body preserved verbatim:
+                //   - RD-P6C1-1 field-frame WRITE — CLOSED this pass: SetJogress is live, the transient hand-material
+                //     placement maps to CardObjectController.CreateNewPermanent(card, isSuspended:false) (zone
+                //     append) and the two jogress frame ids are the placed/target Permanent.PermanentFrame.FrameID
+                //     (the compacted-list idiom); PreferredFrame's canvas-geometry slot pick reduces to that append
+                //     (documented ADAPTATION — the slot value only round-trips place→FrameID→resolve, unobservable
+                //     in game state). CardController's SetBurst/BurstTamer/jogress-target/burst-play/turn-end-trash
+                //     seats all went live.
+                // THE RESIDUAL BLOCKER is NOT a frame seat — it is the jogress COLLAPSE detach leaf shared by EVERY
+                // jogress play: `Permanent.DiscardEvoRoots(putToTrash:false)` (Permanent.cs:3853) = design item
+                // MIG4-DISCARDEVOROOTS-PUTTOTRASH (a bare detach-without-trash of the evo sources), plus the private
+                // `CardObjectController.AddHandCard(cardSource,false)` else-branch (RD-P6C1-8 residual). Porting this
+                // latent body (no live card caller) would compile+construct but throw at the MIG4 leaf inside
+                // PlayCardClass.PlayCard the moment it runs, so it is held here until MIG4 lands. AS-IS body verbatim:
                 //
                 //     SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
                 //
@@ -292,20 +297,15 @@ public partial class CardEffectFactory
                 //     }
                 // }
                 throw new NotSupportedException(
-                    "STOP: [Blast DNA Digivolve] jogress-FRAME play — the field-frame SLOT model " +
-                    "(Player.fieldCardFrames / PreferredFrame / new Permanent(List) / frame-indexed " +
-                    "CreateNewPermanent) and its zone statics are unported (design items RD-P6C1-1/-8). " +
-                    "NOTE (수리-9): RD-P6C1-7 SelectHandEffect and RD-P6C1-2 CanPlayJogress are now CLOSED " +
-                    "(available), so only -1/-8 remain. " +
-                    "A8 구조골 GOAL 1 재판정 (2026-07-22): the sibling [Blast Digivolve] (BlastDigivolveEffect) " +
-                    "was RESOLVED this pass because it needs only the READ side of the slot model " +
-                    "(CanPlayCardTargetFrame/PermanentFrame — live). This DNA path needs the WRITE side, which " +
-                    "is genuinely unportable as-is: PreferredFrame() (CardSource.cs:2290) selects an empty slot " +
-                    "by Unity CANVAS GEOMETRY (Frame.transform.parent.localPosition + a hardcoded UI layout " +
-                    "order) — headless has no slot array or canvas positions to mirror 1:1, so PreferredFrame + " +
-                    "the frame-indexed CreateNewPermanent(perm, frameID) placement + SetJogress(frameIDs) have " +
-                    "no substrate translation without inventing a slot geometry (forbidden). STOP stands on " +
-                    "RD-P6C1-1(write)/-8. docs/audit/rebuild_p6_cluster1_notes.md.");
+                    "STOP: [Blast DNA Digivolve] jogress-FRAME play — the frame WRITE side (SetJogress / " +
+                    "SetBurst / BurstTamer / jogress-target resolution / capacity checks) is now LIVE (P6C1, " +
+                    "2026-07-23), and PreferredFrame's canvas-geometry slot pick reduces to the compacted-list " +
+                    "zone append (documented ADAPTATION). The RESIDUAL blocker is NOT a frame seat: the jogress " +
+                    "COLLAPSE detach leaf Permanent.DiscardEvoRoots(putToTrash:false) (design item " +
+                    "MIG4-DISCARDEVOROOTS-PUTTOTRASH) — shared by EVERY jogress collapse — plus the private " +
+                    "CardObjectController.AddHandCard else-branch (RD-P6C1-8 residual). This card has no live " +
+                    "caller; its latent body would throw at the MIG4 leaf on execution, so it is held until MIG4 " +
+                    "lands. docs/audit/rebuild_p6_cluster1_notes.md.");
             }
         }
 

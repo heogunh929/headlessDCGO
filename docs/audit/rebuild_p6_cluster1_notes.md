@@ -150,3 +150,47 @@ ChoiceProvider is the decider those branches steered the Unity client toward.
 `dotnet build src/HeadlessDCGO.Engine` → **0 errors in PlayCardClass.cs and BlastDNADigivolution.cs**;
 project total 132 unique errors remaining (other clusters' files; was 402 at the stage-A baseline, 352 when
 this cluster started — concurrent clusters are landing too).
+
+## 7. Frame/SLOT WRITE side landed (RD-P6C1-1/-2/-6/-8 — 2026-07-23)
+
+The WRITE side of the frame model is now live, EXTENDING the READ-side on-demand index (RD-P6C2-11,
+`Permanent.PermanentFrame.FrameID` = position in the owner's COMPACTED `GetFieldPermanents()` list). No slot
+array was ported; a frame id is that compacted-list index throughout.
+
+* **RD-P6C1-1 (frame WRITE)** — resolved. `PlayCardClass.SetBurst` stores `_burstTamerFrameID` bounded by the
+  compacted-list Count (tighter+exact vs the AS-IS fixed slot count); `PlayCardClass.BurstTamer` resolves
+  `GetFieldPermanents()[id]`; the jogress-target resolution (AS-IS :367-381) resolves both roots from the
+  compacted list. `SetJogress` was already live. The PlayPermanentClass jogress arm resolves roots the same way.
+* **RD-P6C1-2 (capacity checks)** — resolved (the cost engine `GetChangedCostItselef` had already landed at
+  R2-C). `CardSource.CanJogressFromTargetPermanents` (AS-IS CardSource.cs:2846) and
+  `CardSource.CanBurstDigivolutionFromTargetPermanent` (AS-IS :3211) are now real 1:1 INSTANCE methods on the
+  mirror CardSource (next to `OrderedPairs`); the two extension STOP stubs in CardController.cs are retired
+  (the App-Fusion precedent). PayCost=false is pure predicate; PayCost=true rides the live cost engine.
+* **RD-P6C1-6 (burst play-flow + turn-end trash)** — resolved. The `IsBurst` play-flow caller now runs
+  `GManager.instance.GetComponent<SelectBurstDigivolutionEffect>().BounceTamer(BurstTamer(card))` + the
+  `!TamerBounced` `SelectCost()` retry (context-cached component = the AS-IS singleton, LinkAdded/TamerBounced
+  idiom); the burst turn-end trash calls the landed `AddTrashTopCardAtTurnEnd(permanent)`.
+* **PreferredFrame ADAPTATION** (AS-IS CardSource.cs:2290) — NOT ported. AS-IS picks an empty battle slot by Unity
+  CANVAS GEOMETRY (`Frame.transform.parent.localPosition` + a hardcoded UI order). In the compacted-list model a
+  new permanent is APPENDED and its frame id is read back on demand; the geometry only chose which *physical*
+  slot the card visually occupied — never observable in game state (battle/breeding is answered by ZONE
+  MEMBERSHIP; frame ids round-trip place→FrameID→resolve). PlayPermanentClass already replaced PreferredFrame
+  with `framePlaceable`/zone-append, so PreferredFrame has NO live caller. Documented adaptation, no invention.
+* **RD-P6C1-8** — the failed-play restore was already resolved (수리 배치 5); the only residual is the private
+  `CardObjectController.AddHandCard` single-card overload used by BlastDNADigivolution's latent else-branch.
+
+### Residual (NOT a frame seat)
+
+The jogress COLLAPSE cannot execute end-to-end because of `Permanent.DiscardEvoRoots(putToTrash:false)`
+(Permanent.cs:3853) = **MIG4-DISCARDEVOROOTS-PUTTOTRASH**, the bare detach-without-trash of the evo sources
+shared by EVERY jogress collapse. The frame-WRITE jogress path resolves both roots, passes the capacity gate,
+and hands off to the collapse executor — stopping only at that MIG4 leaf (witnessed). `BlastDNADigivolution:294`
+stays STOP for the same reason (its latent body would throw at the MIG4 leaf); its STOP evidence was refreshed.
+
+### Witnesses (tests/FRAME-Write.Witness.Tests, 5/5)
+
+CanJogressFromTargetPermanents (BT16_025 Blue-Lv4+Green-Lv4 pos + negatives); CanBurstDigivolutionFromTarget-
+Permanent (BT25_104 ShineGreymon+Marcus pos + no-tamer/wrong-digimon negatives); jogress WRITE reaches the MIG4
+detach leaf with both roots resolved; **burst WRITE end-to-end** (SetBurst→BurstTamer→BounceTamer bounces Marcus
+→burstDigivolved→BT25_104 over ShineGreymon IsBurstDigivolved + turn-end trash registered); the trash loop in
+isolation. DIGEST bit-identical (seed decks carry no jogress/burst cards).

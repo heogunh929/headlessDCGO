@@ -2825,17 +2825,17 @@ public class PlayCardClass
         }
     }
 
-    // AS-IS :144-150. The AS-IS guard tail `&& BurstTamerFrameID <= card.Owner.fieldCardFrames.Count - 1`
-    // needs the field-frame model — STOP RD-P6C1-1 (a negative id = the AS-IS not-set fallthrough, kept).
+    // AS-IS :144-150. FRAME ADAPTATION (RD-P6C1-1 RESOLVED): AS-IS bounds the id against the FIXED per-player slot
+    // count (`card.Owner.fieldCardFrames.Count`); the mirror has no slot array. A burst-tamer frame id is a
+    // Permanent.PermanentFrame.FrameID, i.e. an index into the owner's COMPACTED field-permanent list
+    // (Permanent.cs:118-135, the established READ-side no-slot-model idiom RD-P6C2-11), so the bound is that list's
+    // Count — tighter than AS-IS and exact: every in-range id references an occupied frame. An out-of-range id is the
+    // AS-IS not-set fallthrough (kept: BurstTamer then returns null ⇒ IsBurst false on ordinary plays).
     public void SetBurst(int BurstTamerFrameID, CardSource card)
     {
-        if (0 <= BurstTamerFrameID)
+        if (0 <= BurstTamerFrameID && BurstTamerFrameID <= new Player(card.Context, card.Owner).GetFieldPermanents().Count - 1)
         {
-            // AS-IS: if (0 <= BurstTamerFrameID && BurstTamerFrameID <= card.Owner.fieldCardFrames.Count - 1)
-            //            _burstTamerFrameID = BurstTamerFrameID;
-            throw new NotSupportedException(
-                "STOP: SetBurst needs the field-frame model (AS-IS Player.fieldCardFrames) — no mirror " +
-                "frame/slot model exists (design item RD-P6C1-1, docs/audit/rebuild_p6_cluster1_notes.md).");
+            _burstTamerFrameID = BurstTamerFrameID;
         }
     }
 
@@ -2938,20 +2938,19 @@ public class PlayCardClass
         return false;
     }
 
-    // AS-IS :239-249. The frame lookup (`card.Owner.fieldCardFrames[_burstTamerFrameID].GetFramePermanent()`)
-    // needs the frame model — STOP RD-P6C1-1. `_burstTamerFrameID < 0` (never SetBurst) = the AS-IS null
-    // fallthrough, kept — the only reachable path until RD-P6C1-1 lands (SetBurst itself STOPs).
+    // AS-IS :239-249. FRAME ADAPTATION (RD-P6C1-1 RESOLVED): `card.Owner.fieldCardFrames[_burstTamerFrameID]
+    // .GetFramePermanent()` → the occupant at that index of the owner's COMPACTED field-permanent list (the same
+    // Permanent.PermanentFrame convention SetBurst stores against). `_burstTamerFrameID < 0` (never SetBurst) = the
+    // AS-IS null fallthrough.
     Permanent BurstTamer(CardSource card)
     {
-        _ = card;
+        List<Permanent> fieldPermanents = new Player(card.Context, card.Owner).GetFieldPermanents();
 
-        if (0 <= _burstTamerFrameID)
+        if (0 <= _burstTamerFrameID && _burstTamerFrameID <= fieldPermanents.Count - 1)
         {
-            // AS-IS: if (0 <= _burstTamerFrameID && _burstTamerFrameID <= card.Owner.fieldCardFrames.Count - 1)
-            //        { Permanent tamer = card.Owner.fieldCardFrames[_burstTamerFrameID].GetFramePermanent(); return tamer; }
-            throw new NotSupportedException(
-                "STOP: BurstTamer needs the field-frame model (AS-IS Player.fieldCardFrames[i].GetFramePermanent) " +
-                "— design item RD-P6C1-1, docs/audit/rebuild_p6_cluster1_notes.md.");
+            Permanent tamer = fieldPermanents[_burstTamerFrameID];
+
+            return tamer;
         }
 
         return null;
@@ -3087,13 +3086,23 @@ public class PlayCardClass
                 }
                 else
                 {
-                    // AS-IS :377-392: resolve the two jogress evolution roots from
-                    // `card.Owner.fieldCardFrames[JogressFrameID].GetFramePermanent()` (+ the
-                    // SetPermanentIndexText display loop = UI) — the frame model has no mirror: STOP RD-P6C1-1.
-                    throw new NotSupportedException(
-                        "STOP: jogress target resolution needs the field-frame model (AS-IS " +
-                        "Player.fieldCardFrames[JogressFrameID].GetFramePermanent) — design item RD-P6C1-1, " +
-                        "docs/audit/rebuild_p6_cluster1_notes.md.");
+                    // AS-IS :367-381 (RD-P6C1-1 RESOLVED): resolve the two jogress evolution roots from
+                    // `card.Owner.fieldCardFrames[JogressFrameID].GetFramePermanent()`. FRAME ADAPTATION: a jogress
+                    // frame id is a Permanent.PermanentFrame.FrameID = an index into the owner's COMPACTED
+                    // field-permanent list (Permanent.cs:118-135) — the same currency PlayPermanentClass's jogress
+                    // arm consumes (CardController.cs:3969-3984). The AS-IS SetPermanentIndexText(:378-381) display
+                    // loop is UI (adaptation (4), stripped).
+                    List<Permanent> ownerField = new Player(card.Context, card.Owner).GetFieldPermanents();
+                    for (int i = 0; i < _jogressEvoRootsFrameIDs.Length; i++)
+                    {
+                        int JogressFrameID = _jogressEvoRootsFrameIDs[i];
+
+                        if (0 <= JogressFrameID && JogressFrameID <= ownerField.Count - 1)
+                        {
+                            Permanent targetPermanent = ownerField[JogressFrameID];
+                            targetPermanents.Add(targetPermanent);
+                        }
+                    }
                 }
             }
 
@@ -3428,18 +3437,28 @@ public class PlayCardClass
 
             if (IsBurst(card))
             {
-                // AS-IS :770-786: `yield return ... GManager.instance.selectBurstDigivolutionEffect.BounceTamer(
-                // BurstTamer(card));` then the `!TamerBounced` retry (`_burstTamerFrameID = -1; SelectCost();`)
-                // else `burstDigivolved = true;`. The bounce METHOD itself is now mirrored 1:1
-                // (SelectBurstDigivolutionEffect.BounceTamer, RD-R5-02 landed 2026-07-20; SelectTamer RD-R5-01 /
-                // AddTrashTopCardAtTurnEnd RD-R5-03 also landed). The REMAINING blocker of THIS play-flow caller is
-                // RD-P6C1-6: the burst frame resolver `BurstTamer(card)` (needs SetBurst/burst-frame-id, RD-P6C1-1)
-                // and the `!TamerBounced` retry -> SelectCost re-entry are not wired. Unreachable today — IsBurst()
-                // needs a burst frame id that SetBurst/BurstTamer STOP first (RD-P6C1-1). Multi-block seat KEPT.
-                throw new NotSupportedException(
-                    "STOP: Burst digivolution play-flow caller (AS-IS CardController.cs:770-786 BurstTamer frame " +
-                    "resolver + !TamerBounced retry) — design item RD-P6C1-6, docs/audit/rebuild_p6_cluster1_notes.md. " +
-                    "(SelectBurstDigivolutionEffect.BounceTamer/SelectTamer are mirrored; RD-P6C1-1 SetBurst is the gate.)");
+                // AS-IS :767-781 (RD-P6C1-6 RESOLVED): `GManager.instance.selectBurstDigivolutionEffect.BounceTamer(
+                // BurstTamer(card))` then the `!TamerBounced` retry (`_burstTamerFrameID = -1; SelectCost();`) else
+                // `burstDigivolved = true;`. All parts are now live: BurstTamer resolves the tamer frame (RD-P6C1-1
+                // above), the bounce METHOD is mirrored 1:1 (SelectBurstDigivolutionEffect.BounceTamer, RD-R5-02),
+                // SelectCost is the mirror re-entry. `GManager.instance.selectBurstDigivolutionEffect` → the
+                // match-scoped mirror component via `GManager.instance.GetComponent<SelectBurstDigivolutionEffect>()`
+                // (context-cached: the SAME instance across the two accesses, so TamerBounced is the flag BounceTamer
+                // just set — the SelectAppFusionEffect.LinkAdded idiom directly below).
+                SelectBurstDigivolutionEffect selectBurst = GManager.instance.GetComponent<SelectBurstDigivolutionEffect>();
+
+                await selectBurst.BounceTamer(BurstTamer(card)).ConfigureAwait(false);
+
+                if (!selectBurst.TamerBounced)
+                {
+                    _burstTamerFrameID = -1;
+
+                    await SelectCost().ConfigureAwait(false);
+                }
+                else
+                {
+                    burstDigivolved = true;
+                }
             }
 
             #endregion
@@ -4066,12 +4085,12 @@ public class PlayPermanentClass
                         {
                             permanent.IsBurstDigivolved = true;
 
-                            // AS-IS :1536 selectBurstDigivolutionEffect.AddTrashTopCardAtTurnEnd — the burst
-                            // component STOPs (RD-P6C1-6); unreachable: SetBurstDigivolved is only set by the
-                            // burst play path, which STOPs upstream (PlayCardClass RD-P6C1-1/6).
-                            throw new NotSupportedException(
-                                "STOP: Burst turn-end trash registration (AS-IS selectBurstDigivolutionEffect." +
-                                "AddTrashTopCardAtTurnEnd) has no mirror — design item RD-P6C1-6.");
+                            // AS-IS :1537 (RD-P6C1-6 RESOLVED): `GManager.instance.selectBurstDigivolutionEffect.
+                            // AddTrashTopCardAtTurnEnd(permanent)` — registers the OnEndTurn ace-overflow+trash of the
+                            // burst top card. The mirror component method is landed 1:1 (RD-R5-03,
+                            // SelectBurstDigivolutionEffect.cs:349); the singleton `selectBurstDigivolutionEffect` →
+                            // the match-scoped `GManager.instance.GetComponent<SelectBurstDigivolutionEffect>()`.
+                            GManager.instance.GetComponent<SelectBurstDigivolutionEffect>().AddTrashTopCardAtTurnEnd(permanent);
                         }
                     }
 
@@ -4548,30 +4567,14 @@ public static class CardSourceAsIsPlayAccessors
     // 1:1 instance method on CardSource (CardSource.cs, R2-C). `card.GetPayingCostWithBaseCost(...)` calls here
     // resolve to that instance method.
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.CanJogressFromTargetPermanents(targetPermanents, PayCost)</c>
-    /// (CardSource.cs:2846). STOP: RD-P6C1-2.</summary>
-    public static bool CanJogressFromTargetPermanents(this CardSource card, List<Permanent> targetPermanents, bool PayCost)
-    {
-        _ = card;
-        _ = targetPermanents;
-        _ = PayCost;
-        throw new NotSupportedException(
-            "STOP: CardSource.CanJogressFromTargetPermanents (AS-IS CardSource.cs:2846) — the AS-IS jogress " +
-            "requirement/cost check has no mirror (design item RD-P6C1-2, docs/audit/rebuild_p6_cluster1_notes.md).");
-    }
+    // (P6C1 — RD-P6C1-2 RESOLVED) The AS-IS CardSource.CanJogressFromTargetPermanents STOP extension stub is retired
+    // — it is now the real 1:1 instance method on the mirror CardSource (CardSource.cs, right after OrderedPairs).
+    // `card.CanJogressFromTargetPermanents(...)` call sites resolve to that instance method (its cost-engine
+    // dependency GetChangedCostItselef, consumed inside CanPlayJogress only when PayCost, landed at R2-C).
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.CanBurstDigivolutionFromTargetPermanent(targetPermanent, PayCost)</c>
-    /// (CardSource.cs:3211). STOP: RD-P6C1-2.</summary>
-    public static bool CanBurstDigivolutionFromTargetPermanent(this CardSource card, Permanent targetPermanent, bool PayCost)
-    {
-        _ = card;
-        _ = targetPermanent;
-        _ = PayCost;
-        throw new NotSupportedException(
-            "STOP: CardSource.CanBurstDigivolutionFromTargetPermanent (AS-IS CardSource.cs:3211) — the AS-IS " +
-            "burst-digivolution requirement/cost check has no mirror (design item RD-P6C1-2, " +
-            "docs/audit/rebuild_p6_cluster1_notes.md).");
-    }
+    // (P6C1 — RD-P6C1-2 RESOLVED) The AS-IS CardSource.CanBurstDigivolutionFromTargetPermanent STOP extension stub is
+    // retired — it is now the real 1:1 instance method on the mirror CardSource (CardSource.cs, next to the Jogress
+    // sibling). `card.CanBurstDigivolutionFromTargetPermanent(...)` call sites resolve to that instance method.
 
     // (G-AppF / RD-EXT3-02) The AS-IS CardSource.CanAppFusionFromTargetPermanent STOP extension stub is retired
     // — it is now the real 1:1 instance method on the mirror CardSource (CardSource.cs, right after
