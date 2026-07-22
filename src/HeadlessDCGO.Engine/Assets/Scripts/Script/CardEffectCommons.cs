@@ -3011,20 +3011,24 @@ public static partial class CardEffectCommons
     }
 
     /// <summary>AS-IS <c>GainCanNotAttack</c> (GiveEffect/GiveEffectToPermanent/CanNotAttack.cs:10) —
-    /// <paramref name="defenderCondition"/> narrows WHICH defenders this permanent cannot attack.</summary>
+    /// <paramref name="defenderCondition"/> narrows WHICH defenders this permanent cannot attack.
+    /// (J-1) CardSource-only substrate entry: routes to the AS-IS 1:1 body (home file) with the cause collapsed
+    /// to <see cref="BareCauseEffect"/> (this signature carries no live <c>activateClass</c>).</summary>
     public static bool GainCanNotAttack(
         Permanent? targetPermanent, Func<Permanent, bool>? defenderCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't attack") =>
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotAttackKey, "gainCanNotAttack", defenderCondition);
+        GainCanNotAttackImpl(targetPermanent, defenderCondition, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
 
     /// <summary>AS-IS <c>GainCanNotBlock</c> (…/CanNotBlock.cs:10) — <paramref name="attackerCondition"/>
-    /// narrows WHICH attackers this permanent cannot block.</summary>
+    /// narrows WHICH attackers this permanent cannot block.
+    /// (J-1) CardSource-only substrate entry: routes to the AS-IS 1:1 body with the cause collapsed to
+    /// <see cref="BareCauseEffect"/>.</summary>
     public static bool GainCanNotBlock(
         Permanent? targetPermanent, Func<Permanent, bool>? attackerCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't block") =>
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotBlockKey, "gainCanNotBlock", attackerCondition);
+        GainCanNotBlockImpl(targetPermanent, attackerCondition, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
 
     /// <summary>AS-IS <c>GainCanNotBeAttacked</c> (…/CanNotBeAttacked.cs:10).</summary>
     public static bool GainCanNotBeAttacked(
@@ -3183,18 +3187,16 @@ public static partial class CardEffectCommons
             valueKey: RestrictionHelpers.CannotSuspendKey, value: true);
     }
 
-    /// <summary>AS-IS <c>GainCanNotAttackPlayerEffect</c> (GiveEffectToPlayer/CanNotAttack.cs:10, verbatim):
-    /// the ATTACKER filter rides the scope predicate; the DEFENDER filter rides the joint counterpart predicate.</summary>
+    /// <summary>AS-IS <c>GainCanNotAttackPlayerEffect</c> (GiveEffectToPlayer/CanNotAttack.cs:10, verbatim).
+    /// (J-1) CardSource-only substrate entry: routes to the AS-IS 1:1 body (home file) — the owning player's
+    /// duration bucket gets the <c>CanNotAttackTargetDefendingPermanentClass</c> whose AttackerCondition folds the
+    /// battle-area + <c>!CanNotBeAffected</c> + caller filter — with the cause collapsed to
+    /// <see cref="BareCauseEffect"/> (this signature carries no live <c>activateClass</c>).</summary>
     public static bool GainCanNotAttackPlayerEffect(
         Func<Permanent, bool>? attackerCondition, Func<Permanent, bool>? defenderCondition,
-        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't attack")
-    {
-        Func<CardSource, bool>? defenderPredicate = defenderCondition is null
-            ? null
-            : cs => defenderCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner));
-        return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotAttackPlayer", attackerCondition,
-            valueKey: RestrictionHelpers.CannotAttackKey, value: true, counterpartPredicate: defenderPredicate);
-    }
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't attack") =>
+        GainCanNotAttackPlayerEffectImpl(attackerCondition, defenderCondition, effectDuration,
+            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
 
     /// <summary>AS-IS <c>GainCanNotBlockPlayerEffect</c> (GiveEffectToPlayer/CanNotBlock.cs:10).</summary>
     public static bool GainCanNotBlockPlayerEffect(

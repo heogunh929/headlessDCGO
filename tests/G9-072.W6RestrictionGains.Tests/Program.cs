@@ -117,6 +117,12 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 972);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (J-1) Restrictions now surface through the AS-IS interface reader (Permanent.CanAttackTargetDigimon /
+    // CanBlock, via ICardEffect.CanUse), which gates on DoneStartGame (phase past None) exactly as AS-IS.
+    // The former registry scaffold read a raw live-condition binding that bypassed CanUse, so this harness left
+    // the phase at None. Start the game like every other interface-scan restriction harness (cf.
+    // G9-022.CanNotDigivolve) so a granted restriction is actually evaluated.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
