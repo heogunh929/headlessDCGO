@@ -138,19 +138,14 @@ public static class DeletionReplacementGate
     // (M-4) Same seal as Decoy for the other deletion-replacement keywords: the metadata flag is only ever set
     // in tests, and there is no keyword->metadata bridge, so the live keyword grant (Fragment/Scapegoat/Save)
     // must be recognised here for the mechanism to fire in production.
-    // (RD-P6B-14 RESOLVED) This method (and every caller up through DeletionReplacementTiming.PreOptions) has
-    // no EngineContext parameter to thread — only an EffectRegistry — so it could previously reach ONLY
-    // ContinuousKeywordGate.HasKeyword(EffectRegistry,…) (the pure-legacy-registry overload), never the
-    // EngineContext-aware union that also consults NewModelContinuousScan.HasKeyword (a ported new-model
-    // keyword kind-class registers no binding, so the registry-only overload can never see it). Reach that
-    // union WITHOUT threading a context parameter through every call site (out of this pass's touch scope —
-    // DeletionReplacementTiming.cs is not a *Gate.cs file) via AmbientMatchContext.Current — the same
-    // AsyncLocal handle NewModelContinuousScan's own methods self-scope from, and the substrate's designed
-    // "GManager.instance without parameter-threading" mechanism. A caller that already entered the match's
-    // ambient scope (real gameplay, or a test that does so explicitly) is covered for free.
+    // (RC-5) The registry-only ContinuousKeywordGate.HasKeyword(EffectRegistry,…) overload is retired
+    // (keyword-binding producer 0). The live keyword state is the EngineContext-aware AS-IS interface scan,
+    // reached here WITHOUT threading a context parameter through every call site (out of this pass's touch
+    // scope — DeletionReplacementTiming.cs is not a *Gate.cs file) via AmbientMatchContext.Current — the same
+    // AsyncLocal handle NewModelContinuousScan's own methods self-scope from. A caller that already entered the
+    // match's ambient scope (real gameplay, or a test that does so explicitly) is covered for free.
     internal static bool HasReplacementKeyword(CardInstanceRecord record, string metadataFlag, string keyword, EffectRegistry? effectRegistry) =>
         ReadFlag(record.Metadata, metadataFlag)
-        || (effectRegistry is not null && ContinuousKeywordGate.HasKeyword(effectRegistry, record.InstanceId, keyword))
         || (AmbientMatchContext.Current is EngineContext ambient && ContinuousKeywordGate.HasKeyword(ambient, record.InstanceId, keyword));
 
 

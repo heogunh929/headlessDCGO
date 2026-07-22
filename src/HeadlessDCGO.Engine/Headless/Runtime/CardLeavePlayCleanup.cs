@@ -119,43 +119,18 @@ public static class CardLeavePlayCleanup
             (ContinuousKeywordGate.ArmorPurge, DeletionReplacementGate.HasArmorPurgeKey),
         })
         {
-            bool has = context is not null
-                ? ContinuousKeywordGate.HasKeyword(context, cardId, keyword)
-                : ContinuousKeywordGate.HasKeyword(effectRegistry, cardId, keyword);
+            // (RC-5) context-only: the registry-only HasKeyword fallback is retired (keyword-binding producer 0);
+            // the live keyword state is the AS-IS interface scan reached through the EngineContext overload.
+            bool has = context is not null && ContinuousKeywordGate.HasKeyword(context, cardId, keyword);
             if (has)
             {
                 metadata[flagKey] = true;
             }
         }
 
-        // Partition's stored per-card colour groups travel with the snapshot (the grant binding is dropped).
-        foreach (EffectBinding binding in effectRegistry.GetKeywordEffects(ContinuousKeywordGate.Partition))
-        {
-            EffectContext bindingContext = binding.Request.Context;
-            if ((bindingContext.SourceEntityId == cardId || bindingContext.TargetEntityIds.Contains(cardId))
-                && bindingContext.Values.TryGetValue(
-                    Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition.PartitionConditionsKey, out object? raw)
-                && raw is not null)
-            {
-                metadata[Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition.PartitionConditionsKey] = raw;
-                break;
-            }
-        }
-
-        // (C-1 witness) Decode's stored per-card sourceCondition (BT19_024 Blue Lv.4) travels with the snapshot
-        // too — the PRE candidate filter reads it after the grant binding is dropped at leave-play.
-        foreach (EffectBinding binding in effectRegistry.GetKeywordEffects(ContinuousKeywordGate.Decode))
-        {
-            EffectContext bindingContext = binding.Request.Context;
-            if ((bindingContext.SourceEntityId == cardId || bindingContext.TargetEntityIds.Contains(cardId))
-                && bindingContext.Values.TryGetValue(
-                    Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Decode.DecodeSourceConditionKey, out object? decodeRaw)
-                && decodeRaw is not null)
-            {
-                metadata[Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Decode.DecodeSourceConditionKey] = decodeRaw;
-                break;
-            }
-        }
+        // (RC-5) The Partition colour-group / Decode sourceCondition binding-metadata snapshot loops are RETIRED:
+        // no keyword binding exists (producer 0), so there is nothing to copy. The live Partition/Decode data path
+        // is the printed/granted ActivateClass collected by the PRE cut-in window (design item RD-RC-03).
     }
 
     /// <summary>(R2-P1-3) The AS-IS record-parameters step (CardController.cs:3762-3783), 1:1 per field:

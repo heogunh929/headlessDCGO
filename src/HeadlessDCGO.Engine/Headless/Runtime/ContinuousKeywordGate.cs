@@ -87,68 +87,24 @@ public static class ContinuousKeywordGate
     // card-type-aware consumers migrate separately (latent, same bar as MindLink).
     public const string TreatAsDigimon = "TreatAsDigimon";
 
-    /// <summary>True if an active self-static <paramref name="keyword"/> binding in the registry is sourced
-    /// from (or targets) <paramref name="cardId"/>.</summary>
+    /// <summary>True if an active self-static <paramref name="keyword"/> is granted to <paramref name="cardId"/>,
+    /// via the AS-IS interface scan over the live <c>EffectList</c>
+    /// (<see cref="Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasKeyword"/> — the AS-IS
+    /// <c>Permanent.Has&lt;Keyword&gt;</c> chokepoint).
+    /// (RC-5) The EffectRegistry keyword registry-half is RETIRED (producer 0): no real card emits a keyword
+    /// binding — the only keyword funnel <c>GainAlliancePlayerEffect</c> → player-scope Alliance grant has 0 src
+    /// callers, and the KeywordBaseBatch1/2 / player-scope keyword effect classes are constructed only in test
+    /// projects. The live path is the AS-IS interface scan below (design item RD-RC-03).</summary>
     public static bool HasKeyword(EngineContext context, HeadlessEntityId cardId, string keyword)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (HasKeyword(context.EffectRegistry, cardId, keyword))
-        {
-            return true;
-        }
-
-        // (P6 STAGE B) UNION the new-model interface scan (AS-IS Permanent.Has<Keyword>): a ported keyword
-        // kind-class (BlockerClass:IBlockerEffect, the Jamming CanNotBeDestroyedByBattleClass, the Pierce
-        // ActivateClass, …) registers no keyword binding, so the interface scan over live EffectList(None) is
-        // its only path. Keywords with no ported continuous interface fall through to the player-scope binding
-        // check below (design item RD-P6B-2).
-        if (Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasKeyword(context, cardId, keyword))
-        {
-            return true;
-        }
-
-        // (PRIM-W2) a PLAYER-SCOPE keyword grant ("your Digimon gain <Blocker>") applies to any of the scoped
-        // player's cards (optionally CardType-narrowed). Additive over the direct self/target check.
-        if (cardId.IsEmpty || string.IsNullOrWhiteSpace(keyword)
-            || !context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null)
+        if (cardId.IsEmpty || string.IsNullOrWhiteSpace(keyword))
         {
             return false;
         }
 
-        CardRecord? card = context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) ? def : null;
-        foreach (EffectBinding binding in context.EffectRegistry.GetKeywordEffects(keyword))
-        {
-            IReadOnlyDictionary<string, object?> values = binding.Request.Context.Values;
-            if (values.TryGetValue(Effects.PlayerScopeContinuousHelpers.PlayerScopeKey, out object? scoped) && scoped is true
-                && ReadPlayerScopeId(values) == instance.OwnerId.Value
-                && Effects.PlayerScopeContinuousHelpers.ConditionMatches(values, card)
-                && KeywordConditionPasses(values)
-                && ScopePredicatePasses(context, values, cardId, instance.OwnerId))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasKeyword(context, cardId, keyword);
     }
-
-    private static int ReadPlayerScopeId(IReadOnlyDictionary<string, object?> values) =>
-        values.TryGetValue(Effects.PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? raw) && raw is int id ? id : -1;
-
-    // (FR-P1) honour a player-scope keyword grant's arbitrary per-permanent predicate (permanentCondition).
-    private static bool ScopePredicatePasses(EngineContext context, IReadOnlyDictionary<string, object?> values, HeadlessEntityId cardId, HeadlessPlayerId owner)
-    {
-        if (!values.TryGetValue(Effects.PlayerScopeContinuousHelpers.ScopePredicateKey, out object? raw)
-            || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
-        {
-            return true;
-        }
-
-        return predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, owner, owner));
-    }
-
-    private static bool KeywordConditionPasses(IReadOnlyDictionary<string, object?> values) =>
-        !values.TryGetValue(ContinuousScopeEvaluation.ConditionKey, out object? raw) || raw is not Func<bool> condition || condition();
 
     /// <summary>(K4) The AS-IS single chokepoint <c>Permanent.IsDigimon</c> (Permanent.cs:3438): a card is a
     /// Digimon when its printed CardType says so OR an active <c>ITreatAsDigimonEffect</c> accepts it —
@@ -185,41 +141,4 @@ public static class ContinuousKeywordGate
     /// protected-target predicate ("Decoy ([Bagra Army])"). AS-IS evaluates it live against the OTHER
     /// permanent being protected (Decoy.cs CanSelectPermanentCondition), not the keyword holder.</summary>
     public const string PermanentConditionKey = "keyword.permanentCondition";
-
-    /// <summary>Registry-only overload for consumers that hold an <see cref="EffectRegistry"/> but not the
-    /// full <see cref="EngineContext"/> (e.g. DeletionReplacementGate's context-less resolution methods).</summary>
-    public static bool HasKeyword(EffectRegistry registry, HeadlessEntityId cardId, string keyword)
-    {
-        ArgumentNullException.ThrowIfNull(registry);
-        if (cardId.IsEmpty || string.IsNullOrWhiteSpace(keyword))
-        {
-            return false;
-        }
-
-        foreach (EffectBinding binding in registry.GetKeywordEffects(keyword))
-        {
-            EffectContext effectContext = binding.Request.Context;
-            // (K1) a PLAYER-SCOPE grant's SourceEntityId is the GRANTING card, not a holder — it resolves
-            // only through the context-aware scoped path (scope player + predicate). Matching it here made
-            // the source card "have" the keyword while bypassing the scope predicate entirely.
-            if (effectContext.Values.TryGetValue(Effects.PlayerScopeContinuousHelpers.PlayerScopeKey, out object? scoped) && scoped is true)
-            {
-                continue;
-            }
-
-            // (C9) honour the grant's stored condition (AS-IS CanUseCondition, and the linked-effect gate)
-            // — a conditional self-keyword was previously always-on through this path.
-            if (!KeywordConditionPasses(effectContext.Values))
-            {
-                continue;
-            }
-
-            if (effectContext.SourceEntityId == cardId || effectContext.TargetEntityIds.Contains(cardId))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 }

@@ -289,10 +289,9 @@ public static partial class CardEffectFactory
 
     // (P4 KeyWord slice) GrantedReduceLinkCostClass moved to KeyWordEffects/Link.cs (AS-IS 1:1)
 
-    /// <summary>(PRIM-W3) <c>MindLink</c> — grants the MindLink keyword (Tamer↔Digimon link). Grant is live via
-    /// HasKeyword; the tamer-as-Digimon behavior consumer migrates separately (preemptive seal).</summary>
-    public static ICardEffect MindLinkSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.MindLink, isInheritedEffect, condition);
+    // (RC-5) MindLinkSelfEffect retired with SelfKeywordByNameEffect (test-only registry scaffolding; the AS-IS
+    // MindLink presence surface is the printed OnDeclaration ActivateClass read by Permanent.HasMindLink, and
+    // the real MindLink card EX11_070 runs the MindLinkClass process).
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:722 UseRequirements. Replaces the old
     // mirror-invented ContinuousSelfRestrictionEffect version. Verbatim (no substrate translation needed here).

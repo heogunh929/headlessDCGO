@@ -7,18 +7,21 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // PRIM-W3 (G9-037): the final W3 primitives.
-//  - MindLink: keyword grant (HasKeyword live; tamer-as-Digimon consumer latent).
 //  - ChangeSelfLinkMax / GrantedReduceLinkCost: continuous link modifiers registered under the modifier
 //    keys (queryable; link subsystem consumer latent).
 //  - UseRequirements: continuous ignore-color flag read by DigivolveAction (behavior-live).
 // Registration + carried intent are asserted via the continuous-effect query the consumers read.
+// (RC-5) The MindLink round-trip subtest is REMOVED: it asserted the invented registry surface
+// (MindLinkSelfEffect -> SelfKeywordByNameEffect keyword binding, read by the retired registry-half of
+// ContinuousKeywordGate.HasKeyword). The AS-IS MindLink presence surface is printed-only — an OnDeclaration
+// ActivateClass whose EffectDiscription contains "Mind Link" (Permanent.HasMindLink) with no grant factory —
+// and the real MindLink card EX11_070 runs the MindLinkClass process, witnessed by tests/G9-060.K5MindLink.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("MindLink -> HasKeyword(MindLink) live after grant", MindLink),
     ("ChangeSelfLinkMax +1 -> effective link max raised (ResolveLinkedMax)", LinkMax),
     ("GrantedReduceLinkCost 2 -> effective link cost lowered (ResolveLinkCost)", LinkCost),
     ("UseRequirements -> ignore-color active (read by the digivolve color gate)", UseReq),
@@ -35,18 +38,6 @@ if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} test(s) f
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 // --- Tests ---------------------------------------------------------------
-
-async Task MindLink()
-{
-    EngineContext context = Context();
-    var id = await Place(context, P1, "TAMER");
-    AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.MindLink), "absent before grant");
-    var mindLinkEffect = CardEffectFactory.MindLinkSelfEffect(false, new CardSource(context, id, P1), null);
-    if (!LegacyBindingBridge.TryToBinding(mindLinkEffect, $"ml:{id.Value}", out var mindLinkBinding) || mindLinkBinding is null)
-        throw new InvalidOperationException($"{mindLinkEffect.GetType().Name} has no ToBinding bridge.");
-    context.EffectRegistry.Register(mindLinkBinding);
-    AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.MindLink), "MindLink live after grant");
-}
 
 // SEAM (RD-P6B-16/17): ChangeLinkMaxClass / ChangeLinkCostClass / IgnoreColorConditionClass are new-model
 // kind-classes (IChangeLinkMaxEffect.GetLinkMax / IChangeLinkCostEffect.GetCost / IIgnoreColorConditionEffect.

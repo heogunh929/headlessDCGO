@@ -133,15 +133,21 @@ async Task ExecuteKeywordNormalAttackNoSelfDelete()
     used.Clear();
     HeadlessEntityId attacker = await Establish(match, P1, dp: 9000, suspended: false, flag: null);
     HeadlessEntityId defender = await Establish(match, P2, dp: 3000, suspended: true, flag: null);
-    // Grant Execute via the KEYWORD (ExecuteSelfEffect), NOT the deleteSelfAtEndOfAttack metadata flag.
-    // NOTE: CardEffectFactory.ExecuteSelfEffect returns an ActivateClass (ActivateICardEffect) — the AS-IS
-    // "Trigger effect of Execute" ACTIVATED primitive, which has no ToBinding and which
-    // CardEffectRegistrar.RegisterOnEnterPlay explicitly excludes from any registration. The live continuous
-    // Execute KEYWORD this test needs (read via ContinuousKeywordGate.HasKeyword) is the self-static-by-name
-    // primitive, SelfKeywordByNameEffect (ContinuousAndRestrictionEffects.cs).
-    match.Context.EffectRegistry.Register(
-        new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Execute, isInheritedEffect: false, condition: null)
-            .ToBinding($"exec:{attacker.Value}"));
+    // (RC-5 retarget) Grant Execute via the LIVE printed idiom, NOT the deleteSelfAtEndOfAttack metadata flag:
+    // CardEffectFactory.ExecuteSelfEffect (the AS-IS "Trigger effect of Execute" ActivateClass, EffectName
+    // "Execute") attached to the card's live effect list at its printed timing OnEndTurn — the surface
+    // NewModelContinuousScan.HasSelfEndTurnKeyword / ContinuousKeywordGate.HasKeyword reads (the former
+    // SelfKeywordByNameEffect registry binding is retired). Mirrors real cards (BT20_079 / TfxExecute).
+    var executeHolder = new CardSource(match.Context, attacker, P1);
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        executeHolder.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(
+            CardEffectFactory.ExecuteSelfEffect(isInheritedEffect: false, card: executeHolder, condition: null),
+            EffectTiming.OnEndTurn);
+    }
+
+    AssertTrue(ContinuousKeywordGate.HasKeyword(match.Context, attacker, ContinuousKeywordGate.Execute),
+        "precondition: the Execute keyword is live (interface scan)");
 
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
     await DriveAttackAsync(match);
@@ -162,15 +168,18 @@ async Task CollisionViaKeywordUnsealed()
     HeadlessEntityId attacker = await Establish(match, P1, dp: 6000, suspended: false, flag: null);
     HeadlessEntityId blocker = await Establish(match, P2, dp: 4000, suspended: false, flag: null);
 
-    // Grant Collision via the KEYWORD. NOTE: CardEffectFactory.CollisionStaticEffect returns a CollisionClass, a
-    // NEW-model kind-class (post-rebuild, no ToBinding/EffectRegistry bridge — stage-B RED,
-    // docs/audit/rebuild_p6_stageA_notes.md). The gate this test actually reads (BlockTiming.cs: "recognise the
-    // live Collision KEYWORD (CollisionSelfEffect -> SelfKeywordByNameEffect)" via
-    // ContinuousKeywordGate.HasKeyword(..., ContinuousKeywordGate.Collision)) is the self-static-by-name
-    // primitive, SelfKeywordByNameEffect — the same primitive already used for Raid/Execute above.
-    match.Context.EffectRegistry.Register(
-        new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Collision, isInheritedEffect: false, condition: null)
-            .ToBinding($"col:{attacker.Value}"));
+    // (RC-5 retarget) Grant Collision via the LIVE printed idiom: CardEffectFactory.CollisionSelfStaticEffect
+    // returns the AS-IS CollisionClass kind-class, attached to the attacker's live effect list at its printed
+    // timing OnCounterTiming — the surface NewModelContinuousScan.HasCollision / ContinuousKeywordGate.HasKeyword
+    // reads (the former SelfKeywordByNameEffect registry binding is retired).
+    var collisionHolder = new CardSource(match.Context, attacker, P1);
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        collisionHolder.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(
+            CardEffectFactory.CollisionSelfStaticEffect(isInheritedEffect: false, card: collisionHolder, condition: null),
+            EffectTiming.OnCounterTiming);
+    }
+
     AssertFalse(ReadFlag(match, attacker, BlockTiming.HasCollisionKey), "hasCollision metadata is NOT set (keyword-granted)");
 
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
@@ -191,9 +200,14 @@ async Task CollisionImmuneDefenderNotForced()
     HeadlessEntityId immune = await Establish(match, P2, dp: 4000, suspended: false, flag: null);
     HeadlessEntityId plain = await Establish(match, P2, dp: 4000, suspended: false, flag: null);
 
-    match.Context.EffectRegistry.Register(
-        new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Collision, isInheritedEffect: false, condition: null)
-            .ToBinding($"col:{attacker.Value}"));
+    // (RC-5 retarget) live CollisionClass attach at OnCounterTiming — same idiom as CollisionViaKeywordUnsealed.
+    var collisionHolder = new CardSource(match.Context, attacker, P1);
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        collisionHolder.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(
+            CardEffectFactory.CollisionSelfStaticEffect(isInheritedEffect: false, card: collisionHolder, condition: null),
+            EffectTiming.OnCounterTiming);
+    }
     // (R3-W3c-1) The immune defender cannot be affected by the OPPONENT's Digimon effects (AS-IS SkillCondition
     // shape, now Func<ICardEffect,bool> over the causing effect). The flipped CanNotAffectedStaticEffect returns a
     // new-model CanNotAffectedClass consumed by the LIVE CardSource.CanNotBeAffected scan (no registry) — attach it
@@ -396,10 +410,14 @@ static void AssertEqual<T>(T expected, T actual, string label)
     }
 }
 
-// (R3-W3c-1) attaches the built CanNotAffectedClass to a card's live effect list (the seam a ported card uses).
+// (R3-W3c-1) attaches a built kind-class to a card's live effect list (the seam a ported card uses).
+// (RC-5) optionally timing-keyed — a real card script branches on `timing` in CardEffects, so a keyword
+// kind-class surfaces only at its printed timing (Collision -> OnCounterTiming, Execute -> OnEndTurn).
 sealed class TestCardEntityEffect : CEntity_Effect
 {
     private readonly ICardEffect _effect;
-    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
-    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+    private readonly EffectTiming? _timing;
+    public TestCardEntityEffect(ICardEffect effect, EffectTiming? timing = null) { _effect = effect; _timing = timing; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) =>
+        _timing is null || _timing == timing ? new() { _effect } : new();
 }

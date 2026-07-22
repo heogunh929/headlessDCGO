@@ -3152,7 +3152,7 @@ public static partial class CardEffectCommons
     // GainToPlayerScope funnel (out of the 충실-7 grant scope).
     /// <summary>AS-IS <c>GainAlliancePlayerEffect</c> (KeyWordEffects/Alliance.cs:180).</summary>
     public static bool GainAlliancePlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainToPlayerScope(effectDuration, sourceCard, "gainAlliancePlayer", permanentCondition, keyword: ContinuousKeywordGate.Alliance);
+        throw new NotSupportedException("GainAlliancePlayerEffect: player-scope Alliance grant has no live reader after the keyword registry-half retirement (design item RD-RC-03) — rehome to the AS-IS player-bucket StaticEffect idiom when a caller appears.");
 
     /// <summary>AS-IS <c>GainCanNotUnsuspendPlayerEffect</c> (GiveEffectToPlayer/CanNotUnsuspend.cs:10,
     /// verbatim): <paramref name="isOnlyActivePhase"/> narrows to the turn player's permanents — headless
