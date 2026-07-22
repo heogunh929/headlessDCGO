@@ -1854,6 +1854,46 @@ public sealed class Permanent
         }
     }
 
+    /// <summary>AS-IS <c>Permanent.DigivolutionCardsColors</c> (Permanent.cs:3962-3990): the distinct colours
+    /// carried by this permanent's non-flipped digivolution cards (each card's <c>CardColors</c> and
+    /// <c>DualCardColors</c>). Substrate translation only: the mirror colour view is the string list, folded back
+    /// to the AS-IS <c>CardColor</c> enum via the established <see cref="CardSource.ToCardColorList"/>
+    /// reconciliation (CardSource.cs:188 — the mirror string values are exactly the enum names). Consumed by
+    /// e.g. AD1_013's ESS DP fold (<c>.Count</c>).</summary>
+    public List<CardColor> DigivolutionCardsColors
+    {
+        get
+        {
+            List<CardColor> cardColors = new List<CardColor>();
+
+            foreach (CardSource cardSource in DigivolutionCards)
+            {
+                if (cardSource.IsFlipped)
+                {
+                    continue;
+                }
+
+                foreach (CardColor cardColor in CardSource.ToCardColorList(cardSource.CardColors))
+                {
+                    if (!cardColors.Contains(cardColor))
+                    {
+                        cardColors.Add(cardColor);
+                    }
+                }
+
+                foreach (CardColor cardColor in CardSource.ToCardColorList(cardSource.DualCardColors))
+                {
+                    if (!cardColors.Contains(cardColor))
+                    {
+                        cardColors.Add(cardColor);
+                    }
+                }
+            }
+
+            return cardColors;
+        }
+    }
+
     /// <summary>(P6 stage A) AS-IS <c>Permanent.cardSources</c> (Permanent.cs:880) — ALL cards of this
     /// permanent: the top card, the digivolution sources AND the linked cards
     /// (AS-IS <c>DigivolutionCards = cardSources.Filter(c != TopCard &amp;&amp; !LinkedCards.Contains(c))</c>,
