@@ -916,6 +916,11 @@ public sealed class GameFlowProcessor
             entries.AddRange(Effects.SkillWindowSupply.ConvertEvent(context, gameEvent));
         }
 
+        // (L1 latent-repair) Collapse the per-card EVENT-BROADCAST entries (OnLoseSecurity / OnAddHand / OnDiscard*)
+        // that share a batch id into ONE window each, re-imposing the AS-IS one-StackSkillInfos-per-IReduceSecurity/
+        // IDiscard/IAddCardsToHand granularity (an uncapped anyone-reactor fires once per batch, not once per card).
+        entries = new List<Effects.SkillWindowSupplyEntry>(Effects.SkillWindowSupply.CollapseBatchWindows(entries));
+
         // Progress signal for RunToStable: any drained event OR any skill already inline-stacked at entry is work
         // (so the loop re-iterates); a pass with no events and an empty stack that resolves nothing returns 0 and
         // RunToStable settles. AutoProcessCheck itself may emit events (a resolved body mutating state), which the

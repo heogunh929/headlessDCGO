@@ -38,44 +38,42 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 // --- Tests ---------------------------------------------------------------
 
+// ST3_01/ST3_04 carry INHERITED (下段/継承) effects (SetIsInheritedEffect(true) AS-IS-verbatim), which the
+// membership split (Permanent.EffectList_ForCard) surfaces only when the card is a NON-flipped digivolution
+// SOURCE under a Digimon host — "this Digimon" then resolves to the HOST (PermanentOfThisCard). So the witness
+// is tucked as a source under host X (the InheritScan geometry), and the buff/memory reads off the host.
 async Task ST3_01_Live()
 {
     EngineContext context = Context();
-    var self = await PlaceDigimon(context, P1, "X", dp: 4000);
-    await PlaceDigimon(context, P2, "FOE", dp: 0);                // opponent at 0 DP -> will be swept
-    Register(context, new ST3_01(), "ST3_01", self);
+    var host = await PlaceHostWithInheritedSource(context, P1, "X", "ST3_01", hostDp: 4000);
+    await PlaceDigimon(context, P2, "FOE", dp: 0);                // opponent at 0 DP -> swept by the live pipeline
 
-    await DpZeroDeletionHelpers.SweepAsync(context, new[] { P1, P2 });
     await new GameFlowProcessor().RunToStableAsync(context);
 
-    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, self).DP, "self +1000 from the opponent's 0-DP delete");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, host).DP, "host +1000 from the opponent's 0-DP delete (inherited cross-card reactor)");
 }
 
 async Task ST3_01_OwnNoFire()
 {
     EngineContext context = Context();
-    var self = await PlaceDigimon(context, P1, "X", dp: 4000);
+    var host = await PlaceHostWithInheritedSource(context, P1, "X", "ST3_01", hostDp: 4000);
     await PlaceDigimon(context, P1, "MINE", dp: 0);              // OWN Digimon at 0 DP -> swept, but not opponent
-    Register(context, new ST3_01(), "ST3_01", self);
 
-    await DpZeroDeletionHelpers.SweepAsync(context, new[] { P1, P2 });
     await new GameFlowProcessor().RunToStableAsync(context);
 
-    AssertEqual(4000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, self).DP, "own deletion does not trigger (no buff)");
+    AssertEqual(4000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, host).DP, "own deletion does not trigger (no buff)");
 }
 
 async Task ST3_04_Live()
 {
     EngineContext context = Context();
-    var self = await PlaceDigimon(context, P1, "X", dp: 4000);
+    await PlaceHostWithInheritedSource(context, P1, "X", "ST3_04", hostDp: 4000);
     await PlaceDigimon(context, P2, "FOE", dp: 0);
-    Register(context, new ST3_04(), "ST3_04", self);
     context.MemoryController.Set(0);
 
-    await DpZeroDeletionHelpers.SweepAsync(context, new[] { P1, P2 });
     await new GameFlowProcessor().RunToStableAsync(context);
 
-    AssertEqual(1, context.MemoryController.Current.Current, "gained 1 memory from the opponent's 0-DP delete");
+    AssertEqual(1, context.MemoryController.Current.Current, "gained 1 memory from the opponent's 0-DP delete (inherited cross-card reactor)");
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -84,6 +82,7 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 1203);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     return context;
 }
 
@@ -98,8 +97,34 @@ async Task<HeadlessEntityId> PlaceDigimon(EngineContext context, HeadlessPlayerI
     return id;
 }
 
-void Register(EngineContext context, CEntity_Effect effect, string number, HeadlessEntityId source) =>
-    CardEffectRegistrar.RegisterOnEnterPlay(context, effect, number, new CardSource(context, source, P1));
+// Place host X (a plain Digimon top permanent) with an inherited-effect witness tucked underneath as a
+// non-flipped digivolution source (dispatched by class-name = card number, so its inherited CardEffects fold
+// into the host's EffectList via EffectList_ForCard). Returns the HOST id.
+async Task<HeadlessEntityId> PlaceHostWithInheritedSource(
+    EngineContext context, HeadlessPlayerId owner, string hostTag, string sourceCardNumber, int hostDp)
+{
+    CardDatabase cards = (CardDatabase)context.CardRepository;
+
+    var srcDef = new HeadlessEntityId($"DEF:{owner.Value}:{sourceCardNumber}src");
+    cards.Upsert(new CardRecord(srcDef, sourceCardNumber, $"{sourceCardNumber}src",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 2000 }, CardType: "Digimon"));
+    var source = new HeadlessEntityId($"{owner.Value}:src:{sourceCardNumber}");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(source, srcDef, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)));
+
+    var hostDef = new HeadlessEntityId($"DEF:{owner.Value}:{hostTag}");
+    cards.Upsert(new CardRecord(hostDef, hostTag, hostTag,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = hostDp }, CardType: "Digimon"));
+    var host = new HeadlessEntityId($"{owner.Value}:battle:{hostTag}");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(host, hostDef, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["dp"] = hostDp,
+            ["sourceIds"] = new[] { source.Value },
+        }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, host, ChoiceZone.None, ChoiceZone.BattleArea));
+    return host;
+}
 
 static void AssertEqual<T>(T expected, T actual, string label)
 {

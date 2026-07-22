@@ -77,7 +77,7 @@ async Task Bt15FiresOnOwnDigimonEffectHandAdd()
     var card = await ZoneCard(ctx, P1, "H1", ChoiceZone.Library);
 
     // isOptional "by suspending …" -> answer the optional yes (the effect's stable activation id).
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{self.Value}:ae")));
+    Enqueue(ctx, ChoiceResult.Select(self));
 
     // Effect-driven hand add: cause = a P1-owned DIGIMON source -> cause.Owner == owner && cause.IsDigimon.
     await ctx.ZoneMover.AddToHandAsync(P1, card, ctx.NextAddHandBatchId(), digimonSource);
@@ -95,7 +95,7 @@ async Task Bt15OpponentCauseRejected()
     ctx.MemoryController.Set(0);
     var card = await ZoneCard(ctx, P1, "H1", ChoiceZone.Library);
 
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{self.Value}:ae")));
+    Enqueue(ctx, ChoiceResult.Select(self));
 
     // The OPPONENT'S effect adds to P1's hand — cause.Owner (P2) != owner (P1) -> gate fails.
     await ctx.ZoneMover.AddToHandAsync(P1, card, ctx.NextAddHandBatchId(), foeSource);
@@ -112,7 +112,7 @@ async Task Bt15NonDigimonCauseRejected()
     ctx.MemoryController.Set(0);
     var card = await ZoneCard(ctx, P1, "H1", ChoiceZone.Library);
 
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{self.Value}:ae")));
+    Enqueue(ctx, ChoiceResult.Select(self));
 
     // The cause is owner-owned but NOT a Digimon effect -> cause.IsDigimon false -> gate fails.
     await ctx.ZoneMover.AddToHandAsync(P1, card, ctx.NextAddHandBatchId(), tamerSource);
@@ -128,7 +128,7 @@ async Task Bt15NonEffectRejected()
     ctx.MemoryController.Set(0);
     var card = await ZoneCard(ctx, P1, "H1", ChoiceZone.Library);
 
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{self.Value}:ae")));
+    Enqueue(ctx, ChoiceResult.Select(self));
 
     // A NON-effect hand add: no cause id -> the AS-IS CardEffect==null rejection.
     await ctx.ZoneMover.AddToHandAsync(P1, card, ctx.NextAddHandBatchId(), causeEffectId: null);
@@ -144,7 +144,7 @@ async Task Bt8FiresOnOwnSecurityAdd()
     ctx.MemoryController.Set(0);
     var card = await ZoneCard(ctx, P1, "S1", ChoiceZone.Library);
 
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{self.Value}:ae")));
+    Enqueue(ctx, ChoiceResult.Select(self));
 
     // A card is added to P1's security (no cause needed for OnAddSecurity).
     await ctx.ZoneMover.AddToSecurityAsync(P1, card, faceUp: false);
@@ -161,7 +161,7 @@ async Task Bt8OpponentSecurityRejected()
     ctx.MemoryController.Set(0);
     var card = await ZoneCard(ctx, P2, "S2", ChoiceZone.Library);
 
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{self.Value}:ae")));
+    Enqueue(ctx, ChoiceResult.Select(self));
 
     // A card is added to the OPPONENT'S security — player (P2) != owner (P1) -> no fire.
     await ctx.ZoneMover.AddToSecurityAsync(P2, card, faceUp: false);
@@ -431,6 +431,7 @@ EngineContext Setup(int seed)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: seed);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     return ctx;
 }
 
@@ -475,7 +476,12 @@ async Task SinkFlush(EngineContext ctx, Action<MatchStateMutationSink> build)
         ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
         ctx.GameEventQueue, context: ctx);
     build(sink);
-    await sink.FlushAsync();
+    // (harness) the sink's DrawClass.Draw emits its OnDraw window via GManager.instance.autoProcessing, which
+    // resolves off the ambient match scope — flush under an Enter scope exactly as the RunToStable loop does.
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        await sink.FlushAsync();
+    }
 }
 
 // Drive RunToStable to a fixpoint, answering any WindowChoice by selecting its first candidate; returns the NUMBER

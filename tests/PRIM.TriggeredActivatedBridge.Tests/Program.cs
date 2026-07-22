@@ -49,6 +49,7 @@ async Task DrawsOnDeclaration()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 5);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     var cards = (HeadlessDCGO.Engine.Headless.DataLoading.CardDatabase)ctx.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxWhenDeclareDraw"), "TfxWhenDeclareDraw", "WD", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
     var attacker = new HeadlessEntityId("1:battle:WD");
@@ -81,7 +82,8 @@ async Task ScopedToSubject()
 async Task EndTurnDraw()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 3);
-    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);   // P1's turn
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase   // P1's turn
     var cards = (CardDatabase)ctx.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxEndTurnDraw"), "TfxEndTurnDraw", "ET", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
     var mine = new HeadlessEntityId("1:battle:MINE");
@@ -103,6 +105,7 @@ async Task UnsuspendOncePerTurn()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 4);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     var cards = (CardDatabase)ctx.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxUnsuspendDraw"), "TfxUnsuspendDraw", "U", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
     var sub = new HeadlessEntityId("1:battle:SUB");
@@ -129,7 +132,7 @@ async Task BroadcastDigiTrashFires()
     // subject = host + discardedCardIds metadata), then let auto-processing bridge it.
     int trashed = await DigivolutionStackHelpers.TrashSourcesAsync(
         ctx.CardInstanceRepository, ctx.ZoneMover, host, 1, fromBottom: true,
-        cancellationToken: default, gameEventQueue: ctx.GameEventQueue);
+        cancellationToken: default, gameEventQueue: ctx.GameEventQueue, context: ctx);
     AssertEqual(1, trashed, "one digivolution source trashed off the host");
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before + 1, HandCount(ctx, P1), "the non-subject listener's draw fired via the event-broadcast bridge");
@@ -142,7 +145,7 @@ async Task BroadcastDigiTrashGateScopes()
     // The host is the LISTENER'S OWN Digimon — the opponent-scope gate must reject it.
     int trashed = await DigivolutionStackHelpers.TrashSourcesAsync(
         ctx.CardInstanceRepository, ctx.ZoneMover, host, 1, fromBottom: true,
-        cancellationToken: default, gameEventQueue: ctx.GameEventQueue);
+        cancellationToken: default, gameEventQueue: ctx.GameEventQueue, context: ctx);
     AssertEqual(1, trashed, "one digivolution source trashed off the host");
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before, HandCount(ctx, P1), "own host's trash did NOT pass the opponent-scope gate");
@@ -153,6 +156,7 @@ async Task<(EngineContext Ctx, HeadlessEntityId Host)> SetupDigiTrash(HeadlessPl
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 7);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     var cards = (CardDatabase)ctx.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxDigiTrashDraw"), "TfxDigiTrashDraw", "DT", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
     var listener = new HeadlessEntityId("1:battle:LIS");
@@ -205,6 +209,7 @@ async Task<(EngineContext Ctx, HeadlessEntityId Winner, HeadlessEntityId Loser)>
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 11);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     var cards = (CardDatabase)ctx.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxWinBattleDraw"), "TfxWinBattleDraw", "WB", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
     cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:LOSE"), "LOSE", "LO", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
@@ -227,7 +232,8 @@ async Task<(EngineContext Ctx, HeadlessEntityId Winner, HeadlessEntityId Loser)>
 async Task BroadcastOppSuspendFires()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 12);
-    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);   // P1's turn
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase   // P1's turn
     ctx.MemoryController.Initialize(0);
     var cards = (CardDatabase)ctx.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxOppSuspendMemory"), "TfxOppSuspendMemory", "OS", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Tamer"));
@@ -252,6 +258,7 @@ async Task<EngineContext> Setup()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 9);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     var cards = (CardDatabase)ctx.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxWhenAttackDraw"), "TfxWhenAttackDraw", "Atk", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(Attacker, new HeadlessEntityId("TfxWhenAttackDraw"), P1, Metadata: new Dictionary<string, object?>()));

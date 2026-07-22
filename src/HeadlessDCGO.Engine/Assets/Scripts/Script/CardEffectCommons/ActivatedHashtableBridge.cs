@@ -342,7 +342,20 @@ public static class ActivatedHashtableBridge
                 var id = new HeadlessEntityId(value);
                 HeadlessPlayerId owner = OwnerOf(context, id, default);
                 var stub = new CauseStubEffect();
-                stub.SetEffectSourceCard(new CardSource(context, id, owner, owner));
+                // A CardSource requires a non-empty controller — an unresolvable cause (no live instance, hence no
+                // owner) yields a SOURCE-LESS cause (matching BareCauseEffect.For), preserving the non-null
+                // CardEffect the gates test without asserting on an empty owner.
+                if (!owner.IsEmpty)
+                {
+                    var source = new CardSource(context, id, owner, owner);
+                    stub.SetEffectSourceCard(source);
+                    // (L1) AS-IS the causing effect is the SOURCE card's own effect, so its IsDigimonEffect /
+                    // IsTamerEffect reflect the source card's type (a Digimon card's effect is a Digimon effect).
+                    // The cause-type gates (e.g. BT15_083 CardEffectCondition: cause.IsDigimonEffect) read these.
+                    stub.SetIsDigimonEffect(source.IsDigimon);
+                    stub.SetIsTamerEffect(source.IsTamer);
+                }
+
                 return stub;
             }
         }

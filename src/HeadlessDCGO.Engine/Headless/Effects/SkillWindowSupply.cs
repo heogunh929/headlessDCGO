@@ -5,6 +5,7 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+using ActivatedHashtableBridge = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.ActivatedHashtableBridge;
 using BareCauseEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.BareCauseEffect;
 using CardEffectCommons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
 using CardSource = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource;
@@ -210,6 +211,85 @@ public static class SkillWindowSupply
         return entries;
     }
 
+    // ----- (L1 latent-repair) the EVENT-BROADCAST timings whose AS-IS emit is ONE StackSkillInfos per
+    //       IReduceSecurity / IAddCardsToHand / IDiscard CALL over the whole batch — the mirror emits one
+    //       CardMoved per card, so same-(timing, batch-id) entries collapse to ONE window (an UNCAPPED reactor
+    //       then fires ONCE per batch, not once per card). OnAddSecurity is DELIBERATELY absent: AS-IS IAddSecurity
+    //       stacks one window PER added card (CardController.cs:5481), so it stays per-card (no collapse). --------
+    private static readonly HashSet<EffectTiming> CollapsingBroadcastTimings = new()
+    {
+        EffectTiming.OnLoseSecurity,
+        EffectTiming.OnAddHand,
+        EffectTiming.OnDiscardHand,
+        EffectTiming.OnDiscardSecurity,
+        EffectTiming.OnDiscardLibrary,
+    };
+
+    // The list-payload key each collapsing timing accumulates when several per-card events merge into one window
+    // (the AS-IS payload carries the WHOLE batch's card list). OnLoseSecurity's payload is player-scoped
+    // ({ Player }) with no per-card list, so it has no accumulation key (the first entry's payload stands).
+    private static readonly IReadOnlyDictionary<EffectTiming, string> CollapseListKey =
+        new Dictionary<EffectTiming, string>
+        {
+            [EffectTiming.OnAddHand] = "CardSources",
+            [EffectTiming.OnDiscardHand] = "DiscardedCards",
+            [EffectTiming.OnDiscardSecurity] = "DiscardedCards",
+            [EffectTiming.OnDiscardLibrary] = "DiscardedCards",
+        };
+
+    /// <summary>(L1 latent-repair) Collapse the per-card EVENT-BROADCAST supply entries into the AS-IS
+    /// one-window-per-batch granularity: entries of a <see cref="CollapsingBroadcastTimings"/> timing that share a
+    /// non-null <see cref="SkillWindowSupplyEntry.BatchId"/> merge into ONE entry (their per-card list payloads —
+    /// <see cref="CollapseListKey"/> — are concatenated onto the first entry's hashtable, so the collapsed window
+    /// carries the whole batch's card list exactly as the AS-IS single StackSkillInfos does). A batch-less entry
+    /// (no id) is NOT collapsed (each is its own AS-IS IReduceSecurity/IDiscard call); every non-collapsing timing
+    /// (OnAddSecurity, OnMove, the attack/turn families …) passes through unchanged, order-stable. Idempotent for a
+    /// list with no collapsible group.</summary>
+    public static IReadOnlyList<SkillWindowSupplyEntry> CollapseBatchWindows(
+        IReadOnlyList<SkillWindowSupplyEntry> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        var result = new List<SkillWindowSupplyEntry>(entries.Count);
+        // (timing, batchId) -> the kept entry's index in `result`, so later same-group entries merge into it.
+        var groupIndex = new Dictionary<(EffectTiming, long), int>();
+
+        foreach (SkillWindowSupplyEntry entry in entries)
+        {
+            if (entry.BatchId is long batch && CollapsingBroadcastTimings.Contains(entry.Timing))
+            {
+                var key = (entry.Timing, batch);
+                if (groupIndex.TryGetValue(key, out int keptIndex))
+                {
+                    MergeCollapseList(result[keptIndex].Hashtable, entry.Hashtable, entry.Timing);
+                    continue; // folded into the kept window — drop this per-card duplicate.
+                }
+
+                groupIndex[key] = result.Count;
+            }
+
+            result.Add(entry);
+        }
+
+        return result;
+    }
+
+    /// <summary>Concatenate the per-card list payload of a folded broadcast entry onto the kept window's hashtable
+    /// (AS-IS the one window carries the whole batch's card list). No-op for a timing with no list key
+    /// (OnLoseSecurity's { Player } payload) or when either hashtable is null.</summary>
+    private static void MergeCollapseList(Hashtable? kept, Hashtable? folded, EffectTiming timing)
+    {
+        if (kept is null || folded is null || !CollapseListKey.TryGetValue(timing, out string? listKey))
+        {
+            return;
+        }
+
+        if (kept[listKey] is List<CardSource> keptList && folded[listKey] is List<CardSource> foldedList)
+        {
+            keptList.AddRange(foldedList);
+        }
+    }
+
     /// <summary>The timings this event DERIVES but which are NOT faithfully reconstructable here (the GAP set
     /// for this event). Exposed so a caller / test can assert exactly what the C batch still has to supply,
     /// and so nothing is silently dropped without being visible.</summary>
@@ -296,6 +376,43 @@ public static class SkillWindowSupply
             case EffectTiming.WhenLinked:
                 return TryBuildWhenLinked(context, gameEvent, out hashtable);
 
+            // ---- (L1 latent-repair) The cross-card EVENT-BROADCAST family: OnLoseSecurity / OnAddHand /
+            //      OnAddSecurity / OnDiscardHand / OnDiscardSecurity / OnDiscardLibrary. AS-IS emits ONE
+            //      StackSkillInfos(payload, timing) at the IReduceSecurity / IAddCardsToHand / IAddSecurity /
+            //      IDiscard seat (CardController.cs:5433/CardObjectController.cs:612/CardController.cs:5481/48/
+            //      4369/5807), broadcasting to every field card's activated reactor (the "Anyone" geometry). The
+            //      mirror emits per-CARD CardMoved events; each is converted here to the AS-IS payload via the
+            //      unified ActivatedHashtableBridge (the ONE bridge that maps every timing's payload from the
+            //      event), and the per-batch collapse (CollapseBatchWindows) re-imposes the AS-IS one-emit-per-
+            //      IReduceSecurity/IDiscard/IAddCardsToHand granularity. OnAddSecurity is AS-IS PER-CARD
+            //      (IAddSecurity loops one StackSkillInfos per added card, CardController.cs:5481) so it is NOT
+            //      collapsed. The payload subject = the moved card (the event Subject).
+            case EffectTiming.OnLoseSecurity:
+            case EffectTiming.OnAddHand:
+            case EffectTiming.OnAddSecurity:
+            case EffectTiming.OnDiscardHand:
+            case EffectTiming.OnDiscardSecurity:
+            case EffectTiming.OnDiscardLibrary:
+            // (L1 PRIM) suspend/unsuspend "Anyone" broadcast — a cross-card reactor fires when a (possibly
+            // opponent's) Digimon is suspended/unsuspended. AS-IS CardController.cs:5636-5648/:5746-5754 emit ONE
+            // StackSkillInfos per suspend/unsuspend; the mirror has no inline opener that ALSO emits these timings
+            // (0 live TriggerTimingKey emits — only an explicit emit at the suspend/unsuspend seat produces them), so
+            // converting the event here is the sole opener with no double-fire.
+            case EffectTiming.OnTappedAnyone:
+            case EffectTiming.OnUnTappedAnyone:
+                return TryBuildEventBroadcast(context, gameEvent, timing, out hashtable);
+
+            // NOTE (L1): OnAllyAttack is deliberately NOT supply-handled — the C2r flip made AttackProcess's inline
+            // StackSkillInfos insert the SOLE opener and removed the OnAllyAttack emit (W2-SkillWindowSupply contract).
+            // A raw-emit witness (PRIM DrawsOnAttack) therefore cannot ride this converter; it is STOPped.
+
+            // (L1 PRIM) OnDeclaration (attack-declaration) is an AS-IS null-payload window (StackSkillInfos(null,
+            // OnDeclaration)); the reactor is the declaring attacker. No live TriggerTimingKey emit produces it, so
+            // an explicit emit here opens the sole Anyone scan with the AS-IS null payload.
+            case EffectTiming.OnDeclaration:
+                hashtable = null;
+                return true;
+
             // ---- (C1d RDW-07) turn/phase boundaries: AS-IS StackSkillInfos(null, timing) (TurnStateMachine.cs:564/
             //      905, AutoProcessing.cs:699) — a payload-FREE window. HANDLED with a null hashtable. The port's
             //      TriggerEventEmitter already stamps the explicit timing, so TriggerTimingMap derives these. ------
@@ -308,6 +425,77 @@ public static class SkillWindowSupply
             default:
                 return false; // UNHANDLED — RDW-01/03/05/06 per the timing.
         }
+    }
+
+    /// <summary>(L1 latent-repair) Build the AS-IS event-broadcast payload for one of the OnLoseSecurity /
+    /// OnAddHand / OnAddSecurity / OnDiscard{Hand,Security,Library} timings from the moved-card CardMoved event,
+    /// via the unified <see cref="ActivatedHashtableBridge"/> (subject = the event Subject; cause/owner/batch keys
+    /// ride the event metadata exactly as the mirror sink stamped them). Returns false when the event carries no
+    /// subject.</summary>
+    private static bool TryBuildEventBroadcast(
+        EngineContext context, GameEvent gameEvent, EffectTiming timing, out Hashtable? hashtable)
+    {
+        hashtable = null;
+        if (gameEvent.Subject is not { IsEmpty: false } subjectId)
+        {
+            return false;
+        }
+
+        // (L1) OnAddHand / OnDiscardHand / OnDiscardSecurity only emit at an EFFECT seat in AS-IS (IAddCardsToHand /
+        // IDiscardHand / IDiscardSecurity always carry a causing effect), and the reactor cause-gates dereference
+        // CardEffect.EffectSourceCard unguarded — so a CAUSELESS move (a turn/rule draw, an attack security-CHECK
+        // reveal) opens NO window, matching the AS-IS "CardEffect != null" rejection. OnLoseSecurity / OnAddSecurity /
+        // OnDiscardLibrary do NOT require a cause (OnDiscardLibrary self-gates the reveal case on !IsBeingRevealed).
+        if (RequiresCause(timing) && !HasCause(gameEvent, timing))
+        {
+            return false;
+        }
+
+        // (L1) OnDiscardLibrary any-matches only !IsBeingRevealed cards (WhenDiscardLibrary.cs:27) — a
+        // reveal-remainder trash is IsBeingRevealed==true at the trash moment (AS-IS RevealLibrary.cs resets the
+        // flag only AFTER the OnDiscardLibrary broadcast), so it contributes NOTHING to the library-discard window.
+        // The mirror threads that state as RevealTrashFlagKey on the move event; excluding such an event from the
+        // window is the AS-IS !IsBeingRevealed exclusion (a mixed batch still opens on its non-revealed cards).
+        if (timing == EffectTiming.OnDiscardLibrary
+            && gameEvent.Metadata.TryGetValue(MatchStateMutationSink.RevealTrashFlagKey, out object? revealed) && revealed is true)
+        {
+            return false;
+        }
+
+        // (L1) An attack security-CHECK trash's OnLoseSecurity is ALREADY driven, per card, inside the check
+        // (SecurityResolver.ResolveSecurityCheckWindowAsync co-stacks the AS-IS IReduceSecurity OnLoseSecurity
+        // reactors with OnSecurityCheck and drains them — CardController.cs:3982-3985/:5448). The revealed card's
+        // instance carries the SecurityResolver-published CheckedBySecurityCheckKey; re-deriving its Security->Trash
+        // CardMoved here would open a SECOND OnLoseSecurity window (double-fire). Skip it — the effect-trash path
+        // (TrashSecurityAsync, no check marker) stays the sole supply-driven OnLoseSecurity opener.
+        if (timing == EffectTiming.OnLoseSecurity && IsSecurityCheckTrash(context, subjectId))
+        {
+            return false;
+        }
+
+        HeadlessPlayerId owner = ResolveOwner(context, subjectId, gameEvent);
+        var subject = new CardSource(context, subjectId, owner, owner);
+        hashtable = ActivatedHashtableBridge.Build(context, timing, gameEvent, subject);
+        return hashtable is not null;
+    }
+
+    /// <summary>(L1) Whether the OnLoseSecurity subject was trashed by an attack security CHECK — its instance
+    /// carries the SecurityResolver-published <c>CheckedBySecurityCheckKey</c>. The check path already drives the
+    /// per-card OnLoseSecurity window (AS-IS IReduceSecurity), so the supply broadcast must not re-open it.</summary>
+    private static bool IsSecurityCheckTrash(EngineContext context, HeadlessEntityId subjectId) =>
+        context.CardInstanceRepository.TryGetInstance(subjectId, out CardInstanceRecord? record) && record is not null
+        && record.Metadata.TryGetValue(HeadlessDCGO.Engine.Headless.Runtime.SecurityResolver.CheckedBySecurityCheckKey, out object? raw)
+        && raw is true;
+
+    private static bool RequiresCause(EffectTiming timing) =>
+        timing is EffectTiming.OnAddHand or EffectTiming.OnDiscardHand or EffectTiming.OnDiscardSecurity;
+
+    private static bool HasCause(GameEvent gameEvent, EffectTiming timing)
+    {
+        string key = timing == EffectTiming.OnAddHand
+            ? MatchStateMutationSink.AddHandCauseEffectIdKey
+            : MatchStateMutationSink.DiscardCauseEffectIdKey;
+        return gameEvent.Metadata.TryGetValue(key, out object? raw) && raw is string value && !string.IsNullOrWhiteSpace(value);
     }
 
     private static bool TryBuildAttack(EngineContext context, GameEvent gameEvent, out Hashtable? hashtable)

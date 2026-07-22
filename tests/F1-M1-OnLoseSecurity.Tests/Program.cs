@@ -61,7 +61,7 @@ async Task EnemyReactorFires()
     await Security(ctx, P2, 2);
 
     // isOptional "you may" -> answer the optional yes (the effect's stable EffectId), then pick the target.
-    var effectId = $"{self.Value}:ae:BT24_18_AT_Sec_Removed";
+    var effectId = self.Value;
     Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId(effectId)));
     Enqueue(ctx, ChoiceResult.Select(foe));
 
@@ -80,7 +80,7 @@ async Task EnemyReactorSelfSecurityRejected()
 
     // If the gate wrongly fired, it would need these; enqueue them so a spurious fire would be OBSERVABLE (the foe
     // would be deleted). The correct behaviour leaves them unconsumed.
-    var effectId = $"{self.Value}:ae:BT24_18_AT_Sec_Removed";
+    var effectId = self.Value;
     Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId(effectId)));
     Enqueue(ctx, ChoiceResult.Select(foe));
 
@@ -202,8 +202,11 @@ async Task AttackCheckFiresPerCard()
     AssertTrue(result.IsSuccess, "security check resolved");
     await new GameFlowProcessor().RunToStableAsync(ctx);
 
-    AssertEqual(2, ctx.MemoryController.Current.Current,
-        "the check fired the uncapped reactor per card (memory +2); a wrong batch-merge would be +1");
+    // The reactor is on the DEFENDER (P2, the NON-turn player), so its +1-per-card gains read on the turn-relative
+    // memory axis as -2 (AddMemory: TurnPlayer==owner ? +1 : -1). The observable is the MAGNITUDE = 2 fires (per
+    // card); a wrong batch-merge of the check path would be |1|.
+    AssertEqual(-2, ctx.MemoryController.Current.Current,
+        "the check fired the uncapped reactor per card (P2 +2 == -2 turn-relative); a wrong batch-merge would be -1");
 }
 
 // (F1-M1 P1-2) The activated OnLoseSecurity reactor fires DURING the attack security check — the previous
@@ -221,8 +224,10 @@ async Task AttackCheckActivatedNotDropped()
     AssertTrue(result.IsSuccess, "security check resolved");
     await new GameFlowProcessor().RunToStableAsync(ctx);
 
-    AssertEqual(1, ctx.MemoryController.Current.Current,
-        "the activated OnLoseSecurity fired during the security check (memory +1), not dropped by the sync window");
+    // Reactor on the DEFENDER (P2, non-turn): its single +1 gain reads as -1 turn-relative. The observable is that
+    // it FIRED (magnitude 1), not dropped (0), and did NOT double (|1|, not |2|).
+    AssertEqual(-1, ctx.MemoryController.Current.Current,
+        "the activated OnLoseSecurity fired ONCE during the security check (P2 +1 == -1 turn-relative), not dropped");
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -244,6 +249,7 @@ EngineContext Setup(int seed)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: seed);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     return ctx;
 }
 

@@ -65,7 +65,7 @@ async Task St16FiresOnOwnEffectHandDiscard()
     var handCard = await HandCard(ctx, P1, "H1");
 
     // isOptional "by suspending …" -> answer the optional yes (the effect's stable EffectId; no capHash).
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{self.Value}:ae")));
+    Enqueue(ctx, ChoiceResult.Select(self));
 
     // Effect-driven hand discard: cause = a P1-owned effect source (self), so cause.Owner == card.Owner.
     await ctx.ZoneMover.TrashCardAsync(P1, handCard, ctx.NextDiscardBatchId(), self);
@@ -83,7 +83,7 @@ async Task St16OpponentEffectRejected()
     var foeSource = await Place(ctx, P2, "SRC2", "SRC2", "Digimon"); // a P2-owned effect source
     var handCard = await HandCard(ctx, P1, "H1");
 
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{self.Value}:ae")));
+    Enqueue(ctx, ChoiceResult.Select(self));
 
     // The OPPONENT'S effect trashes P1's hand card — cause.Owner (P2) != card.Owner (P1) -> SkillCondition fails.
     await ctx.ZoneMover.TrashCardAsync(P1, handCard, ctx.NextDiscardBatchId(), foeSource);
@@ -99,7 +99,7 @@ async Task St16NonEffectRejected()
     var self = await Place(ctx, P1, "ST16_14", "ST16_14", "Tamer");
     var handCard = await HandCard(ctx, P1, "H1");
 
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{self.Value}:ae")));
+    Enqueue(ctx, ChoiceResult.Select(self));
 
     // A NON-effect hand trash: no cause id -> the AS-IS CardEffect==null rejection.
     await ctx.ZoneMover.TrashCardAsync(P1, handCard, ctx.NextDiscardBatchId(), causeEffectId: null);
@@ -293,6 +293,7 @@ EngineContext Setup(int seed)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: seed);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     return ctx;
 }
 
