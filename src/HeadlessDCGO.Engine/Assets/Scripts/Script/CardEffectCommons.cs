@@ -3340,24 +3340,56 @@ public static partial class CardEffectCommons
         return true;
     }
 
-    /// <summary>AS-IS <c>ChangePlayCostPlayerEffect</c> (GiveEffectToPlayer/ChangePlayCost.cs:11) —
-    /// duration-tagged play-cost modifier over the matching permanents' cards. The AS-IS
-    /// <c>setFixedCost</c> form pins the cost instead of shifting it.</summary>
+    /// <summary>AS-IS <c>ChangePlayCostPlayerEffect</c> (GiveEffectToPlayer/ChangePlayCost.cs:11):
+    /// duration-tagged ±play cost on EVERY permanent matching the predicate — a duration-tagged PLAYER-SCOPE
+    /// modifier; the AS-IS <c>setFixedCost</c> form pins the cost instead of shifting it.
+    /// (W3c-final 3차) Restored to AS-IS 1:1: the mid-migration registry <see cref="ContinuousModifierGate"/>
+    /// binding (a legacy cost-fold producer) is replaced by the factory <see cref="CardEffectFactory.ChangePlayCostStaticEffect{T}"/>
+    /// (a player-scope <c>ChangeCostClass</c> whose PermanentCondition folds the battle-area + !CanNotBeAffected +
+    /// user predicate) stored in the OWNING PLAYER's None duration bucket via <see cref="AddEffectToPlayer"/> —
+    /// read by <c>CardSource.GetChangedCostItselef</c>'s "effects of players" scan (player.EffectList(None)).
+    /// Mirrors <see cref="ChangeDigimonDPPlayerEffect"/> exactly (the DP sibling already restored this way).</summary>
     public static bool ChangePlayCostPlayerEffect(
         Func<Permanent, bool>? permanentCondition, int changeValue, bool setFixedCost,
         EffectDuration effectDuration, CardSource sourceCard)
     {
+        ArgumentNullException.ThrowIfNull(sourceCard);
         if (changeValue == 0)
         {
             return false;
         }
 
-        var extra = new Dictionary<string, object?>(StringComparer.Ordinal)
+        CardSource card = sourceCard;
+        CardEffects.ChangeCostClass changeCostClass = null!;
+
+        bool PermanentCondition(Permanent permanent)
         {
-            [setFixedCost ? PlayCostHelpers.FixedPlayCostKey : ModifierHelpers.PlayCostDeltaKey] = changeValue,
-        };
-        return GainToPlayerScope(effectDuration, sourceCard, "changePlayCostPlayer", permanentCondition,
-            extraValues: extra, scopeOverride: ContinuousModifierGate.Scope);
+            if (IsPermanentExistsOnBattleArea(permanent))
+            {
+                if (!permanent.TopCard.CanNotBeAffected(changeCostClass))
+                {
+                    if (permanentCondition == null || permanentCondition(permanent))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        bool CanUseCondition() => true;
+
+        changeCostClass = CardEffectFactory.ChangePlayCostStaticEffect(
+            changeValue: changeValue,
+            permanentCondition: PermanentCondition,
+            isInheritedEffect: false,
+            card: card,
+            condition: CanUseCondition,
+            setFixedCost: setFixedCost);
+
+        AddEffectToPlayer(effectDuration: effectDuration, card: card, cardEffect: changeCostClass, timing: EffectTiming.None);
+        return true;
     }
 
     /// <summary>AS-IS <c>ChangeBaseDigimonDP</c> (GiveEffectToPermanent/ChangeOriginDP.cs:10, verbatim):
