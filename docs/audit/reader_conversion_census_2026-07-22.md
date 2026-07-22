@@ -61,3 +61,20 @@ ContinuousScopeEvaluation :49/:66/:307/:324 · PlayerScopeContinuousHelpers:78 �
 | RC-7 | 통합 게이트: 전체 스위트 1회(base 재사용 비교)+다이제스트 스팟(1000/1001/1002)+적대리뷰 | T2 |
 
 주의: (C)는 삭제 금지 — ②joint 재하우징 전까지 실카드 live. `.Register` 5좌석 자체도 이 캠페인에서 불변(생산자 청산은 ②③).
+
+---
+
+## §4. 캠페인 결과 (2026-07-22 마감, RC-1~7)
+
+**커밋 체인**: RC-1 `5d669466` → RC-2 `f94e8112` → RC-3 `8f9e5b38` → RC-4 `4c13e03a` → RC-5 `28ef7202`(Opus) → RC-6 `25862dc8`(Opus).
+
+**게이트**: 전체 스위트 379 green / 70 fail — **신규 fail 0**, 해소 1(G3.5-D7 은퇴, base 71→70). 다이제스트 스팟(시드 1000/1001/1002) **bit-identical**. 적대리뷰(Opus, 공격벡터 7종) **GO** — P0 없음, 실게임 행동-중립 확증.
+
+**남은 registry 판독 (= ② joint 재하우징-의존 클러스터, §2(C))**: 연속-스캔 코어(ContinuousScopeEvaluation/PlayerScopeContinuousHelpers/ContinuousEffectEvaluator/RestrictionScan/Sink:1756/SecurityResolver:890)·만료 sweep 3종(TurnEnd/BattleEnd/AttackEnd)·cleanup RemoveWhere 6좌석·SchedulerResolver Find(범용 스케줄-해소 좌석; production에선 effect=null이라 전 요청 Unbound drain — ④ 재판정)·GetEffectsForTiming(base-red 3스위트 소비 잔존).
+
+**원장 (적대리뷰 발원)**:
+- **RD-RC-01**: 효과-무효화 AS-IS 기제 = ICardEffect.IsDisabled→CheckEffectDisabledClass(기포팅·live). 발명 EffectInvalidation 은퇴 완료. DisableEffectClass 생산 카드 포팅 시 추가 작업 불필요 판정.
+- **RD-RC-02**: BT7_055(UntilNextUntap)·BT1_113(UntilOwnerActivePhase)의 joint2 grant가 **영구 지속**(ExpireUnsuspend 캠페인 전부터 미배선 — git 확증 기존 결함). ② 재하우징에서 AS-IS 버킷(TSM :256/:259 리셋) 이관으로 해소.
+- **RD-RC-03/F1**: GainAlliancePlayerEffect STOP화로 PRIM-P0.AddSkillLiveSet 서브테스트 3종(LateEntrantGainsKeyword/OpponentExcluded/PredicateHonoured) 고아화 — 스위트가 기존 Scapegoat STOP으로 base-red라 스위트-레벨 diff에 마스킹됨. ②에서 Alliance grant를 AS-IS player-버킷 StaticEffect idiom으로 재하우징할 때 3종 재조준.
+- **F2(P2)**: PRIM-P0.TriggerGrantSetSplice — PlayerScopeTriggerGrantEffect(테스트-전용)의 ReclassifyKind Find arm 소멸 영향 가능; base-red 유지 확인, ② 시 재판정.
+- **F3(P2)**: SchedulerResolver 존치 사유 정정 — "live 필수"가 아니라 "테스트-바인딩 해소용, production은 전량 Unbound". ④ 타입 삭제 시 재판정.
