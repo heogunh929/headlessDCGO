@@ -1085,10 +1085,11 @@ public static partial class CardEffectCommons
         Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition, Func<CardSource, bool>? cardCondition) =>
         CanTriggerOnTrashDigivolutionCard(ctx, card, permanentCondition, cardEffectSourceCondition, cardCondition);
 
-    /// <summary>AS-IS <c>CanTriggerOnTrashBySelfDigiBurst</c> (OnTrashBySelfDigiBurst.cs:10) — Digi-Burst
-    /// is not a modeled headless mechanism; the source-description probe has no surface. STOP.</summary>
-    public static bool CanTriggerOnTrashBySelfDigiBurst(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
-        throw new NotSupportedException("Digi-Burst is not modeled — STOP (strong model).");
+    // NOTE (Digi-Burst seat retired): AS-IS `CanTriggerOnTrashBySelfDigiBurst` has ONLY the hashtable signature
+    // `(Hashtable, CardSource)` (OnTrashBySelfDigiBurst.cs:10), which is live as the 1:1 mirror in
+    // Script/CardEffectCommons/CanUseEffects/OnTrashBySelfDigiBurst.cs. The former `(ctx, card)` STOP overload here
+    // was an invented seat with no AS-IS counterpart and zero call sites — the mechanism is modeled (IDigiBurst,
+    // CardController.cs), so the stale throw was removed rather than kept squatting the name.
 
     /// <summary>AS-IS <c>CanTriggerWhenPermanentUnsuspends</c> (OnUnsuspend.cs:17 — delegates to the
     /// suspend shape).</summary>
@@ -1225,9 +1226,11 @@ public static partial class CardEffectCommons
         return EventCards(ctx, card).Any(cs => cardCondition is null || cardCondition(cs));
     }
 
-    /// <summary>AS-IS <c>CanTriggerWhenUseDigiBurst</c> — Digi-Burst is not modeled. STOP.</summary>
-    public static bool CanTriggerWhenUseDigiBurst(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
-        throw new NotSupportedException("Digi-Burst is not modeled — STOP (strong model).");
+    // NOTE (Digi-Burst seat retired): AS-IS `CanTriggerWhenUseDigiBurst` has ONLY the hashtable signature
+    // `(Hashtable, Func<Permanent,bool>, Func<ICardEffect,bool>)` (WhenUseDigiBurst.cs:11), which is live as the
+    // 1:1 mirror in Script/CardEffectCommons/CanUseEffects/WhenUseDigiBurst.cs (consumed by BT5_056 at the
+    // OnUseDigiburst window IDigiBurst.DigiBurst() opens). The former `(ctx, card)` STOP overload here was an
+    // invented seat with no AS-IS counterpart and zero call sites — removed, not kept squatting the name.
 
     /// <summary>AS-IS <c>CanTriggerWhenTopCardTrashed</c> (WhenRemoveField.cs:37).</summary>
     public static bool CanTriggerWhenTopCardTrashed(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool> cardCondition)
