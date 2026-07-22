@@ -97,3 +97,14 @@ ContinuousScopeEvaluation :49/:66/:307/:324 · PlayerScopeContinuousHelpers:78 �
 - **RD-J-05**: G9-074:102 스테일 주석(삭제된 funnel 언급).
 
 **다음=③**: registrar:236·:1507·:2899 은퇴 + reader 잔존 클러스터 절제(RestrictionScan registry arm·JointRestrictionEffect·Continuous*Restriction 캐리어·만료 sweep 3종·cleanup RemoveWhere·GetEffectsForTiming 테스트 3스위트 재조준) + RD-J-02/04/05 동승 → ④ 타입 원자삭제.
+
+---
+
+## §6. 캠페인 ③·④ 결과 + B군 레지스트리 청산 종결 (2026-07-22)
+
+**③**: ③-A `154848a7`(생산자 3좌석 은퇴 — Register live 0·STOP 2건=RD-3A-01/02) + ③-B `cbf26fe1`(만료/cleanup/GetEffectsForTiming 절제+P2 3건 상환).
+**④**: `947d0ab9` — EffectRegistry 클러스터 물리 삭제(단일 캠페인). src 비-주석 참조 124→0, src 47수정+4삭제, 테스트 105파일 재배선+스위트 37 은퇴. 생존 substrate=EffectRequest·EffectQueryContext·EffectScheduler(Unbound-drain seam)·SkillInfo·IActivatedCardEffect(R6-Da′ 이월). F2/F3 CLOSED·RD-W3CF-01=부재 확증.
+**⑤ 계기판**: 발명 registry 심볼 grep(비-주석) **0** · 다이제스트 전 구간 bit-identical(총 7회 실측) · 실질 신규 fail 0 · fail-set 궤적 71→65→(④ 은퇴·재조준 후) 36.
+**아크 적대리뷰(③④ 통합 1회) GO**: P0 없음. P1 1건 — **RD-A6-01**: CardEffect.ST7.Red 은퇴로 ST7_10 카드-전용 SA+1/Piercing witness 소실(행동은 SA3-SAttack3Tier 등 일반 커버 유지) → live 인터페이스 스캔 기준 재핀, A6 잔여 test-pin 버킷 귀속. P2 2건: STOP 2좌석의 물리 가드 부재(호출자-0 의존)·player-scope 이탈 시나리오 전용 핀 없음(선택적 경화).
+
+**B군 레지스트리 청산 종결.** 이후 큐: A6 잔여(RD-A6-01+test-only cost 헬퍼) → A8 구조골 → SW-A/C/E 감사 → 스켈레톤 16+1 소진 → R7 종점.
