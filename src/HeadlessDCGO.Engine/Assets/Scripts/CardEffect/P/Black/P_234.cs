@@ -1,7 +1,234 @@
-// Source: Assets/Scripts/CardEffect/P/Black/P_234.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.P.Black
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// G-Link 마감 트랜치 — P_234 (Yujin Ozora, Tamer / Black)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// ① AS-IS 앵커: DCGO/Assets/Scripts/CardEffect/P/Black/P_234.cs (208 lines, 3 regions)
+//    * On Play                :15-66  (OnEnterFieldAnyone — reveal 4, add 1 [System/Navi/Tool/Leviathan], bottom rest)
+//    * Your Turn/link trashed  :68-193 (OnLinkCardDiscarded — [YT][OPT] suspend self → link 1 from hand for -2, ILinkCard)
+//    * Security                :195-202(SecuritySkill — PlaySelfTamerSecurityEffect)
+//
+// ② 프리미티브 매핑: X:SimplifiedRevealDeckTopCardsAndSelect, T:OnTrashLinkedCard (CanTriggerOnTrashLinkedCard),
+//    P:CanActivateSuspendCostEffect, SuspendPermanentsClass.Tap, K:Link (GrantedReduceLinkCost + direct ILinkCard),
+//    P:PlaySelfTamerSecurityEffect.
+//
+// 치환(substrate translations only): IEnumerator→async Task; StartCoroutine(X)→await X;
+//   `card.Owner.UntilCalculateFixedCostEffect`→`new Player(card.Context, card.Owner)...`;
+//   `card.PermanentOfThisCard()`→`ICardEffect.ResolvePermanentOfThisCard(card)`;
+//   `new SuspendPermanentsClass(list, CardEffectHashtable(activateClass)).Tap()`→
+//     `new SuspendPermanentsClass(list, activateClass, isBlock: false).Tap()` (EX4_062 idiom);
+//   SelectPermanentEffect canTargetCondition = id-형 PermanentOf(id) adapter (BT25_089 idiom).
+namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.P.Black;
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Services;
+
+public sealed class P_234 : CEntity_Effect
+{
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+        #region On Play
+
+        if (timing == EffectTiming.OnEnterFieldAnyone)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Reveal 4, add 1, bot deck rest", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDescription());
+            cardEffects.Add(activateClass);
+
+            string EffectDescription()
+                =>  "[On Play] Reveal the top 4 cards of your deck. Add 1 [System], [Navi], [Tool] or [Leviathan] trait card among them to the hand. Return the rest to the bottom of the deck.";
+
+            bool CanSelectCardCondition(CardSource cardSource)
+            {
+                return cardSource.EqualsTraits("System")
+                    || cardSource.EqualsTraits("Navi")
+                    || cardSource.EqualsTraits("Tool")
+                    || cardSource.EqualsTraits("Leviathan");
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleArea(card)
+                    && CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleArea(card);
+            }
+
+            async Task ActivateCoroutine(Hashtable hashtable)
+            {
+                await CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(
+                    revealCount: 4,
+                    simplifiedSelectCardConditions:
+                    new SimplifiedSelectCardConditionClass[]
+                    {
+                        new SimplifiedSelectCardConditionClass(
+                            canTargetCondition:CanSelectCardCondition,
+                            message: "Select 1 card with the [System], [Navi], [Tool] or [Leviathan] trait.",
+                            mode: SelectCardEffect.Mode.AddHand,
+                            maxCount: 1,
+                            selectCardCoroutine: null)
+                    },
+                    remainingCardsPlace: RemainingCardsPlace.DeckBottom,
+                    activateClass: activateClass
+                );
+            }
+        }
+
+        #endregion
+
+        #region Your Turn - Link card trashed
+        if (timing == EffectTiming.OnLinkCardDiscarded)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("By suspending, you may link from hand for -2 cost", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDescription());
+            cardEffects.Add(activateClass);
+
+            string EffectDescription()
+                => "[Your Turn] When effect trash any of your Digimon's link cards, by suspending this Tamer, you may link 1 [System], [Navi], [Tool] or [Leviathan] trait card from your hand to 1 of your Digimon with the cost reduced by 2.";
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleArea(card)
+                    && CardEffectCommons.IsOwnerTurn(card)
+                    && CardEffectCommons.CanTriggerOnTrashLinkedCard(
+                        hashtable,
+                        perm => CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(perm, card),
+                        cardEffect => cardEffect != null,
+                        source => source != null);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleArea(card)
+                    && CardEffectCommons.CanActivateSuspendCostEffect(card);
+            }
+
+            bool CanSelectCardCondition(CardSource cardSource)
+            {
+                return (cardSource.EqualsTraits("System")
+                        || cardSource.EqualsTraits("Navi")
+                        || cardSource.EqualsTraits("Tool")
+                        || cardSource.EqualsTraits("Leviathan"))
+                    && cardSource.CanLink(true);
+            }
+
+            bool CanSelectPermanentCondition(Permanent permanent, CardSource cardSource)
+            {
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
+                    && cardSource.CanLinkToTargetPermanent(permanent, true);
+            }
+
+            Permanent? PermanentOf(HeadlessEntityId id) =>
+                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
+                    ? new Permanent(card.Context, id, rec.OwnerId)
+                    : null;
+
+            async Task ActivateCoroutine(Hashtable hashtable)
+            {
+                await new SuspendPermanentsClass(new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) }, activateClass, isBlock: false).Tap();
+
+                #region Link Cost Reduction
+                ICardEffect GetCardEffect(EffectTiming _timing)
+                {
+                    if (_timing == EffectTiming.None)
+                    {
+                        return CardEffectFactory.GrantedReduceLinkCostClass(
+                            card: card,
+                            reducedCost: 2,
+                            cardSourceCondition: _ => true,
+                            permanentCondition: _ => true,
+                            rootCondition: _ => true
+                        );
+                    }
+
+                    return null;
+                }
+
+                new Player(card.Context, card.Owner).UntilCalculateFixedCostEffect.Add(GetCardEffect);
+                #endregion
+
+                if (CardEffectCommons.HasMatchConditionOwnersHand(card, CanSelectCardCondition))
+                {
+                    SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+
+                    selectHandEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectCardCondition,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: 1,
+                        canNoSelect: true,
+                        canEndNotMax: false,
+                        isShowOpponent: true,
+                        selectCardCoroutine: SelectCardCoroutine,
+                        afterSelectCardCoroutine: null,
+                        mode: SelectHandEffect.Mode.Custom,
+                        cardEffect: activateClass);
+
+                    selectHandEffect.SetUpCustomMessage("Select 1 card to link.", "The opponent is selecting 1 card to link.");
+                    selectHandEffect.SetUpCustomMessage_ShowCard("Selected Card");
+
+                    await selectHandEffect.Activate();
+
+                    async Task SelectCardCoroutine(CardSource cardSource)
+                    {
+                        if (CardEffectCommons.HasMatchConditionOwnersPermanent(card, permanent => CanSelectPermanentCondition(permanent, cardSource)))
+                        {
+                            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                            selectPermanentEffect.SetUp(
+                                selectPlayer: card.Owner,
+                                canTargetCondition: id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, cardSource),
+                                canTargetCondition_ByPreSelecetedList: null,
+                                canEndSelectCondition: null,
+                                maxCount: 1,
+                                canNoSelect: true,
+                                canEndNotMax: false,
+                                selectPermanentCoroutine: SelectPermanentCoroutine,
+                                afterSelectPermanentCoroutine: null,
+                                mode: SelectPermanentEffect.Mode.Custom,
+                                cardEffect: activateClass);
+
+                            selectPermanentEffect.SetUpCustomMessage("Select 1 digimon to link to", "Your opponent is choosing 1 digimon to link to");
+                            await selectPermanentEffect.Activate();
+
+                            async Task SelectPermanentCoroutine(Permanent permanent)
+                            {
+                                await new ILinkCard(true, cardSource, permanent, activateClass).LinkCard();
+                            }
+                        }
+                    }
+                }
+
+                #region Remove Link Cost Reduction
+                new Player(card.Context, card.Owner).UntilCalculateFixedCostEffect.Remove(GetCardEffect);
+                #endregion
+            }
+        }
+        #endregion
+
+        #region Security
+
+        if (timing == EffectTiming.SecuritySkill)
+        {
+            cardEffects.Add(CardEffectFactory.PlaySelfTamerSecurityEffect(card));
+        }
+
+        #endregion
+
+        return cardEffects;
+    }
+}

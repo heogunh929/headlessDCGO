@@ -1948,13 +1948,17 @@ public sealed class CardSource
     /// <see cref="Headless.Runtime.LinkHelpers.ResolveLinkCost"/> (interface-disjoint — RD-P6B-16); the AS-IS
     /// <paramref name="root"/> and <paramref name="targetPermanent"/> are threaded through to
     /// <c>IChangeLinkCostEffect.GetCost</c> / <c>PermanentCondition</c>.
-    /// PARTIALLY LATENT (G-Link design risk 3 / P6A-PLAYER-EFFECTLIST): the AS-IS players' region (:3294-3302)
-    /// scans the player's <c>EffectList(None)</c>, whose <c>UntilCalculateFixedCostEffect</c> bucket is ALREADY
-    /// LIVE — a player-scope <see cref="IChangeLinkCostEffect"/> grant folds faithfully here (proven by
-    /// EXEMPLAR-GLINK W3: a <c>GrantedReduceLinkCostClass</c> added to <c>owner.UntilCalculateFixedCostEffect</c>
-    /// drops the fold 2→0). Only the <c>GiveEffectToPlayer</c> sub-path (feeding the OTHER player-grant buckets)
-    /// stays latent until the mirror player-EffectList flip lands (P6A); the permanent and self regions are fully
-    /// live.</summary>
+    /// FULLY LIVE (G-Link P2-② resolved, 2026-07-23): the AS-IS players' region (:3294-3302) scans the player's
+    /// <c>EffectList(None)</c>, and BOTH player-grant sub-paths now surface there —
+    /// (a) the <c>UntilCalculateFixedCostEffect</c> bucket (proven by EXEMPLAR-GLINK W3: a
+    /// <c>GrantedReduceLinkCostClass</c> added to <c>owner.UntilCalculateFixedCostEffect</c> drops the fold 2→0),
+    /// AND (b) the <c>GiveEffectToPlayer</c> sub-path, which since the R3-C2 / R6-P player-EffectList flip writes
+    /// into the same Player duration buckets (<c>UntilOwnerTurnEndEffects</c> / <c>UntilEachTurnEndEffects</c> /
+    /// <c>UntilCalculateFixedCostEffect</c> / … — <see cref="CardEffectCommons.AddEffectToPlayer"/>) that
+    /// <see cref="Player.EffectList"/> enumerates. The earlier "GiveEffectToPlayer stays latent (P6A-PLAYER-EFFECTLIST)"
+    /// caveat (G-Link design risk 3) is retired: a player-scope <see cref="IChangeLinkCostEffect"/> granted via
+    /// GiveEffectToPlayer folds here identically to a UntilCalculateFixedCostEffect grant. The permanent and self
+    /// regions were already fully live.</summary>
     public int GetChangedLinkCost(Permanent targetPermanent, SelectCardEffect.Root root)
     {
         LinkCondition? link = LinkConditionOf();

@@ -90,17 +90,20 @@ public static class LinkHelpers
         Assets.Scripts.Script.SelectCardEffect.Root root = Assets.Scripts.Script.SelectCardEffect.Root.None)
     {
         ArgumentNullException.ThrowIfNull(context);
-        Assets.Scripts.Script.CardEffectCommons.ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, ContinuousRestrictionGate.Scope, cardId);
-        int resolved = Assets.Scripts.Script.CardEffectCommons.ModifierHelpers.Evaluate(
-            new Assets.Scripts.Script.CardEffectCommons.NumericModifierRequest(
-                Assets.Scripts.Script.CardEffectCommons.NumericModifierMetric.LinkCost, baseCost, result.Modifiers, cardId)).FinalValue;
 
-        // (RD-P6B-16) UNION the new-model IChangeLinkCostEffect scan (AS-IS CardSource.GetChangedLinkCost): a
-        // ChangeLinkCostClass (GrantedReduceLinkCostClass) registers no binding. Interface-disjoint from the
-        // legacy fold — apply the new-model scan onto the legacy result; FoldLinkCost clamps >= 0.
-        // (G-Link batch 1) targetPermanent + root are threaded so CardSource.GetChangedLinkCost's AS-IS
-        // PermanentCondition / GetCost(root) evaluate faithfully (defaults preserve the metadata-only callers).
-        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldLinkCost(context, cardId, resolved, targetPermanentId, root);
+        // (RD-P6B-16 RETIRED — G-Link P2-③, 2026-07-23) The legacy linkCostDelta pre-fold that used to run here
+        // (ContinuousScopeEvaluation.EvaluateForCard + ModifierHelpers.Evaluate over NumericModifierMetric.LinkCost)
+        // was an AS-IS-ABSENT union scaffold: AS-IS CardSource.GetChangedLinkCost (CardSource.cs:3267-3331) is PURELY
+        // the three-region IChangeLinkCostEffect scan — it has no legacy modifier fold. The scaffold had ZERO
+        // producers: a whole-tree census finds the "linkCostDelta" key (ModifierHelpers.LinkCostDeltaKey) is READ at
+        // ModifierHelpers.cs:503-505 but WRITTEN by nothing (GrantedReduceLinkCostClass / ChangeLinkCostClass
+        // register no binding — they are new-model IChangeLinkCostEffect only). With no producer the pre-fold
+        // returned `baseCost` unchanged, so this retirement is BIT-IDENTICAL (resolved == baseCost). Restored to
+        // AS-IS 1:1: the sole cost path is the new-model FoldLinkCost. (EXEMPLAR-GLINK W3's RISK-3 negative
+        // assertion — legacy fold leaves base intact — still holds; it exercises the primitives directly.)
+        // targetPermanent + root are threaded so GetChangedLinkCost's AS-IS PermanentCondition / GetCost(root)
+        // evaluate faithfully (defaults preserve the metadata-only callers).
+        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldLinkCost(context, cardId, baseCost, targetPermanentId, root);
     }
 
     /// <summary>
