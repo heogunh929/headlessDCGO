@@ -65,12 +65,16 @@ async Task G4_DrawThenDiscard()
     Library(ctx, "lib0"); Library(ctx, "lib1");
     int handBefore = ZoneCount(ctx, ChoiceZone.Hand);
 
-    // draw 1, then discard 1 (mandatory). Scripted: discard the drawn card.
-    var eff = (IActivatedCardEffect)CardEffectFactory.DrawThenDiscardEffect(
-        new CardSource(ctx, self, P1), drawAmount: 1, trashAmount: 1, description: "draw 1 then discard 1");
-    // The discard candidate is the drawn card; scripted provider picks the first selectable by default.
+    // (R7 종점) draw 1, then discard 1 (mandatory) via the LIVE substrate coroutine the retired
+    // ActivatedDrawThenDiscardEffect merely wrapped (CardEffectCommons.DrawAndDiscardCards — draws+flushes
+    // before building the discard pool). Scripted: discard the drawn card (fallback picks minCount).
     Script(ctx); // fallback picks minCount from candidates
-    await ResolveActivated(ctx, eff);
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        await CardEffectCommons.DrawAndDiscardCards(
+            (P1, P1), drawAmount: 1, trashAmount: 1, new CardSource(ctx, self, P1),
+            canTrashTargetCondition: null, canNoSelect: false, canEndNotMax: false, CancellationToken.None);
+    }
 
     AssertEqual(handBefore, ZoneCount(ctx, ChoiceZone.Hand), "draw 1 + discard 1 = net hand unchanged");
     AssertEqual(1, ZoneCount(ctx, ChoiceZone.Trash), "exactly 1 card discarded to trash");
@@ -82,10 +86,13 @@ async Task G4_DrawnCardDiscardable()
     var self = Battle(ctx, "SELF", "SELF");
     // Hand starts empty; the ONLY discardable card must be the one drawn this activation.
     var drawn = Library(ctx, "drawme");
-    var eff = (IActivatedCardEffect)CardEffectFactory.DrawThenDiscardEffect(
-        new CardSource(ctx, self, P1), drawAmount: 1, trashAmount: 1, description: "draw 1 then discard 1");
     Script(ctx, ChoiceResult.Select(drawn)); // explicitly discard the just-drawn card
-    await ResolveActivated(ctx, eff);
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        await CardEffectCommons.DrawAndDiscardCards(
+            (P1, P1), drawAmount: 1, trashAmount: 1, new CardSource(ctx, self, P1),
+            canTrashTargetCondition: null, canNoSelect: false, canEndNotMax: false, CancellationToken.None);
+    }
 
     AssertTrue(InZone(ctx, ChoiceZone.Trash, drawn), "the just-drawn card was a legal discard target and went to trash");
     AssertFalse(InZone(ctx, ChoiceZone.Hand, drawn), "it left the hand");
@@ -105,14 +112,6 @@ void Script(EngineContext ctx, params ChoiceResult[] choices)
     var p = (ScriptedChoiceProvider)ctx.ChoiceProvider;
     p.Clear();
     foreach (var c in choices) { p.Enqueue(c); }
-}
-
-// Resolve a bare IActivatedCardEffect that drives the ChoiceProvider itself (G4 shape).
-async Task ResolveActivated(EngineContext ctx, IActivatedCardEffect eff)
-{
-    // ActivatedDrawThenDiscardEffect.ResolveAsync(ct) drives DrawAndDiscardCards (own sink + ChoiceProvider).
-    var m = eff.GetType().GetMethod("ResolveAsync", new[] { typeof(CancellationToken) });
-    await (Task)m!.Invoke(eff, new object?[] { CancellationToken.None })!;
 }
 
 HeadlessEntityId Place(EngineContext ctx, string number, string name, ChoiceZone zone, string cardType)

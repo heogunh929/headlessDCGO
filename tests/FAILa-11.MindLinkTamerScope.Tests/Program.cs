@@ -1,7 +1,9 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 
@@ -38,10 +40,11 @@ async Task SelfStackOnly()
     var otherTamer = Instance(ctx, "OTHERTAMER", "MindTamer", "Tamer");
     SetSources(ctx, otherTop, otherTamer);
 
-    var eff = CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(new CardSource(ctx, ownTop, P1), "MindTamer", "");
-    // (uniform-사멸 flip) `ActivatedEffect` deleted with the uniform corpus; the factory returns the new-model
-    // ActivateClass, so this cast still throws the same pre-existing InvalidCastException (stale-red preserved).
-    var req = ((ActivatedPlayFromUnderEffect)eff).BuildRequest(new[] { P1, P2 });
+    // (R7 종점 re-target) The invented ActivatedPlayFromUnderEffect carrier retired; the factory returns the
+    // AS-IS inline ActivateClass. Drive its coroutine with the DEFERRED provider until its under-card select
+    // surfaces, then read the pending request (the live candidate/scope rule surface).
+    var eff = (ActivateClass)CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(new CardSource(ctx, ownTop, P1), "MindTamer", "");
+    ChoiceRequest req = await OpenSelect(ctx, eff);
     var ids = req.Candidates.Select(c => c.Id.Value).ToHashSet();
 
     AssertTrue(ids.Contains(ownTamer.Value), "own-stack Tamer is a candidate");
@@ -57,10 +60,8 @@ async Task OptionalSelect()
     var ownTamer = Instance(ctx, "OWNTAMER", "MindTamer", "Tamer");
     SetSources(ctx, ownTop, ownTamer);
 
-    var eff = CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(new CardSource(ctx, ownTop, P1), "MindTamer", "");
-    // (uniform-사멸 flip) `ActivatedEffect` deleted with the uniform corpus; the factory returns the new-model
-    // ActivateClass, so this cast still throws the same pre-existing InvalidCastException (stale-red preserved).
-    var req = ((ActivatedPlayFromUnderEffect)eff).BuildRequest(new[] { P1, P2 });
+    var eff = (ActivateClass)CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(new CardSource(ctx, ownTop, P1), "MindTamer", "");
+    ChoiceRequest req = await OpenSelect(ctx, eff);
 
     AssertEqual(0, req.MinCount, "optional -> MinCount 0");
     AssertTrue(req.CanSkip, "optional -> CanSkip true");
@@ -71,9 +72,22 @@ async Task OptionalSelect()
 
 EngineContext Ctx()
 {
-    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 911);
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 911, deferredChoice: true);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
     return ctx;
+}
+
+// Drive the ActivateClass coroutine with the DEFERRED provider until its under-card select surfaces, then
+// return the pending request (the live candidate/scope rule surface). Mirrors the G9-046 OpenUnderSelect drive.
+async Task<ChoiceRequest> OpenSelect(EngineContext ctx, ActivateClass eff)
+{
+    using var scope = AmbientMatchContext.Enter(ctx);
+    try { await eff.Activate(new System.Collections.Hashtable()); }
+    catch (DeferredChoicePendingException) { }
+
+    ChoiceRequest? pending = ctx.ChoiceController.PendingRequest;
+    AssertTrue(pending is not null, "the under-card select surfaced to the agent (deferred)");
+    return pending!;
 }
 
 HeadlessEntityId Battle(EngineContext ctx, string number, string name)

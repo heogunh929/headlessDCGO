@@ -62,7 +62,15 @@ async Task MaterialSave()
     var to = await Place(context, P1, "TO", ChoiceZone.BattleArea);
     var mat = await Place(context, P1, "MAT", ChoiceZone.None);
     SetSources(context, from, mat.Value);
-    await Apply(context, sink => new MaterialSaveActivatedEffect(new CardSource(context, from, P1), to, 1, "save").Apply(sink));
+    // (R7 종점) Re-pointed off the retired invented `MaterialSaveActivatedEffect` carrier onto the LIVE
+    // MaterialSave sink mutation it composed (DigivolutionStackHelpers.MoveSourcesBottom substrate).
+    await Apply(context, sink => sink.Apply(new EffectMutation(
+        MatchStateMutationSink.MaterialSaveKind, from,
+        new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [MatchStateMutationSink.ToEntityIdKey] = to.Value,
+            [MatchStateMutationSink.CountKey] = 1,
+        })));
     AssertTrue(!Sources(context, from).Contains(mat.Value), "source left the from-host");
     AssertTrue(Sources(context, to).Contains(mat.Value), "source re-parented to the to-host");
 }
@@ -73,7 +81,17 @@ async Task ReturnToLibraryBottom()
     var host = await Place(context, P1, "HOST", ChoiceZone.BattleArea);
     var mat = await Place(context, P1, "MAT", ChoiceZone.None);
     SetSources(context, host, mat.Value);
-    await Apply(context, sink => new ReturnSelfDigivolutionCardsToDeckEffect(new CardSource(context, host, P1), 1, "return").Apply(sink));
+    // (R7 종점) Re-pointed off the retired invented `ReturnSelfDigivolutionCardsToDeckEffect` carrier onto the
+    // LIVE ReturnDigivolutionCards sink mutation it composed (toDeck, fromBottom).
+    await Apply(context, sink => sink.Apply(new EffectMutation(
+        MatchStateMutationSink.ReturnDigivolutionCardsKind, host,
+        new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [MatchStateMutationSink.TargetEntityIdKey] = host.Value,
+            [MatchStateMutationSink.CountKey] = 1,
+            [MatchStateMutationSink.ToDeckKey] = true,
+            [MatchStateMutationSink.FromBottomKey] = true,
+        })));
     AssertTrue(!Sources(context, host).Contains(mat.Value), "source returned off the host's stack");
 }
 
@@ -83,7 +101,27 @@ async Task ReplaceBottomSecurity()
     var s1 = await Place(context, P1, "SEC1", ChoiceZone.Security);
     var s2 = await Place(context, P1, "SEC2", ChoiceZone.Security); // bottom (last)
     var self = await Place(context, P1, "SELF", ChoiceZone.Hand);
-    await Apply(context, sink => new ReplaceBottomSecurityWithFaceUpEffect(new CardSource(context, self, P1), "replace").Apply(sink));
+    // (R7 종점) Re-pointed off the retired invented `ReplaceBottomSecurityWithFaceUpEffect` carrier onto the
+    // LIVE sink mutations it composed: bottom security -> hand (ReturnToHand), self -> face-up bottom security.
+    await Apply(context, sink =>
+    {
+        IReadOnlyList<HeadlessEntityId> security = Zone(context, P1, ChoiceZone.Security);
+        if (security.Count > 0)
+        {
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.ReturnToHandKind, self,
+                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = security[^1].Value }));
+        }
+
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.AddToSecurityKind, self,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.TargetEntityIdKey] = self.Value,
+                [MatchStateMutationSink.FaceUpKey] = true,
+                [MatchStateMutationSink.ToBottomKey] = true,
+            }));
+    });
     AssertTrue(Zone(context, P1, ChoiceZone.Hand).Contains(s2), "bottom security card went to hand");
     AssertTrue(Zone(context, P1, ChoiceZone.Security).Contains(self), "self placed into security");
 }

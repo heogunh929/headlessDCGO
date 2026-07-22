@@ -58,11 +58,11 @@ public static class ActivatedEffectResolver
     private static bool MembershipKeeps(ICardEffect effect, bool inheritedScan) =>
         effect.IsInheritedEffect == inheritedScan;
 
-    /// <summary>(P6 stage A) Whether the effect is ACTIVATED — the legacy marker
-    /// (<see cref="IActivatedCardEffect"/>, old-model corpus) or the AS-IS contract
-    /// (<see cref="ActivateICardEffect"/>, the new-model ActivateClass/kind classes — the AS-IS collection
-    /// filter <c>is ActivateICardEffect</c>, AutoProcessing.cs:780/799/…).</summary>
-    private static bool IsActivated(ICardEffect effect) => effect is IActivatedCardEffect or ActivateICardEffect;
+    /// <summary>(P6 stage A; R7 종점) Whether the effect is ACTIVATED — the AS-IS contract
+    /// <see cref="ActivateICardEffect"/> (the new-model ActivateClass/kind classes; the AS-IS collection filter
+    /// <c>is ActivateICardEffect</c>, AutoProcessing.cs:780/799/…). The legacy <c>IActivatedCardEffect</c> marker
+    /// retired with the old-model activated corpus (R7 종점 소진), so this reduces to the single new-model test.</summary>
+    private static bool IsActivated(ICardEffect effect) => effect is ActivateICardEffect;
 
     /// <summary>(Stage 5, 3b-iii) Whether the card has ANY activated effects registered at <paramref name="timing"/>.
     /// The window's unified-seed collect uses this so an activated-effect BRIDGE marker is only synthesised for a
@@ -89,9 +89,9 @@ public static class ActivatedEffectResolver
         return card.EffectList(timing).Count > 0;
     }
 
-    /// <summary>(A-2 / RD-6) Whether the card has any ACTIVATED effect (<see cref="IActivatedCardEffect"/>)
+    /// <summary>(A-2 / RD-6) Whether the card has any ACTIVATED effect (<see cref="ActivateICardEffect"/>)
     /// registered at <paramref name="timing"/> — the resolver's actual domain (the <see cref="ResolveListAsync"/>
-    /// switch is ENTIRELY over IActivatedCardEffect subtypes; a plain scheduler <see cref="IHeadlessCardEffect"/>
+    /// switch is the single ActivateICardEffect case; a plain scheduler <see cref="IHeadlessCardEffect"/>
     /// mutation body hits no case and no-ops). Distinct from <see cref="HasEffectsAt"/> (ANY effect, existence):
     /// a card whose only effect at the timing is a SCHEDULER effect (e.g. TriggeredGainMemoryEffect / BT1_021
     /// EoTLose3Memory) is already collected by the scheduler half of the unified window seed, so synthesising an
@@ -534,26 +534,10 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ModeChoiceEffect mode:
-                {
-                    // (PRIM-P0-flow) present the mode menu (available modes only), then dispatch the chosen
-                    // branch through this same resolver — sharing the one sink and deferred-choice cycle.
-                    IReadOnlyList<ModeChoiceEffect.Mode> available = mode.AvailableModes();
-                    if (available.Count > 0)
-                    {
-                        ChoiceResult result = await context.ChoiceProvider
-                            .ChooseAsync(mode.BuildRequest(available), cancellationToken).ConfigureAwait(false);
-                        if (!result.IsSkipped && result.SelectedIds.Count > 0)
-                        {
-                            ICardEffect branch = mode.BranchFor(available, result.SelectedIds[0]);
-                            resolved += await ResolveListAsync(
-                                context, effectClass, card, players, sink, new[] { branch }, cancellationToken, drivingEvent,
-                                hashtable: hashtable, timing: timing).ConfigureAwait(false);
-                        }
-                    }
-
-                    break;
-                }
+                // (R7 종점) `case ModeChoiceEffect mode:` DELETED with the invented carrier — a "choose one mode"
+                // menu is now the AS-IS inline `new ActivateClass()` whose ActivateCoroutine itself presents the
+                // ChoiceType.ModeChoice request and runs the chosen branch's ActivateClass (TfxSelectMode idiom),
+                // driven by the ActivateICardEffect case above.
 
                 // (이연③-h EXHAUSTED) `case DigiBurstActivatedEffect burst:` DELETED with the invented carrier — a
                 // Digi-Burst is now the literal AS-IS inline `new IDigiBurst(permanent, N, activateClass)` (ST4_13
@@ -563,147 +547,31 @@ public static class ActivatedEffectResolver
                 // body (draw / keyword-grant AddEffectToPermanent at the keyword's live-read timing) runs in the
                 // card's ActivateCoroutine after the pay. The ActivateICardEffect case above drives it.
 
-                case DnaFromHandOrTrashActivatedEffect dna:
-                {
-                    // (PRIM special-play) AS-IS DNADigivolveWithHandOrTrashCardIntoHandOrTrash: auto-match an
-                    // into-card (hand/trash), a battle-area permanent, and a hand/trash material, then fuse the
-                    // permanent + material under the into-card (DNA digivolution). Consistent with the other
-                    // special plays' auto-match model.
-                    var reader = (Headless.Services.IZoneStateReader)context.ZoneMover;
-                    HeadlessPlayerId owner = dna.Card.Owner;
-                    ChoiceZone intoZone = dna.IntoFromHand ? ChoiceZone.Hand : ChoiceZone.Trash;
-                    ChoiceZone materialZone = dna.MaterialFromHand ? ChoiceZone.Hand : ChoiceZone.Trash;
+                // (R7 종점) `case DnaFromHandOrTrashActivatedEffect dna:` DELETED with the invented carrier — the
+                // effect-driven DNA digivolution (auto-match into-card/permanent/material then FusionDigivolveHelpers.
+                // FuseAsync) is now the AS-IS inline `new ActivateClass()` coroutine (TfxDnaFromHand idiom), driven
+                // by the ActivateICardEffect case above.
 
-                    HeadlessEntityId? into = FirstMatch(context, reader.GetCards(owner, intoZone), owner, dna.IntoCondition, exclude: default);
-                    HeadlessEntityId? permanent = FirstMatch(context, reader.GetCards(owner, ChoiceZone.BattleArea), owner, dna.PermanentCondition, exclude: default);
-                    HeadlessEntityId? material = into is HeadlessEntityId intoId
-                        ? FirstMatch(context, reader.GetCards(owner, materialZone), owner, dna.MaterialCondition, exclude: intoId)
-                        : null;
-
-                    if (into is HeadlessEntityId topId && permanent is HeadlessEntityId permId && material is HeadlessEntityId matId)
-                    {
-                        // (B-3 tuck reset) DNA/Jogress resets every source of the fused stack (CardController.cs:1509-1512).
-                        // Journaled: the fuse performs DIRECT zone moves — a resumed replay must not re-fuse.
-                        int fusedCount = 0;
-                        await RunJournaledImmediateAsync(context, async () =>
-                        {
-                            IReadOnlyList<HeadlessEntityId> merged = await FusionDigivolveHelpers.FuseAsync(
-                                context.CardInstanceRepository, context.ZoneMover, topId, intoZone,
-                                new[] { permId, matId }, gameEventQueue: context.GameEventQueue,
-                                kind: FusionKind.DnaDigivolve, cancellationToken: cancellationToken,
-                                context: context).ConfigureAwait(false);
-                            fusedCount = merged.Count;
-                        }).ConfigureAwait(false);
-                        if (fusedCount > 0)
-                        {
-                            resolved++;
-                        }
-                    }
-
-                    resolved++;
-                    break;
-                }
-
-                case PlayOptionCardEffect playOption:
-                {
-                    // (PRIM-P0 B.O.5) select Option card(s) from a zone and play each as a nested effect: trash it
-                    // (matching the headless OptionActivate order: trash-before-resolve), open OnUseOption, then
-                    // resolve its [Main] (OptionSkill) through the SAME sink / deferred-choice cycle (recursive
-                    // ResolveListAsync, NOT a nested ResolveAsync — same reason as ReuseMainOptionEffect).
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(playOption.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        foreach (HeadlessEntityId optionId in result.SelectedIds)
-                        {
-                            if (optionId.IsEmpty ||
-                                !context.CardInstanceRepository.TryGetInstance(optionId, out CardInstanceRecord? optInstance) || optInstance is null ||
-                                !context.CardRepository.TryGetCard(optInstance.DefinitionId, out CardRecord? optDef) || optDef is null ||
-                                !CardEffectDispatch.TryCreateForCard(optDef, out CEntity_Effect? optEffect) || optEffect is null)
-                            {
-                                continue;
-                            }
-
-                            // Journaled AS ONE ENTRY: the trash move is a DIRECT (immediately-applied) zone
-                            // mutation — a resumed replay re-running it would throw (the card already left the
-                            // source zone) — and the OnUseOption emit must not re-queue either.
-                            await RunJournaledImmediateAsync(context, async () =>
-                            {
-                                await context.ZoneMover.MoveAsync(
-                                    new ZoneMoveRequest(optInstance.OwnerId, optionId, playOption.SourceZone, ChoiceZone.Trash),
-                                    cancellationToken).ConfigureAwait(false);
-                                TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUseOption, actor: card.Controller, subject: optionId);
-                            }).ConfigureAwait(false);
-
-                            var optCard = new CardSource(context, optionId, card.Controller, optInstance.OwnerId);
-                            resolved += await ResolveListAsync(
-                                context, optEffect, optCard, players, sink,
-                                optEffect.CardEffects(EffectTiming.OptionSkill, optCard), cancellationToken,
-                                // (P6 stage A) the nested option [Main] runs with the AS-IS option-main payload
-                                // {Card} (HashtableSetting.cs:264-271).
-                                hashtable: CardEffectCommons.OptionMainCheckHashtable(optCard),
-                                timing: EffectTiming.OptionSkill).ConfigureAwait(false);
-                        }
-                    }
-
-                    resolved++;
-                    break;
-                }
+                // (R7 종점) `case PlayOptionCardEffect playOption:` DELETED with the invented carrier — the
+                // effect-driven option play is now the AS-IS inline `new ActivateClass()` that selects the
+                // Option(s) then drives the LIVE `CardEffectCommons.PlayOptionCards` bridge (trash → OnUseOption
+                // window → resolve [Main]); driven by the ActivateICardEffect case above.
 
                 // (이연③-e EXHAUSTED) invented `RevealSelectThenPlaySelectedEffect` case DELETED — BT1_078 is
                 // re-pointed to the literal AS-IS inline ActivateClass (coroutine-callable commons
                 // `SimplifiedRevealDeckTopCardsAndSelect` + `new PlayCardClass(...).PlayCard()` digivolve).
 
-                case ActivatedDrawThenDiscardEffect drawDiscard:
-                {
-                    // (G4) draw N -> discard M (atomic; DrawAndDiscardCards flushes the draw before building the
-                    // discard pool). Drives the ChoiceProvider itself for the discard select.
-                    await drawDiscard.ResolveAsync(cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (R7 종점) `case ActivatedDrawThenDiscardEffect drawDiscard:` DELETED with the invented carrier —
+                // draw-N-then-discard-M is the LIVE `CardEffectCommons.DrawAndDiscardCards` coroutine inline in an
+                // ActivateClass (BT3_006 / BT3_088 idiom), driven by the ActivateICardEffect case above.
 
-                case ChooseCountThenTrashDigivolutionEffect chooseCount:
-                {
-                    // (G12 / BT3_100) choose count 0..N -> trash that many (capped) digivolution cards from every matching target.
-                    await chooseCount.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
-
-                case OpponentBinaryChoiceEffect oppBinary:
-                {
-                    // (G13 / BT3_102) opponent yes/no decision -> branch (auto-no when nothing to decide).
-                    await oppBinary.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
-
-                case SelectDeDigivolveThenConditionalDestroyEffect selDeDig:
-                {
-                    // (G10 / BT3_107) select 1 -> de-digivolve N (flush) -> destroy if post-state predicate holds.
-                    await selDeDig.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
-
-                case MassDeDigivolveThenConditionalDestroyEffect massDeDig:
-                {
-                    // (G10 / BT3_112 WD) de-digivolve all matching (flush) -> destroy each satisfying post-state predicate.
-                    await massDeDig.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
-
-                case SelectHandAttachToOwnStackThenMemoryEffect attachStack:
-                {
-                    // (G8 / BT3_019) optional select 1 hand card -> attach on top of this card's own stack ->
-                    // gain memory (only if placed). Drives the ChoiceProvider + a direct attach move; the
-                    // memory is staged on the sink.
-                    await attachStack.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (R7 종점) The G10/G12/G13 primitive cases DELETED with their invented carriers
+                // (`ChooseCountThenTrashDigivolutionEffect`, `OpponentBinaryChoiceEffect`,
+                // `SelectDeDigivolveThenConditionalDestroyEffect`, `MassDeDigivolveThenConditionalDestroyEffect`,
+                // `SelectHandAttachToOwnStackThenMemoryEffect`) — the printed cards BT3_019 / BT3_100 / BT3_102 /
+                // BT3_107 / BT3_112 are ported and drive the live substrate directly (DeDigivolveHelpers /
+                // DigivolutionStackHelpers / DestroyPermanent / the Trash & sink mutations); these bespoke arms
+                // were unreachable (never dispatched — the retired tests drove the carriers white-box).
 
                 // (이연③-d EXHAUSTED) `case SelectDigivolutionSourceToHandThenSelfFollowUpEffect` DELETED — the
                 // invented select-source-to-hand-then-self carrier is retired. BT1_084 [When Attacking] drives the
@@ -752,13 +620,10 @@ public static class ActivatedEffectResolver
                 // OptionResolutionClass → PlayCardClass (RD-P6C2-10 resolved; real cards BT9_109/BT25_104/092/089),
                 // the cost-free digivolve rule covered by G3.5-D6.FreeDigivolve. Class removed.
 
-                case SelectAndDigivolveEffect selectDigivolve:
-                {
-                    // (PRIM-P0-flow B.O.3) select target + source card (hand/trash) then digivolve, paying cost.
-                    await selectDigivolve.ResolveAsync(cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
+                // (R7 종점) `case SelectAndDigivolveEffect selectDigivolve:` DELETED with the invented carrier —
+                // AS-IS DigivolveIntoHandOrTrashCard (select target + source, pay cost, fold) is now the inline
+                // `new ActivateClass()` coroutine driving DigivolveAction directly (TfxSelectDigivolve idiom),
+                // driven by the ActivateICardEffect case above.
 
                 // (이연③-f EXHAUSTED) `case RevealMultiSelectEffect` DELETED — the invented FULL multi-condition
                 // reveal carrier is retired (census-0; BT10_096/097 / ST17_11 are unported skeletons). The AS-IS
@@ -824,50 +689,10 @@ public static class ActivatedEffectResolver
         return resolved;
     }
 
-    /// <summary>(B-1 rework) Emit a trigger-timing event through the uniform-cycle MUTATION JOURNAL so a
-    /// suspended resolution's REPLAY does not re-queue it (a bare queue push is an immediately-applied side
-    /// effect the fresh re-run would double). Outside a cycle this is a plain emit.</summary>
-    private static void EmitJournaled(EngineContext context, string timing, HeadlessPlayerId actor, HeadlessEntityId subject) =>
-        RunJournaledImmediate(context, () => TriggerEventEmitter.Emit(context.GameEventQueue, timing, actor: actor, subject: subject));
-
-    /// <summary>(B-1 rework) Run an IMMEDIATELY-APPLIED side effect (direct zone move / registry registration /
-    /// event emit — anything not staged on the sink) through the uniform-cycle mutation journal: a resumed
-    /// replay SKIPS it (its effect already persists in game state) instead of doubling it. Outside a cycle it
-    /// just runs. The action must be synchronous-in-effect by the time it returns (an awaited direct move is
-    /// wrapped by the async overload below).</summary>
-    private static void RunJournaledImmediate(EngineContext context, Action action)
-    {
-        // (R6-Da'-6 D1=A) journal moved to CEntityUseCycle (lockstep with the OnceFlags uniform-cycle).
-        CEntityUseCycle.MutationReplay replay = CEntityUseCycle.For(context).BeginMutationApply();
-        if (replay == CEntityUseCycle.MutationReplay.Skip)
-        {
-            return;
-        }
-
-        action();
-        if (replay == CEntityUseCycle.MutationReplay.Fresh)
-        {
-            CEntityUseCycle.For(context).RecordFreshMutation(purelyImmediate: true);
-        }
-    }
-
-    /// <summary>Async twin of <see cref="RunJournaledImmediate(EngineContext, Action)"/> for awaited direct
-    /// mutations (ZoneMover moves, FuseAsync).</summary>
-    private static async Task RunJournaledImmediateAsync(EngineContext context, Func<Task> action)
-    {
-        // (R6-Da'-6 D1=A) journal moved to CEntityUseCycle (lockstep with the OnceFlags uniform-cycle).
-        CEntityUseCycle.MutationReplay replay = CEntityUseCycle.For(context).BeginMutationApply();
-        if (replay == CEntityUseCycle.MutationReplay.Skip)
-        {
-            return;
-        }
-
-        await action().ConfigureAwait(false);
-        if (replay == CEntityUseCycle.MutationReplay.Fresh)
-        {
-            CEntityUseCycle.For(context).RecordFreshMutation(purelyImmediate: true);
-        }
-    }
+    // (R7 종점) EmitJournaled / RunJournaledImmediate / RunJournaledImmediateAsync DELETED — their only callers
+    // were the retired bespoke resolver arms (Dna auto-match fuse, PlayOptionCard trash+emit). The surviving
+    // ActivateICardEffect path journals its own direct mutations through CEntityUseCycle within the ActivateClass
+    // coroutines; no resolver-owned immediate-mutation journal remains.
 
     // (uniform-사멸 flip) ConfirmOptionalAsync DELETED — the uniform optional prompt; the new-model optional
     // gate is the AS-IS OptionalSkill.SelectOptional (Activate_Optional, ICardEffect.cs).
@@ -890,20 +715,6 @@ public static class ActivatedEffectResolver
         return players;
     }
 
-    /// <summary>(DNA-from-hand/trash) The first card in <paramref name="pool"/> that satisfies
-    /// <paramref name="condition"/> (evaluated as a <see cref="CardSource"/>), other than <paramref name="exclude"/>.</summary>
-    private static HeadlessEntityId? FirstMatch(
-        EngineContext context, IReadOnlyList<HeadlessEntityId> pool, HeadlessPlayerId owner,
-        Func<CardSource, bool> condition, HeadlessEntityId exclude)
-    {
-        foreach (HeadlessEntityId id in pool)
-        {
-            if (id != exclude && condition(new CardSource(context, id, owner, owner)))
-            {
-                return id;
-            }
-        }
-
-        return null;
-    }
+    // (R7 종점) FirstMatch DELETED — its only caller was the retired DnaFromHandOrTrashActivatedEffect resolver
+    // arm (the auto-match now lives inline in the TfxDnaFromHand ActivateClass coroutine).
 }

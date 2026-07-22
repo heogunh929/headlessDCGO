@@ -3,7 +3,7 @@ namespace HeadlessDCGO.Engine.Headless.Bridge;
 /// <summary>
 /// (EFFECT-MODEL REBUILD, substrate) The headless replacement for Unity's global <c>GManager.instance</c>
 /// singleton. The AS-IS effect object model reads game state through the process-global <c>GManager.instance</c>
-/// (a MonoBehaviour singleton); a 1:1 mirror of that model therefore needs an ambient handle to "the current
+/// (a scene-component singleton in the AS-IS engine); a 1:1 mirror of that model therefore needs an ambient handle to "the current
 /// match" so ported effect code can read <c>GManager.instance.turnStateMachine.gameContext...</c> almost
 /// verbatim — WITHOUT threading an <see cref="EngineContext"/> parameter into every effect (which AS-IS does
 /// not do).

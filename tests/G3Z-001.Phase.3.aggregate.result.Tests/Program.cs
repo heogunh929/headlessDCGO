@@ -6,7 +6,11 @@ var root = FindRepositoryRoot();
 
 var phase3Goals = new Phase3Goal[]
 {
-    new("G3A-001", "EffectContract", "G3A-001_icard_effect_contract_unit_test_results.md", "G3A-001.ICardEffect.contract.Tests"),
+    // (R7 종점) G3A-001.ICardEffect.contract.Tests was physically retired with the EffectRegistry/invented
+    // activated-contract teardown (947d0ab9; the ICardEffect/IActivatedCardEffect binding contract it verified is
+    // gone — its result document is kept as history), so it is excluded from the project-existence assertion via
+    // TestProjectDirectory=null — the same contract-reconciliation convention as the G3B-001 / G3J retirements below.
+    new("G3A-001", "EffectContract", "G3A-001_icard_effect_contract_unit_test_results.md", null),
     new("G3A-002", "EffectContract", "G3A-002_skill_info_unit_test_results.md", "G3A-002.SkillInfo.Tests"),
     // (4b B0) G3B-001.Hashtable.replacement.adapter.Tests는 발명물-표면(어댑터 계약) 검증 전용으로
     // 2026-07-18 은퇴됨(suite_retarget_4b_design §3.1a) — 결과 문서는 역사 기록으로 잔존하므로
@@ -20,8 +24,11 @@ var phase3Goals = new Phase3Goal[]
     new("G3E-002", "Costs", "G3E-002_digivolution_cost_helper_unit_test_results.md", "G3E-002.Digivolution.cost.helper.Tests"),
     new("G3F-001", "Targeting", "G3F-001_target_filtering_helpers_unit_test_results.md", "G3F-001.Target.filtering.helper.Tests"),
     new("G3F-002", "Targeting", "G3F-002_zone_query_helpers_unit_test_results.md", "G3F-002.Zone.query.helper.Tests"),
-    new("G3G-001", "Keywords", "G3G-001_keyword_base_batch1_unit_test_results.md", "G3G-001.Keyword.base.batch.1.Tests"),
-    new("G3G-002", "Keywords", "G3G-002_keyword_base_batch2_unit_test_results.md", "G3G-002.Keyword.base.batch.2.Tests"),
+    // (R7 종점) G3G-001/G3G-002 keyword-base contract test projects physically retired with the EffectRegistry
+    // teardown (947d0ab9; 0 tracked source files at HEAD). Result documents kept as history; excluded from the
+    // project-existence assertion (TestProjectDirectory=null) per the G3B-001 / G3J reconciliation convention.
+    new("G3G-001", "Keywords", "G3G-001_keyword_base_batch1_unit_test_results.md", null),
+    new("G3G-002", "Keywords", "G3G-002_keyword_base_batch2_unit_test_results.md", null),
     new("G3H-001", "Modifiers", "G3H-001_modifier_helpers_unit_test_results.md", "G3H-001.DP.cost.security.attack.modifier.helper.Tests"),
     new("G3H-002", "Restrictions", "G3H-002_cannot_restriction_helpers_unit_test_results.md", "G3H-002.Cannot.restriction.helper.Tests"),
     new("G3I-001", "Replacement", "G3I-001_replacement_prevention_helpers_unit_test_results.md", "G3I-001.Replacement.prevention.helper.Tests"),
@@ -33,8 +40,11 @@ var phase3Goals = new Phase3Goal[]
     // gated was physically deleted (0 src consumers). Phase-3 gate goals: 23 -> 22.
     new("G3K-001", "Selection", "G3K-001_effect_selection_helpers_unit_test_results.md", "G3K-001.Effect.selection.helper.Tests"),
     new("G3K-002", "Timing", "G3K-002_timing_priority_helpers_unit_test_results.md", "G3K-002.Timing.priority.helper.Tests"),
-    new("G3L-001", "Flags", "G3L-001_once_per_turn_flags_unit_test_results.md", "G3L-001.Once.per.turn.flag.helper.Tests"),
-    new("G3L-002", "Inherited", "G3L-002_inherited_granted_security_helpers_unit_test_results.md", "G3L-002.Inherited.granted.security.helper.Tests"),
+    // (R7 종점) G3L-001/G3L-002 flag/inherited-grant contract test projects physically retired with the
+    // EffectRegistry teardown (947d0ab9; 0 tracked source files at HEAD). Result documents kept as history;
+    // excluded from the project-existence assertion (TestProjectDirectory=null) per the same convention.
+    new("G3L-001", "Flags", "G3L-001_once_per_turn_flags_unit_test_results.md", null),
+    new("G3L-002", "Inherited", "G3L-002_inherited_granted_security_helpers_unit_test_results.md", null),
 };
 
 var tests = new (string Name, Action Body)[]

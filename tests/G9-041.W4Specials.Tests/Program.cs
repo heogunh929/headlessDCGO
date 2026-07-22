@@ -39,7 +39,23 @@ async Task ReplaceTopSecurity()
     var s2 = await Place(context, P1, "SEC2", ChoiceZone.Security);
     var self = await Place(context, P1, "SELF", ChoiceZone.Hand);
     var sink = Sink(context);
-    new ReplaceBottomSecurityWithFaceUpEffect(new CardSource(context, self, P1), "replace top", top: true).Apply(sink);
+    // (R7 종점) Re-pointed off the retired invented `ReplaceBottomSecurityWithFaceUpEffect` carrier (top:true)
+    // onto the LIVE sink mutations it composed: top security -> hand, self -> face-up security (top).
+    IReadOnlyList<HeadlessEntityId> security = Zone(context, P1, ChoiceZone.Security);
+    if (security.Count > 0)
+    {
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.ReturnToHandKind, self,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = security[0].Value }));
+    }
+
+    sink.Apply(new EffectMutation(
+        MatchStateMutationSink.AddToSecurityKind, self,
+        new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [MatchStateMutationSink.TargetEntityIdKey] = self.Value,
+            [MatchStateMutationSink.FaceUpKey] = true,
+        }));
     await sink.FlushAsync();
     AssertTrue(Zone(context, P1, ChoiceZone.Hand).Contains(s1), "top security card went to hand");
     AssertTrue(Zone(context, P1, ChoiceZone.Security).Contains(self), "self placed into security");
@@ -50,7 +66,9 @@ async Task RevealLibrary()
     EngineContext context = Context();
     var self = await Place(context, P1, "SELF", ChoiceZone.BattleArea);
     var sink = Sink(context);
-    new InformationalRevealEffect(new CardSource(context, self, P1), 3, "reveal 3").Apply(sink);
+    // (R7 종점) The retired invented `InformationalRevealEffect` carrier was a documented NO-OP: a reveal
+    // exposes cards to the opponent, which the full-information headless model already has (no mutation).
+    // Retargeted to the same observable: an empty flush leaves state unchanged.
     await sink.FlushAsync();
     AssertTrue(Zone(context, P1, ChoiceZone.BattleArea).Contains(self), "no state change (self still in play)");
 }

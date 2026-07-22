@@ -90,6 +90,7 @@ async Task<EngineContext> Setup(string costMode, bool withSource)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 55);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // past None -> DoneStartGame true (AS-IS ICardEffect.CanTrigger gate)
     var cards = (CardDatabase)context.CardRepository;
 
     // The option/effect card (in Execution so it is not itself a battle-area target candidate).

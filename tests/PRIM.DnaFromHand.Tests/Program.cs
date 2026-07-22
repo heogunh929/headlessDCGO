@@ -59,6 +59,7 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 76);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);   // past None -> DoneStartGame true (AS-IS ICardEffect.CanTrigger gate)
     return ctx;
 }
 async Task<HeadlessEntityId> Put(EngineContext ctx, string cardNumber, string cardType, ChoiceZone zone)

@@ -51,10 +51,15 @@ async Task SelfReturn()
 {
     EngineContext ctx = Ctx();
     var self = await Place(ctx, P1, "SELF", ChoiceZone.BattleArea);
-    var eff = (ReturnThisCardToHandEffect)CardEffectFactory.AddThisCardToHandEffect(new CardSource(ctx, self, P1));
-    var sink = Sink(ctx);
-    eff.Apply(sink);
-    await sink.FlushAsync();
+    // (R7 종점) Re-pointed off the retired invented `ReturnThisCardToHandEffect` / factory
+    // `AddThisCardToHandEffect` onto the LIVE self-bounce coroutine it wrapped (AS-IS
+    // CardEffectCommons.AddThisCardToHand — the same path ST3_13 / ST4_15 [Security] drive).
+    var card = new CardSource(ctx, self, P1);
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        await CardEffectCommons.AddThisCardToHand(card, card);
+    }
+
     var reader = (IZoneStateReader)ctx.ZoneMover;
     AssertTrue(reader.GetCards(P1, ChoiceZone.Hand).Contains(self), "self returned to hand");
     AssertTrue(!reader.GetCards(P1, ChoiceZone.BattleArea).Contains(self), "self left battle area");

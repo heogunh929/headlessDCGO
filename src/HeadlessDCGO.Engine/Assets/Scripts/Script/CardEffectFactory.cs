@@ -45,15 +45,9 @@ public static partial class CardEffectFactory
     // DrawEffect stub. Draws are the AS-IS `new DrawClass(card.Context, card.Owner, count, activateClass).Draw()`
     // coroutine (Script/CardController.cs) inline in the card/fixture body, the printed-card idiom (BT1_046).
 
-    /// <summary>(G4) <c>DrawThenDiscardEffect</c> — atomic "draw <paramref name="drawAmount"/>, then discard
-    /// <paramref name="trashAmount"/> from your hand" (AS-IS draw-then-discard coroutine). Wraps
-    /// <see cref="CardEffectCommons.DrawAndDiscardCards"/> (draws+flushes before the discard candidate pool is
-    /// built, so drawn cards are discardable). <paramref name="discardOptional"/> = "you may discard";
-    /// <paramref name="discardUpTo"/> = "discard up to N" (min 1) vs exactly N. Resolved via the activation flow.</summary>
-    public static IActivatedCardEffect DrawThenDiscardEffect(
-        CardSource card, int drawAmount, int trashAmount, string description,
-        Func<CardSource, bool>? canTrash = null, bool discardOptional = false, bool discardUpTo = false) =>
-        new ActivatedDrawThenDiscardEffect(card, drawAmount, trashAmount, canTrash, discardOptional, discardUpTo, description);
+    // (R7 종점) invented factory `DrawThenDiscardEffect` DELETED with its body `ActivatedDrawThenDiscardEffect` —
+    // atomic draw-then-discard is the LIVE `CardEffectCommons.DrawAndDiscardCards` coroutine inline in an
+    // ActivateClass (BT3_006 / BT3_088 idiom).
 
     // (P4 KeyWord slice) PierceSelfEffect moved to KeyWordEffects/Pierce.cs (AS-IS 1:1)
 
@@ -1358,11 +1352,9 @@ public static partial class CardEffectFactory
     // inline-migration (the card corpus was already re-ported to the AS-IS inline ActivateClass +
     // SelectPermanentEffect Mode.Destroy idiom — ST1_15/ST1_16/BT2_013/BT2_091/BT2_110).
 
-    /// <summary>(PRIM-P0-flow) An activated "choose one of the following modes" menu (AS-IS UserSelectionManager
-    /// SetBool/IntSelection). Each mode is a labeled branch effect; a mode with an availability predicate that
-    /// returns false is omitted. The selected branch resolves through the same activation flow / sink.</summary>
-    public static ICardEffect SelectModeEffect(CardSource card, string description, params ModeChoiceEffect.Mode[] modes) =>
-        new ModeChoiceEffect(card, description, modes);
+    // (R7 종점) invented factory `SelectModeEffect` DELETED with its body `ModeChoiceEffect` — a "choose one mode"
+    // menu is the AS-IS inline `new ActivateClass()` whose ActivateCoroutine presents ChoiceType.ModeChoice and
+    // runs the chosen branch's ActivateClass (TfxSelectMode idiom).
 
     // (R6-Da'-1) invented helpers `SelectAndSuspendEffect` / `SelectAndUnsuspendEffect` / `SelectAndBounceEffect`
     // (5-arg) / `SelectAndReturnToDeckEffect` / `SelectAndPutSecurityEffect` / `SelectAndPlayFromZoneEffect`
@@ -1371,36 +1363,27 @@ public static partial class CardEffectFactory
     // the G9-046 SelectAndPlay-case removal (real-rule coverage: BT9_081 SelectCardEffect Root.Trash +
     // PlayPermanentCards; see the G9-046 header).
 
-    /// <summary>(PRIM-P0 B.O.5) AS-IS <c>CardEffectCommons.PlayOptionCards</c>: select up to
-    /// <paramref name="maxCount"/> of the owner's Option cards in <paramref name="sourceZone"/> and play each as a
-    /// nested effect (trash → OnUseOption → resolve its [Main]). Cost-free (v1).</summary>
-    public static ICardEffect PlayOptionCardEffect(
-        CardSource card, ChoiceZone sourceZone, Func<HeadlessEntityId, bool> optionPredicate, int maxCount, bool canEndNotMax, string description) =>
-        new PlayOptionCardEffect(card, sourceZone, optionPredicate, maxCount, canEndNotMax, description);
+    // (R7 종점) invented factory `PlayOptionCardEffect` DELETED with its body — the effect-driven option play is
+    // the AS-IS inline `new ActivateClass()` that selects the Option(s) then drives the LIVE
+    // `CardEffectCommons.PlayOptionCards` bridge (TfxPlayOption idiom).
 
     // (R6-Da'-1) invented helpers `SelectAndAddToHandFromZoneEffect` / `SelectAndTrashFromZoneEffect` /
     // `SelectAndPutSecurityFromZoneEffect` DELETED — 0 consumers after the TfxSelectFollowUp inline-migration
     // (AS-IS inline ActivateClass + SelectCardEffect full SetUp, Mode.AddHand/Discard over Root.Trash/Library —
     // BT2_090/BT10_084 idiom; the invented body `ActivatedSelectFromZoneEffect` is deleted with them).
 
-    /// <summary>(PRIM-P0-flow B.O.3) AS-IS <c>DigivolveIntoHandOrTrashCard</c>: select 1 of the owner's Digimon
-    /// (<paramref name="targetPredicate"/>) and a source card in <paramref name="sourceZone"/> (Hand / Trash,
-    /// <paramref name="sourcePredicate"/>) that can digivolve onto it, pay the cost, and digivolve. v1 enforces
-    /// requirements.</summary>
-    public static ICardEffect SelectAndDigivolveEffect(
-        CardSource card, ChoiceZone sourceZone, Func<HeadlessEntityId, bool> sourcePredicate,
-        Func<HeadlessEntityId, bool> targetPredicate, DigivolveCost cost, int costAmount, string description) =>
-        new SelectAndDigivolveEffect(card, sourceZone, sourcePredicate, targetPredicate, cost, costAmount, description);
+    // (R7 종점) invented factory `SelectAndDigivolveEffect` DELETED with its body — AS-IS
+    // DigivolveIntoHandOrTrashCard (select target + source, pay cost, fold) is the inline `new ActivateClass()`
+    // coroutine driving DigivolveAction directly (TfxSelectDigivolve idiom).
 
     // (이연③-d EXHAUSTED) invented `BeforePayCostReductionEffect` factory helpers (both overloads) DELETED —
     // the AS-IS BeforePayCost cost reduction is the inline `[BeforePayCost] ActivateClass` that registers a self
     // ChangeCostClass into UntilCalculateFixedCostEffect.Add (BT18_057 / EX8_074 / BT2_023 idiom). Sole producer
     // (TfxBeforePayCostReduction fixture) re-pointed to that inline shape; class + resolver case removed.
 
-    /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.AddThisCardToHand(..)</c> — return
-    /// this card to the owner's hand.</summary>
-    public static IActivatedCardEffect AddThisCardToHandEffect(CardSource card) =>
-        new ReturnThisCardToHandEffect(card, "Return this card to the hand.");
+    // (R7 종점) invented factory `AddThisCardToHandEffect` DELETED with its body `ReturnThisCardToHandEffect` —
+    // returning this card to the hand is the LIVE AS-IS coroutine `CardEffectCommons.AddThisCardToHand(card, card)`
+    // (the same self-bounce path ST3_13 / ST4_15 [Security] drive).
 
     // (R6-Da'-5) factory helper `SelectAndDeDigivolveEffect` DELETED with its invented body
     // `ActivatedSelectAndDeDigivolveEffect` (census-0 producer; only consumer was the G9-046 DeDigivolve
@@ -1656,16 +1639,9 @@ public static partial class CardEffectFactory
         bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
     }
 
-    /// <summary>(PRIM special-play) AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> — an effect-driven
-    /// DNA Digivolution into a hand/trash card (<paramref name="intoCondition"/>) fusing a battle-area permanent
-    /// (<paramref name="permanentCondition"/>) with a hand/trash material (<paramref name="materialCondition"/>).
-    /// Resolved via the activation flow.</summary>
-    public static ICardEffect DnaDigivolveFromHandOrTrashEffect(
-        CardSource card, Func<CardSource, bool> intoCondition, Func<CardSource, bool> permanentCondition,
-        Func<CardSource, bool> materialCondition, bool intoFromHand, bool materialFromHand,
-        string description = "DNA Digivolve using a hand/trash card") =>
-        new DnaFromHandOrTrashActivatedEffect(
-            card, intoCondition, permanentCondition, materialCondition, intoFromHand, materialFromHand, description);
+    // (R7 종점) invented factory `DnaDigivolveFromHandOrTrashEffect` DELETED with its body
+    // `DnaFromHandOrTrashActivatedEffect` — the effect-driven DNA digivolution (auto-match then
+    // FusionDigivolveHelpers.FuseAsync) is the AS-IS inline `new ActivateClass()` coroutine (TfxDnaFromHand idiom).
 
     /// <summary>(PRIM-W5) Jogress with ARBITRARY per-material predicates (faithful form of
     /// <c>AddJogressConditionClass</c>'s <c>GetJogress</c>).</summary>

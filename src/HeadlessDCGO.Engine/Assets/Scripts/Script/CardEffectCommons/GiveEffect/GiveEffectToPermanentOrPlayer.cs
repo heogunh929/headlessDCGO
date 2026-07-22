@@ -15,16 +15,10 @@ public static partial class CardEffectCommons
     /// (GiveEffect/GiveEffectToPermanentOrPlayer.cs:11-51) — register an effect on the target permanent with a
     /// duration. AS-IS stores a deferred <see cref="GetCardEffectByEffectTiming"/> selector into the target's
     /// duration bucket (owner-relative swap for the two turn-end durations), which <see cref="Permanent.EffectList_Added"/>
-    /// then surfaces. RD-P6C3-C1 RESOLVED: a NEW-model effect (an <c>ActivateClass</c>; it has no <c>ToBinding</c>
-    /// method) takes this AS-IS 1:1 bucket path.
-    ///
-    /// TRANSITIONAL SPLIT (retires in batch C): an OLD-model effect (one that still exposes <c>ToBinding(string)</c>)
-    /// keeps the pre-R3 registry-lowering substrate path unchanged — the live legacy gates read the registry, so an
-    /// old-model grant must stay there until batch C retires the registry. The two effect populations are DISJOINT
-    /// (keyed by effect model: <see cref="LegacyBindingBridge.TryToBinding"/> true = old / false = new); no consumer
-    /// reads "registry OR bucket" for the same effect. There is no live old-model caller of this method in the mirror
-    /// today (the sole caller, BT1_112, passes a new-model ActivateClass), so the registry branch is currently
-    /// inert but preserved verbatim.</summary>
+    /// then surfaces. RD-P6C3-C1 RESOLVED: a NEW-model effect (an <c>ActivateClass</c>) takes this AS-IS 1:1 bucket
+    /// path. (R7 종점) The old-model activated corpus is fully retired, so the former TRANSITIONAL registry-lowering
+    /// split — an OLD-model <c>ToBinding</c> effect kept on the pre-R3 registry path — is gone with it: the bucket
+    /// path is the sole path, matching AS-IS exactly. The sole caller (BT1_112) passes a new-model ActivateClass.</summary>
     public static void AddEffectToPermanent(
         Permanent? targetPermanent, EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing)
     {

@@ -302,8 +302,10 @@ bool InZone(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId id, 
 void StampAllNine(EngineContext context, HeadlessEntityId id)
 {
     var permanent = new Cec.Permanent(context, id, P1);
-    permanent.PlayingEffect = new Cec.DeferredCardEffect("RD-R3-02 witness playing effect");
-    permanent.DigivolvingEffect = new Cec.DeferredCardEffect("RD-R3-02 witness digivolving effect");
+    // (R7 종점) The invented `DeferredCardEffect` placeholder retired with the old-model activated corpus; a bare
+    // AS-IS `ActivateClass` is the live minimal ICardEffect marker for the PlayingEffect/DigivolvingEffect witness.
+    permanent.PlayingEffect = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass();
+    permanent.DigivolvingEffect = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass();
     permanent.LevelJustAfterPlayed = 4;
     permanent.PlayCostJustAfterPlayed = 6;
     permanent.CardNamesJustAfterPlayed = new List<string> { "WitnessName" };

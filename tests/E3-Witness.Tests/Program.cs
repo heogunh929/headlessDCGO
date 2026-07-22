@@ -307,15 +307,17 @@ bool ReadSuspended(EngineContext ctx, string instanceId) =>
     HeadlessEntityId plainOpt = PlaceOption(ctx, P1, "P1OPT", "epd-plain");
     HeadlessEntityId selfForbidOpt = PlaceOption(ctx, P1, "TfxOptionForbidsSelf", "epd-forbid");
 
-    var playEffect = new PlayOptionCardEffect(caster, ChoiceZone.Hand, _ => true, maxCount: 2, canEndNotMax: true,
-        "Play up to 2 Options from your hand.");
-    ChoiceRequest request = playEffect.BuildRequest(new[] { P1, P2 });
-    var candidateIds = request.Candidates.Select(c => c.Id).ToList();
+    // (R7 종점) Re-pointed off the retired invented `PlayOptionCardEffect` carrier onto the LIVE candidate
+    // filter its BuildRequest applied verbatim (and that `CardEffectCommons.PlayOptionCards` re-applies):
+    // `!CanNotPlayOptionScan.CanNotPlay(...) && OptionColorRequirement.Matches(...)` = AS-IS !CanNotPlayThisOption.
+    bool Playable(HeadlessEntityId id) =>
+        !CanNotPlayOptionScan.CanNotPlay(ctx, P1, id) && OptionColorRequirement.Matches(ctx, P1, id);
 
-    Check(candidateIds.Contains(plainOpt),
-        "PlayOptionCardEffect (P1-1): a normally-playable Option IS a candidate");
-    Check(!candidateIds.Contains(selfForbidOpt),
-        "PlayOptionCardEffect (P1-1): a self-forbidding Option (CanNotPlay active) is EXCLUDED from the effect-driven play");
+    Check(Playable(plainOpt),
+        "PlayOptionCards filter (P1-1): a normally-playable Option IS a candidate");
+    Check(!Playable(selfForbidOpt),
+        "PlayOptionCards filter (P1-1): a self-forbidding Option (CanNotPlay active) is EXCLUDED from the effect-driven play");
+    _ = caster;
 }
 
 // =========================================================================================================

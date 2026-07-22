@@ -72,34 +72,29 @@ async Task ConditionalModeSelectable()
     AssertEqual(before + 5, HandCount(context, P1), "the conditional Draw-5 branch ran");
 }
 
-// Unit test of the omission logic (AS-IS conditional selectionElements.Add): a mode whose IsAvailable() is
-// false is dropped from AvailableModes()/BuildRequest(); a true predicate is kept.
+// (R7 종점 re-target) Behavioural omission test of the AS-IS conditional selectionElements.Add: with
+// extraMode:false the conditional Draw-5 mode is OMITTED from the presented menu (only Draw1/Draw3 offered).
+// The former white-box unit test of the retired ModeChoiceEffect.AvailableModes()/BuildRequest() API is
+// retired with the carrier — the omission now lives inline in the TfxSelectMode ActivateClass (the
+// `if (extraMode)` guard). Driven with the DEFERRED provider so the presented mode menu is inspectable.
 async Task UnavailableModeOmitted()
 {
-    (EngineContext context, HeadlessEntityId src) = await Setup(extraMode: false);
-    var card = new CardSource(context, src, P1);
-    // (이연③-h) A never-resolved branch placeholder (this test only counts AvailableModes()/BuildRequest());
-    // the retired invented DrawCardsEffect stub is replaced by a trivial AS-IS ActivateClass.
-    var stubAC = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass();
-    stubAC.SetUpICardEffect("stub", _ => true, card);
-    stubAC.SetUpActivateClass(null, _ => System.Threading.Tasks.Task.CompletedTask, -1, false, "stub");
-    ICardEffect stub = stubAC;
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 917, deferredChoice: true);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId("TfxSelectMode");
+    cards.Upsert(new CardRecord(defId, "TfxSelectMode", "ModeSrc", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var src = new HeadlessEntityId("1:battle:SRC");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(src, defId, P1,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = false }));   // extraMode NOT set
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, src, ChoiceZone.None, ChoiceZone.BattleArea));
 
-    var effOff = new ModeChoiceEffect(card, "menu", new[]
-    {
-        new ModeChoiceEffect.Mode("A", null, stub),
-        new ModeChoiceEffect.Mode("B", () => false, stub),
-    });
-    AssertEqual(1, effOff.AvailableModes().Count, "the false-predicate mode is omitted");
-    AssertEqual(1, effOff.BuildRequest(effOff.AvailableModes()).Candidates.Count, "menu shows only the available mode");
+    try { await ActivatedEffectResolver.ResolveAsync(context, src, P1, EffectTiming.OptionSkill); }
+    catch (DeferredChoicePendingException) { }
 
-    var effOn = new ModeChoiceEffect(card, "menu", new[]
-    {
-        new ModeChoiceEffect.Mode("A", null, stub),
-        new ModeChoiceEffect.Mode("B", () => true, stub),
-    });
-    AssertEqual(2, effOn.AvailableModes().Count, "a true-predicate mode is kept");
-    await Task.CompletedTask;
+    ChoiceRequest? pending = context.ChoiceController.PendingRequest;
+    AssertEqual(2, pending?.Candidates.Count ?? -1, "the unavailable Draw-5 mode is omitted (only Draw1/Draw3 offered)");
 }
 
 // --- Harness -------------------------------------------------------------
