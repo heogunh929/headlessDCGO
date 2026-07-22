@@ -54,14 +54,9 @@ public sealed class DeletionReplacementTiming
     {
         var options = new List<string>();
 
-        // (PRIM-P0-timing batch 4) a card with a live effect registered at WhenPermanentWouldBeDeleted surfaces
-        // as an optional PRE replacement — the generic bridge from the card-facing timing into this window.
-        if (effectRegistry is not null &&
-            effectRegistry.GetEffects(record.InstanceId, TriggerTimings.WhenPermanentWouldBeDeleted).Count > 0)
-        {
-            options.Add(CustomWouldBeDeletedOption);
-        }
-
+        // (RC-4) the registry CustomWouldBeDeleted PRE bridge is retired — producer 0 (no card ever
+        // registers a WhenPermanentWouldBeDeleted binding; the AS-IS cut-in window collects printed/granted
+        // ActivateClass effects instead). PreOptions is empty pending the registry type deletion.
         return options;
     }
 
@@ -76,12 +71,7 @@ public sealed class DeletionReplacementTiming
     {
         var options = new List<string>();
 
-        // (PRIM-P0-timing batch 4) card-registered WhenPermanentWouldBeDeleted effect — see static overload.
-        if (context.EffectRegistry.GetEffects(record.InstanceId, TriggerTimings.WhenPermanentWouldBeDeleted).Count > 0)
-        {
-            options.Add(CustomWouldBeDeletedOption);
-        }
-
+        // (RC-4) registry PRE bridge retired — see static overload.
         return options;
     }
 
@@ -249,17 +239,7 @@ public sealed class DeletionReplacementTiming
             // willBeRemoveField=false / trashes the top; POST Ascension: printed AscensionSelfEffect -> AscensionProcess,
             // the store-charge (RD-P6C3-A3) now satisfies CanActivateOnDeletion). Only the PRE CustomWouldBeDeleted
             // bridge remains.
-            case CustomWouldBeDeletedOption:
-                // (PRIM-P0-timing batch 4) run the card's own WhenPermanentWouldBeDeleted effect body(ies)
-                // and cancel the deletion (AS-IS willBeRemoveField=false). Activating this option IS the
-                // decision to survive/replace; the effect body performs any bounce/source-trash/play itself.
-                foreach (EffectBinding binding in context.EffectRegistry.GetEffects(cardId, TriggerTimings.WhenPermanentWouldBeDeleted))
-                {
-                    context.EffectScheduler.Enqueue(binding.Request);
-                }
-
-                ClearDeletion(context, cardId);
-                return true;
+            // (RC-4) CustomWouldBeDeletedOption case retired with the registry PRE bridge (never surfaced).
             default:
                 return false;
         }
