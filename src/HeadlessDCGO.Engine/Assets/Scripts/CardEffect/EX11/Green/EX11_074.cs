@@ -314,14 +314,11 @@ public sealed class EX11_074 : CEntity_Effect
 
                 if (selectedPermanent != null)
                 {
-                    // STOP (design item RD-EXT2B-01): AS-IS :263 `new IBattle(this, target, null, true).Battle()` —
-                    // 효과-구동 강제 배틀. 미러 IBattle은 컨텍스트 홀더(AttackingPermanent/enemyPermanent/CompareStats)만
-                    // 이관됐고 `.Battle()` 실행 메서드가 미러에 없음(CardController.cs:4074-4122). AS-IS 1:1 재현 불가 —
-                    // 우회 금지, 정직 STOP. (이 카드의 T2B 타깃 축 Vortex/DigimonEffectImmunity은 별개 리전이라 클린;
-                    // 이 [All Turns] OnTappedAnyone 배틀 경로만 미이관.)
-                    throw new NotSupportedException(
-                        "EX11_074 [All Turns] IBattle.Battle(): the mirror IBattle is a context holder only — no " +
-                        "effect-driven battle-execution method (CardController.cs:4074) — design item RD-EXT2B-01.");
+                    // (RD-EXT2B-01 RESOLVED) AS-IS :263 `new IBattle(this, target, null, true).Battle()` — the
+                    // effect-driven, participant-explicit forced battle (IsWithoutAttack=true; NO pending attack,
+                    // NO attack-declaration / security machinery). The mirror IBattle now carries the 1:1
+                    // `.Battle()` execution method (CardController.cs IBattle.Battle).
+                    await new IBattle(ICardEffect.ResolvePermanentOfThisCard(card), selectedPermanent, null, true).Battle();
                 }
             }
         }

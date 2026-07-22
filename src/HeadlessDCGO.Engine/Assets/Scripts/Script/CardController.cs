@@ -4632,6 +4632,261 @@ public class IBattle
 
         return statCheck;
     }
+
+    /// <summary>(RD-EXT2B-01) AS-IS <c>IBattle.Battle()</c> (CardController.cs:4474-4772) 1:1 — the participant-explicit
+    /// battle. EX11_074's [All Turns] forces a battle with NO pending attack (<c>IsWithoutAttack=true</c>): AS-IS then
+    /// SKIPS every <c>if (!IsWithoutAttack)</c> block (the mid-battle AutoProcessCheck / IsSelecting / IsEndAttack
+    /// pre-empt and the end-of-battle reset), so this path runs NONE of the attack-declaration / security machinery —
+    /// only the pure battle sub-steps: OnStartBattle window (STACK-only, drained by the outer loop — AS-IS does NOT
+    /// AutoProcessCheck it before the compare for an effect battle), DP compare (<see cref="CompareStats"/>) → winner /
+    /// loser gated by <c>CanBeDestroyedByBattle</c>, loser deletion via <see cref="DestroyPermanentsClass"/> (which
+    /// itself opens the would-be-deleted PRE cut-in + OnDeletion windows), OnEndBattle window, and the
+    /// OnDetermineDoSecurityCheck [Pierce] stack. Mirrors AS-IS exactly, INCLUDING the guarded
+    /// <c>if (!IsWithoutAttack)</c> blocks (kept 1:1 for the full-fidelity real-battle caller shape, though the mirror's
+    /// real attack-vs-Digimon / attack-vs-security battles route through the attack pipeline / SecurityResolver, so this
+    /// method is only reached with <c>IsWithoutAttack=true</c> today).
+    ///
+    /// ADAPTATION (substrate only): IEnumerator→Task, StartCoroutine(X)→await X; UI (log / BattleEffect / ShowEffect /
+    /// target-arrow / move-up display) stripped; snapshot <c>new Permanent(permanent.cardSources)</c> → the mirror
+    /// InstanceId view <c>new Permanent(context, InstanceId, OwnerId)</c> (HashtableSetting precedent). The AS-IS
+    /// <c>AttackingPermanent.battle = this</c> / <c>DefendingPermanent.battle = this</c> field writes (and the null
+    /// reset) are OMITTED — the mirror <see cref="Permanent"/> is a reconstructed view with no <c>battle</c> field
+    /// (design item RD-EXT2B-01-BATTLEFIELD: no live mirror reader; the "battle" HASHTABLE key added at
+    /// AS-IS :4700 is the channel effects actually read via <c>GetBattleFromHashtable</c>, and IS populated here).</summary>
+    public async Task Battle(CancellationToken cancellationToken = default)
+    {
+        hashtable = new Hashtable();
+
+        if (AttackingPermanent != null && AttackingPermanent.HasDP)
+        {
+            var context = AttackingPermanent.TopCard.Context;
+
+            bool IsExistingDefender()
+            {
+                // AS-IS :4480-4499 — exactly one of DefendingPermanent / DefendingCard is set, and it HAS a DP.
+                if ((DefendingPermanent == null) != (DefendingCard == null))
+                {
+                    if (DefendingPermanent != null)
+                    {
+                        if (DefendingPermanent.TopCard != null)
+                        {
+                            return DefendingPermanent.HasDP;
+                        }
+                    }
+                    else if (DefendingCard != null)
+                    {
+                        return DefendingCard.HasDP;
+                    }
+                }
+
+                return false;
+            }
+
+            if (IsExistingDefender())
+            {
+                // AS-IS :4503-4511 `AttackingPermanent.battle = this` / `DefendingPermanent.battle = this` —
+                // OMITTED (no mirror Permanent.battle field; see method summary, RD-EXT2B-01-BATTLEFIELD).
+
+                List<Permanent> WinnerPermanents = new List<Permanent>();
+                List<Permanent> LoserPermanents = new List<Permanent>();
+                CardSource LoserCard = null;
+                bool WasTie = false;
+
+                // AS-IS :4518-4530 PlayLog — UI stripped.
+
+                #region "At the start of battle" effect
+
+                // AS-IS :4534-4551 snapshot the participants for the OnStartBattle payload. Mirror snapshot =
+                // the InstanceId view (HashtableSetting precedent) when the top card is present, else null.
+                Permanent _AttackingPermanent = null;
+                Permanent _DefendingPermanent = null;
+
+                if (AttackingPermanent != null && AttackingPermanent.TopCard != null)
+                {
+                    _AttackingPermanent = new Permanent(context, AttackingPermanent.InstanceId, AttackingPermanent.OwnerId);
+                }
+
+                if (DefendingPermanent != null && DefendingPermanent.TopCard != null)
+                {
+                    _DefendingPermanent = new Permanent(context, DefendingPermanent.InstanceId, DefendingPermanent.OwnerId);
+                }
+
+                hashtable.Add("AttackingPermanent", _AttackingPermanent);
+                hashtable.Add("DefendingPermanent", _DefendingPermanent);
+                hashtable.Add("DefendingCard", DefendingCard);
+
+                await GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnStartBattle).ConfigureAwait(false);
+
+                #endregion
+
+                // AS-IS :4561-4595 ShowEffect() — pure UI (BrainStorm display), only meaningful mid-attack; stripped.
+
+                if (!IsWithoutAttack) // AS-IS :4597 — an effect battle (IsWithoutAttack) does NOT run mid-battle processing.
+                {
+                    await GManager.instance.autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+
+                    GManager.instance.turnStateMachine.IsSelecting = true;
+
+                    // AS-IS :4605-4606 preemptive end-battle if the attack process already ended.
+                    if (GManager.instance.attackProcess.IsEndAttack)
+                    {
+                        return;
+                    }
+                }
+
+                #region battle with permanent
+
+                if (DefendingPermanent != null)
+                {
+                    int battleResults = CompareStats();
+                    if (battleResults == 1)
+                    {
+                        WinnerPermanents.Add(AttackingPermanent);
+
+                        if (DefendingPermanent.CanBeDestroyedByBattle(AttackingPermanent, DefendingPermanent, DefendingCard))
+                            LoserPermanents.Add(DefendingPermanent);
+                    }
+                    else if (battleResults == 0)
+                    {
+                        WasTie = true;
+
+                        WinnerPermanents.Add(AttackingPermanent);
+                        WinnerPermanents.Add(DefendingPermanent);
+
+                        if (AttackingPermanent.CanBeDestroyedByBattle(AttackingPermanent, DefendingPermanent, DefendingCard))
+                            LoserPermanents.Add(AttackingPermanent);
+
+                        if (DefendingPermanent.CanBeDestroyedByBattle(AttackingPermanent, DefendingPermanent, DefendingCard))
+                            LoserPermanents.Add(DefendingPermanent);
+                    }
+                    else if (battleResults == -1)
+                    {
+                        WinnerPermanents.Add(DefendingPermanent);
+
+                        if (AttackingPermanent.CanBeDestroyedByBattle(AttackingPermanent, DefendingPermanent, DefendingCard))
+                            LoserPermanents.Add(AttackingPermanent);
+                    }
+                }
+
+                #endregion
+
+                #region battle with card
+                else if (DefendingCard != null)
+                {
+                    if (AttackingPermanent.DP > DefendingCard.CardDP)
+                    {
+                        WinnerPermanents.Add(AttackingPermanent);
+                        LoserCard = DefendingCard;
+                    }
+                    else if (AttackingPermanent.DP == DefendingCard.CardDP)
+                    {
+                        WasTie = true;
+
+                        if (AttackingPermanent.CanBeDestroyedByBattle(AttackingPermanent, DefendingPermanent, DefendingCard))
+                        {
+                            LoserPermanents.Add(AttackingPermanent);
+                        }
+
+                        LoserCard = DefendingCard;
+                    }
+                    else if (AttackingPermanent.DP < DefendingCard.CardDP)
+                    {
+                        if (AttackingPermanent.CanBeDestroyedByBattle(AttackingPermanent, DefendingPermanent, DefendingCard))
+                        {
+                            LoserPermanents.Add(AttackingPermanent);
+                        }
+                    }
+                }
+
+                #endregion
+
+                // AS-IS :4675-4692 snapshot the winner/loser lists for the payload.
+                List<Permanent> _WinnerPermanents = new List<Permanent>();
+                List<Permanent> _LoserPermanents = new List<Permanent>();
+
+                foreach (Permanent permanent in WinnerPermanents)
+                {
+                    if (permanent.TopCard != null)
+                    {
+                        _WinnerPermanents.Add(new Permanent(context, permanent.InstanceId, permanent.OwnerId));
+                    }
+                }
+
+                foreach (Permanent permanent in LoserPermanents)
+                {
+                    if (permanent.TopCard != null)
+                    {
+                        _LoserPermanents.Add(new Permanent(context, permanent.InstanceId, permanent.OwnerId));
+                    }
+                }
+
+                hashtable.Add("WinnerPermanents", _WinnerPermanents);
+                hashtable.Add("WinnerPermanents_real", WinnerPermanents);
+                hashtable.Add("LoserPermanents", _LoserPermanents);
+                hashtable.Add("LoserPermanents_real", LoserPermanents);
+                hashtable.Add("LoserCard", LoserCard);
+                hashtable.Add("WasTie", WasTie);
+                hashtable.Add("battle", this);
+
+                // AS-IS :4703 BattleEffect(...) — UI stripped.
+
+                DestroyPermanentsClass destoryBattlePermanents = new DestroyPermanentsClass(LoserPermanents, hashtable);
+                await destoryBattlePermanents.Destroy(cancellationToken).ConfigureAwait(false);
+
+                // AS-IS :4708-4715 fix LoserPermanents to the actually-destroyed set.
+                if (LoserPermanents.Count != destoryBattlePermanents.DestroyedPermanents.Count)
+                {
+                    LoserPermanents = destoryBattlePermanents.DestroyedPermanents;
+                    _LoserPermanents = destoryBattlePermanents.DestroyedPermanents;
+                    hashtable["LoserPermanents"] = _LoserPermanents;
+                    hashtable["LoserPermanents_real"] = LoserPermanents;
+                }
+
+                // AS-IS :4717-4718 "At the end of battle" effect.
+                await GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnEndBattle).ConfigureAwait(false);
+
+                // AS-IS :4720-4727 move-up display — UI stripped.
+
+                #region effect when determine whether to do security check
+
+                // AS-IS :4731-4737 — a battle-winner [Pierce] check stacks (for a security-Digimon battle it would
+                // continue the attack into security; for an effect battle it is stacked and drained by the outer loop).
+                List<SkillInfo> skillInfos_Pierce = AutoProcessing
+                    .GetSkillInfos(hashtable, EffectTiming.OnDetermineDoSecurityCheck)
+                    .Where(skillInfo => skillInfo.CardEffect != null && skillInfo.CardEffect.CanActivate(skillInfo.Hashtable))
+                    .ToList();
+
+                if (skillInfos_Pierce.Count >= 1)
+                {
+                    GManager.instance.autoProcessing.PutStackedSkill(skillInfos_Pierce[0]);
+                }
+
+                #endregion
+            }
+        }
+
+        if (!IsWithoutAttack) // AS-IS :4743 — an effect battle does NOT reset the actual-attack until-end-battle buckets.
+        {
+            await GManager.instance.autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+
+            #region reset effect until the end of battle
+
+            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    permanent.UntilEndBattleEffects = new List<Func<EffectTiming, ICardEffect>>();
+                }
+
+                player.UntilEndBattleEffects = new List<Func<EffectTiming, ICardEffect>>();
+            }
+
+            #endregion
+        }
+
+        // AS-IS :4763-4771 `AttackingPermanent.battle = null` / `DefendingPermanent.battle = null` — OMITTED
+        // (no mirror Permanent.battle field; see method summary, RD-EXT2B-01-BATTLEFIELD).
+    }
 }
 
 #region Destroy permanents

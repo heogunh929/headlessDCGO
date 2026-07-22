@@ -51,7 +51,7 @@ var tests = new (string Name, Func<Task> Body)[]
     // EX11_074 — Vortexdramon (축: Vortex·DigimonEffectImmunity)
     ("EX11_074 W1 [Vortex] 상시: OnEndTurn EffectList에 Vortex 등재 (미등록 카드는 부재 — 양/음 대조)", EX11074_VortexPresent),
     ("EX11_074 W2 [When Attacking]: 공격 시 자기 디지몬 서스펜드 → DigimonEffectImmunity 부여 + 6000DP 획득", EX11074_WhenAttackingImmunity),
-    ("EX11_074 W3 [All Turns] IBattle 수확: OnTappedAnyone 배틀 경로는 미러 IBattle.Battle() 부재 STOP RD-EXT2B-01 (문서화)", EX11074_BattleLatentStop),
+    ("EX11_074 W3 [All Turns] IBattle: OnTappedAnyone 강제 배틀 → 약한 상대 디지몬 DP 패배·삭제 (RD-EXT2B-01 해소)", EX11074_ForcedBattleDeletesLoser),
 };
 
 int failed = 0;
@@ -499,20 +499,29 @@ async Task EX11074_WhenAttackingImmunity()
         "DigimonEffectImmunity: Vortexdramon gained immunity to opponent's Digimon effects");
 }
 
-async Task EX11074_BattleLatentStop()
+async Task EX11074_ForcedBattleDeletesLoser()
 {
-    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 2703, MonoDecks("BT1_028", "BT1_028"));
+    // (RD-EXT2B-01 해소) [All Turns] OnTappedAnyone → `new IBattle(this, target, null, true).Battle()` 강제 배틀.
+    // 보류 공격 없이 DP 비교 → 약한 상대 디지몬이 패배·삭제, EX11_074(승자) 생존, 공격 미선언.
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed: 2703, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
     HeadlessEntityId vortex = Stage(match, P1, "EX11_074", ChoiceZone.BattleArea, "1:battle:Vortexdramon", register: true);
+    HeadlessEntityId foe = StageSynthetic(match, P2, "EXT2B-WEAKFOE", dp: 2000, level: 4, "2:battle:weakfoe");
+    AssertTrue(DpOf(match, vortex) > 2000, $"fixture: Vortexdramon DP {DpOf(match, vortex)} exceeds the foe's 2000");
+
+    // [All Turns] 배틀-대상 선택 → 약한 상대.
+    policy.On(req => req.Candidates.Any(c => c.Id == foe), req => ChoiceResult.Select(foe), oneShot: false);
 
     using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
-    var src = new Cec.CardSource(match.Context, vortex, P1);
-    // [All Turns] OnTappedAnyone 리전은 등록되지만, 실해소의 IBattle.Battle()은 미러 미이관 STOP RD-EXT2B-01.
-    List<Cec.ICardEffect> onTapped = src.EffectList(Cec.EffectTiming.OnTappedAnyone);
-    AssertTrue(onTapped.Count >= 1,
-        "HARVEST RD-EXT2B-01: EX11_074 [All Turns] OnTappedAnyone registers safely, but the battle step " +
-        "(new IBattle(...).Battle()) has no mirror execution method (context holder only). When IBattle.Battle() " +
-        "is ported this witness must be upgraded to drive the unsuspend+battle path.");
+    var card = new Cec.CardSource(match.Context, vortex, P1);
+    var activate = (CecFx.ActivateClass)new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX11.Green.EX11_074()
+        .CardEffects(Cec.EffectTiming.OnTappedAnyone, card).First();
+    await activate.Activate(new System.Collections.Hashtable());
+
+    AssertTrue(!ZoneCards(match, P2, ChoiceZone.BattleArea).Contains(foe),
+        $"IBattle.Battle(): the weaker foe lost the DP battle and left the battle area [prompts:{string.Join(" | ", policy.Seen)}]");
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(vortex), "the winner (Vortexdramon) survives");
+    AssertTrue(!match.Context.AttackController.Current.IsPending, "no pending attack — the effect-forced battle ran no attack machinery");
 }
 
 // ═══════════════════════════════════ harness ═══════════════════════════════════

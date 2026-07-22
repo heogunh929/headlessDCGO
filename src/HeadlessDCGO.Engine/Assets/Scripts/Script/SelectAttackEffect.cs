@@ -339,12 +339,22 @@ public sealed class SelectAttackEffect
         HeadlessPlayerId attackingPlayer = _attacker.OwnerId;
         HeadlessEntityId? attackEffectSourceId = _cardEffect?.EffectSourceCard?.InstanceId;
 
+        // (RD-W3-7) The AS-IS `_beforeOnAttackCoroutine` (SetBeforeOnAttackCoroutine, sole live setter = Blitz's
+        // BlitzProcess for ST13_06) is now threaded into the declaration. A non-null hook takes the ASYNC-pausable
+        // DeclareAsync (the hook may open a select that parks the pump in place); a null hook keeps the SYNC Declare
+        // — byte-identical to the pre-RD-W3-7 path, so Execute/Vortex/Overclock (all null hook) are unaffected.
+        Func<System.Threading.CancellationToken, Task>? beforeOnAttack =
+            _beforeOnAttackCoroutine is null ? null : (_ => _beforeOnAttackCoroutine());
+
+        HeadlessPlayerId defendingPlayer;
+        HeadlessEntityId? targetId;
+        bool isDirectAttack;
+
         if (_defender is not null)
         {
-            Headless.Runtime.AttackDeclarationCommons.Declare(
-                context, attackingPlayer, _attacker.InstanceId,
-                _defender.OwnerId, _defender.InstanceId, isDirectAttack: false,
-                _withoutTap, attackEffectSourceId);
+            defendingPlayer = _defender.OwnerId;
+            targetId = _defender.InstanceId;
+            isDirectAttack = false;
         }
         else
         {
@@ -355,10 +365,24 @@ public sealed class SelectAttackEffect
                 return;
             }
 
+            defendingPlayer = enemy.PlayerId;
+            targetId = null;
+            isDirectAttack = true;
+        }
+
+        if (beforeOnAttack is null)
+        {
             Headless.Runtime.AttackDeclarationCommons.Declare(
                 context, attackingPlayer, _attacker.InstanceId,
-                enemy.PlayerId, targetId: null, isDirectAttack: true,
+                defendingPlayer, targetId, isDirectAttack,
                 _withoutTap, attackEffectSourceId);
+        }
+        else
+        {
+            await Headless.Runtime.AttackDeclarationCommons.DeclareAsync(
+                context, attackingPlayer, _attacker.InstanceId,
+                defendingPlayer, targetId, isDirectAttack,
+                _withoutTap, attackEffectSourceId, beforeOnAttack).ConfigureAwait(false);
         }
 
         // AS-IS after-attack coroutine (:1019-1020).

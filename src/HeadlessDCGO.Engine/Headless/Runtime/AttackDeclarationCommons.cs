@@ -1,5 +1,8 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -39,19 +42,46 @@ public static class AttackDeclarationCommons
         bool withoutTap = false,
         HeadlessEntityId? attackEffectSourceId = null)
     {
+        // The SYNC declaration path (player action / effect-driven attacks with NO pre-OnAttack hook): the AS-IS
+        // Attack() sequence completes synchronously because nothing inside it awaits an agent choice (StackSkillInfos
+        // only STACKS). Kept byte-identical to the pre-RD-W3-7 shape (delegates to DeclareAsync with a null hook).
+        return DeclareAsync(
+                context, declaringPlayer, attackerId, defendingPlayer, targetId, isDirectAttack,
+                withoutTap, attackEffectSourceId, beforeOnAttack: null)
+            .GetAwaiter()
+            .GetResult();
+    }
+
+    /// <summary>(RD-W3-7) The ASYNC-PAUSABLE declaration path — identical to <see cref="Declare"/> but threads the
+    /// AS-IS <c>beforeOnAttackCoroutine</c> (SelectAttackEffect.SetBeforeOnAttackCoroutine → attackProcess.Attack's
+    /// <c>beforeOnAttackCoroutine</c>, AttackProcess.cs:191, run AFTER the attacker suspend and BEFORE the [On Attack]
+    /// window). The hook may open a select (AS-IS ST13_06's mandatory Jogress destroy), which parks the pump IN PLACE
+    /// via the established DeferredChoiceProvider AWAIT-mode seam (WaitPendingChoiceUnderPump idiom) and resumes — so
+    /// this path must be AWAITED (never blocked with GetResult, which would deadlock the single-threaded pump on the
+    /// hook's parked choice). Non-hook callers stay on the sync <see cref="Declare"/> (unchanged).</summary>
+    public static async Task<HeadlessAttackState> DeclareAsync(
+        EngineContext context,
+        HeadlessPlayerId declaringPlayer,
+        HeadlessEntityId attackerId,
+        HeadlessPlayerId defendingPlayer,
+        HeadlessEntityId? targetId,
+        bool isDirectAttack,
+        bool withoutTap = false,
+        HeadlessEntityId? attackEffectSourceId = null,
+        Func<CancellationToken, Task>? beforeOnAttack = null,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(context);
 
         // Substrate state write (AS-IS SetAttackerDefender + IsAttacking + AttackCount++).
         context.AttackController.DeclareAttack(
             declaringPlayer, attackerId, defendingPlayer, targetId, isDirectAttack);
 
-        // AS-IS Attack() — suspend, snapshot, OnAttack + OnAllyAttack emits, gates. Completes synchronously
-        // (no beforeOnAttack callback on these paths).
-        Assets.Scripts.Script.AttackProcess
+        // AS-IS Attack() — suspend, snapshot, beforeOnAttack hook, OnAttack + OnAllyAttack emits, gates.
+        await Assets.Scripts.Script.AttackProcess
             .For(context)
-            .Attack(attackerId, attackEffectSourceId, withoutTap)
-            .GetAwaiter()
-            .GetResult();
+            .Attack(attackerId, attackEffectSourceId, withoutTap, beforeOnAttack, cancellationToken)
+            .ConfigureAwait(false);
 
         return context.AttackController.Current;
     }

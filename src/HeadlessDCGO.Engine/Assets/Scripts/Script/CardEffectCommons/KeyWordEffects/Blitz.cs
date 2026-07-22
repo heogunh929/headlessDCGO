@@ -70,27 +70,51 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
         ///
         /// Dropped-parameter handling (bridge-map ⚠️, §11.11 rule 4 — nothing silent):
         /// - <paramref name="activateClass"/>: AS-IS threads it into the <c>CanAttack(activateClass)</c> gate
-        ///   and <c>SelectAttackEffect.SetUp(cardEffect:)</c>, so a cause-conditioned "can't attack"
-        ///   restriction (cardEffectCondition) would see the true causing effect. The substrate gate/offer has
-        ///   no causing-effect input — design item RD-W3-7 (latent until a cause-conditioned attack
-        ///   restriction producer is ported; no such producer exists on the mirror today).
-        /// - <paramref name="beforeOnAttackCoroutine"/>: AS-IS runs it after target selection, before the
-        ///   OnAttack window. The substrate's effect-driven attack is a DEFERRED choice (declared later by the
-        ///   choice controller) with no pre-OnAttack hook, so a non-null hook cannot run at the AS-IS point —
-        ///   STOP (design item RD-W3-7; sole AS-IS caller passing it: ST13_06) rather than running it at the
-        ///   wrong time.</summary>
+        ///   and <c>SelectAttackEffect.SetUp(cardEffect:)</c>. The no-hook path's substrate gate/offer has
+        ///   no causing-effect input — design item RD-W3-7 residual (latent until a cause-conditioned attack
+        ///   restriction producer is ported; no such producer exists on the mirror today). The HOOK path (below)
+        ///   DOES thread <paramref name="activateClass"/> into <c>SelectAttackEffect.SetUp(cardEffect:)</c> 1:1.
+        /// - <paramref name="beforeOnAttackCoroutine"/> (RD-W3-7 RESOLVED): AS-IS runs it after the attacker
+        ///   suspend, before the [On Attack] window (AttackProcess.cs:191). A non-null hook now routes 1:1 through
+        ///   the mirror <see cref="SelectAttackEffect"/> (the AS-IS SelectAttackEffect port — the SAME surface
+        ///   Execute/Vortex/Overclock use), whose <c>Activate</c> declares the attack INLINE via the async-pausable
+        ///   <c>AttackDeclarationCommons.DeclareAsync</c>, firing the hook at the AS-IS point. The hook's own select
+        ///   (ST13_06's mandatory Jogress destroy) parks the pump in place and resumes (WaitPendingChoiceUnderPump
+        ///   idiom). The no-hook path keeps the established deferred <see cref="Headless.Runtime.EffectDrivenAttack"/>
+        ///   offer (digest-stable; the sole hook caller is ST13_06, not in any digest game).</summary>
         public static async Task BlitzProcess(CardSource cardSource, ICardEffect activateClass, Func<Task> beforeOnAttackCoroutine = null)
         {
-            if (beforeOnAttackCoroutine != null)
+            if (beforeOnAttackCoroutine == null)
             {
-                throw new NotSupportedException(
-                    "BlitzProcess(beforeOnAttackCoroutine:) has no substrate pre-OnAttack hook on the deferred " +
-                    "effect-attack choice — design item RD-W3-7 (STOP, strong model).");
+                _ = activateClass;   // design item RD-W3-7 residual (see summary — no-hook gate/offer cause-threading).
+                BlitzProcess(cardSource);
+                await Task.CompletedTask;
+                return;
             }
 
-            _ = activateClass;   // design item RD-W3-7 (see summary — gate/offer cause-threading).
-            BlitzProcess(cardSource);
-            await Task.CompletedTask;
+            // (RD-W3-7) AS-IS BlitzProcess (Blitz.cs:31-47) 1:1 — the pre-OnAttack-hook path. Guard, then the AS-IS
+            // SelectAttackEffect offer (attacker = this permanent, player + any Digimon targetable) with the
+            // beforeOnAttackCoroutine set, awaited. `cardSource.PermanentOfThisCard()` → ResolvePermanentOfThisCard.
+            if (CanActivateBlitz(cardSource, activateClass))
+            {
+                Permanent attacker = ICardEffect.ResolvePermanentOfThisCard(cardSource);
+                if (attacker == null)
+                {
+                    return;
+                }
+
+                SelectAttackEffect selectAttackEffect = GManager.instance.GetComponent<SelectAttackEffect>();
+
+                selectAttackEffect.SetUp(
+                    attacker: attacker,
+                    canAttackPlayerCondition: () => true,
+                    defenderCondition: (permanent) => true,
+                    cardEffect: activateClass);
+
+                selectAttackEffect.SetBeforeOnAttackCoroutine(beforeOnAttackCoroutine);
+
+                await selectAttackEffect.Activate();
+            }
         }
 
         #endregion
