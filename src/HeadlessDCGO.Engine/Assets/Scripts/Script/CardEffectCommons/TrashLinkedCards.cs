@@ -3,6 +3,19 @@
 // selection loop is STOP-guarded (design item RD-SKEL-01) — see the throw site for the evidence. Latent
 // (0 callers). Substrate translation: coroutine IEnumerator -> Task; ICardEffect activateClass kept (AS-IS
 // signature) since it feeds both CanNotBeAffected(activateClass) and ITrashLinkCards(cardEffect).
+//
+// (RD-SKEL-01 판정 — 2026-07-23, G-Link 마감 트랜치 census, DCGO 카드 6장 신규 포팅 후 재조사)
+//   DEAD-IN-AS-IS-TOO CONFIRMED. `grep -rn --binary-files=text SelectTrashLinkedCards DCGO/Assets/Scripts/CardEffect/`
+//   -> 0 hits. The ONLY AS-IS reference is DCGO/Assets/Scripts/Script/Effect Examples/Link_Examples.cs:178 — a
+//   documentation TEMPLATE (namespace DCGO.CardEffects.Examples, class Link_Examples; not a real card number, never
+//   in the card DB, never instantiated as a playable effect). No real card (BT/EX/ST/P/AD), including the newly
+//   ported link corpus (BT25_052/056/070/072, P_234, ST22_12), calls it; those use the SEPARATE live wrapper
+//   CardEffectCommons.TrashLinkCardsAndProcessAccordingToResult (CardEffectCommons.cs:280, NOT STOP-guarded).
+//   The AS-IS asymmetry is real and re-verified (TrashLinkedCards.cs:53 budgets from LinkedCards, :111/:115 gate the
+//   per-permanent trash on DigivolutionCards.Count, :134 draws the pool from LinkedCards) — a faithful headless
+//   ChoiceProvider translation cannot reproduce it without a non-terminating loop or an invented used-host guard.
+//   Because it is unreachable in AS-IS too, the guard STAYS (retirement-guard-protocol): keep the physical throw as
+//   the fidelity witness rather than porting or deleting an AS-IS-dead selection loop.
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using System;
