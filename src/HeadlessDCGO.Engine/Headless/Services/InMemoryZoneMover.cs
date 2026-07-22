@@ -399,6 +399,27 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         return Task.CompletedTask;
     }
 
+    // (BT13_033) Shuffle the HAND zone in place with the deterministic RNG — mirror of ShuffleSecurityAsync but
+    // scoped to ChoiceZone.Hand (AS-IS `HandCards = RandomUtility.ShuffledDeckCards(HandCards)`, an in-place hand
+    // reorder feeding a blind select-to-deck-bottom). New op; unused by starter decks so the digest is unmoved.
+    public Task ShuffleHandAsync(HeadlessPlayerId playerId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidatePlayerId(playerId);
+        _randomSource.Shuffle(GetZone(playerId, ChoiceZone.Hand));
+        RecordEvent(
+            GameEventType.StateChanged,
+            $"Zone shuffled: player={playerId}, zone={ChoiceZone.Hand}",
+            new Dictionary<string, object?>
+            {
+                ["playerId"] = playerId.Value,
+                ["zone"] = ChoiceZone.Hand.ToString(),
+                ["operation"] = "Shuffle",
+                ["count"] = GetZone(playerId, ChoiceZone.Hand).Count
+            });
+        return Task.CompletedTask;
+    }
+
     public void Clear()
     {
         ResetMatchState();

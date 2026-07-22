@@ -91,4 +91,9 @@ public interface IZoneMover
     // (BT1_087) Shuffle the player's SECURITY stack (AS-IS RandomUtility.ShuffledDeckCards on SecurityCards).
     // Distinct from ShuffleAsync (Library-only) — the deterministic RNG shuffles the Security zone in place.
     Task ShuffleSecurityAsync(HeadlessPlayerId playerId, CancellationToken cancellationToken = default);
+
+    // (BT13_033) Shuffle the player's HAND in place (AS-IS `HandCards = RandomUtility.ShuffledDeckCards(HandCards)`).
+    // Sibling of ShuffleSecurityAsync/ShuffleAsync scoped to ChoiceZone.Hand — the deterministic RNG reorders the
+    // hand zone list in place, which IS the AS-IS in-place reassignment (Player.HandCards is a live zone view).
+    Task ShuffleHandAsync(HeadlessPlayerId playerId, CancellationToken cancellationToken = default);
 }

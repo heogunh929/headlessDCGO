@@ -2830,10 +2830,28 @@ public sealed class Permanent
     public bool HasNoLinkCards => LinkedCards.Count == 0;
 
     /// <summary>(MIG2) AS-IS <c>Permanent.IsPlaceToTrashDueToNotHavingDP</c> (Permanent.cs:3694, default true;
-    /// effects may clear the flag).</summary>
-    public bool IsPlaceToTrashDueToNotHavingDP =>
-        !(_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+    /// effects may clear the flag). (BT7_087) WRITE side: the AS-IS mutable field is stamped by the
+    /// treat-a-Tamer-as-a-Digimon-and-digivolve block (BT7_087 :235 clears to false around
+    /// <c>DigivolveIntoHandOrTrashCard</c>, :259 restores true). The setter stamps the metadata key the getter
+    /// reads (default-true is the ABSENT/true state, false is the explicit opt-out) via the established
+    /// per-flag CardInstanceRecord.Metadata write idiom (Permanent.cs WriteJustBeforeKey / CardEffectCommons
+    /// IsPlayedOptionPermanentKey :464).</summary>
+    public bool IsPlaceToTrashDueToNotHavingDP
+    {
+        get => !(_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
             && i.Metadata.TryGetValue(GameFlowProcessor.PlaceToTrashDueToNoDpKey, out object? optOut) && optOut is false);
+        set
+        {
+            if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+            {
+                var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                {
+                    [GameFlowProcessor.PlaceToTrashDueToNoDpKey] = value,
+                };
+                _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+            }
+        }
+    }
 
     /// <summary>(MIG2) AS-IS <c>Permanent.IsPlayedOptionPermanent</c> (Permanent.cs:3946, default false — an
     /// Option a card effect legitimately keeps on the battle area).</summary>

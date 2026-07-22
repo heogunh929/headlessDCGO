@@ -20,6 +20,7 @@ using CBT19061 = HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT19.Black.BT19_0
 using CEX8026 = HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX8.Blue.EX8_026;
 using CBT25096 = HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT25.Blue.BT25_096;
 using CBT25034 = HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT25.Yellow.BT25_034;
+using CBT7087 = HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT7.Blue.BT7_087;
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 // LT-A witness 스위트 — coverage-exemplar 트랜치 10장(포팅 성공분), 카드당 1개 이상.
@@ -45,6 +46,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("EX8_026 W1 (CanNotSuspendClass): CanNotSuspend(상대 디지몬)=TRUE·CanNotSuspend(자기 디지몬)=FALSE(대조) + CanUse 메모리≥1 게이트", EX8026_CanNotSuspendPredicateAndMemoryGate),
     ("BT25_096 W1 (TrashDigivolutionCards): HasFaceDownDigivolutionCards fold — face-down 진화원 테이머 TRUE·미-flip 테이머 FALSE(대조) + BeforePayCost ActivateClass 생산", BT25096_FaceDownFoldAndBeforePayCost),
     ("BT25_034 W1 (Ascension): Ascension 효과(OnDestroyedAnyone, name=='Ascension') 생산 + Barrier(WhenPermanentWouldBeDeleted) + When-Trashed 무료플레이(OnDiscardSecurity) ActivateClass 생산", BT25034_AscensionProducedAndWhenTrashedGate),
+    ("BT7_087 W1 (IsPlaceToTrashDueToNotHavingDP WRITE): 3팔 등재(OnDeclaration/SecuritySkill/OnAddHand) + [Main] CanUse 게이트([Hybrid] 5장 양·음) + no-DP-trash 플래그 write surface: default TRUE → suppress(false) → restore(true)", BT7087_TreatAsDigimonFlagWriteSurface),
+    ("BT7_087 W2 ([Main] treat-as-Digimon digivolve flow): 손패 [Hybrid] 5장을 이 Tamer 밑 진화원으로 배치 + treat-as-Digimon 윈도우 종료 후 no-DP-trash 플래그 복원(TRUE)", BT7087_MainPlaceUnderAndFlagRestored),
 };
 
 int failed = 0;
@@ -337,6 +340,80 @@ async Task BT25034_AscensionProducedAndWhenTrashedGate()
     var whenTrashed = First(new CBT25034().CardEffects(Cec.EffectTiming.OnDiscardSecurity, card), "ActivateClass");
     AssertEqual("Play 1 level 4 or lower [Angel] or [Iliad] card", whenTrashed.EffectName,
         "the [When Trashed] free-play arm is produced at OnDiscardSecurity");
+}
+
+// ═══════════════════════════════════ BT7_087 ═══════════════════════════════════
+
+async Task BT7087_TreatAsDigimonFlagWriteSurface()
+{
+    (DcgoMatch match, _) = await NewMatchAsync(seed: 8101);
+    await ReachMainWaitAsync(match);
+
+    HeadlessEntityId self = Stage(match, P1, "BT7_087", ChoiceZone.BattleArea, "1:battle:BT7087", register: true);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var card = new Cec.CardSource(match.Context, self, P1);
+
+    // 3 arms registered.
+    AssertTrue(new CBT7087().CardEffects(Cec.EffectTiming.OnDeclaration, card).Any(e => e.GetType().Name == "ActivateClass"),
+        "OnDeclaration: [Main][Once Per Turn] treat-as-Digimon digivolve ActivateClass registered");
+    AssertTrue(new CBT7087().CardEffects(Cec.EffectTiming.SecuritySkill, card).Count >= 1,
+        "SecuritySkill: [Security] play-self-tamer registered");
+    AssertTrue(new CBT7087().CardEffects(Cec.EffectTiming.OnAddHand, card).Any(e => e.GetType().Name == "ActivateClass"),
+        "OnAddHand: [Your Turn] Memory +1 + unblockable registered");
+
+    // [Main] CanUse gate: needs >= 5 [Hybrid] cards in hand (the Hybrid trait predicate).
+    Cec.ICardEffect main = First(new CBT7087().CardEffects(Cec.EffectTiming.OnDeclaration, card), "ActivateClass");
+    AssertTrue(!main.CanUse(new Hashtable()), "control: with no [Hybrid] cards in hand the [Main] cannot be used");
+    for (int i = 0; i < 5; i++)
+    {
+        StageSynthetic(match, P1, "HYB", dp: 3000, level: 4, $"1:hand:hyb{i}", cardType: "Digimon", zone: ChoiceZone.Hand, traits: new[] { "Hybrid" });
+    }
+
+    AssertTrue(main.CanUse(new Hashtable()), "with 5 [Hybrid] cards in hand the [Main] gate is ON (Hybrid trait predicate evaluated)");
+
+    // NEW write surface (BT7_087 :235 suppress / :259 restore): Permanent.IsPlaceToTrashDueToNotHavingDP setter.
+    var tamerPerm = Perm(match, self, P1);
+    AssertTrue(tamerPerm.IsPlaceToTrashDueToNotHavingDP, "default TRUE (no metadata opt-out present)");
+    tamerPerm.IsPlaceToTrashDueToNotHavingDP = false;
+    AssertTrue(!Perm(match, self, P1).IsPlaceToTrashDueToNotHavingDP,
+        "SUPPRESS: WRITE false persists across a fresh Permanent view — the no-DP trash is suppressed during the treat-as-Digimon window");
+    tamerPerm.IsPlaceToTrashDueToNotHavingDP = true;
+    AssertTrue(Perm(match, self, P1).IsPlaceToTrashDueToNotHavingDP,
+        "RESTORE: WRITE true restores the default (window closed)");
+}
+
+async Task BT7087_MainPlaceUnderAndFlagRestored()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewMatchAsync(seed: 8102);
+    await ReachMainWaitAsync(match);
+
+    HeadlessEntityId self = Stage(match, P1, "BT7_087", ChoiceZone.BattleArea, "1:battle:BT7087b", register: true);
+    // 손패 [Hybrid] 5장(진화원으로 배치될 카드). [MagnaGarurumon] 부재 → digivolve 단계는 clean no-op이므로
+    // 배치 + 플래그 suppress/restore 윈도우만 결정론적으로 관찰(코스트/진화요건 경로 비의존).
+    for (int i = 0; i < 5; i++)
+    {
+        StageSynthetic(match, P1, "HYB", dp: 3000, level: 4, $"1:hand:hyb{i}", cardType: "Digimon", zone: ChoiceZone.Hand, traits: new[] { "Hybrid" });
+    }
+
+    // 효과-내부 select(SelectHand 5장 + SelectCard 순서 지정)는 MaxCount 범위 멀티-셀렉트 —
+    // policy가 선택가능 후보를 MaxCount만큼 응답(5-5 요청 → 5장 전부).
+    policy.On(req => req.Candidates.Any(c => c.IsSelectable),
+        req => ChoiceResult.Select(req.Candidates.Where(c => c.IsSelectable).Take(req.MaxCount).Select(c => c.Id)),
+        oneShot: false);
+
+    using (AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context))
+    {
+        var card = new Cec.CardSource(match.Context, self, P1);
+        var main = (Cec.ActivateICardEffect)First(new CBT7087().CardEffects(Cec.EffectTiming.OnDeclaration, card), "ActivateClass");
+        await main.Activate(new Hashtable());
+    }
+
+    var tamerPerm = Perm(match, self, P1);
+    AssertTrue(tamerPerm.DigivolutionCards.Count == 5,
+        $"[Main] placed the 5 [Hybrid] cards UNDER this Tamer as digivolution cards (AddDigivolutionCardsBottom) [got {tamerPerm.DigivolutionCards.Count}]");
+    AssertTrue(tamerPerm.IsPlaceToTrashDueToNotHavingDP,
+        "the no-DP-trash flag was RESTORED to true after the treat-as-Digimon window closed (BT7_087 :259 release)");
 }
 
 // ═══════════════════════════════════ harness ═══════════════════════════════════

@@ -16,9 +16,10 @@ using AddAppFusionConditionClass = HeadlessDCGO.Engine.Assets.Scripts.Script.Car
 // 템플릿=EXEMPLAR-T1/T3B (DcgoMatch.CreatePumpDriven + PolicyChoiceProvider 좌석; EffectList 등록 표면 +
 // CanActivate 게이트 + 옵션/직접 발화 flip). 카드↔축 매핑은 각 카드 소스 헤더의 ①②③ 정본 주석 참조.
 //
-// STOP 1장(정직 문서화): BT13_033 — [When Attacking] 팔이 상대 손패 in-place 셔플(Player.HandCards setter +
-// 손패-존 셔플 프리미티브)을 요구하나 미러는 write-side 공유표면만 신설 가능(READ-side 예외 밖) → 카드 STOP,
-// 스텁 유지. 나머지 10장 witness 수록.
+// BT13_033 — 이전 STOP 해제(포팅 완료): [When Attacking] 팔의 상대 손패 in-place 셔플은 신규 hand-shuffle
+// zone op(IZoneMover.ShuffleHandAsync — 시드된 RandomUtility 미러)로 1:1 착지. 아래 2개 witness:
+// (1) shuffle-blind-pick 팔 end-to-end(시드 결정론: 상대 손패 9→8, 픽 카드 덱밑, self unsuspend),
+// (2) [None] Burst 조건(AddBurstDigivolutionConditionClass) 등재 + tamer/digimon 술어 실평가.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 
 HeadlessPlayerId P1 = new(1);
@@ -64,8 +65,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT23_021 W1 등록: None=AppFusion+AltDigivolveReq+LinkCondition·OnDeclaration(Link)·OnEnterFieldAnyone/OnAllyAttack(WD/WA link)·WhenLinked(immunity)x2 실착지", BT23021_ArmsRegistered),
     ("BT23_021 W2 AppFusion 조건 fidelity: GetAppFusionCondition이 cost 0 조건 산출 + AltDigivolveReq/LinkCondition 홀더 실착지", BT23021_AppFusionConditionFidelity),
 
-    // ── STOP 문서화 (no port) ─────────────────────────────────────────────────────────────────────
-    ("BT13_033 STOP: [When Attacking] 상대 손패 셔플(write-side 공유표면) 미러 부재 → 카드 STOP·스텁 유지(정직 문서화)", BT13033_StopDocumented),
+    // ── BT13_033 (포팅 완료 — 이전 STOP 해제) ─────────────────────────────────────────────────────
+    ("BT13_033 W1 [When Attacking] end-to-end(시드 결정론): 상대 손패 9장 → 8장 남기고 1장 블라인드-픽 덱밑 + 서스펜드된 self unsuspend", BT13033_WhenAttackingShuffleBlindPick),
+    ("BT13_033 W2 [None] Burst 등재+술어: AddBurstDigivolutionConditionClass 소비 → [Thomas H. Norstein] tamer 술어 TRUE(비-매치 FALSE) + [MirageGaogamon] digimon 술어 TRUE(비-매치 FALSE)", BT13033_BurstConditionRegisteredAndPredicates),
 };
 
 int failed = 0;
@@ -462,18 +464,76 @@ async Task BT23021_AppFusionConditionFidelity()
         $"the App Fusion condition is built with cost 0 (Dokamon/Perorimon/Musclemon combos) [{(cond is null ? "null" : $"cost:{cond.cost}")}]");
 }
 
-// ═══════════════════════════════════ BT13_033 (STOP) ═══════════════════════════════════
+// ═══════════════════════════════════ BT13_033 (포팅 완료) ═══════════════════════════════════
 
-async Task BT13033_StopDocumented()
+async Task BT13033_WhenAttackingShuffleBlindPick()
 {
-    // BT13_033은 [When Attacking] 팔이 상대 손패 in-place 셔플(Player.HandCards setter + 손패-존 셔플
-    // 프리미티브)을 요구 — 미러는 write-side 공유표면만 신설 가능(READ-side 1:1 예외 밖)이므로 카드 STOP,
-    // 스텁 유지. 이 witness는 스텁 상태(포팅 클래스 부재)를 정직하게 확인한다.
-    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 4001, MonoDecks("BT1_028", "BT1_028"));
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed: 4051, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
-    Type? t = Type.GetType("HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT13.Blue.BT13_033, HeadlessDCGO.Engine");
-    AssertTrue(t is null,
-        "BT13_033 remains a stub (no ported effect class) — STOP documented: [When Attacking] needs a write-side opponent-hand shuffle surface, outside the READ-side one-surface exception");
+    HeadlessEntityId bt = Stage(match, P1, "BT13_033", ChoiceZone.BattleArea, "1:battle:bt13", register: true);
+    // 공격 시 self는 서스펜드 상태 — 효과의 보상은 이 Digimon을 unsuspend 하는 것.
+    new Cec.Permanent(match.Context, bt, P1).IsSuspended = true;
+    // 상대(P2) 손패를 정확히 9장으로 통제(오프닝 핸드 청소 후 9장 스테이징) — maxCount = 9-8 = 1장 블라인드-픽 → 덱밑.
+    await ClearZoneAsync(match, P2, ChoiceZone.Hand, ChoiceZone.Trash);
+    for (int i = 0; i < 9; i++)
+    {
+        StageSynthetic(match, P2, "LTB-BT13H", dp: 1000, level: 3, $"2:hand:bt13h{i}", zone: ChoiceZone.Hand);
+    }
+
+    int handBefore = Count(match, P2, ChoiceZone.Hand);
+    int libBefore = Count(match, P2, ChoiceZone.Library);
+    // 블라인드-픽(SelectCardEffect over 셔플된 상대 손패)은 MaxCount 범위 멀티-셀렉트 — policy가
+    // 선택가능 후보를 MaxCount만큼 응답(시드 결정론: 셔플된 순서에서 앞쪽 후보).
+    policy.On(req => req.Candidates.Any(c => c.IsSelectable),
+        req => ChoiceResult.Select(req.Candidates.Where(c => c.IsSelectable).Take(req.MaxCount).Select(c => c.Id)),
+        oneShot: false);
+
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        Cec.CardSource cs = MakeSource(match, bt, P1);
+        var arm = (Cec.ActivateICardEffect)cs.EffectList(Cec.EffectTiming.OnAllyAttack).First();
+        await arm.Activate(new System.Collections.Hashtable());
+    }
+    await DriveUntilAsync(match, m => Count(m, P2, ChoiceZone.Hand) <= 8 || m.IsTerminal());
+
+    AssertTrue(Count(match, P2, ChoiceZone.Hand) == 8,
+        $"opponent hand shuffled (ShuffleHandAsync) + 1 card blind-picked to deck bottom so 8 remain [before {handBefore} now {Count(match, P2, ChoiceZone.Hand)}]");
+    AssertTrue(Count(match, P2, ChoiceZone.Library) == libBefore + 1,
+        $"the blind-picked card was returned to the BOTTOM of the opponent's deck [lib before {libBefore} now {Count(match, P2, ChoiceZone.Library)}]");
+    AssertTrue(!new Cec.Permanent(match.Context, bt, P1).IsSuspended,
+        "returned==true → BT13_033 was UNSUSPENDED (the [When Attacking] payoff; IUnsuspendPermanents)");
+}
+
+async Task BT13033_BurstConditionRegisteredAndPredicates()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 4052, MonoDecks("BT1_028", "BT1_028"));
+    await ReachMainWaitAsync(match);
+    HeadlessEntityId bt = Stage(match, P1, "BT13_033", ChoiceZone.BattleArea, "1:battle:bt13b", register: true);
+    // [Thomas H. Norstein] tamer + [MirageGaogamon] digimon (owner P1) + 비-매치 통제.
+    HeadlessEntityId thomas = StageSynthetic(match, P1, "THOMAS", dp: 0, level: 0, "1:battle:thomas", name: "Thomas H. Norstein", cardType: "Tamer");
+    HeadlessEntityId mirage = StageSynthetic(match, P1, "MIRAGE", dp: 9000, level: 6, "1:battle:mirage", name: "MirageGaogamon");
+    HeadlessEntityId other = StageSynthetic(match, P1, "OTHER13", dp: 3000, level: 4, "1:battle:other13", name: "SomeOther");
+
+    AssertTrue(EffectTypes(match, bt, P1, Cec.EffectTiming.None).Contains("AddBurstDigivolutionConditionClass"),
+        "None: AddBurstDigivolutionConditionClass registered");
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    Cec.CardSource cs = MakeSource(match, bt, P1);
+    Cec.BurstDigivolutionCondition? bdc = Cec.CardSourceAsIsPlayAccessors.BurstDigivolutionConditionOf(cs);
+    AssertTrue(bdc is not null, "BT13_033 exposes a BurstDigivolutionCondition (AddBurstDigivolutionConditionClass consumed)");
+
+    var thomasPerm = new Cec.Permanent(match.Context, thomas, P1);
+    var miragePerm = new Cec.Permanent(match.Context, mirage, P1);
+    var otherPerm = new Cec.Permanent(match.Context, other, P1);
+
+    AssertTrue(bdc!.tamerCondition(thomasPerm),
+        "[Thomas H. Norstein] burst-tamer condition TRUE (name + owner + battle-area + !CannotReturnToHand)");
+    AssertTrue(!bdc.tamerCondition(otherPerm),
+        "negative: a non-[Thomas H. Norstein] permanent is not a valid burst tamer");
+    AssertTrue(bdc.digimonCondition(miragePerm),
+        "[MirageGaogamon] Digimon is a valid burst base (!CanNotEvolve + name)");
+    AssertTrue(!bdc.digimonCondition(otherPerm),
+        "negative: a non-[MirageGaogamon] Digimon is not a valid burst base");
 }
 // ═══════════════════════════════════ harness ═══════════════════════════════════
 
