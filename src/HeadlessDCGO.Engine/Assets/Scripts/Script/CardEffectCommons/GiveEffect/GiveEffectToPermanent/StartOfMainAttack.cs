@@ -2,9 +2,9 @@
 // (RD-3A-01 resolved) 1:1 mirror of the AS-IS StartOfMainAttack grant. The RD-3A-01 STOP was retired: the
 // OnStartMainPhase auto-fire window that this grant needs ALREADY EXISTS in the mirror and is fully wired —
 //   TurnStateMachine.MainPhaseAsync:428  await autoProcessing.StackSkillInfos(null, EffectTiming.OnStartMainPhase)
-//     -> AutoProcessing.GetSkillInfos:955 (per field permanent)  permanent.EffectList(timing)
-//        -> Permanent.EffectList_ForCard:2150  foreach EffectList_Added(timing)
-//           -> Permanent.EffectList_Added:1918  walks UntilOwnerTurnEndEffects and invokes GetCardEffect(timing),
+//     -> AutoProcessing.GetSkillInfos:932 (per field permanent scan :960)  permanent.EffectList(timing)
+//        -> Permanent.EffectList_ForCard  foreach EffectList_Added(timing)
+//           -> Permanent.EffectList_Added:1920  walks UntilOwnerTurnEndEffects and invokes GetCardEffect(timing),
 //              which yields THIS grant's ActivateClass only at EffectTiming.OnStartMainPhase.
 // So the grant surfaces at the owner's next main-phase entry and its mandatory SelectAttackEffect offer fires.
 // The commons STOP wrapper (CardEffectCommons.cs) is removed; this home file is the sole surviving copy.

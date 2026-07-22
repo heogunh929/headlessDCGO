@@ -19,8 +19,13 @@
 //   `selectedPermanent.AddDigivolutionCardsBottom(list, activateClass)` -> `(list, activateClass.EffectSourceCard!
 //   .InstanceId)` (BT9_109 idiom); the id-shaped SelectPermanent/MatchConditionPermanentCount call sites take
 //   `CanSelectPermanentConditionById` adapting the verbatim Permanent predicate (BT9_109 idiom); `CardObjectController
-//   .AddLibraryBottomCards(list)` -> per-card `IZoneMover.MoveToDeckBottomAsync` in list order (EX7_072 idiom, the named
-//   helper is unported); `ShowCardEffect(...)` / SE = UI, stripped.
+//   .AddLibraryBottomCards(list)` (AS-IS CardObjectController.cs:863-896) -> mirror at P_048.cs:173-175 fidelity:
+//   explicit `autoProcessing.StackSkillInfos({"CardSources": list}, OnReturnCardsToLibraryFromTrash)` opens the
+//   trash-return trigger window BEFORE the per-card `IZoneMover.MoveToDeckBottomAsync` loop (these cards are pulled
+//   from the trash via Root.Trash, so AS-IS `isFromTrash` is always true here). RESIDUAL GAP (RD-BT13028-AceOverflow):
+//   AS-IS AddLibraryBottomCards also runs `new AceOverflowClass(cardSources).Overflow()` (:871) before the window;
+//   NOT reproduced at this fidelity level — the P_048 return path omits the AceOverflow half too, and the named
+//   AddLibraryBottomCards helper (with its overflow branch) is unported. `ShowCardEffect(...)` / SE = UI, stripped.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT13.Blue;
 
 using System;
@@ -327,6 +332,16 @@ public sealed class BT13_028 : CEntity_Effect
                     {
                         if (cardSources.Count == 3)
                         {
+                            // AS-IS AddLibraryBottomCards(:863-896) opens the trash-return window BEFORE the physical
+                            // move: these cards are pulled from the trash (Root.Trash select above), so isFromTrash is
+                            // always true — mirror the explicit StackSkillInfos(OnReturnCardsToLibraryFromTrash) call
+                            // (P_048.cs:173-175 idiom). RESIDUAL GAP: AS-IS also runs `new AceOverflowClass(cardSources)
+                            // .Overflow()` (:871) first; not reproduced at this fidelity level (P_048's return path
+                            // omits it too, AddLibraryBottomCards unported) — see header RD-BT13028-AceOverflow.
+                            await GManager.instance.autoProcessing.StackSkillInfos(
+                                new Hashtable { { "CardSources", cardSources } },
+                                EffectTiming.OnReturnCardsToLibraryFromTrash);
+
                             foreach (CardSource cardSource in cardSources)
                             {
                                 await card.Context.ZoneMover.MoveToDeckBottomAsync(cardSource.Owner, cardSource.InstanceId);

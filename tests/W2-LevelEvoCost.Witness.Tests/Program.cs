@@ -2,6 +2,8 @@ using System.Collections;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -36,6 +38,7 @@ var tests = new (string Name, Action Body)[]
     ("BT10_086 IsMaxLevel gates the select: only the HIGHEST-level enemy Digimon (ties incl.) are picked", Bt10MaxLevelSelect),
     ("BT13_028 IgnoreDigivolutionRequirement grant PERMITS an otherwise-illegal digivolve at cost 3 (inert-grant: observable)", Bt13IgnorePermits),
     ("BT13_028 card structure runs: OnDeclaration + OnEndAttack each build 1 activated effect", Bt13Structure),
+    ("BT13_028 [End of Attack] trash-return OPENS the OnReturnCardsToLibraryFromTrash window — a live P_048 [Your Turn] consumer fires and gains +1 memory (F1 repair)", () => Bt13ReturnWindowFires().GetAwaiter().GetResult()),
 };
 
 int failures = 0;
@@ -296,4 +299,266 @@ void AssertTrue(bool cond, string label)
 void AssertEqual(int expected, int actual, string label)
 {
     if (expected != actual) throw new InvalidOperationException($"{label}: expected {expected}, got {actual}");
+}
+
+// ── F1 repair witness ─────────────────────────────────────────────────────────────────────────────────
+// BT13_028 [End of Attack] returns 3 [Jellymon]-text trash cards to the bottom of the deck. The R7 fix
+// restores the explicit `autoProcessing.StackSkillInfos(OnReturnCardsToLibraryFromTrash)` window that AS-IS
+// CardObjectController.AddLibraryBottomCards (CardObjectController.cs:863-896, `isFromTrash` branch) opens
+// BEFORE the physical move — dropped by the bare MoveToDeckBottomAsync loop before the fix. Sensing mirrors
+// PILOT-S4's P_048 witness: a LIVE consumer of that timing (P_048's own [Your Turn]
+// OnReturnCardsToLibraryFromTrash reactor — consumer P_048.cs:234, registrar timing CardEffectRegistrar.cs:67)
+// sits on the battle area; if BT13_028 opens the window, that consumer fires and gains +1 memory (drained
+// off the pump — a foreground reactor resolves on a later pump step, the classic stack-then-process model).
+async Task Bt13ReturnWindowFires()
+{
+    var policy = new W2PolicyChoiceProvider();
+    EngineContext ctx = W2ContextFactory.CreateWithProvider(policy, randomSeed: 4242);
+    CardBaseEntityLoader.LoadInto((CardDatabase)ctx.CardRepository);
+    var decks = new[]
+    {
+        new PlayerDeckSetup(P1, Enumerable.Repeat(new HeadlessEntityId("BT1_028"), 50).ToArray()),
+        new PlayerDeckSetup(P2, Enumerable.Repeat(new HeadlessEntityId("BT1_028"), 50).ToArray()),
+    };
+    MatchSetupConfig setup = MatchSetupConfig.Create(decks, firstPlayerId: P1, initialHandSize: 0, initialSecuritySize: 0, enableMulligan: false);
+    MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: 4242, setup: setup);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(ctx, new EngineTrace());
+    await match.InitializeAsync(config);
+
+    await RwStep(match);
+    await RwDrive(match, m => m.Context.TurnController.Current.Phase == HeadlessPhase.Main
+        && m.Context.TurnController.Current.TurnPlayerId == P1 && !m.HasPendingChoice() && !m.IsTerminal());
+
+    // BT13_028's [End of Attack] arm is SetIsInheritedEffect(true); ICardEffect.CanActivate excludes an inherited
+    // effect while EffectSourceCard IS its own permanent's TopCard (ICardEffect.cs:462-465) — so it must sit
+    // BURIED as a digivolution source under a Digimon host (its natural in-game shape; PILOT-S4 P_198 precedent).
+    HeadlessEntityId host = RwStageSynthetic(ctx, P1, "HOST028", "HostDigi", ChoiceZone.BattleArea, dp: 6000, level: 5);
+    HeadlessEntityId bt13 = RwStageReal(ctx, P1, "BT13_028", ChoiceZone.None, "1:src:bt13_028");
+    RwSetSources(ctx, host, bt13);
+
+    // The live consumer: P_048 on P1's battle area (Digimon). Its [Your Turn] OnReturnCardsToLibraryFromTrash
+    // block gains +1 memory whenever a trash-return window opens on the owner's turn.
+    RwStageReal(ctx, P1, "P_048", ChoiceZone.BattleArea, "1:battle:p048_listener");
+
+    // 3 [Jellymon]-text cards in P1's trash (HasText matches the definition Name).
+    RwStageSynthetic(ctx, P1, "JELLY1", "Jellymon", ChoiceZone.Trash, dp: 2000, level: 3);
+    RwStageSynthetic(ctx, P1, "JELLY2", "Jellymon", ChoiceZone.Trash, dp: 2000, level: 3);
+    RwStageSynthetic(ctx, P1, "JELLY3", "Jellymon", ChoiceZone.Trash, dp: 2000, level: 3);
+
+    // Select all 3 [Jellymon] trash candidates for the bottom-of-deck return.
+    policy.On(req => req.Type == ChoiceType.Card && req.MaxCount == 3,
+        req => ChoiceResult.Select(req.Candidates.Where(c => c.IsSelectable).Take(3).Select(c => c.Id)));
+    policy.On(req => true, req => req.CanSkip ? ChoiceResult.Skip() : ChoiceResult.Select(req.Candidates.First(c => c.IsSelectable).Id), oneShot: false);
+
+    int memBefore = RwMemory(ctx, P1);
+
+    using (AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(ctx))
+    {
+        var card = new CardSource(ctx, bt13, P1);
+        var effect = new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT13.Blue.BT13_028();
+        List<ICardEffect> onEnd = effect.CardEffects(EffectTiming.OnEndAttack, card);
+        var eoa = (ActivateClass)onEnd.First(e => e.EffectName == "Return cards from trash to the bottom of deck to unsuspend this Digimon");
+        AssertTrue(eoa.CanActivate(new Hashtable()),
+            "CanActivate is true — BT13_028 buried under a Digimon host with 3 [Jellymon]-text trash cards present");
+        await eoa.Activate(new Hashtable());
+    }
+
+    // The explicit StackSkillInfos(OnReturnCardsToLibraryFromTrash) call PutStackedSkill's the P_048 [Your Turn]
+    // reactor (foreground — resolves on a later pump drain, not inline; PILOT-S4 P_048 note). Drain it.
+    for (int i = 0; i < 8 && RwMemory(ctx, P1) == memBefore && !match.IsTerminal(); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(ctx);
+            HeadlessPlayerId chooser = ctx.ChoiceController.PendingRequest!.PlayerId;
+            LegalAction resolve = match.GetLegalActions(chooser).First(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+            await match.ApplyActionAsync(resolve);
+        }
+        else
+        {
+            await RwStep(match);
+        }
+    }
+
+    AssertTrue(RwMemory(ctx, P1) > memBefore,
+        $"BT13_028's [End of Attack] trash-return opened the OnReturnCardsToLibraryFromTrash window: the live " +
+        $"P_048 [Your Turn] consumer fired and gained memory (before:{memBefore} after:{RwMemory(ctx, P1)}) " +
+        $"[prompts:{string.Join(" | ", policy.Seen)}]");
+}
+
+async Task RwStep(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
+async Task RwDrive(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            LegalAction action;
+            using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+            {
+                ChoiceType type = match.Context.ChoiceController.PendingRequest!.Type;
+                bool decline = type == ChoiceType.BreedingDecision || type == ChoiceType.Mulligan;
+                HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+                action = match.GetLegalActions(chooser)
+                    .FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                        && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == decline)
+                    ?? match.GetLegalActions(chooser).First(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+            }
+
+            using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+            {
+                await match.ApplyActionAsync(action);
+                await match.StepAsync();
+                await match.StepAsync();
+            }
+        }
+        else
+        {
+            await RwStep(match);
+        }
+    }
+
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException($"RwDrive did not reach the expected state — phase:{t.Phase} player:{t.TurnPlayerId} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+HeadlessEntityId RwStageReal(EngineContext ctx, HeadlessPlayerId owner, string cardNumber, ChoiceZone zone, string instanceId)
+{
+    var defId = new HeadlessEntityId(cardNumber);
+    if (!ctx.CardRepository.TryGetCard(defId, out CardRecord? existing) || existing is null)
+    {
+        throw new InvalidOperationException($"definition {cardNumber} not found in the loaded card database");
+    }
+
+    var id = new HeadlessEntityId(instanceId);
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = false }));
+    if (zone != ChoiceZone.None)
+    {
+        ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone)).GetAwaiter().GetResult();
+    }
+
+    CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    return id;
+}
+
+HeadlessEntityId RwStageSynthetic(EngineContext ctx, HeadlessPlayerId owner, string number, string name, ChoiceZone zone, int dp, int level)
+{
+    var defId = new HeadlessEntityId($"DEF:{number}:{owner.Value}");
+    var meta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp, ["level"] = level };
+    ((CardDatabase)ctx.CardRepository).Upsert(new CardRecord(defId, number, name, meta, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:{zone}:{number}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp, ["level"] = level, ["isSuspended"] = false }));
+    if (zone != ChoiceZone.None)
+    {
+        ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone)).GetAwaiter().GetResult();
+    }
+
+    CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    return id;
+}
+
+void RwSetSources(EngineContext ctx, HeadlessEntityId hostId, params HeadlessEntityId[] sourceIds)
+{
+    if (!ctx.CardInstanceRepository.TryGetInstance(hostId, out CardInstanceRecord? record) || record is null)
+    {
+        throw new InvalidOperationException($"missing instance {hostId.Value}");
+    }
+
+    var meta = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+    {
+        [DigivolutionStackReader.SourceIdsKey] = sourceIds.Select(id => id.Value).ToArray(),
+    };
+    ctx.CardInstanceRepository.Upsert(record with { Metadata = meta });
+}
+
+int RwMemory(EngineContext ctx, HeadlessPlayerId player)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(ctx);
+    return new Player(ctx, player).MemoryForPlayer;
+}
+
+// 술어-매칭 스크립트 답변 + ScriptedChoiceProvider 폴백 (PILOT-S4.Witness PolicyChoiceProvider와 동형).
+sealed class W2PolicyChoiceProvider : IChoiceProvider
+{
+    private readonly List<(Func<ChoiceRequest, bool> Applies, Func<ChoiceRequest, ChoiceResult> Answer, bool OneShot)> _handlers = new();
+    private readonly ScriptedChoiceProvider _fallback = new();
+
+    public void On(Func<ChoiceRequest, bool> applies, Func<ChoiceRequest, ChoiceResult> answer, bool oneShot = true)
+        => _handlers.Add((applies, answer, oneShot));
+
+    public List<string> Seen { get; } = new();
+
+    public Task<ChoiceResult> ChooseAsync(ChoiceRequest request, CancellationToken cancellationToken = default)
+    {
+        Seen.Add($"{request.Type}:'{request.Message}'x{request.Candidates.Count}");
+        for (int i = 0; i < _handlers.Count; i++)
+        {
+            (Func<ChoiceRequest, bool> applies, Func<ChoiceRequest, ChoiceResult> answer, bool oneShot) = _handlers[i];
+            if (applies(request))
+            {
+                ChoiceResult result = answer(request);
+                result.ThrowIfInvalid(request);
+                if (oneShot)
+                {
+                    _handlers.RemoveAt(i);
+                }
+
+                return Task.FromResult(result);
+            }
+        }
+
+        return _fallback.ChooseAsync(request, cancellationToken);
+    }
+}
+
+// EngineContext.CreateDefault의 1:1 재현 — provider 좌석만 교체 (PILOT-S4.Witness ContextFactory와 동형).
+static class W2ContextFactory
+{
+    public static EngineContext CreateWithProvider(IChoiceProvider provider, int randomSeed)
+    {
+        var randomSource = new GameRandomSource(randomSeed);
+        var cardInstanceRepository = new InMemoryCardInstanceRepository();
+        var logSink = new NullLogSink();
+        var zoneMover = new InMemoryZoneMover(randomSource);
+        var memoryController = new InMemoryHeadlessMemoryController();
+        var gameEventQueue = new GameEventQueue();
+        EngineContext? selfRef = null;
+        var effectScheduler = new EffectScheduler(
+            new EffectResolutionQueue(),
+            CardEffectSchedulerResolver.Create(
+                sinkFactory: _ => new MatchStateMutationSink(
+                    cardInstanceRepository, logSink, zoneMover, memoryController, gameEventQueue,
+                    currentTurnPlayer: () => selfRef?.TurnController.Current.TurnPlayerId,
+                    context: selfRef),
+                strictUnbound: false));
+
+        var choiceController = new InMemoryHeadlessChoiceController();
+        var context = new EngineContext(
+            provider,
+            randomSource,
+            new CardDatabase(),
+            cardInstanceRepository,
+            zoneMover,
+            new InMemoryRuleQueryService(),
+            new InMemoryHeadlessTurnController(),
+            choiceController,
+            new InMemoryHeadlessAttackController(),
+            memoryController,
+            logSink,
+            new HeadlessDCGO.Engine.Headless.Coroutines.EngineTaskRunner(),
+            effectScheduler,
+            gameEventQueue: gameEventQueue);
+        selfRef = context;
+        return context;
+    }
 }

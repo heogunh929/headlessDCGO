@@ -5,10 +5,14 @@
 //   [Your Turn][Once Per Turn] When this Digimon becomes unsuspended, if [MetalGarurumon] or [X Antibody] is among
 //                    its digivolution cards, return all of the opponent's LOWEST-level Digimon to their owners' hands
 //                    (the IsMinLevel witness — the level predicate GATES which enemy Digimon are bounced).
-// ③ wiring: AS-IS registers [When Digivolving] under OnEnterFieldAnyone (:26) + CanTriggerWhenDigivolving gate, but
-//   the mirror keys [When Digivolving] under the dedicated EffectTiming.WhenDigivolving (DigivolveAction emits ONLY
-//   WhenDigivolving on digivolve, DigivolveAction.cs:269; double-key registration forbidden — trigger-wiring rule 3,
-//   BT20_079/BT18_042 idiom). The CanTriggerWhenDigivolving(hashtable, card) gate body is kept verbatim.
+// ③ wiring: AS-IS GENUINELY stacks the digivolve window at EffectTiming.OnEnterFieldAnyone (DCGO
+//   CardController.cs:1693 — `StackSkillInfos(effectHashtable, OnEnterFieldAnyone, CardEffectCondition)`; this is the
+//   real, non-stale AS-IS key, and BT9_081 mirrors it verbatim under OnEnterFieldAnyone). The mirror instead keys
+//   THIS card's [When Digivolving] under the dedicated EffectTiming.WhenDigivolving purely because the substrate
+//   emits ONLY that key on a digivolve (DigivolveAction.cs:271; double-key registration forbidden — trigger-wiring
+//   rule 3, the established mirror convention). Both spellings are correct — the CODE is right (the earlier note that
+//   framed OnEnterFieldAnyone as "stale" was the wrong justification); the CanTriggerWhenDigivolving(hashtable, card)
+//   gate body is kept verbatim.
 // Substrate translations only: IEnumerator->async Task; `yield return ContinuousController.instance.StartCoroutine(X)`
 //   -> `await X`; `card.PermanentOfThisCard()` (as a Permanent arg) -> `ICardEffect.ResolvePermanentOfThisCard(card)`;
 //   the unsuspend predicate `permanent == card.PermanentOfThisCard()` -> `permanent.InstanceId ==
