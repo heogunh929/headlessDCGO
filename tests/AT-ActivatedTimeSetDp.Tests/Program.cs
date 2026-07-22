@@ -18,8 +18,10 @@ void Check(bool cond, string label)
 NumericModifier SetDp(string id, int value, long activationOrder) =>
     NumericModifier.Set(id, NumericModifierMetric.Dp, value) with { ActivationOrder = activationOrder };
 
+// (RD-A6-02 re-aim) ModifierHelpers.ResolveDp (zero src consumers) is deleted; fold directly via the live
+// Evaluate(NumericModifierRequest) surface it used to wrap (same Dp-metric algorithm LinkHelpers exercises).
 int ResolveDp(params NumericModifier[] modifiers) =>
-    ModifierHelpers.ResolveDp(baseDp: 3000, modifiers).FinalValue;
+    ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.Dp, 3000, modifiers)).FinalValue;
 
 // --- 1. Latest-activated set wins even when its Id sorts FIRST (proves activation order beats Id). ---
 // "a-late" sorts first alphabetically but has the higher ActivationOrder, so it applies last and wins.

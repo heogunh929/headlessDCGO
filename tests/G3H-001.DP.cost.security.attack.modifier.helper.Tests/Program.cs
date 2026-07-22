@@ -19,7 +19,11 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Security attack modifier resolves add set and invert delta", SecurityAttackModifierResolvesAddSetAndInvertDelta),
     ("CardInstanceState modifiers are read without mutating state", CardInstanceStateModifiersAreReadWithoutMutation),
     ("Effect query modifier requests are read from context values", EffectQueryModifierRequestsAreReadFromContextValues),
-    ("CardEffectCommons factory creates headless numeric modifiers", CardEffectCommonsFactoryCreatesHeadlessModifiers),
+    // (RD-A6-02) "CardEffectCommons factory creates headless numeric modifiers" RETIRED — it pinned
+    // ModifierHelperFactory (ChangeDp/SetPlayCost/InvertSecurityAttack), a zero-src-consumer convenience
+    // sugar layer over NumericModifier.Add/Set/InvertSecurityAttack that threaded no live behavior of its
+    // own; the factory is now deleted (see ModifierHelpers.cs). NumericModifier.Add/Set/InvertSecurityAttack
+    // themselves remain live (ReadSimpleModifiers) and are exercised directly by every other subtest here.
     ("Modifier result values are deterministic", ModifierResultValuesAreDeterministic),
     ("G3H-001 source files stay inside modifier helper scope", SourceFilesStayInsideGoalScope),
 };
@@ -96,7 +100,9 @@ Task DpModifierAppliesSetBeforeAddAndFiltersTarget()
         NumericModifier.Add("wrong-metric", NumericModifierMetric.SecurityAttack, 1, TargetId),
     };
 
-    NumericModifierResult result = ModifierHelpers.ResolveDp(3000, modifiers, TargetId);
+    // (RD-A6-02 re-aim) ModifierHelpers.ResolveDp (zero src consumers) is deleted; fold directly via the live
+    // Evaluate(NumericModifierRequest) surface it used to wrap.
+    NumericModifierResult result = ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.Dp, 3000, modifiers, TargetId));
 
     // (P0-DP-2) AS-IS Permanent.DP applies the isUpDown group FIRST, then the NotIsUpDown/Set group last
     // (Permanent.cs:290/301). So an upDown "+2000" applies before a "DP becomes 5000" set: 3000+2000=5000, set→5000.
@@ -115,8 +121,12 @@ Task CostModifiersClampAndRespectReductionPermission()
         NumericModifier.Add("cost-increase", NumericModifierMetric.PlayCost, 2),
     };
 
-    NumericModifierResult blockedReduction = ModifierHelpers.ResolvePlayCost(5, modifiers, checkAvailability: false, canReduceCost: false);
-    NumericModifierResult allowedReduction = ModifierHelpers.ResolvePlayCost(1, new[] { NumericModifier.Add("large-reduction", NumericModifierMetric.PlayCost, -4) });
+    // (RD-A6-02 re-aim) ModifierHelpers.ResolvePlayCost (zero src consumers) is deleted; fold directly via the
+    // live Evaluate(NumericModifierRequest) surface it used to wrap.
+    NumericModifierResult blockedReduction = ModifierHelpers.Evaluate(new NumericModifierRequest(
+        NumericModifierMetric.PlayCost, 5, modifiers, checkAvailability: false, canReduceValue: false, minimumValue: 0));
+    NumericModifierResult allowedReduction = ModifierHelpers.Evaluate(new NumericModifierRequest(
+        NumericModifierMetric.PlayCost, 1, new[] { NumericModifier.Add("large-reduction", NumericModifierMetric.PlayCost, -4) }, minimumValue: 0));
 
     AssertEqual(7, blockedReduction.FinalValue, "blocked reduction cost");
     AssertSequence(new[] { "cost-increase" }, blockedReduction.AppliedModifierIds, "blocked applied ids");
@@ -149,7 +159,10 @@ Task DigivolutionCostModifierReadsSimpleMetadataKeys()
             },
         });
 
-    NumericModifierResult result = ModifierHelpers.ResolveDigivolutionCost(5, ModifierHelpers.ReadModifiers(card, instance));
+    // (RD-A6-02 re-aim) ModifierHelpers.ResolveDigivolutionCost (zero src consumers) is deleted; fold directly
+    // via the live Evaluate(NumericModifierRequest) surface it used to wrap.
+    NumericModifierResult result = ModifierHelpers.Evaluate(new NumericModifierRequest(
+        NumericModifierMetric.DigivolutionCost, 5, ModifierHelpers.ReadModifiers(card, instance), minimumValue: 0));
 
     AssertEqual(2, result.FinalValue, "digivolution cost");
     AssertSequence(new[] { "fixed-evo-cost", ModifierHelpers.DigivolutionCostDeltaKey }, result.AppliedModifierIds, "digivolution applied ids");
@@ -165,7 +178,9 @@ Task SecurityAttackModifierResolvesAddSetAndInvertDelta()
         NumericModifier.InvertSecurityAttack("invert-plus-to-minus", 1, TargetId),
     };
 
-    NumericModifierResult result = ModifierHelpers.ResolveSecurityAttack(1, modifiers, TargetId);
+    // (RD-A6-02 re-aim) ModifierHelpers.ResolveSecurityAttack (zero src consumers) is deleted; fold directly
+    // via the live Evaluate(NumericModifierRequest) surface it used to wrap.
+    NumericModifierResult result = ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.SecurityAttack, 1, modifiers, TargetId, minimumValue: 0));
 
     // (b-remediation) the invert (+1) is now APPLIED, not merely recorded (AS-IS Permanent.InvertSecutiryValue):
     // it FLIPS the +2 increase into a -2 decrease, so base 1 -> set 1 -> (1-2) = -1 -> clamped to the 0 floor.
@@ -188,8 +203,10 @@ Task CardInstanceStateModifiersAreReadWithoutMutation()
         });
 
     IReadOnlyList<NumericModifier> modifiers = ModifierHelpers.ReadModifiers(state: state);
-    NumericModifierResult dp = ModifierHelpers.ResolveDp(4000, modifiers, TargetId);
-    NumericModifierResult securityAttack = ModifierHelpers.ResolveSecurityAttack(1, modifiers, TargetId);
+    // (RD-A6-02 re-aim) ModifierHelpers.ResolveDp/ResolveSecurityAttack (zero src consumers) are deleted; fold
+    // directly via the live Evaluate(NumericModifierRequest) surface they used to wrap.
+    NumericModifierResult dp = ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.Dp, 4000, modifiers, TargetId));
+    NumericModifierResult securityAttack = ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.SecurityAttack, 1, modifiers, TargetId, minimumValue: 0));
 
     AssertEqual(3000, dp.FinalValue, "state DP");
     AssertEqual(2, securityAttack.FinalValue, "state security attack");
@@ -224,24 +241,14 @@ Task EffectQueryModifierRequestsAreReadFromContextValues()
             }));
 
     IReadOnlyList<NumericModifier> modifiers = ModifierHelpers.ReadModifiers(effectRequests: new[] { request });
-    NumericModifierResult dp = ModifierHelpers.ResolveDp(2000, modifiers, TargetId);
-    NumericModifierResult securityAttack = ModifierHelpers.ResolveSecurityAttack(1, modifiers, TargetId);
+    // (RD-A6-02 re-aim) ModifierHelpers.ResolveDp/ResolveSecurityAttack (zero src consumers) are deleted; fold
+    // directly via the live Evaluate(NumericModifierRequest) surface they used to wrap.
+    NumericModifierResult dp = ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.Dp, 2000, modifiers, TargetId));
+    NumericModifierResult securityAttack = ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.SecurityAttack, 1, modifiers, TargetId, minimumValue: 0));
 
     AssertEqual(3000, dp.FinalValue, "query DP");
     AssertEqual(2, securityAttack.FinalValue, "query security attack");
     AssertContains(string.Join(",", dp.AppliedModifierIds), "effect-001", "effect id prefix");
-    return Task.CompletedTask;
-}
-
-Task CardEffectCommonsFactoryCreatesHeadlessModifiers()
-{
-    NumericModifier dp = ModifierHelperFactory.ChangeDp("factory-dp", 1000, TargetId);
-    NumericModifier playCost = ModifierHelperFactory.SetPlayCost("factory-cost", 3);
-    NumericModifier securityAttack = ModifierHelperFactory.InvertSecurityAttack("factory-invert", 1, TargetId);
-
-    AssertEqual(NumericModifierMetric.Dp, dp.Metric, "factory DP metric");
-    AssertEqual(NumericModifierMode.Set, playCost.Mode, "factory play cost mode");
-    AssertEqual(NumericModifierMode.InvertDelta, securityAttack.Mode, "factory security attack mode");
     return Task.CompletedTask;
 }
 
@@ -253,8 +260,10 @@ Task ModifierResultValuesAreDeterministic()
         NumericModifier.Add("a", NumericModifierMetric.Dp, 1),
     };
 
-    string first = Signature(ModifierHelpers.ResolveDp(1000, modifiers));
-    string second = Signature(ModifierHelpers.ResolveDp(1000, modifiers));
+    // (RD-A6-02 re-aim) ModifierHelpers.ResolveDp (zero src consumers) is deleted; fold directly via the live
+    // Evaluate(NumericModifierRequest) surface it used to wrap.
+    string first = Signature(ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.Dp, 1000, modifiers)));
+    string second = Signature(ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.Dp, 1000, modifiers)));
 
     AssertEqual(first, second, "deterministic signature");
     AssertContains(first, "appliedModifierIds=a;b", "stable id order");

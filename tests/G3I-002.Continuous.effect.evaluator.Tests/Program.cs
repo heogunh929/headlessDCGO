@@ -115,8 +115,10 @@ Task MetadataSourcesAreRecalculatedTogether()
         instance: instance,
         state: state));
 
-    AssertEqual(3000, result.ResolveDp(4000, TargetId).FinalValue, "state DP");
-    AssertEqual(2, result.ResolveSecurityAttack(1, TargetId).FinalValue, "card security attack");
+    // (RD-A6-02 re-aim) ContinuousEvaluationResult.ResolveDp/ResolveSecurityAttack (zero src consumers) are
+    // deleted; fold result.Modifiers directly via the live ModifierHelpers.Evaluate(NumericModifierRequest) surface.
+    AssertEqual(3000, ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.Dp, 4000, result.Modifiers, TargetId)).FinalValue, "state DP");
+    AssertEqual(2, ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.SecurityAttack, 1, result.Modifiers, TargetId, minimumValue: 0)).FinalValue, "card security attack");
     AssertTrue(RestrictionHelpers.CannotBlock(TargetId, result.Restrictions).IsRestricted, "instance cannot block");
     AssertTrue(ReplacementHelpers.PreventDeletion(TargetId, result.Replacements).IsReplaced, "state prevent deletion");
     return Task.CompletedTask;
@@ -133,8 +135,8 @@ Task StateMutationChangesRecalculation()
     ContinuousEvaluationResult second = ContinuousEffectEvaluator.Recalculate(
         new ContinuousEvaluationRequest(query, state: secondState));
 
-    AssertEqual(4000, first.ResolveDp(3000, TargetId).FinalValue, "first DP");
-    AssertEqual(5000, second.ResolveDp(3000, TargetId).FinalValue, "second DP");
+    AssertEqual(4000, ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.Dp, 3000, first.Modifiers, TargetId)).FinalValue, "first DP");
+    AssertEqual(5000, ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.Dp, 3000, second.Modifiers, TargetId)).FinalValue, "second DP");
     AssertEqual(1000, first.Modifiers.Single().Value, "first modifier value");
     AssertEqual(2000, second.Modifiers.Single().Value, "second modifier value");
     return Task.CompletedTask;
@@ -210,7 +212,7 @@ Task CardEffectCommonsFacadeDelegates()
         new EffectQueryContext("ContinuousRecalculation", targetEntityId: TargetId),
         new[] { effect });
 
-    AssertEqual(3, result.ResolvePlayCost(5).FinalValue, "facade play cost");
+    AssertEqual(3, ModifierHelpers.Evaluate(new NumericModifierRequest(NumericModifierMetric.PlayCost, 5, result.Modifiers, minimumValue: 0)).FinalValue, "facade play cost");
     AssertSequence(new[] { "effect-facade:playCostDelta" }, result.Modifiers.Select(modifier => modifier.Id).ToArray(), "facade modifier id");
     return Task.CompletedTask;
 }

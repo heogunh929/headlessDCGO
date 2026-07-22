@@ -441,53 +441,10 @@ public static class ModifierHelpers
             .ToArray();
     }
 
-    public static NumericModifierResult ResolveDp(int baseDp, IReadOnlyList<NumericModifier> modifiers, HeadlessEntityId? targetEntityId = null)
-    {
-        return Evaluate(new NumericModifierRequest(NumericModifierMetric.Dp, baseDp, modifiers, targetEntityId));
-    }
-
-    public static NumericModifierResult ResolvePlayCost(
-        int baseCost,
-        IReadOnlyList<NumericModifier> modifiers,
-        bool checkAvailability = false,
-        bool canReduceCost = true)
-    {
-        return Evaluate(new NumericModifierRequest(
-            NumericModifierMetric.PlayCost,
-            baseCost,
-            modifiers,
-            checkAvailability: checkAvailability,
-            canReduceValue: canReduceCost,
-            minimumValue: 0));
-    }
-
-    public static NumericModifierResult ResolveDigivolutionCost(
-        int baseCost,
-        IReadOnlyList<NumericModifier> modifiers,
-        bool checkAvailability = false,
-        bool canReduceCost = true)
-    {
-        return Evaluate(new NumericModifierRequest(
-            NumericModifierMetric.DigivolutionCost,
-            baseCost,
-            modifiers,
-            checkAvailability: checkAvailability,
-            canReduceValue: canReduceCost,
-            minimumValue: 0));
-    }
-
-    public static NumericModifierResult ResolveSecurityAttack(
-        int baseSecurityAttack,
-        IReadOnlyList<NumericModifier> modifiers,
-        HeadlessEntityId? targetEntityId = null)
-    {
-        return Evaluate(new NumericModifierRequest(
-            NumericModifierMetric.SecurityAttack,
-            baseSecurityAttack,
-            modifiers,
-            targetEntityId,
-            minimumValue: 0));
-    }
+    // (RD-A6-02) ResolveDp/ResolvePlayCost/ResolveDigivolutionCost/ResolveSecurityAttack convenience wrappers
+    // DELETED — zero src consumers (only ever called through ContinuousEvaluationResult's identically-named
+    // instance methods, themselves zero-consumer and deleted alongside). Callers needing this fold now call
+    // Evaluate(NumericModifierRequest) directly, the live surface (LinkHelpers.ResolveLinkedMax/ResolveLinkCost).
 
     private static IEnumerable<NumericModifier> ReadModifiersFromValues(
         IReadOnlyDictionary<string, object?> values,
@@ -873,50 +830,6 @@ public static class ModifierHelpers
     }
 }
 
-
-public static class ModifierHelperFactory
-{
-    public static NumericModifier ChangeDp(string id, int value, HeadlessEntityId? targetEntityId = null)
-    {
-        return NumericModifier.Add(id, NumericModifierMetric.Dp, value, targetEntityId);
-    }
-
-    public static NumericModifier ChangeBaseDp(string id, int value, HeadlessEntityId? targetEntityId = null)
-    {
-        return NumericModifier.Add(id, NumericModifierMetric.BaseDp, value, targetEntityId);
-    }
-
-    public static NumericModifier ChangePlayCost(string id, int value)
-    {
-        return NumericModifier.Add(id, NumericModifierMetric.PlayCost, value);
-    }
-
-    public static NumericModifier SetPlayCost(string id, int value)
-    {
-        return NumericModifier.Set(id, NumericModifierMetric.PlayCost, value);
-    }
-
-    public static NumericModifier ChangeDigivolutionCost(string id, int value)
-    {
-        return NumericModifier.Add(id, NumericModifierMetric.DigivolutionCost, value);
-    }
-
-    public static NumericModifier SetDigivolutionCost(string id, int value)
-    {
-        return NumericModifier.Set(id, NumericModifierMetric.DigivolutionCost, value);
-    }
-
-    public static NumericModifier ChangeSecurityAttack(
-        string id,
-        int value,
-        HeadlessEntityId? targetEntityId = null,
-        CalculateOrder calcOrder = CalculateOrder.UpDownValue)
-    {
-        return NumericModifier.Add(id, NumericModifierMetric.SecurityAttack, value, targetEntityId, calcOrder: calcOrder);
-    }
-
-    public static NumericModifier InvertSecurityAttack(string id, int value, HeadlessEntityId? targetEntityId = null)
-    {
-        return NumericModifier.InvertSecurityAttack(id, value, targetEntityId);
-    }
-}
+// (RD-A6-02) ModifierHelperFactory DELETED — zero src consumers (test-only NumericModifier-builder sugar over
+// NumericModifier.Add/Set/InvertSecurityAttack, which are themselves called live from ReadSimpleModifiers
+// above). Callers now build a NumericModifier directly via those record factories.

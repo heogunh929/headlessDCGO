@@ -82,25 +82,10 @@ public sealed record ContinuousEvaluationResult
 
     public IReadOnlyDictionary<string, object?> Values { get; }
 
-    public NumericModifierResult ResolveDp(int baseDp, HeadlessEntityId? targetEntityId = null)
-    {
-        return ModifierHelpers.ResolveDp(baseDp, Modifiers, targetEntityId);
-    }
-
-    public NumericModifierResult ResolvePlayCost(int baseCost, bool checkAvailability = false, bool canReduceCost = true)
-    {
-        return ModifierHelpers.ResolvePlayCost(baseCost, Modifiers, checkAvailability, canReduceCost);
-    }
-
-    public NumericModifierResult ResolveDigivolutionCost(int baseCost, bool checkAvailability = false, bool canReduceCost = true)
-    {
-        return ModifierHelpers.ResolveDigivolutionCost(baseCost, Modifiers, checkAvailability, canReduceCost);
-    }
-
-    public NumericModifierResult ResolveSecurityAttack(int baseSecurityAttack, HeadlessEntityId? targetEntityId = null)
-    {
-        return ModifierHelpers.ResolveSecurityAttack(baseSecurityAttack, Modifiers, targetEntityId);
-    }
+    // (RD-A6-02) ResolveDp/ResolvePlayCost/ResolveDigivolutionCost/ResolveSecurityAttack DELETED — zero src
+    // consumers (the ModifierHelpers.ResolveX statics they wrapped were themselves zero-consumer; see that
+    // file). Callers fold Modifiers directly via ModifierHelpers.Evaluate(NumericModifierRequest), the live
+    // surface (LinkHelpers.ResolveLinkedMax/ResolveLinkCost).
 
     private static IReadOnlyDictionary<string, object?> CopyValues(IReadOnlyDictionary<string, object?> values)
     {
