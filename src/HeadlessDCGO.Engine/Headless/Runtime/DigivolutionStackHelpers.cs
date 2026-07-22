@@ -126,9 +126,17 @@ public static class DigivolutionStackHelpers
                 continue;
             }
 
-            await zoneMover.MoveAsync(
-                new ZoneMoveRequest(card.OwnerId, cardId, fromZone, ChoiceZone.None),
-                cancellationToken).ConfigureAwait(false);
+            // (C-Del 3c-2b / MIG4-DISCARDEVOROOTS-PUTTOTRASH) an ALREADY-OFF-ZONE card (a digivolution source
+            // detached to None — e.g. the jogress collapse's DiscardEvoRoots(putToTrash:false) roots re-parented
+            // onto the fused permanent) needs no zone move; PrependSources below performs the attach. A None→None
+            // ZoneMoveRequest is rejected by its ctor — identical guard to AddSourcesBottomAsync.
+            if (fromZone != ChoiceZone.None)
+            {
+                await zoneMover.MoveAsync(
+                    new ZoneMoveRequest(card.OwnerId, cardId, fromZone, ChoiceZone.None),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             moved.Add(cardId.Value);
             // (B-3 tuck reset) same AS-IS InitUseCountThisTurn mirror as AddSourcesBottomAsync.
             // (R6-Da'-6 D3) AS-IS CardSource.Init() per-card cap reset on the CEntity_EffectController store

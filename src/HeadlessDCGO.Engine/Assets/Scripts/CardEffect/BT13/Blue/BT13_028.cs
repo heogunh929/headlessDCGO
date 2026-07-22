@@ -35,6 +35,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT13_028 : CEntity_Effect
@@ -332,12 +333,26 @@ public sealed class BT13_028 : CEntity_Effect
                     {
                         if (cardSources.Count == 3)
                         {
-                            // AS-IS AddLibraryBottomCards(:863-896) opens the trash-return window BEFORE the physical
-                            // move: these cards are pulled from the trash (Root.Trash select above), so isFromTrash is
-                            // always true — mirror the explicit StackSkillInfos(OnReturnCardsToLibraryFromTrash) call
-                            // (P_048.cs:173-175 idiom). RESIDUAL GAP: AS-IS also runs `new AceOverflowClass(cardSources)
-                            // .Overflow()` (:871) first; not reproduced at this fidelity level (P_048's return path
-                            // omits it too, AddLibraryBottomCards unported) — see header RD-BT13028-AceOverflow.
+                            // (RD-BT13028-AceOverflow) AS-IS AddLibraryBottomCards(:871) runs
+                            // `new AceOverflowClass(cardSources).Overflow()` FIRST, before the trash-return window.
+                            // AceOverflowClass.Overflow keeps only the un-flipped ACE cards still ON the field
+                            // (IsExistOnBattleArea || IsExistOnBreedingAreaDigimon); these were selected FROM the
+                            // trash (Root.Trash), so the on-field filter removes them all — a structural no-op here,
+                            // but wired 1:1 (a field card in the return list would take the penalty).
+                            List<CardSource> overflowCards = cardSources.FindAll(cs =>
+                                CardEffectCommons.IsExistOnBattleArea(cs) || CardEffectCommons.IsExistOnBreedingAreaDigimon(cs));
+                            if (overflowCards.Count > 0)
+                            {
+                                DeletionSourceTrash.ApplyAceOverflow(
+                                    card.Context.CardInstanceRepository,
+                                    overflowCards.ConvertAll(cs => cs.InstanceId),
+                                    card.Context.MemoryController,
+                                    card.Context.TurnController.Current.TurnPlayerId);
+                            }
+
+                            // AS-IS AddLibraryBottomCards(:867-874) opens the trash-return window (isFromTrash always
+                            // true here) BEFORE the physical move — the explicit
+                            // StackSkillInfos(OnReturnCardsToLibraryFromTrash) call (P_048.cs:173-175 idiom).
                             await GManager.instance.autoProcessing.StackSkillInfos(
                                 new Hashtable { { "CardSources", cardSources } },
                                 EffectTiming.OnReturnCardsToLibraryFromTrash);

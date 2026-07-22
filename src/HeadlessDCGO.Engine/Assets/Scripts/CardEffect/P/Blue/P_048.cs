@@ -58,6 +58,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class P_048 : CEntity_Effect
@@ -166,6 +167,22 @@ public sealed class P_048 : CEntity_Effect
                     {
                         if (cardSources.Count == 3)
                         {
+                            // (RD-BT13028-AceOverflow) AS-IS AddLibraryBottomCards(:871)는 창보다 먼저
+                            // `new AceOverflowClass(cardSources).Overflow()`를 실행한다. AceOverflowClass.Overflow는
+                            // 필드에 남은 미-플립 ACE 카드만(IsExistOnBattleArea || IsExistOnBreedingAreaDigimon)
+                            // 유지 — 이 카드들은 트래시(Root.Trash)에서 뽑혔으므로 필드-필터가 전부 제거(구조적 no-op),
+                            // 그래도 1:1로 배선(반환 목록에 필드 카드가 있으면 페널티 부과).
+                            List<CardSource> overflowCards = cardSources.FindAll(cs =>
+                                CardEffectCommons.IsExistOnBattleArea(cs) || CardEffectCommons.IsExistOnBreedingAreaDigimon(cs));
+                            if (overflowCards.Count > 0)
+                            {
+                                DeletionSourceTrash.ApplyAceOverflow(
+                                    card.Context.CardInstanceRepository,
+                                    overflowCards.ConvertAll(cs => cs.InstanceId),
+                                    card.Context.MemoryController,
+                                    card.Context.TurnController.Current.TurnPlayerId);
+                            }
+
                             // AS-IS :99 CardObjectController.AddLibraryBottomCards(cardSources) — 명명 헬퍼
                             // 미이관(위 헤더 참조). AS-IS AddLibraryBottomCards(:867-874)는 물리 이동보다
                             // 먼저 "isFromTrash" 창을 명시 연다 — 이 카드는 root:Root.Trash로 방금 뽑은

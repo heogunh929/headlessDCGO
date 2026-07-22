@@ -16,7 +16,9 @@
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
+using System.Collections;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
@@ -639,18 +641,91 @@ public sealed class SelectCardEffect
 
                 case Mode.PlayForCost:   // AS-IS :826-962.
                 {
-                    if (_reduceCostTuple != null || _fixedCostTuple != null)
+                    // AS-IS :828-847 local predicates.
+                    bool PermanentsCondition(List<Permanent> targetPermanents)
                     {
-                        // STOP (design item RD-W4-1): the AS-IS reduce/fixed-cost halves register a
-                        // ChangeCostClass on _selectPlayer.UntilCalculateFixedCostEffect for the duration of
-                        // the play — the mirror Player has no UntilCalculateFixedCostEffect surface and the
-                        // play-cost pipeline (ContinuousModifierGate) has no transient registration hook.
-                        // Approximating (e.g. pre-computing a discounted cost) would bypass the AS-IS
-                        // isCheckAvailability/isChangePayingCost semantics — no-simplification rule.
-                        throw new NotSupportedException(
-                            "SelectCardEffect.Activate Mode.PlayForCost with SetReducedCostTuple/SetFixedCostTuple " +
-                            "has no mirror cost-pipeline registration surface (design item RD-W4-1, " +
-                            "docs/audit/rebuild_bridge_w4_notes.md).");
+                        if (targetPermanents == null)
+                        {
+                            return true;
+                        }
+                        else
+                        {
+                            if (targetPermanents.Count(targetPermanent => targetPermanent != null) == 0)
+                            {
+                                return true;
+                            }
+                        }
+
+                        return false;
+                    }
+
+                    bool SharedCardCondition(CardSource cardSource) => _targetCards.Contains(cardSource);
+                    bool RootCondition(Root root) => true;
+                    bool CanUseCondition(Hashtable hashtable) => true;
+
+                    // RD-W4-1: the reduce/fixed-cost halves register a transient ChangeCostClass on the select
+                    // player's UntilCalculateFixedCostEffect bucket (LIVE in the mirror Player since W3c) for the
+                    // DURATION of the play, then release it — SelectHandEffect.ActivatePlayForCostAsync idiom.
+                    var selectPlayer = new Player(context, _selectPlayer);
+
+                    // AS-IS :850-895 reduce cost.
+                    Func<EffectTiming, ICardEffect>? getChangeCostEffect = null;
+                    if (_reduceCostTuple != null)
+                    {
+                        bool CardCondition(CardSource cardSource) =>
+                            SharedCardCondition(cardSource)
+                            && (_reduceCostTuple.Value.reduceCostCardCondition == null || _reduceCostTuple.Value.reduceCostCardCondition(cardSource));
+
+                        int ChangeCost(CardSource cardSource, int Cost, Root root, List<Permanent> targetPermanents)
+                        {
+                            if (PermanentsCondition(targetPermanents))
+                            {
+                                Cost -= _reduceCostTuple.Value.reduceCost;
+                            }
+
+                            return Cost;
+                        }
+
+                        bool isUpDown() => true;
+
+                        ChangeCostClass changeCostClass = new ChangeCostClass();
+                        changeCostClass.SetUpICardEffect($"Play Cost -{_reduceCostTuple.Value.reduceCost}", CanUseCondition, _cardEffect!.EffectSourceCard);
+                        changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
+                        getChangeCostEffect = GetCardEffect;
+
+                        ICardEffect? GetCardEffect(EffectTiming _timing) => _timing == EffectTiming.None ? changeCostClass : null;
+
+                        selectPlayer.UntilCalculateFixedCostEffect.Add(getChangeCostEffect);
+                    }
+
+                    // AS-IS :899-943 set fixed cost.
+                    Func<EffectTiming, ICardEffect>? getFixedCostEffect = null;
+                    if (_fixedCostTuple != null)
+                    {
+                        bool CardCondition(CardSource cardSource) =>
+                            SharedCardCondition(cardSource)
+                            && (_fixedCostTuple.Value.fixedCostCardCondition == null || _fixedCostTuple.Value.fixedCostCardCondition(cardSource));
+
+                        int ChangeCost(CardSource cardSource, int Cost, Root root, List<Permanent> targetPermanents)
+                        {
+                            if (PermanentsCondition(targetPermanents))
+                            {
+                                Cost = _fixedCostTuple.Value.fixedCost;
+                            }
+
+                            return Cost;
+                        }
+
+                        bool isUpDown() => false;
+
+                        ChangeCostClass changeCostClass = new ChangeCostClass();
+                        changeCostClass.SetUpICardEffect($"Play Cost {_fixedCostTuple.Value.fixedCost}", CanUseCondition, _cardEffect!.EffectSourceCard);
+                        changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
+                        getFixedCostEffect = GetCardEffect;
+
+                        ICardEffect? GetCardEffect(EffectTiming _timing) => _timing == EffectTiming.None ? changeCostClass : null;
+
+                        selectPlayer.UntilCalculateFixedCostEffect.Add(getFixedCostEffect);
                     }
 
                     // AS-IS :944-951 — NOTE the AS-IS quirk: the play routes with root: Root.Hand here.
@@ -661,6 +736,18 @@ public sealed class SelectCardEffect
                         isTapped: false,
                         root: Root.Hand,
                         activateETB: true).ConfigureAwait(false);
+
+                    // AS-IS :953-960 release effect.
+                    if (getChangeCostEffect != null)
+                    {
+                        selectPlayer.UntilCalculateFixedCostEffect.Remove(getChangeCostEffect);
+                    }
+
+                    if (getFixedCostEffect != null)
+                    {
+                        selectPlayer.UntilCalculateFixedCostEffect.Remove(getFixedCostEffect);
+                    }
+
                     break;
                 }
 

@@ -2732,12 +2732,16 @@ public static partial class CardEffectCommons
 
     /// <summary>AS-IS <c>ActivateMainOfOptionSide</c> (CardEffectCommons.cs:733): re-run the card's [Main]
     /// (OptionSkill) activated effect — headless the activation resolver drives it.</summary>
-    public static Task<int> ActivateMainOfOptionSide(CardSource card, CardSource sourceCard, CancellationToken cancellationToken = default)
+    public static Task<int> ActivateMainOfOptionSide(
+        CardSource card, CardSource sourceCard, CancellationToken cancellationToken = default,
+        Action<ICardEffect>? effectStamp = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         // (#13) AS-IS OptionMainEffect(card): re-run ONLY the [Main]-tagged OptionSkill effect, not every one.
+        // (RD-W3-5) effectStamp threads the AS-IS SetIsDigimonEffect/SetIsTamerEffect stamp onto the resolved
+        // [Main] instance before Activate.
         return ActivatedEffectResolver.ResolveAsync(card.Context, card.InstanceId, card.Owner, EffectTiming.OptionSkill, cancellationToken,
-            effectFilter: ActivatedEffectResolver.IsMainOptionEffect);
+            effectFilter: ActivatedEffectResolver.IsMainOptionEffect, effectStamp: effectStamp);
     }
 
     /// <summary>AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> (DNADigivolveEffects.cs:256)
