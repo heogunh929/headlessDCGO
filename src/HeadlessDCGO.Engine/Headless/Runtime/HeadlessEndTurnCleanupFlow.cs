@@ -45,9 +45,9 @@ public sealed class HeadlessEndTurnCleanupFlow
         int resetAttackCount = context.AttackController.Current.AttackCount;
         context.AttackController.ResetTurnAttackState();
 
-        // CV-A1: expire continuous effect bindings whose duration ends with this turn (UntilEachTurnEnd,
-        // and owner/opponent-turn-end scoped by the ending turn player vs the binding controller).
-        EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, turnPlayerId);
+        // (③-B) The CV-A1 registry turn-end sweep (EffectDurationExpiry.ExpireTurnEnd) is RETIRED: the EffectRegistry
+        // continuous-binding producer is 0, so the sweep was a dead write. The live AS-IS turn-end duration expiry is
+        // the bucket reset — the player/permanent Until*TurnEnd list resets below (and TSM:256/259), covered by J-2.
 
         List<string> cleanedCardIds = new();
         List<string> removedKeys = new();

@@ -30,7 +30,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("CONTROL OnAllyAttack (known-good timing) fires in this harness", OnAllyAttack_Control),
     ("OnDeclaration NOT fired by attack (B-2 proxy removed); it is the [Main]-declaration action's timing", OnDeclaration_NotFiredByAttack),
     ("OnEndBattle fires: resolving a battle resolves the attacker's OnEndBattle effect", OnEndBattle_Fires),
-    ("batch-2 enum members register a binding under their emitted timing string", Batch2_RegistersUnderEmittedString),
+    ("batch-2 enum members map to their emitted trigger-name string (registry registration surface retired, ③-B)", Batch2_RegistersUnderEmittedString),
     ("WhenRemoveField (derived) fires: a field card leaving the battle area resolves its effect", WhenRemoveField_Fires),
     ("OnEndAttack fires: an attack ending resolves the attacker's OnEndAttack effect", OnEndAttack_Fires),
     ("OnDigivolutionCardDiscarded fires: trashing a source card resolves the host's effect", OnDigivolutionCardDiscarded_Fires),
@@ -145,20 +145,14 @@ async Task Batch2_RegistersUnderEmittedString()
 
     foreach ((EffectTiming timing, string emitted) in batch2)
     {
-        EngineContext context = EngineContext.CreateDefault(randomSeed: 7);
-        context.TurnController.Initialize(new[] { Player, Opponent }, Player);
-        context.TurnController.SetPhase(HeadlessPhase.Main);   // (R3-C2b-2) DoneStartGame gate: new-model ActivateClass only fires past Setup.
-        var id = new HeadlessEntityId($"1:battle:{timing}");
-        ((CardDatabase)context.CardRepository).Upsert(Digimon($"DEF-{timing}"));
-        context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId($"DEF-{timing}"), Player, Metadata: new Dictionary<string, object?>()));
-        // (R3-C2b-2) This half asserts REGISTRY-BINDING registration (GetEffectsForTiming) — an OLD-model concern
-        // (RegisterOnEnterPlay lowers an effect with ToBinding into the registry). Use the test-local old-model
-        // binding probe here (the new-model ActivateClass TimingProbe used by the fire tests is not a registry
-        // binding). Registration is orthogonal to the R3 window fire path.
-        Register(context, new BindingProbe(timing), $"P-{timing}", id);
-
-        int hits = ((EffectRegistry)context.EffectRegistry).GetEffectsForTiming(emitted).Count();
-        AssertEqual(1, hits, $"{timing} registers exactly one binding findable under emitted string \"{emitted}\"");
+        // (③-B) The old REGISTRY-BINDING registration half (Register a BindingProbe, then find it via the retired
+        // IEffectQueryService.GetEffectsForTiming(emitted)) is RETIRED — the EffectRegistry producer reached 0, and
+        // trigger collection scans the field via AutoProcessingTriggerCollector, not a registry timing query. The
+        // surviving contract is the enum -> emitted-string keying the collector matches emitted TriggerTimings on:
+        // EffectTimings.ToTriggerName(timing) is the string an effect on this timing is filed under, and it must
+        // equal the engine's emitted TriggerTimings value.
+        AssertEqual(emitted, EffectTimings.ToTriggerName(timing),
+            $"{timing} keys under emitted trigger string \"{emitted}\"");
     }
 }
 

@@ -4,7 +4,9 @@ using HeadlessDCGO.Engine.Headless.Effects;
 
 public interface IEffectQueryService
 {
-    IReadOnlyList<EffectRequest> GetEffectsForTiming(string timing);
+    // (③-B) GetEffectsForTiming(string) is RETIRED — the timing-keyed registry read had no live src consumer once
+    // the registry producer reached 0 (trigger collection scans the field via AutoProcessingTriggerCollector, not
+    // a registry timing query). Removed from the contract and both implementations.
 
     IReadOnlyList<EffectRequest> GetContinuousEffects(EffectQueryContext context);
 

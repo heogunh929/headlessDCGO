@@ -312,8 +312,10 @@ public static class TurnFlowPump
             // ActiveCardList InitUseCountThisTurn loop (TurnStateMachine, AS-IS :3204-3208 mirror) above.
             // AS-IS :3181 player.DigivolveCount_ThisTurn = 0 — substrate PlayerTurnCounterController owner.
             context.PlayerTurnCounters.ResetForTurn();
-            // F-1.7: leftover "until cost is calculated" one-shot modifiers expire at the boundary.
-            EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
+            // (③-B) The registry turn-boundary fixed-cost sweep (EffectDurationExpiry.ExpireFixedCostCalc(registry))
+            // is RETIRED — the EffectRegistry producer is 0, so it was a dead write. The AS-IS UntilCalculateFixedCost
+            // BUCKET is per-play scoped (cleared on each play by the atomic ExpireFixedCostCalc(context, payer)); it
+            // has no separate turn-boundary carrier, so nothing survives to this point.
             // COORDINATE TRANSLATION: the mirror memory gauge is turn-player-relative (AS-IS is seat-absolute,
             // which needs no re-sign at the flip). Re-sign for the incoming player — the exact translation of
             // the flip is unconditional negation Set(-m): |m| is only equivalent for m<=0 and would flip the

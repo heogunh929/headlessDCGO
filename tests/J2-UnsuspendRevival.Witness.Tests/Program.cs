@@ -38,6 +38,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(b) BT1_113 player-scope UntilOwnerActivePhase: matching blocked, non-matching unsuspends", B_PlayerScopeGrantNarrows),
     ("(b) BT1_113 player-scope: grant expires at TSM:256 reset, next unsuspend works", B_PlayerScopeGrantExpires),
     ("(c) immune target refuses the grant (CanNotBeAffected guard); non-immune control accepts it", C_ImmuneRefusesGrant),
+    ("(d) ST17_08 UntilOpponentTurnEnd: blocked through opponent turn, cleared by REAL HeadlessEndTurnCleanupFlow, unsuspends next untap", D_UntilOpponentTurnEndClearedByEndTurnCleanup),
 };
 
 int failed = 0;
@@ -165,6 +166,40 @@ async Task C_ImmuneRefusesGrant()
 
     Assert(!new Permanent(ctx, immune, P1).IsSuspended, "immune target unsuspends normally (never blocked)");
     Assert(new Permanent(ctx, plain, P1).IsSuspended, "non-immune control stays suspended (grant took hold)");
+}
+
+// ===== (d) UntilOpponentTurnEnd cleared by the REAL end-turn cleanup (ST17_08 idiom) ================
+
+async Task D_UntilOpponentTurnEndClearedByEndTurnCleanup()
+{
+    // (RD-J-04) ST17_08 makes its OWN Digimon "can't unsuspend until the end of your opponent's turn" — an
+    // UntilOpponentTurnEnd grant from a P1 source onto a P1 permanent. AddEffectToPermanent's owner-relative swap
+    // (IsOwnerPermanent true -> UntilOpponentTurnEndEffects) stores it so the block holds through the OPPONENT
+    // (P2)'s turn and clears when P2's turn ENDS via the REAL HeadlessEndTurnCleanupFlow: the ending turn is P2's,
+    // so nonTurnPlayer = P1 and every P1 permanent drops UntilOpponentTurnEndEffects (HeadlessEndTurnCleanupFlow
+    // :139-142, the AS-IS TurnStateMachine EndPhase reset). The target then unsuspends on its next untap (P1's
+    // active phase). Drives the real cleanup flow — not a direct bucket poke.
+    EngineContext ctx = Ctx(turnPlayer: P2);   // it is the opponent (P2)'s turn while the block holds
+    using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(ctx);
+    HeadlessEntityId source = Place(ctx, P1, "D-SRC", "VANILLA", suspended: false);   // ST17_08 owner (P1's own card)
+    HeadlessEntityId target = Place(ctx, P1, "D-TGT", "VANILLA", suspended: true);
+    HeadlessEntityId control = Place(ctx, P1, "D-CTL", "VANILLA", suspended: true);
+
+    bool granted = CardEffectCommons.GainCantUnsuspendUntilOpponentTurnEnd(
+        new Permanent(ctx, target, P1), new CardSource(ctx, source, P1));
+    Assert(granted, "grant accepted on a non-immune target");
+    Assert(!new Permanent(ctx, target, P1).CanUnsuspend, "reader: target blocked while the grant lives (opponent P2's turn)");
+
+    // End the opponent (P2)'s turn through the REAL cleanup flow — clears P1's UntilOpponentTurnEnd bucket.
+    new HeadlessEndTurnCleanupFlow().Cleanup(ctx, ctx.TurnController.Current);
+    Assert(new Permanent(ctx, target, P1).CanUnsuspend, "grant cleared by HeadlessEndTurnCleanupFlow (CanUnsuspend flipped TRUE)");
+
+    // The target's next untap is P1's active phase (the turn after P2's ended); drive the real unsuspend step.
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    await DriveActivePhase(ctx);
+    Assert(!new Permanent(ctx, target, P1).IsSuspended, "target unsuspends on its next untap (P1's active phase)");
+    Assert(!new Permanent(ctx, control, P1).IsSuspended, "control also unsuspended (the step actually ran)");
 }
 
 // ===== harness ======================================================================================

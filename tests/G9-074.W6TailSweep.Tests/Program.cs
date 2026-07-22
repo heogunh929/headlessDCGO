@@ -99,7 +99,9 @@ async Task PlayerScopeGrants()
     // (G-clean-2) The former player-scope [Blocker] grant assertion tested the deleted GainKeywordToPermanent /
     // GainBlockerPlayerEffect(CardSource) funnel (a ContinuousKeywordGate.Blocker registry marker). The AS-IS
     // player-scope Blocker grant (AddEffectToPlayer None bucket -> Permanent.HasBlocker) is now witnessed in
-    // G9-067.W6GainCommons. CanNotUnsuspend below still rides the surviving GainToPlayerScope registry funnel.
+    // G9-067.W6GainCommons. (RD-J-05) The GainToPlayerScope registry funnel is DELETED — CanNotUnsuspend below now
+    // rides the AS-IS player bucket (GainCanNotUnsuspendPlayerEffect -> Player.UntilOpponentTurnEndEffects, read LIVE
+    // by Permanent.CanUnsuspend), expired the AS-IS way (`= new List<>()`), not a registry funnel.
     SetMeta(ctx, small, "isSuspended", true);
     // (J-2) hold a match scope so the AS-IS interface reader (Permanent.CanUnsuspend) can resolve GManager.instance.
     using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(ctx);

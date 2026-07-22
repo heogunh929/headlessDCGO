@@ -1162,13 +1162,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         HeadlessPlayerId owner = record.OwnerId;
         _pendingAsync.Add(ct => move(zoneMover, owner, targetId, ct));
-        // G7-001: the card is leaving its current zone (bounce / return-to-deck / security / trash) — drop
-        // the continuous/trigger bindings it auto-registered while in play. Critical for player-scope
-        // effects (e.g. a Tamer's "your Digimon +1000 DP"), which CollectApplicable matches by owner only
-        // and would otherwise keep applying after the source has left. No-op for cards that had none.
-        // (design item R2-P2-3) this drop runs at STAGE time while the move is a flush thunk — a later
-        // mutation staged in the SAME batch evaluates restrictions with this card's protections already gone.
-        _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId);
+        // (③-B) The G7-001 registry drop (dropping the leaving card's auto-registered continuous/trigger bindings)
+        // is RETIRED — the EffectRegistry producer is 0, so it was a dead write. AS-IS a leaving card's effects end
+        // implicitly because the live continuous scan is over on-field permanents; once the move flushes, the card
+        // is off-field and no longer scanned.
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, "pendingMove"));
     }
 
@@ -1274,8 +1271,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // OnDiscardLibrary gate rejects it (AS-IS !IsBeingRevealed, WhenDiscardLibrary.cs:23-26).
         bool isRevealTrash = ReadBool(mutation.Values, RevealTrashFlagKey);
         _pendingAsync.Add(ct => zoneMover.TrashCardAsync(owner, targetId, discardBatchId, cause.IsEmpty ? null : cause, isRevealTrash, ct));
-        // (G7-001, same as ApplyZoneMove) drop the leaving card's auto-registered continuous/trigger bindings.
-        _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId);
+        // (③-B) The G7-001 registry drop is RETIRED (EffectRegistry producer 0 — dead write; the live continuous
+        // scan is over on-field permanents, so a trashed card is no longer scanned once the move flushes).
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, "pendingMove"));
     }
 
@@ -1619,11 +1616,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _repository.Upsert(record with { Metadata = metadata });
 
         HeadlessPlayerId owner = record.OwnerId;
-        // G6-001: the card left play — drop the continuous/trigger bindings it had auto-registered. (B.O.5-tail)
-        // EXCEPT a self-[On Deletion] grant marked SurviveOwnLeave, which must fire ON this deletion; it is
-        // removed after it resolves (DelayedOneShot) or at its duration boundary.
-        _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId
-            && !ReadBool(binding.Request.Context.Values, AutoProcessingTriggerCollector.SurviveOwnLeaveKey));
+        // (③-B) The G6-001 registry drop (dropping the deleted card's auto-registered bindings, except a
+        // SurviveOwnLeave self-[On Deletion] grant) is RETIRED — the EffectRegistry producer is 0, so it was a dead
+        // write. The live continuous scan is over on-field permanents; a deleted card is no longer scanned.
 
         // (RD-4) AS-IS Permanent.DiscardEvoRoots (CardController.cs:3846) trashes the deleted permanent's
         // digivolution sources BEFORE the top card (:3852) — a direct trash-add, so NO OnDigivolutionCardDiscarded

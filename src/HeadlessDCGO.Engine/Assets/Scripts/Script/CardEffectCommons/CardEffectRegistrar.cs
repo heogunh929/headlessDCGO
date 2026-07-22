@@ -115,17 +115,15 @@ public static class CardEffectRegistrar
         return true;
     }
 
-    /// <summary>(G6-001) Remove every binding sourced from <paramref name="instanceId"/> (the card left
-    /// play). Returns the number of bindings removed.</summary>
+    /// <summary>(G6-001) Card-left-play unregister seam. (③-B) The registry RemoveWhere is RETIRED — the
+    /// EffectRegistry producer is 0, so it was a dead write (always removed 0 from an empty store); the live
+    /// continuous scan is over on-field permanents, so a departed card is no longer scanned. The shell is kept
+    /// (return 0 = no bindings removed) for its callers. </summary>
     public static int UnregisterCard(EngineContext context, HeadlessEntityId instanceId)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (instanceId.IsEmpty)
-        {
-            return 0;
-        }
-
-        return context.EffectRegistry.RemoveWhere(binding => binding.Request.Context.SourceEntityId == instanceId);
+        _ = instanceId;
+        return 0;
     }
 
     /// <summary>(faceup security) Build — but do NOT register — a card instance's CONTINUOUS (EffectTiming.None,

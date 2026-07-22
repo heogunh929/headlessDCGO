@@ -319,17 +319,20 @@ async Task Bt1_021_AttackRegisteredReversal()
     var self = Battle(ctx, "BT1_021", "BT1_021", level: 4, colors: new[] { "Red" });
     ctx.RegisterEnteredCardEffects(self, P1);
 
-    AssertEqual(0, ctx.EffectRegistry.GetEffectsForTiming("OnEndTurn").Count,
+    // (③-B) The retired registry query (ctx.EffectRegistry.GetEffectsForTiming("OnEndTurn")) is replaced by a read
+    // of the AS-IS carrier the [When Attacking] coroutine actually writes: the owner's UntilEachTurnEnd player
+    // bucket (card.Owner.UntilEachTurnEndEffects.Add). The count is the number of stacked one-shot EoT reversals.
+    AssertEqual(0, new Player(ctx, P1).UntilEachTurnEndEffects.Count,
         "no attack yet: NO end-of-turn loss is registered (the old static declaration was the divergence)");
 
     await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack);
     AssertEqual(3, ctx.MemoryController.Current.Current, "first activation gains +3 immediately");
-    AssertEqual(1, ctx.EffectRegistry.GetEffectsForTiming("OnEndTurn").Count,
+    AssertEqual(1, new Player(ctx, P1).UntilEachTurnEndEffects.Count,
         "first activation registered exactly ONE one-shot EoT -3 (AS-IS UntilEachTurnEndEffects entry)");
 
     await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack);
     AssertEqual(6, ctx.MemoryController.Current.Current, "second activation gains +3 again (uncapped)");
-    AssertEqual(2, ctx.EffectRegistry.GetEffectsForTiming("OnEndTurn").Count,
+    AssertEqual(2, new Player(ctx, P1).UntilEachTurnEndEffects.Count,
         "second activation stacks a SECOND reversal (AS-IS: attack twice → lose 6 at end of turn)");
 }
 

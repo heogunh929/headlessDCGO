@@ -55,7 +55,13 @@ async Task ExpiresAtBoundary()
     var target = await Put(ctx, "TGT", 4000);
     GrantEndTurn(ctx, src, target);
     ctx.MemoryController.Set(0);
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
+    // (③-B) The retired registry sweep (EffectDurationExpiry.ExpireTurnEnd) is replaced by the AS-IS bucket-reset
+    // path: the grant lives in the target's UntilOpponentTurnEnd BUCKET (AddEffectToPermanent, src/target both P1 ->
+    // IsOwnerPermanent -> UntilOpponentTurnEndEffects), which resets when the OPPONENT (P2)'s turn ends through the
+    // REAL HeadlessEndTurnCleanupFlow (nonTurnPlayer = P1 drops UntilOpponentTurnEndEffects).
+    new HeadlessEndTurnCleanupFlow().Cleanup(ctx, new HeadlessTurnState(
+        TurnNumber: 2, TurnPlayerId: P2, NonTurnPlayerId: P1,
+        Phase: HeadlessPhase.End, StepCursor: TurnStepCursor.PhaseStart, IsFirstTurn: false, PlayerOrder: new[] { P1, P2 }));
     await EmitEndTurn(ctx);
     AssertEqual(0, ctx.MemoryController.Current.Current, "after expiry the grant no longer fires");
 }

@@ -12,15 +12,7 @@ public sealed class InMemoryEffectQueryService : IEffectQueryService
         _effects.Add(request);
     }
 
-    public IReadOnlyList<EffectRequest> GetEffectsForTiming(string timing)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(timing);
-        string normalizedTiming = timing.Trim();
-
-        return _effects
-            .Where(effect => string.Equals(effect.Timing, normalizedTiming, StringComparison.Ordinal))
-            .ToArray();
-    }
+    // (③-B) GetEffectsForTiming(string) RETIRED — timing-keyed read, no live consumer at producer 0.
 
     public IReadOnlyList<EffectRequest> GetContinuousEffects(EffectQueryContext context)
     {

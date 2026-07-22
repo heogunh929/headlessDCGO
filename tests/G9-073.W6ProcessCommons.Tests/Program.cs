@@ -106,7 +106,10 @@ async Task AddEffectTo()
     ICardEffect blocker = CardEffectFactory.BlockerSelfStaticEffect(false, V(ctx, src), null);
     CardEffectCommons.AddEffectToPermanent(Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, src), blocker, EffectTiming.None);
     AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, target, ContinuousKeywordGate.Blocker), "the effect was re-targeted at the permanent");
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
+    // (③-B) The retired registry sweep (EffectDurationExpiry.ExpireTurnEnd) is replaced by the AS-IS bucket-reset
+    // path — end the opponent's turn through the REAL HeadlessEndTurnCleanupFlow so the UntilOpponentTurnEnd bucket
+    // grant on P1's permanent resets (same helper the other subtests use).
+    ExpireOpponentTurnEnd(ctx);
     AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, target, ContinuousKeywordGate.Blocker), "expired at the duration boundary");
 }
 

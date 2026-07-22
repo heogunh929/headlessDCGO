@@ -67,16 +67,7 @@ public sealed class InMemoryEffectRegistry : EffectRegistry
             .ToArray();
     }
 
-    public IReadOnlyList<EffectRequest> GetEffectsForTiming(string timing)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(timing);
-        string normalizedTiming = timing.Trim();
-
-        return _bindings
-            .Where(binding => string.Equals(binding.Request.Timing, normalizedTiming, StringComparison.Ordinal))
-            .Select(binding => binding.Request)
-            .ToArray();
-    }
+    // (③-B) GetEffectsForTiming(string) RETIRED — timing-keyed registry read, no live consumer at producer 0.
 
     public IReadOnlyList<EffectRequest> GetContinuousEffects(EffectQueryContext context)
     {

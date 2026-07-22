@@ -1,25 +1,31 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Headless.State;
 
-// CV-A1 / F-1: EffectDuration system. A continuous EffectBinding can carry an EffectDuration; the
-// EffectDurationExpiry hooks remove it at the matching expiry point (turn end, battle end, unsuspend).
-// Verified here at the gate level (a duration-tagged DP modifier boosts DP until it expires) and at the
-// registry level (the right durations are removed for each scope; permanent bindings survive).
+// CV-A1: the EffectDuration system.
+// (③-B) The invented EffectRegistry duration-SWEEP surface (EffectDurationExpiry.ExpireTurnEnd / ExpireBattleEnd /
+// ExpireAttackEnd / ExpireUnsuspend, sweeping registry EffectBinding.Duration) is RETIRED — the continuous-binding
+// producer reached 0, so every sweep was a dead write against a permanently-empty store. The EffectDuration ENUM
+// survives as the BUCKET key (AddEffectToPermanent / AddEffectToPlayer switch on it); duration expiry is now the
+// AS-IS bucket reset at each choke (HeadlessEndTurnCleanupFlow / BattleResolver UntilEndBattle / AttackProcess
+// UntilEndAttack / TSM:256-259). Per-duration expiry behaviour is witnessed live in J2-UnsuspendRevival (unsuspend
+// blocks), G9-073 / G3.5-B2 (turn-end resets), BT1.StopRemainder (UntilEachTurnEnd player bucket).
+//
+// This suite now witnesses (1) the enum still carries the 8 durations, and (2) an UntilOpponentTurnEnd bucket grant
+// resets through the REAL HeadlessEndTurnCleanupFlow (the AS-IS bucket-reset that replaces the retired registry sweep).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
-HeadlessEntityId Card = new("p1:main:001:P1-M01");
 
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("EffectDuration enum has the 8 original durations", () => Pure(EnumHasEightDurations)),
-    ("UntilEachTurnEnd DP modifier boosts DP, then expires at turn end", () => Pure(EachTurnEndExpires)),
-    ("UntilOwnerTurnEnd expires only on the owner's turn end", () => Pure(OwnerTurnEndScope)),
-    ("UntilOpponentTurnEnd expires only on the opponent's turn end", () => Pure(OpponentTurnEndScope)),
-    ("UntilEndBattle / UntilEndAttack expire at their hooks; permanent survives", () => Pure(BattleAndAttendExpiry)),
-    ("UntilNextUntap / UntilOwnerActivePhase expire at unsuspend", () => Pure(UnsuspendExpiry)),
+    ("UntilOpponentTurnEnd bucket grant resets through the REAL HeadlessEndTurnCleanupFlow (registry sweep retired)", BucketResetExpires),
 };
 
 var failures = new List<string>();
@@ -49,78 +55,51 @@ void EnumHasEightDurations()
     }
 }
 
-void EachTurnEndExpires()
+async Task BucketResetExpires()
 {
-    EngineContext context = EngineContext.CreateDefault();
-    RegisterDp(context, Card, owner: P1, dpDelta: 3000, EffectDuration.UntilEachTurnEnd);
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 5);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(ctx);
 
-    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).DP, "DP boosted before expiry");
-    int removed = EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P2);
-    AssertEqual(1, removed, "each-turn-end binding removed at any turn end");
-    AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).DP, "DP back to base after expiry");
-}
+    HeadlessEntityId src = await Put(ctx, P1, "SRC", ChoiceZone.BattleArea);
+    HeadlessEntityId target = await Put(ctx, P1, "TGT", ChoiceZone.BattleArea);
 
-void OwnerTurnEndScope()
-{
-    EngineContext context = EngineContext.CreateDefault();
-    RegisterDp(context, Card, owner: P1, dpDelta: 1000, EffectDuration.UntilOwnerTurnEnd);
+    // Grant any ICardEffect into the target's UntilOpponentTurnEnd BUCKET (AddEffectToPermanent; src/target both P1
+    // -> IsOwnerPermanent -> UntilOpponentTurnEndEffects). Witness the duration carrier directly (the store the
+    // AS-IS reset clears), so the assertion does not depend on any downstream continuous-scan reader.
+    ICardEffect blocker = CardEffectFactory.BlockerSelfStaticEffect(false, V(ctx, src), null);
+    CardEffectCommons.AddEffectToPermanent(
+        Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, src), blocker, EffectTiming.None);
+    AssertEqual(1, Perm(ctx, target).UntilOpponentTurnEndEffects.Count, "grant lands in the UntilOpponentTurnEnd bucket");
 
-    AssertEqual(0, EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P2), "survives opponent's turn end");
-    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).DP, "still applies");
-    AssertEqual(1, EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P1), "expires on owner's turn end");
-}
-
-void OpponentTurnEndScope()
-{
-    EngineContext context = EngineContext.CreateDefault();
-    RegisterDp(context, Card, owner: P1, dpDelta: 1000, EffectDuration.UntilOpponentTurnEnd);
-
-    AssertEqual(0, EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P1), "survives owner's turn end");
-    AssertEqual(1, EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P2), "expires on opponent's turn end");
-}
-
-void BattleAndAttendExpiry()
-{
-    EngineContext context = EngineContext.CreateDefault();
-    RegisterDp(context, Card, owner: P1, dpDelta: 1000, EffectDuration.UntilEndBattle);
-    RegisterDp(context, new HeadlessEntityId("atk"), owner: P1, dpDelta: 1000, EffectDuration.UntilEndAttack);
-    RegisterDp(context, new HeadlessEntityId("perm"), owner: P1, dpDelta: 1000, duration: null); // permanent
-
-    AssertEqual(1, EffectDurationExpiry.ExpireBattleEnd(context.EffectRegistry), "battle-end expired");
-    AssertEqual(1, EffectDurationExpiry.ExpireAttackEnd(context.EffectRegistry), "attack-end expired");
-    // permanent (null duration) survives all expiry passes
-    AssertEqual(0, EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, P1), "permanent survives turn end");
-    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, new HeadlessEntityId("perm")).DP, "permanent still applies");
-}
-
-void UnsuspendExpiry()
-{
-    EngineContext context = EngineContext.CreateDefault();
-    RegisterDp(context, Card, owner: P1, dpDelta: 1000, EffectDuration.UntilNextUntap);
-    RegisterDp(context, new HeadlessEntityId("p1b"), owner: P1, dpDelta: 1000, EffectDuration.UntilOwnerActivePhase);
-
-    // Opponent unsuspends: only UntilNextUntap (any) expires, not the owner-active-phase one.
-    AssertEqual(1, EffectDurationExpiry.ExpireUnsuspend(context.EffectRegistry, unsuspendingPlayerId: P2), "next-untap expired on any unsuspend");
-    AssertEqual(1, EffectDurationExpiry.ExpireUnsuspend(context.EffectRegistry, unsuspendingPlayerId: P1), "owner-active-phase expired on owner unsuspend");
+    // End the OPPONENT (P2)'s turn through the REAL cleanup flow — nonTurnPlayer = P1 drops UntilOpponentTurnEndEffects.
+    new HeadlessEndTurnCleanupFlow().Cleanup(ctx, new HeadlessTurnState(
+        TurnNumber: 2, TurnPlayerId: P2, NonTurnPlayerId: P1,
+        Phase: HeadlessPhase.End, StepCursor: TurnStepCursor.PhaseStart, IsFirstTurn: false, PlayerOrder: new[] { P1, P2 }));
+    AssertEqual(0, Perm(ctx, target).UntilOpponentTurnEndEffects.Count,
+        "bucket reset by HeadlessEndTurnCleanupFlow (AS-IS bucket expiry replaces the retired registry sweep)");
 }
 
 // --- Helpers -------------------------------------------------------------
 
-void RegisterDp(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner, int dpDelta, EffectDuration? duration)
+async Task<HeadlessEntityId> Put(EngineContext ctx, HeadlessPlayerId owner, string tag, ChoiceZone zone)
 {
-    var effectId = new HeadlessEntityId($"dp:{cardId.Value}:{dpDelta}:{duration}");
-    var effectContext = new EffectContext(
-        owner, owner, new HeadlessEntityId($"src:{cardId.Value}"),
-        triggerEntityId: null, targetEntityIds: new[] { cardId },
-        values: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dpDelta"] = dpDelta });
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(effectId, owner, "Continuous", effectContext),
-        keywords: null,
-        EffectQueryRole.Continuous,
-        new[] { ContinuousRestrictionGate.Scope },
-        effect: null,
-        duration: duration));
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId($"DEF:{owner.Value}:{tag}");
+    cards.Upsert(new CardRecord(defId, tag, tag,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 5000, ["level"] = 4 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:{tag}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 5000 }));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone));
+    return id;
 }
+
+CardSource V(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, OwnerOf(ctx, id), OwnerOf(ctx, id));
+Permanent Perm(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, OwnerOf(ctx, id));
+HeadlessPlayerId OwnerOf(EngineContext ctx, HeadlessEntityId id) =>
+    ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null ? r.OwnerId : default;
 
 static Task Pure(Action body) { body(); return Task.CompletedTask; }
 

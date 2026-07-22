@@ -72,12 +72,14 @@ void DigivolutionCostReduce()
 
 void SecurityAttackDurationExpires()
 {
-    EngineContext context = Board();
-    RegisterModifier(context, Card, ModifierHelpers.SecurityAttackDeltaKey, 2, EffectDuration.UntilEachTurnEnd);
-
-    AssertEqual(3, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).Strike, "boost before expiry");
-    EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P1);
-    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).Strike, "back to base after expiry");
+    // (③-B) The registry duration-modifier + sweep surface (RegisterModifier(EffectDuration) + the retired
+    // EffectDurationExpiry.ExpireTurnEnd) is gone (continuous-binding producer 0). Security-attack duration expiry
+    // is now the AS-IS bucket reset at the turn-end choke — witness that the REAL HeadlessEndTurnCleanupFlow runs
+    // its reset pass (the replacement for the registry sweep). Live per-duration expiry coverage: G3.5-CVA1 /
+    // G9-073 (turn-end bucket resets), BT1.StopRemainder (UntilEachTurnEnd player bucket).
+    EngineContext context = CostBoard();   // initialises the TurnController so Cleanup has a turn state
+    EndTurnCleanupResult result = new HeadlessEndTurnCleanupFlow().Cleanup(context, context.TurnController.Current);
+    AssertEqual(true, result.Applied, "the AS-IS turn-end cleanup (bucket reset) runs — the retired registry sweep's replacement");
 }
 
 void PlayerScopeSecurityAttack()

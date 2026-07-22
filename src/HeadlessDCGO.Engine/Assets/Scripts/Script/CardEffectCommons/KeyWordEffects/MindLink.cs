@@ -117,7 +117,9 @@ public sealed class MindLinkClass
             gameEventQueue: _context.GameEventQueue, causeSourceId: tamerId).ConfigureAwait(false);
         DigivolutionStackHelpers.MoveSourcesBottom(
             _context.CardInstanceRepository, tamerId, selectedDigimonId, int.MaxValue, context: _context);
-        _context.EffectRegistry.RemoveWhere(binding => binding.Request.Context.SourceEntityId == tamerId);
+        // (③-B) The registry drop of the tucked Tamer's bindings is RETIRED — the EffectRegistry producer is 0, so
+        // it was a dead write; the live continuous scan is over on-field permanents, and the tucked Tamer is now a
+        // digivolution source (off the field as a standalone permanent), so it is no longer scanned.
         return true;
     }
 

@@ -354,12 +354,11 @@ public sealed class BattleResolver
         // retired manual HasPiercingKey / Permanent.HasPierce read: the window's CanTriggerPierce already gates on
         // "surviving attacker deleted the opponent" and CanActivatePierce on "defending player still has security",
         // and PierceProcess (drained by the main loop before the piercing follow-up) sets DoSecurityCheck.
-        EffectDurationExpiry.ExpireBattleEnd(context.EffectRegistry);
-        // (B군 2R A1b / RD-R6-02) AS-IS battle-end reset of the UntilEndBattle BUCKET carrier
-        // (CardController.cs:4746-4758, "reset effect until the end of battle"): every field permanent of both
-        // players drops UntilEndBattleEffects, and each player drops its own UntilEndBattleEffects. Co-located with
-        // the registry ExpireBattleEnd above so BOTH duration carriers expire at the identical battle-end choke
-        // (cross-carrier consistency). Reassigning a fresh list = AS-IS `= new List<Func<EffectTiming, ICardEffect>>()`.
+        // (③-B) The registry battle-end sweep (EffectDurationExpiry.ExpireBattleEnd) is RETIRED — the EffectRegistry
+        // continuous-binding producer is 0, so it was a dead write. The live AS-IS battle-end duration expiry is the
+        // UntilEndBattle BUCKET reset below (CardController.cs:4746-4758, "reset effect until the end of battle"):
+        // every field permanent of both players drops UntilEndBattleEffects, and each player drops its own
+        // UntilEndBattleEffects. Reassigning a fresh list = AS-IS `= new List<Func<EffectTiming, ICardEffect>>()`.
         foreach (HeadlessPlayerId battleEndPlayerId in context.TurnController.Current.PlayerOrder)
         {
             var battleEndPlayer = new Assets.Scripts.Script.CardEffectCommons.Player(context, battleEndPlayerId);

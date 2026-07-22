@@ -716,13 +716,12 @@ public sealed class AttackProcess
     // ===== AS-IS Cleanup (:486-512) ===============================================================================
     private AttackAdvanceResult Cleanup()
     {
-        // AS-IS :489-496 — reset the effects that continue until the end of attack (every field permanent's
-        // UntilEndAttackEffects). This is the AS-IS expiry POSITION: after the [On End Attack] window resolved.
-        EffectDurationExpiry.ExpireAttackEnd(_context.EffectRegistry);
-
-        // (W3 / P6A-PERMANENT-EFFECTLIST-ADDED) AS-IS :489-495 — the same reset for the NEW-model per-permanent
-        // grant store: `foreach permanent in field: permanent.UntilEndAttackEffects = new List<…>()`. Dormant today
-        // (no live writer until batch C), so behavior-neutral — it keeps the store correct for cutover.
+        // (③-B) The registry attack-end sweep (EffectDurationExpiry.ExpireAttackEnd) is RETIRED — the EffectRegistry
+        // continuous-binding producer is 0, so it was a dead write. The live AS-IS attack-end duration expiry is the
+        // per-permanent UntilEndAttack BUCKET reset below.
+        // (W3 / P6A-PERMANENT-EFFECTLIST-ADDED) AS-IS :489-495 — reset the NEW-model per-permanent grant store:
+        // `foreach permanent in field: permanent.UntilEndAttackEffects = new List<…>()`. This is the AS-IS expiry
+        // POSITION: after the [On End Attack] window resolved.
         if (_context.ZoneMover is IZoneStateReader cleanupZones)
         {
             foreach (HeadlessPlayerId playerId in _context.TurnController.Current.PlayerOrder)

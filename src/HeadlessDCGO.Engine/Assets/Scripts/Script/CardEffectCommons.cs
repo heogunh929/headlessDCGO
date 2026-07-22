@@ -3117,8 +3117,10 @@ public static partial class CardEffectCommons
     /// <summary>(J-4) Lift a CardSource cause-predicate (the substrate's <c>cardEffectSourceCondition</c>) to the
     /// AS-IS <c>Func&lt;ICardEffect,bool&gt; cardEffectCondition</c> shape the return/immunity kind-classes evaluate:
     /// the live reader supplies the REAL causing ICardEffect, whose source card is fed to the CardSource predicate.
-    /// The inverse of the retired RD-W2-1 down-adapter; a null predicate stays null (AS-IS: an unconditional
-    /// cardEffectCondition never fires — verbatim kind-class semantics).</summary>
+    /// The inverse of the retired RD-W2-1 down-adapter; a null predicate stays null (RD-J-02: AS-IS normalizes a
+    /// null cardEffectCondition to UNCONDITIONAL — the reader gate is `cardEffectCondition == null ||
+    /// cardEffectCondition(effect)` (AutoProcessing.cs:939 et al.), so null APPLIES to every causing effect, not
+    /// none — verbatim kind-class semantics).</summary>
     private static Func<ICardEffect, bool>? LiftCauseCardCondition(Func<CardSource, bool>? cardEffectSourceCondition) =>
         cardEffectSourceCondition is null
             ? null

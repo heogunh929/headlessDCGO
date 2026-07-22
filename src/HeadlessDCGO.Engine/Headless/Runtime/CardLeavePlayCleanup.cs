@@ -40,18 +40,14 @@ public static class CardLeavePlayCleanup
         OnLeftPlay(effectRegistry, cardId);
     }
 
-    /// <summary>Non-deletion departure (bounce / deck / stack placement): drop the card's bindings only.</summary>
+    /// <summary>Non-deletion departure (bounce / deck / stack placement). (③-B) The registry binding drop is
+    /// RETIRED — the EffectRegistry producer is 0, so it was a dead write; the live continuous scan is over on-field
+    /// permanents, so a departed card is no longer scanned. The seam is kept (its four call-sites remain wired) for
+    /// the AS-IS "leaving the field ends the card's effects" contract.</summary>
     public static void OnLeftPlay(EffectRegistry? effectRegistry, HeadlessEntityId cardId)
     {
-        if (effectRegistry is null || cardId.IsEmpty)
-        {
-            return;
-        }
-
-        // (B.O.5-tail) a self-[On Deletion] grant marked SurviveOwnLeave must OUTLIVE the card leaving play so it
-        // can fire ON that removal; it is removed after it resolves (DelayedOneShot) or at its duration boundary.
-        effectRegistry.RemoveWhere(binding => binding.Request.Context.SourceEntityId == cardId
-            && !(binding.Request.Context.Values.TryGetValue(Effects.AutoProcessingTriggerCollector.SurviveOwnLeaveKey, out object? survive) && survive is true));
+        _ = effectRegistry;
+        _ = cardId;
     }
 
     // --- (R2-P1-3) AS-IS "record parameters just before deletion" (CardController.cs:3762-3783) -----------
