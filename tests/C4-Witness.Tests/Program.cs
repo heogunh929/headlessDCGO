@@ -59,8 +59,9 @@ async Task PostTrashOffersDeathXmon()
     HeadlessChoiceState choice = await AdvanceToChoice(ctx);
 
     AssertTrue(choice.IsPending, "the [On Deletion] play choice opened after the battle");
-    AssertTrue(choice.CandidateIds.Contains(deathXmon),
-        $"DeathXmon is offered (post-trash count 5); candidates = [{string.Join(", ", choice.CandidateIds.Select(c => c.Value))}]. " +
+    IReadOnlyList<HeadlessEntityId> offered = OfferedIds(ctx);
+    AssertTrue(offered.Contains(deathXmon),
+        $"DeathXmon is offered (post-trash count 5); offered = [{string.Join(", ", offered.Select(c => c.Value))}]. " +
         "A pre-trash count (4) would omit it.");
 
     // Complete the play (pick DeathXmon) and confirm it lands on the battle area — the AS-IS "instead" branch.
@@ -79,9 +80,10 @@ async Task UnderFiveNormalBranch()
     HeadlessChoiceState choice = await AdvanceToChoice(ctx);
 
     AssertTrue(choice.IsPending, "the [On Deletion] play choice opened (the effect still fires)");
-    AssertTrue(!choice.CandidateIds.Contains(deathXmon),
+    IReadOnlyList<HeadlessEntityId> offered = OfferedIds(ctx);
+    AssertTrue(!offered.Contains(deathXmon),
         "DeathXmon is NOT offered (post-trash count 4 < 5) — the [Dex]/[DeathX] branch stays closed");
-    AssertTrue(choice.CandidateIds.Contains(purpleLv3),
+    AssertTrue(offered.Contains(purpleLv3),
         "the normal purple/black level-3 branch offers the purple lv3 Digimon");
 
     await DrivePreferring(ctx, purpleLv3);
@@ -208,12 +210,31 @@ async Task RunBattle(EngineContext ctx)
     AssertTrue(result.IsSuccess && result.DefenderDeleted && !result.AttackerDeleted, "the defender (BT9_081) was deleted by battle");
 }
 
-// Drive RunToStable to the point where the [On Deletion] play window surfaces its choice (or the pipeline
-// settles). With deferredChoice, the interactive select-and-play body suspends and its request lands in the
-// ChoiceController — post-trash, since the battle finalize already trashed the loser's sources + top.
+// Drive RunToStable to the point where the [On Deletion] PLAY choice surfaces (or the pipeline settles). With
+// deferredChoice, BT9_081's [On Deletion] is a "You may…" optional effect: it first surfaces its OptionalEffect
+// yes/no prompt (AS-IS Activate_Optional), and only on ACCEPT does the interactive select-and-play body suspend
+// and land its Card-select request. Accept the optional prompt(s) so the select-and-play (the choice this
+// witness inspects) surfaces — post-trash, since the battle finalize already trashed the loser's sources + top.
 async Task<HeadlessChoiceState> AdvanceToChoice(EngineContext ctx)
 {
+    var processor = new MetadataActionProcessor();
     await new GameFlowProcessor().RunToStableAsync(ctx);
+    for (int guard = 0; guard < 8; guard++)
+    {
+        HeadlessChoiceState current = ctx.ChoiceController.Current;
+        if (!current.IsPending || ctx.ChoiceController.PendingRequest!.Type != ChoiceType.OptionalEffect)
+        {
+            break;
+        }
+
+        // Accept the "you may" prompt (the non-skip candidate = the effect holder) so the play window opens.
+        ChoiceResult accept = current.CandidateIds.Count > 0
+            ? ChoiceResult.Select(current.CandidateIds[0])
+            : ChoiceResult.Skip();
+        await processor.ProcessAsync(HeadlessActionFactory.ResolveChoice(current.PlayerId!.Value, accept), ctx);
+        await new GameFlowProcessor().RunToStableAsync(ctx);
+    }
+
     return ctx.ChoiceController.Current;
 }
 
@@ -261,6 +282,10 @@ async Task<EngineContext> Battlefield(int preExistingDexFillers)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 47, deferredChoice: true);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // BT9_081's [On Deletion] ActivateClass gates on DoneStartGame (mirror proxy: phase past None/Setup) via
+    // ICardEffect.CanTrigger — the OnDestroyedAnyone window collects it only once the game is underway. A battle
+    // happens in the Main phase; advance past setup (matching WhenDigivolvingSetup and the sibling suites).
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     ctx.MemoryController.Set(10); // plenty; the [On Deletion] play is free (payCost:false) regardless.
 
     // P1 attacker — high DP, unsuspended, so it deletes the defender and survives.
@@ -343,6 +368,14 @@ void SetSources(EngineContext ctx, HeadlessEntityId host, params HeadlessEntityI
 
 bool InZone(EngineContext ctx, HeadlessPlayerId owner, ChoiceZone zone, HeadlessEntityId id) =>
     ((IZoneStateReader)ctx.ZoneMover).GetCards(owner, zone).Contains(id);
+
+// The cards a select-and-play actually OFFERS (can be picked) = the SelectCardEffect's IsSelectable subset (AS-IS
+// CanSelectCard / the card's canTargetCondition, which reads the LIVE post-trash [Dex]/[DeathX] count). The request
+// also carries the whole display pool (all trash cards) as non-selectable candidates, so "offered" = selectable.
+IReadOnlyList<HeadlessEntityId> OfferedIds(EngineContext ctx) =>
+    ctx.ChoiceController.PendingRequest is { } req
+        ? req.SelectableCandidates.Select(c => c.Id).ToList()
+        : new List<HeadlessEntityId>();
 
 void AssertTrue(bool cond, string what)
 {

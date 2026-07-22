@@ -44,7 +44,11 @@ int Resolve(int delta, int invert)
     ((CardDatabase)ctx.CardRepository).Upsert(new CardRecord(new HeadlessEntityId("C"), "C", "C",
         new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
     var id = new HeadlessEntityId("p1:C");
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("C"), P1));
+    // (harness re-drive) seed the AS-IS Strike base (Permanent.ReadSubstrateStrikeSeed, "strike" metadata) at the
+    // fixture's Base — AS-IS Strike_AllowMinus seeds a literal check-count; the mirror reads it from the attacker
+    // stamp, so the +/- deltas fold onto Base exactly as the test's expected values (Base +/- delta) require.
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("C"), P1,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["strike"] = Base }));
     ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
     var card = new CardSource(ctx, id, P1);
 
@@ -64,7 +68,13 @@ int Resolve(int delta, int invert)
 
     card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effects);
 
-    return new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, id).Strike;
+    // (harness re-drive) the FoldSAttack fold reads live game state through GManager.instance (the disable-tree
+    // scan, CheckEffectDisabledClass) — AS-IS it always runs inside a match; enter the ambient match scope so the
+    // mirror's GManager.instance resolves (matching every other FoldSAttack-driving suite, e.g. C4-Witness).
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        return new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, id).Strike;
+    }
 }
 
 sealed class TestCardEntityEffect : CEntity_Effect

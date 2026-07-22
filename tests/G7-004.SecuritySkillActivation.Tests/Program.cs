@@ -37,6 +37,10 @@ async Task SecuritySkillFires()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 704);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P7 test-fix) ST1_13's [Security] ActivateClass gates on DoneStartGame (mirror proxy: phase past
+    // None/Setup) via ICardEffect.CanTrigger; a security check runs mid-attack in the Main phase — advance so
+    // the [Security] effect fires (same fix documented on FAILb-01/SEC-FaceUpSecuritySource).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     var zones = (IZoneStateReader)context.ZoneMover;
     CardDatabase cards = (CardDatabase)context.CardRepository;
 
@@ -54,11 +58,20 @@ async Task SecuritySkillFires()
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, defenderDigimon, ChoiceZone.None, ChoiceZone.BattleArea));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, attacker, ChoiceZone.None, ChoiceZone.BattleArea));
 
-    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, defenderDigimon).Strike, "no buff before the check");
+    // (harness re-drive) the SA fold (Permanent.Strike_AllowMinus) scans live state through GManager.instance
+    // (the disable-tree check, CheckEffectDisabledClass) — AS-IS it always runs inside a match; read the fold
+    // under the ambient match scope so GManager.instance resolves (same seam as FAILb-01 / every FoldSAttack read).
+    using (HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context))
+    {
+        AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, defenderDigimon).Strike, "no buff before the check");
+    }
 
     await new SecurityResolver().RunSecurityCheckLoopAsync(context, zones, P1, attacker, P2, strike: 1);
 
-    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, defenderDigimon).Strike, "owner's Digimon got SA +1 from the security skill");
+    using (HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context))
+    {
+        AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, defenderDigimon).Strike, "owner's Digimon got SA +1 from the security skill");
+    }
 }
 
 static void AssertEqual<T>(T expected, T actual, string label)

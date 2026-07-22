@@ -246,7 +246,11 @@ public sealed class Permanent
                 #region Effects of face up security
                 foreach (CardSource cardSource in player.SecurityCards)
                 {
-                    if (cardSource.IsFlipped)
+                    // (SEC-FaceUpSecuritySource) AS-IS `!cardSource.IsFlipped` face gate — the mirror tracks a
+                    // security card's face state as the dedicated substrate flag (SecurityFaceState), disjoint from
+                    // the field-ACE `isFlipped`, so ride the SAME face-state read FoldLinkedMax uses (NewModel
+                    // ContinuousScan): a FACE-DOWN / default security card is not a continuous-effect source.
+                    if (!Headless.Runtime.SecurityFaceState.IsFaceUpInSecurity(_context, cardSource.InstanceId))
                         continue;
 
                     foreach (ICardEffect cardEffect in cardSource.EffectList(EffectTiming.None))
@@ -428,7 +432,9 @@ public sealed class Permanent
                     #region Effects of face up security
                     foreach (CardSource cardSource in player.SecurityCards)
                     {
-                        if (cardSource.IsFlipped)
+                        // (SEC-FaceUpSecuritySource) AS-IS `!cardSource.IsFlipped` face gate — ride the SecurityFaceState
+                        // face-state read (as FoldLinkedMax does); a face-down/default security card is not a source.
+                        if (!Headless.Runtime.SecurityFaceState.IsFaceUpInSecurity(_context, cardSource.InstanceId))
                             continue;
 
                         foreach (ICardEffect cardEffect in cardSource.EffectList(EffectTiming.None))

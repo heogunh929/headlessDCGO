@@ -64,14 +64,20 @@ async Task AttackFiresTrigger()
 
 // --- Helpers -------------------------------------------------------------
 
-// (RC-6) compile-fix: the invented AutoProcessingTriggerCollector query half is excised. This suite is
-// pre-existing base-RED — ST1_06's [When Attacking] OnAllyAttack produces no registry trigger binding
-// (producer 0), so the drain never fired it even before this change. The drain now just resolves the queue;
-// the memory assertion stays red exactly as in the base fail-set (no NEW failure, no fix invested).
+// (G6-005) AttackPermanentAction.Process → AttackDeclarationCommons.Declare → AttackProcess.Attack STACKS the
+// [On Attack] "[When Attacking]" ally-attack window (AS-IS AttackProcess.cs:197-199 StackSkillInfos(OnAllyAttack))
+// onto the mirror AutoProcessing trigger stack — it does NOT resolve it (AS-IS StackSkillInfos only stacks; the
+// game loop's AutoProcessCheck drains it). Drive the SAME game-loop scheduler the pump uses so ST1_06's stacked
+// OnAllyAttack ActivateClass (card.Owner.AddMemory(-2)) resolves. Under the ambient match scope like every other
+// AutoProcessCheck driver (the stacked skills read live state through GManager.instance).
 async Task DrainEvents(EngineContext context)
 {
     context.GameEventQueue.DrainPending();
     await context.EffectScheduler.ResolveAllAsync();
+    using (HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context))
+    {
+        await HeadlessDCGO.Engine.Assets.Scripts.Script.AutoProcessing.For(context).AutoProcessCheck();
+    }
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }

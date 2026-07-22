@@ -787,6 +787,16 @@ public sealed class BattleResolver
         _ = baseDp;
         int dp = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, instanceId, instance.OwnerId).DP;
 
+        // (G3.5-RL-B1) fold the typed DP model (DpModifier/DpCalculator — the RL-facing relative-then-absolute
+        // representation the mutation sink appends via AddDpModifierKind) onto the live-folded base, exactly as
+        // SecurityResolver.TryReadDp does. Applied ONLY when typed modifiers are present, so a card that carries
+        // none (every production/AS-IS path — producer-0 for the key) reads the unchanged Permanent.DP.
+        IReadOnlyList<DpModifier> dpModifiers = ReadDpModifiers(instance.Metadata);
+        if (dpModifiers.Count > 0)
+        {
+            dp = DpCalculator.ComputeDp(dp, dpModifiers);
+        }
+
         participant = new BattleParticipant(instanceId, instance.OwnerId, instance, definition, dp);
         return null;
     }
