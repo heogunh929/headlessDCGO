@@ -884,7 +884,7 @@ public sealed class DigivolveAction
             return false;
         }
 
-        if (effect.Context.Values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+        if (effect.Context.Values.TryGetValue(ContinuousScopeEvaluation.ConditionKey, out object? condRaw)
             && condRaw is Func<bool> condition && !condition())
         {
             return false;
@@ -947,7 +947,7 @@ public sealed class DigivolveAction
             return false;
         }
 
-        if (effect.Context.Values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+        if (effect.Context.Values.TryGetValue(ContinuousScopeEvaluation.ConditionKey, out object? condRaw)
             && condRaw is Func<bool> condition && !condition())
         {
             return false;

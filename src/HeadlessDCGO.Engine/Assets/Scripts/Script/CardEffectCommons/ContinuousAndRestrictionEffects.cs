@@ -47,20 +47,9 @@ using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectF
 /// </summary>
 public sealed class ContinuousSelfModifierEffect : ICardEffect
 {
-    /// <summary>Marks a continuous binding as an inherited (digivolution-source) effect: it applies to the
-    /// TOP card of the stack the source is buried in, never to the source as a stand-alone permanent.</summary>
-    public const string InheritedEffectKey = "continuous.isInherited";
-
-    /// <summary>Carries the card-authored <c>condition</c> predicate (a <c>Func&lt;bool&gt;</c>) evaluated
-    /// at read time by <see cref="ContinuousScopeEvaluation"/>.</summary>
-    public const string ConditionKey = "continuous.condition";
-
-    /// <summary>Carries a card-authored dynamic delta (<c>Func&lt;int&gt;</c>, e.g. "+X where X = sources / 2")
-    /// evaluated at read time; the resolved int is written under <see cref="DynamicMetricKey"/>'s metric.</summary>
-    public const string DynamicValueKey = "continuous.dynamicValue";
-
-    /// <summary>The metric delta key a resolved <see cref="DynamicValueKey"/> should be written under.</summary>
-    public const string DynamicMetricKey = "continuous.dynamicMetric";
+    // (W3c-final Stage 1) The four shared continuous scope-evaluation keys (InheritedEffectKey / ConditionKey /
+    // DynamicValueKey / DynamicMetricKey) were rehoused to the substrate reader ContinuousScopeEvaluation so they
+    // survive this type's pending deletion; sibling continuous effects and the rule layer now reference them there.
 
     public ContinuousSelfModifierEffect(CardSource card, string deltaKey, int changeValue, bool isInheritedEffect, Func<bool>? condition, Func<int>? dynamicValue = null)
     {
@@ -93,8 +82,8 @@ public sealed class ContinuousSelfModifierEffect : ICardEffect
         if (DynamicValue is not null)
         {
             // Resolved to a concrete int under DeltaKey at read time by ContinuousScopeEvaluation.
-            values[DynamicValueKey] = DynamicValue;
-            values[DynamicMetricKey] = DeltaKey;
+            values[ContinuousScopeEvaluation.DynamicValueKey] = DynamicValue;
+            values[ContinuousScopeEvaluation.DynamicMetricKey] = DeltaKey;
         }
         else
         {
@@ -103,12 +92,12 @@ public sealed class ContinuousSelfModifierEffect : ICardEffect
 
         if (IsInheritedEffect)
         {
-            values[InheritedEffectKey] = true;
+            values[ContinuousScopeEvaluation.InheritedEffectKey] = true;
         }
 
         if (Condition is not null)
         {
-            values[ConditionKey] = Condition;
+            values[ContinuousScopeEvaluation.ConditionKey] = Condition;
         }
 
         var context = new EffectContext(
@@ -202,12 +191,12 @@ public sealed class ContinuousSelfRestrictionEffect : ICardEffect
 
         if (IsInheritedEffect)
         {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+            values[ContinuousScopeEvaluation.InheritedEffectKey] = true;
         }
 
         if (Condition is not null)
         {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+            values[ContinuousScopeEvaluation.ConditionKey] = Condition;
         }
 
         var context = new EffectContext(
@@ -336,12 +325,12 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
 
         if (IsInheritedEffect)
         {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+            values[ContinuousScopeEvaluation.InheritedEffectKey] = true;
         }
 
         if (Condition is not null)
         {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+            values[ContinuousScopeEvaluation.ConditionKey] = Condition;
         }
 
         var context = new EffectContext(
@@ -423,12 +412,12 @@ public sealed class SelfKeywordByNameEffect : ICardEffect
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (IsInheritedEffect)
         {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+            values[ContinuousScopeEvaluation.InheritedEffectKey] = true;
         }
 
         if (Condition is not null)
         {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+            values[ContinuousScopeEvaluation.ConditionKey] = Condition;
         }
 
         if (PermanentCondition is not null)
@@ -515,12 +504,12 @@ public sealed class ContinuousPlayerScopeKeywordEffect : ICardEffect
 
         if (IsInheritedEffect)
         {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+            values[ContinuousScopeEvaluation.InheritedEffectKey] = true;
         }
 
         if (Condition is not null)
         {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+            values[ContinuousScopeEvaluation.ConditionKey] = Condition;
         }
 
         var context = new EffectContext(
@@ -676,7 +665,7 @@ public sealed class PlayerScopeModifierEffect : ICardEffect
 
         if (Condition is not null)
         {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+            values[ContinuousScopeEvaluation.ConditionKey] = Condition;
         }
 
         var context = new EffectContext(
@@ -887,7 +876,7 @@ public sealed class JointRestrictionEffect : ICardEffect
         var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey(_kind)] = _predicate };
         if (_condition is not null)
         {
-            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
+            values[ContinuousScopeEvaluation.ConditionKey] = _condition;
         }
 
         var context = new EffectContext(

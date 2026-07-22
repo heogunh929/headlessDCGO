@@ -2978,7 +2978,7 @@ public static partial class CardEffectCommons
         var values = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             [restrictionKey] = true,
-            [ContinuousSelfModifierEffect.ConditionKey] = liveCondition,
+            [ContinuousScopeEvaluation.ConditionKey] = liveCondition,
         };
         if (causingEffectPredicate is not null)
         {
@@ -3113,7 +3113,7 @@ public static partial class CardEffectCommons
 
         if (extraCondition is not null)
         {
-            values[ContinuousSelfModifierEffect.ConditionKey] = extraCondition;
+            values[ContinuousScopeEvaluation.ConditionKey] = extraCondition;
         }
 
         // (joint-migration) canonical joint for player-scope restriction grants: this scope player's permanents (that

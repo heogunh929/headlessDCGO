@@ -148,7 +148,7 @@ public static class ContinuousKeywordGate
     }
 
     private static bool KeywordConditionPasses(IReadOnlyDictionary<string, object?> values) =>
-        !values.TryGetValue("continuous.condition", out object? raw) || raw is not Func<bool> condition || condition();
+        !values.TryGetValue(ContinuousScopeEvaluation.ConditionKey, out object? raw) || raw is not Func<bool> condition || condition();
 
     /// <summary>(K4) The AS-IS single chokepoint <c>Permanent.IsDigimon</c> (Permanent.cs:3438): a card is a
     /// Digimon when its printed CardType says so OR an active <c>ITreatAsDigimonEffect</c> accepts it —

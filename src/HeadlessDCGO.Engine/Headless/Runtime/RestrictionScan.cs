@@ -60,7 +60,7 @@ public static class RestrictionScan
             }
 
             // AS-IS cardEffect.CanUse(null): the effect's own condition gate.
-            if (values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+            if (values.TryGetValue(ContinuousScopeEvaluation.ConditionKey, out object? condRaw)
                 && condRaw is Func<bool> condition && !condition())
             {
                 continue;

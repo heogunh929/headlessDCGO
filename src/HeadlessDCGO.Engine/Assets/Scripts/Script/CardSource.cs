@@ -770,7 +770,7 @@ public sealed class CardSource
 
     // (A3) the AS-IS `cardEffect.CanUse(null)` gate — the binding's stored continuous condition.
     internal static bool EffectConditionPasses(EffectRequest effect) =>
-        !effect.Context.Values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? raw)
+        !effect.Context.Values.TryGetValue(ContinuousScopeEvaluation.ConditionKey, out object? raw)
         || raw is not Func<bool> condition
         || condition();
 

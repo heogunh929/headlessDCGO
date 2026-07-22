@@ -54,7 +54,7 @@ public static class ContinuousFieldMembership
         }
 
         bool isInherited =
-            request.Context.Values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.InheritedEffectKey, out object? inheritedRaw)
+            request.Context.Values.TryGetValue(ContinuousScopeEvaluation.InheritedEffectKey, out object? inheritedRaw)
             && inheritedRaw is true;
 
         var zones = (IZoneStateReader)context.ZoneMover;

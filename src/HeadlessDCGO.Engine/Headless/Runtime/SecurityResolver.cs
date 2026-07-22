@@ -896,7 +896,7 @@ public sealed class SecurityResolver
             }
 
             if (effect.Context.Values.TryGetValue(
-                    Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? rawCond)
+                    ContinuousScopeEvaluation.ConditionKey, out object? rawCond)
                 && rawCond is Func<bool> condition && !condition())
             {
                 continue;

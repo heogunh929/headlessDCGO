@@ -99,8 +99,13 @@ async Task ImmuneFromDpMinus()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    // A -3000 DP reduction from another source.
-    context.EffectRegistry.Register(new ContinuousSelfModifierEffect(new CardSource(context, id, P1), ModifierHelpers.DpDeltaKey, -3000, false, null).ToBinding($"dp:{id.Value}"));
+    // (W3c-final Stage 2 retarget) A -3000 DP reduction via the LIVE ChangeDPClass DP-minus seam
+    // (CardEffectCommons.ChangeDigimonDP -> ChangeTargetDPStaticEffect, folded by ContinuousDpGate via
+    // Permanent.DP — the same seam W3c3-DpDeltaGrant validates). Replaces the retired registry-based
+    // ContinuousSelfModifierEffect(DpDeltaKey).ToBinding producer, whose continuous-registry DP fold is dead.
+    CardEffectCommons.ChangeDigimonDP(
+        new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, id, P1),
+        -3000, EffectDuration.UntilEachTurnEnd, new CardSource(context, id, P1));
     AssertEqual(1000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, id).DP, "reduction applies before immunity (4000-3000)");
     // (P7 stage-B SEAM) ImmuneFromDPMinusClass is a new-model kind-class with no ToBinding/EffectRegistry
     // bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController scan

@@ -23,7 +23,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// covers only regions ①②③. Mirrors the live joint-scan substrate: producers embed
 /// the AS-IS <c>CanNotPlay</c> = <c>CardCondition(option)</c> into a single
 /// <c>Func&lt;CardSource /*option being played*/, bool&gt;</c>, gated by the effect's own CanUse
-/// (<see cref="ContinuousSelfModifierEffect.ConditionKey"/>). Field-scope bindings honour the AS-IS stack-position
+/// (<see cref="ContinuousScopeEvaluation.ConditionKey"/>). Field-scope bindings honour the AS-IS stack-position
 /// membership (<see cref="ContinuousFieldMembership"/>); a player-scope binding carries
 /// <see cref="PlayerScopeKey"/> and bypasses it (AS-IS region ① is a player bucket, not a field permanent).
 /// The stub <c>CanNotPlayClass</c> had no such scan, so every option was playable regardless of these effects.
@@ -126,7 +126,7 @@ public static class CanNotPlayOptionScan
 
             // AS-IS cardEffect.CanUse(null): the CanNotPlay effect's own condition gate (BT8_057 = host on field
             // && all my Digimon suspended && opponent turn; EX1_072 = always true).
-            if (values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+            if (values.TryGetValue(ContinuousScopeEvaluation.ConditionKey, out object? condRaw)
                 && condRaw is Func<bool> condition && !condition())
             {
                 continue;
