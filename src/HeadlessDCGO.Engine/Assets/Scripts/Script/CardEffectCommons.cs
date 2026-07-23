@@ -2744,37 +2744,28 @@ public static partial class CardEffectCommons
             effectFilter: ActivatedEffectResolver.IsMainOptionEffect, effectStamp: effectStamp);
     }
 
-    /// <summary>AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> (DNADigivolveEffects.cs:256)
-    /// — plays a TEMPORARY permanent from hand/trash as one DNA material mid-flow (PlayTempPermanent + rollback).
-    /// RD-S3-BT17_095 RESOLVED: that transient-permanent machinery IS now modeled (SnapshotZone Permanent view for
-    /// the pure-predicate transient + CreateNewPermanent for the real material + AddHandCard rollback + SetJogress,
-    /// witnessed by tests/DNATEMP-Witness.Tests). This raw substrate entry stays a STOP — the live effect-driven
-    /// DNA-from-hand path is FusionDigivolveHelpers.FuseAsync, and this helper has no live ported caller (its full
-    /// port is deferred to a witness-selected caller). See the AS-IS-signature overload in
-    /// CardEffectCommons/DNADigivolveEffects.cs and BT17_095.cs (the resolved family witness).</summary>
-    public static Task DNADigivolveWithHandOrTrashCardIntoHandOrTrash(CardSource sourceCard) =>
-        throw new NotSupportedException(
-            "DNA-with-temporary-material: mechanism modeled (RD-S3-BT17_095 resolved, DNATEMP-Witness); raw helper " +
-            "STOP — live path is FusionDigivolveHelpers.FuseAsync, no live ported caller. See BT17_095.cs.");
+    // (RD-S3 TOMBSTONE) The 1-arg raw overload `DNADigivolveWithHandOrTrashCardIntoHandOrTrash(CardSource)` is
+    // DELETED. It was a caller-0 invented STOP shape — AS-IS DNADigivolveEffects.cs:256 declares ONLY the multi-arg
+    // canonical (targetCardCondition, permanentCondition, digivolutionCardCondition, payCost, isWithHandCard,
+    // isIntoHandCard, activateClass, successProcess, …), which is fully ported and LIVE at
+    // CardEffectCommons/DNADigivolveEffects.cs:310 (RD-S3-EX6_072 resolved, witnessed by EX6_072 + DNATEMP-Witness).
+    // The sole live caller (EX6_072.cs:105) binds that 8-arg canonical; no src/tests/DCGO-card call ever used the
+    // 1-arg (CardSource) shape, and AS-IS has no such shape, so the overload was pure dead scaffolding.
 
     // AS-IS AddEffectToPermanent(targetPermanent, effectDuration, card, cardEffect, timing) lives at its AS-IS path
     // in the sibling partial file CardEffectCommons/GiveEffect/GiveEffectToPermanentOrPlayer.cs (mirror-into-asis-file
     // rule) — W3 resolved RD-P6C3-C1 there (AS-IS duration-bucket store for new-model effects; the OLD-model
     // registry-lowering path is preserved there as the batch-C transitional).
 
-    /// <summary>(③-A) AS-IS temp <c>AddEffectToPermanent</c> for a SELF-[On Deletion] grant — the nested effect
-    /// must fire ON the target's OWN removal (e.g. EX8_059 "1 Digimon gains '[On Deletion] ...' until end of turn").
-    /// This substrate helper has NO AS-IS original (invented "PRIM-P0 B.O.5-tail" temp: it lowered an old-model
-    /// ICardEffect via LegacyBindingBridge to a SurviveOwnLeave/DelayedOneShot registry trigger binding). Its sole
-    /// real-card target EX8_059 is an unported skeleton, so there is NO live caller (only the base-red witness
-    /// tests/PRIM-P0.GrantTriggeredToPermanent). The registry producer seat is retired; the AS-IS bucket idiom
-    /// (<see cref="AddEffectToPermanent"/>'s timing-keyed delegate store, read by the live EffectList(timing)
-    /// window) does not carry the SurviveOwnLeave/DelayedOneShot self-removal metadata, so a 1:1 port needs that
-    /// live self-deletion firing window built first. STOP until then.</summary>
-    public static void AddSelfRemovalEffectToPermanent(
-        Permanent? targetPermanent, EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing) =>
-        throw new NotSupportedException(
-            "design item RD-3A-02: AS-IS self-[On Deletion] permanent grant unported (registry producer retired; port 1:1 to the AS-IS bucket idiom when a live self-removal firing window and a caller appear).");
+    // (RD-3A-02 RETIRED / ③-A resolved) The invented `AddSelfRemovalEffectToPermanent` temp is DELETED. It had NO
+    // AS-IS original: AS-IS EX8_059 (its sole intended target) grants the self-[On Deletion] reactor with the plain
+    // established bucket idiom `AddEffectToPermanent(targetPermanent, EffectDuration.UntilOpponentTurnEnd, card,
+    // cardEffect, EffectTiming.OnDestroyedAnyone)` (EX8_059.cs:149/324). Survive-own-leave needs no special metadata:
+    // the collect-BEFORE-removal OnDestroyedAnyone window (MatchStateMutationSink.cs:1488-1532) enumerates a dying
+    // permanent's own EffectList_Added(OnDestroyedAnyone) bucket while it is still on the field, so the target's own
+    // deletion fires the granted reactor. EX8_059 is now ported against that AS-IS mechanism (EX8/Purple/EX8_059.cs),
+    // so the invented seat has no producer and no caller. Its former test pin (PRIM-P0.GrantTriggeredToPermanent) was
+    // already removed with the registry teardown; the live grant contract is now witnessed by LATENT-Close.Witness.
 
     // (R3-C2b-2) AS-IS `AddEffectToPlayer(effectDuration, card, cardEffect, timing, getCardEffect = null)` — the
     // SINGLE AS-IS method — now lives in its AS-IS home file next to AddEffectToPermanent:

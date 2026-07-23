@@ -4054,9 +4054,12 @@ public sealed class Permanent
     /// <see cref="PermanentBookkeepingStore.ReKey"/> (the digivolve / de-digivolve top-swap seat convention). The
     /// new top re-registers its ported effects (<see cref="CardEffectRegistrar.RegisterCard"/>, as
     /// <see cref="AddCardSource"/> does), and the persisting permanent fires ONE OnAddDigivolutionCards for the
-    /// whole batch (AS-IS :1119). A batch folding ANOTHER permanent's live top (AS-IS
-    /// <c>IPlacePermanentToDigivolutionCards</c>) is a DISTINCT re-parenting primitive and still STOPs in
-    /// <see cref="DetachEmbeddedSourceOrLinkAsync"/> (design item MIG4-DETACH-LIVE-TOP, other-host arm).</summary>
+    /// whole batch (AS-IS :1119). Folding ANOTHER permanent's live top (AS-IS
+    /// <c>IPlacePermanentToDigivolutionCards</c>) is a DISTINCT re-parenting primitive that is NOW RESOLVED
+    /// (MIG4-DETACH-LIVE-TOP, other-host arm, witnessed by LATENT-Close.Witness): that primitive calls
+    /// <c>CardObjectController.RemoveField(source)</c> BEFORE the per-card <see cref="AddDigivolutionCardsBottom"/>,
+    /// so by detach time the source top is already off the battle area and
+    /// <see cref="DetachEmbeddedSourceOrLinkAsync"/> early-returns (no STOP) — the top attaches under the new host 1:1.</summary>
     private async Task ReRootAddDigivolutionCardsTopAsync(
         IReadOnlyList<CardSource> addedDigivolutionCards,
         HeadlessEntityId? causeEffectSourceId,
@@ -4104,8 +4107,10 @@ public sealed class Permanent
             }
 
             // AS-IS :1086 RemoveFromAllArea. A card embedded in ANOTHER permanent / the hand physically detaches
-            // here (if it is that other permanent's OWN live top, DetachEmbeddedSourceOrLinkAsync STILL STOPs —
-            // decision-2: IPlacePermanentToDigivolutionCards is out of scope). One of THIS permanent's own cards
+            // here (the re-parenting primitive IPlacePermanentToDigivolutionCards is now RESOLVED — it RemoveFields
+            // the source first, so its per-card detach reaches this pre-step off-field and early-returns; a DIRECT
+            // Top-fold of another permanent's still-live top has no AS-IS caller and would STOP in
+            // DetachEmbeddedSourceOrLinkAsync). One of THIS permanent's own cards
             // (its top or an existing source) is only removed from the virtual stack — the final source rewrite
             // below is authoritative for its new position.
             bool ownStackMember = virtualStack.Contains(cardId);
@@ -4520,11 +4525,15 @@ public sealed class Permanent
     /// zone move the helper performs. AS-IS also strips a permanent's OWN live top out of its stack (re-parent /
     /// demote) when the added card is currently some permanent's battling top — an identity-corrupting edge for the
     /// headless model (permanent id == top identity). The one shape that folds the HOST's OWN live top into its own
-    /// stack (App-Fusion: <c>AddDigivolutionCardsTop({link, TopCard})</c>) is now RESOLVED — it is handled as a top
-    /// swap by <see cref="ReRootAddDigivolutionCardsTopAsync"/> and never reaches this pre-step. What STILL STOPs
-    /// here (design item MIG4-DETACH-LIVE-TOP, remaining arms) is folding ANOTHER permanent's live top under this
-    /// one (AS-IS <c>IPlacePermanentToDigivolutionCards</c> — its own re-parenting primitive) and the
-    /// AddDigivolutionCardsBottom / AddLinkCard self-top paths (AS-IS RemoveDigivolveRootEffect, out of scope).</summary>
+    /// stack (App-Fusion: <c>AddDigivolutionCardsTop({link, TopCard})</c>) is RESOLVED — handled as a top swap by
+    /// <see cref="ReRootAddDigivolutionCardsTopAsync"/>, never reaching this pre-step. Folding ANOTHER permanent's
+    /// live top under this one (AS-IS <c>IPlacePermanentToDigivolutionCards</c> — its own re-parenting primitive) is
+    /// ALSO RESOLVED (MIG4-DETACH-LIVE-TOP, witnessed by LATENT-Close.Witness): that primitive performs
+    /// <c>CardObjectController.RemoveField(source)</c> BEFORE its per-card add, so the source top is off the battle
+    /// area by the time it reaches this pre-step and <see cref="CardSource.PermanentOfThisCard"/> is empty → the
+    /// guard below early-returns and the top attaches under the new host 1:1. The throw remains a guard for a shape
+    /// with NO AS-IS caller: a DIRECT AddDigivolutionCardsBottom / AddLinkCard of a card that is STILL some field
+    /// permanent's live top (no prior RemoveField) — AS-IS <c>RemoveDigivolveRootEffect</c>, out of scope.</summary>
     private async Task DetachEmbeddedSourceOrLinkAsync(CardSource card, CancellationToken cancellationToken)
     {
         PermanentView host = card.PermanentOfThisCard();
@@ -4537,9 +4546,9 @@ public sealed class Permanent
         {
             throw new NotSupportedException(
                 $"'{card.InstanceId.Value}' is currently a permanent's own live top card — no headless primitive " +
-                "re-parents/demotes another permanent's top under this one (AS-IS IPlacePermanentToDigivolutionCards " +
-                "/ RemoveDigivolveRootEffect); the host's OWN live top fold is handled by the AddDigivolutionCardsTop " +
-                "re-root arm — design item MIG4-DETACH-LIVE-TOP (remaining arms).");
+                "re-parents/demotes a card that is STILL a live field top DIRECTLY (no AS-IS caller does this: " +
+                "IPlacePermanentToDigivolutionCards RemoveFields the source first; the host's OWN live top fold is the " +
+                "AddDigivolutionCardsTop re-root arm) — design item MIG4-DETACH-LIVE-TOP (residual direct-path guard).");
         }
 
         if (_context.CardInstanceRepository.TryGetInstance(host.TopInstanceId, out CardInstanceRecord? hostRecord) && hostRecord is not null
