@@ -27,15 +27,16 @@
 //    * `cardEffect.EffectSourceCard.Owner == card.Owner.Enemy` → `== CardEffectCommons.OpponentOf(card)` (AD1_013 idiom).
 //    * `AddThisCardToHand(card, activateClass)` → `AddThisCardToHand(card, card)` (CardSource-형 substrate overload, BT9_109:100 idiom).
 //
-// ⚠ 판독-측 원장 (RD-J-03 / RD-P6B-13, LIVE 잔존): [Main]의 `SkillCondition` 술어는 causing-effect의 per-instance
+// ✓ 판독-측 원장 (RD-J-03 / RD-P6B-13, RESOLVED @5731561b): [Main]의 `SkillCondition` 술어는 causing-effect의 per-instance
 //   `IsDigimonEffect`/`IsTamerEffect` 플래그를 읽는다 (`!IsDigimonEffect || !IsTamerEffect` — "digimon-이자 tamer-효과
-//   BOTH인 효과는 제외" 세분). GainImmuneFromDPMinus grant-측은 이 REAL 술어를 그대로 저장하나(RD-W2-1, ②J-4
-//   완료), DP-감소 판독 시점의 causing-effect 스탠드인(`NewModelContinuousScan.BuildCausingEffectStandIn`, 소스-id로만
-//   구성)은 두 플래그가 ctor-default `false`라 이 술어를 `Owner==Enemy`일 때 무조건 true로 과대-근사한다(both-flags
-//   세분만 손실 — 매우 좁은 실제 케이스). 술어는 단순화 없이 그대로 배선되며(delegate 실호출), 잔존은 공유 substrate
-//   스탠드인의 문서화된 한계다. 완전 1:1 판독은 DP-minus modifier에 실 causing-effect 플래그를 실어
-//   ContinuousDpGate→BuildCausingEffectStandIn로 통과시키는 공유-인프라 변경(NewModelContinuousScan/ContinuousDpGate)이
-//   필요 — 병렬 immunity-guard 작업 영역과 겹치므로 조율-후속(read-first)으로 분리. 이 카드가 그 판독-측 잔존의 live witness.
+//   BOTH인 효과는 제외" 세분). GainImmuneFromDPMinus grant-측은 이 REAL 술어를 그대로 저장하고(RD-W2-1, ②J-4 완료), 라이브
+//   판독 경로(Permanent.ImmuneFromDPMinus)는 실 causing-effect를 그대로 통과시켜 세분을 verbatim 평가한다. 남아 있던
+//   DP-감소 재구성 경로의 causing-effect 스탠드인(`NewModelContinuousScan.BuildCausingEffectStandIn`, 소스-id로만 구성)도
+//   이제 ctor가 소스 카드 타입에서 두 플래그를 스탬프한다(`SetIsDigimonEffect(source.IsDigimon)`/`SetIsTamerEffect(
+//   source.IsTamer)` — ActivatedHashtableBridge.CauseStubEffect / RD-W3-5 effectStamp 선례 동형). 따라서 both-flag
+//   세분이 재구성 경로에서도 직독 경로와 동일하게 평가된다(과대-근사 소멸: both-flagged enemy cause = 면역 거부 = DP-minus
+//   적용). 술어는 단순화 없이 그대로 배선된다(delegate 실호출). 이 카드가 그 상환의 live witness —
+//   RD-J03-BT19_089.Witness.Tests의 ApplicationPathReconstructsFlags(both/plain/own 3-경로) green.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT19.Red;
 
 using System;
@@ -184,9 +185,11 @@ public sealed class BT19_089 : CEntity_Effect
                             return false;
                         }
 
-                        // ⚠ RD-J-03/RD-P6B-13 (header): reads causing-effect per-instance flags; the DP-minus read-side
-                        // stand-in defaults them false, dropping the "excludes an effect flagged BOTH digimon- and
-                        // tamer-effect" refinement (narrow over-approximation). Predicate is threaded verbatim, not simplified.
+                        // ✓ RD-J-03/RD-P6B-13 (RESOLVED @5731561b, header): reads causing-effect per-instance flags; the
+                        // DP-minus reconstruction stand-in now stamps IsDigimonEffect/IsTamerEffect from the source card's
+                        // type, so the "excludes an effect flagged BOTH digimon- and tamer-effect" refinement holds on the
+                        // application path identically to the live read path (was a narrow over-approximation). Predicate is
+                        // threaded verbatim, not simplified.
                         bool SkillCondition(ICardEffect cardEffect)
                         {
                             if (cardEffect != null)
