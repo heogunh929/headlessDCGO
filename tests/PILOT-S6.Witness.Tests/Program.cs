@@ -29,6 +29,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT19_035 W1: [When Attacking] ESS(상속) — 이 디지몬이 [Xros Heart]면 상대 1체 DP -2000", BT19035_WhenAttackingXrosHeartDebuff),
     ("BT21_059 W1: [Your Turn] WhenLinked 직접 발화 → 상대 디지몬 1체 <De-Digivolve 1>(진화원 1장 감소)", BT21059_WhenLinkingDeDigivolvesOpponent),
     ("EX9_062 W1: [None] ChangeCardLevelForAssemblyClass — [Kimeramon] 어셈블리에서 레벨4로도 취급(순수 함수 검증)", EX9062_AssemblyLevelAlsoFour),
+    ("EX9_074 W1: [None] Assembly 게이트 end-to-end — EX9_062 부여 카드는 CardSource.Level_Assembly fold로 Lv4 취급되어 게이트 통과, 미부여 대조군(Lv5 [DM])은 거부", EX9074_AssemblyGateReadsGrantedAssemblyLevel),
 };
 
 int failed = 0;
@@ -267,6 +268,54 @@ async Task EX9062_AssemblyLevelAlsoFour()
 
     AssertTrue(result.Contains(4),
         "ChangeCardLevelForAssemblyClass appends level 4 to this card's assembly-level list (so it also counts as level 4 for [Kimeramon]'s assembly), regardless of its printed level");
+}
+
+// ═══════════════════════════════════ EX9_074 ═══════════════════════════════════
+
+// RD-SW-C-01 end-to-end: EX9_062 (SkullGreymon) grants ChangeCardLevelForAssembly → CardSource.Level_Assembly
+// folds it → EX9_074 (Kimeramon)'s assembly-material gate (`IsLevel4 || Level_Assembly.Contains(4)`) reads the
+// fold and ACCEPTS the granted card, while REJECTING an ungranted level-5 [DM] Digimon. The fold is the sole
+// discriminator (both are [DM] Digimon of the same owner, neither has printed level 4) — porting EX9_074 without
+// the fold would leave this gate silently inert.
+async Task EX9074_AssemblyGateReadsGrantedAssemblyLevel()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPilotMatchAsync(seed: 96901, MonoDecks("BT1_028", "BT1_028"));
+    await ReachMainWaitAsync(match);
+
+    HeadlessEntityId ex9074 = Stage(match, P1, "EX9_074", ChoiceZone.BattleArea, "1:battle:EX9074", register: true);
+    HeadlessEntityId granted = Stage(match, P1, "EX9_062", ChoiceZone.Trash, "1:trash:EX9062", register: true);
+    HeadlessEntityId control = StageSynthetic(match, P1, "S6-EX9074-CTRL", dp: 5000, level: 5, "1:trash:ctrl",
+        cardType: "Digimon", zone: ChoiceZone.Trash, traits: new[] { "DM" });
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var kimeramon = new Cec.CardSource(match.Context, ex9074, P1);
+    var effectInstance = new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX9.White.EX9_074();
+    List<Cec.ICardEffect> noneEffects = effectInstance.CardEffects(Cec.EffectTiming.None, kimeramon);
+    var assembly = (Cfx.AddAssemblyConditionClass)noneEffects.First(e => e.EffectName == "Assembly");
+
+    Cec.AssemblyCondition condition = assembly.GetAssemblyCondition(kimeramon);
+    AssertTrue(condition is not null, "EX9_074 registers an AssemblyCondition for itself (7 Lv.4 [DM] materials, reduceCost 7)");
+    AssertEqual(7, condition!.elementCount, "the assembly requires 7 materials");
+    AssertEqual(7, condition.reduceCost, "the assembly reduces cost by 7");
+    Func<Cec.CardSource, bool> canSelectMaterial = condition.elements[0].CardCondition;
+
+    var grantedMaterial = new Cec.CardSource(match.Context, granted, P1);
+    var controlMaterial = new Cec.CardSource(match.Context, control, P1);
+
+    // The fold is the discriminator: SkullGreymon's PRINTED level is 5, so ONLY the folded Level_Assembly can
+    // satisfy the gate's level-4 disjunct.
+    AssertTrue(!grantedMaterial.IsLevel(4), "harness precondition: SkullGreymon's printed level is NOT 4");
+    AssertTrue(grantedMaterial.HasDMTraits && controlMaterial.HasDMTraits, "harness precondition: both candidates carry the [DM] trait");
+    AssertTrue(grantedMaterial.Level_Assembly.Contains(4),
+        "CardSource.Level_Assembly folds EX9_062's ChangeCardLevelForAssembly grant → SkullGreymon also counts as level 4 for assembly");
+    AssertTrue(!controlMaterial.Level_Assembly.Contains(4),
+        "the ungranted control (printed level-5 [DM] Digimon) does NOT count as level 4 for assembly");
+
+    // End-to-end: Kimeramon's assembly-material gate accepts the granted card and rejects the control.
+    AssertTrue(canSelectMaterial(grantedMaterial),
+        "EX9_074's assembly gate ACCEPTS the EX9_062-granted [DM] Digimon (the IsLevel4 || Level_Assembly.Contains(4) disjunct reads the fold)");
+    AssertTrue(!canSelectMaterial(controlMaterial),
+        "EX9_074's assembly gate REJECTS the ungranted level-5 [DM] Digimon (fold absent → gate would be silently inert, exactly the audit's warning)");
 }
 
 // ═══════════════════════════════════ harness ═══════════════════════════════════
