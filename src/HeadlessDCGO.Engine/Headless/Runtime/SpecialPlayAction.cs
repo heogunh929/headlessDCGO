@@ -133,8 +133,14 @@ public sealed class SpecialPlayAction
     }
 
     // (PRIM-W5) Register a hand card's special-play recipe on demand (idempotent): if none is registered,
-    // instantiate the card's effect class and run its declaration across timings so the special-play factory's
-    // registry side-effect fires. Returned effects are discarded — only recipe registration happens here.
+    // instantiate the card's effect class and run its declaration across timings. Two registration paths:
+    //  (a) the special-play FACTORIES with a SpecialPlayRecipeRegistry side-effect (DigiXrosEffect /
+    //      DigiXrosWithExtraMaterialsEffect / Blast / Burst / ...) fire during CardEffects — the recipe lands
+    //      in the registry directly.
+    //  (b) the AS-IS-faithful DigiXros declaration (DigiXrosEffectFromNames) returns an
+    //      AddDigiXrosConditionClass (an IAddDigiXrosConditionEffect kind-class) and NO LONGER writes the
+    //      invented registry — so its DigiXrosCondition is translated to a recipe HERE (the discovery half:
+    //      one SpecialPlayMaterial per DigiXrosConditionElement, carrying the element's card predicate 1:1).
     private static void EnsureSpecialPlayRecipe(EngineContext context, CardRecord def, HeadlessEntityId cardId, HeadlessPlayerId owner)
     {
         if (SpecialPlayRecipeRegistry.TryGet(def.CardNumber, out _))
@@ -150,8 +156,36 @@ public sealed class SpecialPlayAction
         var card = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, owner, owner);
         foreach (Assets.Scripts.Script.CardEffectCommons.EffectTiming timing in Enum.GetValues<Assets.Scripts.Script.CardEffectCommons.EffectTiming>())
         {
-            try { _ = effect.CardEffects(timing, card); }
-            catch { /* declaration must not throw during enumeration; ignore per-timing failures */ }
+            List<Assets.Scripts.Script.CardEffectCommons.ICardEffect> declared;
+            try { declared = effect.CardEffects(timing, card); }
+            catch { continue; /* declaration must not throw during enumeration; ignore per-timing failures */ }
+
+            if (declared is null)
+            {
+                continue;
+            }
+
+            // Path (a) already fired its registry side-effect; if that landed a recipe, stop.
+            if (SpecialPlayRecipeRegistry.TryGet(def.CardNumber, out _))
+            {
+                return;
+            }
+
+            // Path (b): translate the live DigiXros kind-class condition into a recipe (the discovery half).
+            foreach (Assets.Scripts.Script.CardEffectCommons.ICardEffect declaredEffect in declared)
+            {
+                if (declaredEffect is Assets.Scripts.Script.CardEffectCommons.IAddDigiXrosConditionEffect digiXrosEffect
+                    && digiXrosEffect.GetDigiXrosCondition(card) is Assets.Scripts.Script.CardEffectCommons.DigiXrosCondition condition
+                    && condition.elements.Count > 0)
+                {
+                    var materials = condition.elements
+                        .Select(element => new SpecialPlayMaterial(element.CardCondition, element.selectMessage))
+                        .ToArray();
+                    SpecialPlayRecipeRegistry.Register(def.CardNumber, new SpecialPlayRecipe(
+                        SpecialPlayKind.DigiXros, materials, MemoryCost: 0));
+                    return;
+                }
+            }
         }
     }
 

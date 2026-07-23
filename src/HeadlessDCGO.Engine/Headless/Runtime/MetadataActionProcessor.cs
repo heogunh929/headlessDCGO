@@ -595,30 +595,35 @@ public sealed class MetadataActionProcessor : IActionProcessor
                     linkTrimRequestId[Assets.Scripts.Script.AutoProcessing.LinkTrimRequestIdPrefix.Length..]);
                 HeadlessChoiceState linkTrimChoice = context.ChoiceController.ResolveChoice(result);
 
-                if (context.CardInstanceRepository.TryGetInstance(linkHostId, out CardInstanceRecord? linkHost) && linkHost is not null)
-                {
-                    var hostPermanent = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, linkHostId, linkHost.OwnerId);
-                    foreach (HeadlessEntityId selectedId in result.SelectedIds)
-                    {
-                        HeadlessPlayerId linkOwner = context.CardInstanceRepository.TryGetInstance(selectedId, out CardInstanceRecord? link) && link is not null
-                            ? link.OwnerId
-                            : linkHost.OwnerId;
-                        await new Assets.Scripts.Script.ITrashLinkCards(
-                            hostPermanent,
-                            new List<Assets.Scripts.Script.CardEffectCommons.CardSource>
-                            {
-                                new(context, selectedId, linkOwner),
-                            },
-                            causeEffectSourceId: null).TrashLinkCards(cancellationToken).ConfigureAwait(false);
-                    }
-                }
-
-                // (C2 seam 3) the trim is a between-picks (F3) rule pass that may have parked mid-window: apply the
-                // side-effect above (ITrashLinkCards) first, then resume the suspended mirror window deepest-first —
-                // the same resume the WindowChoice path uses (there is no order answer to record; the pass head
-                // re-runs and re-evaluates the now-trimmed board).
+                // (MIG2) ITrashLinkCards.TrashLinkCards reads GManager.instance.autoProcessing (the OnLinkCardDiscarded
+                // StackSkillInfos), and the resume below likewise runs ported effect code — both need the ambient match
+                // scope. In production ProcessAsync is reached inside the pump's AmbientMatchContext scope; when
+                // ResolveChoice is driven directly (a unit re-drive) no ambient is set, so self-scope the whole
+                // trim-resolution (trash side-effect + resume). Nested Enter is a save/restore no-op in production.
                 using (AmbientMatchContext.Scope _linkTrimScope = AmbientMatchContext.Enter(context))
                 {
+                    if (context.CardInstanceRepository.TryGetInstance(linkHostId, out CardInstanceRecord? linkHost) && linkHost is not null)
+                    {
+                        var hostPermanent = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, linkHostId, linkHost.OwnerId);
+                        foreach (HeadlessEntityId selectedId in result.SelectedIds)
+                        {
+                            HeadlessPlayerId linkOwner = context.CardInstanceRepository.TryGetInstance(selectedId, out CardInstanceRecord? link) && link is not null
+                                ? link.OwnerId
+                                : linkHost.OwnerId;
+                            await new Assets.Scripts.Script.ITrashLinkCards(
+                                hostPermanent,
+                                new List<Assets.Scripts.Script.CardEffectCommons.CardSource>
+                                {
+                                    new(context, selectedId, linkOwner),
+                                },
+                                causeEffectSourceId: null).TrashLinkCards(cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+
+                    // (C2 seam 3) the trim is a between-picks (F3) rule pass that may have parked mid-window: apply the
+                    // side-effect above (ITrashLinkCards) first, then resume the suspended mirror window deepest-first —
+                    // the same resume the WindowChoice path uses (there is no order answer to record; the pass head
+                    // re-runs and re-evaluates the now-trimmed board).
                     try
                     {
                         await Assets.Scripts.Script.AutoProcessing.For(context)

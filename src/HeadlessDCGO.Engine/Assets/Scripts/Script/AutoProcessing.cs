@@ -313,6 +313,14 @@ public sealed class AutoProcessing
     /// outstanding rule work. Returns true when any pass changed state (the GameFlowProcessor progress bit).</summary>
     public async Task<bool> RuleProcess(CancellationToken cancellationToken = default)
     {
+        // (substrate) The rule stages invoke ported effect code (LinkConditionOf → CanUse → IsDisabled →
+        // CheckEffectDisabledClass, which reads GManager.instance.turnStateMachine.gameContext.*). In production
+        // RuleProcess is always reached inside the game-loop's AmbientMatchContext scope; when driven directly
+        // (a between-picks re-entry, a unit re-drive) no ambient is set. Self-scope on _context — nested Enter is
+        // a save/restore no-op in production — so this entry point is robust like its BattleResolver/DigivolveAction
+        // siblings.
+        using AmbientMatchContext.Scope _ruleScope = AmbientMatchContext.Enter(_context);
+
         bool progressedAny = false;
 
         while (DoRuleProcess())

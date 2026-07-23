@@ -1745,6 +1745,14 @@ public sealed class CardSource
         if (willBeRemoveSources)
             return true;
 
+        // (MIG5) The AS-IS single in-flight `willBeRemoveSources` mark has two headless-metadata mirrors: the
+        // "willBeRemoveSources" key read by the getter above, and the parallel TrashProtectedKey stamp
+        // ("cannotTrashFromDigivolution") written by the static IsTrashProtectedSource path / test-stamping.
+        // Honour both here so the instance surface matches the static gate (CardEffectCommons.IsTrashProtectedSource).
+        if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? stamped) && stamped is not null
+            && stamped.Metadata.TryGetValue(CardEffectCommons.TrashProtectedKey, out object? stampRaw) && stampRaw is true)
+            return true;
+
         // the effects of permanents
         if (new GameContext(Context).Players
             .Map(player => player.GetFieldPermanents())
