@@ -1,0 +1,11 @@
+Script/CardEffectCommons/MinMax_DP_Cost_Level/DigivolutionCards/IsMinDigivolutionCards.cs
+Script/CardEffectCommons/MinMax_DP_Cost_Level/Level/IsMaxLevel.cs
+Script/CardEffectCommons/MinMax_DP_Cost_Level/Level/IsMinLevel.cs
+Script/CardEffectFactory.cs
+Script/CardEffectFactory/ChangeSAttack.cs
+Script/CardEffectFactory/KeyWordEffects/ArmorPurge.cs
+Script/CardEffectFactory/KeyWordEffects/Barrier.cs
+Script/CardEffectFactory/KeyWordEffects/Fortitude.cs
+Script/CardEffectFactory/KeyWordEffects/Jamming.cs
+Script/CardEffectFactory/KeyWordEffects/Link.cs
+Script/CardEffectFactory/KeyWordEffects/MaterialSave.cs

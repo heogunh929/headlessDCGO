@@ -1,0 +1,16 @@
+Script/MultipleSkills.cs
+Script/NextPhaseButton.cs
+Script/OptionResolutionClass.cs
+Script/Permanent.cs
+Script/Player.cs
+Script/PlayerSelection/CardSelection.cs
+Script/PlayerSelection/IPlayerSelection.cs
+Script/PlayerSelection/PermanentSelection.cs
+Script/PlayerSelection/ValueSelection.cs
+Script/SelectAssemblyClass.cs
+Script/SelectAttackEffect.cs
+Script/SelectBurstDigivolutionEffect.cs
+Script/SelectDigiXrosClass.cs
+Script/SkillInfo.cs
+Script/StarterDeck.cs
+Script/TurnStateMachine.cs

@@ -1,0 +1,129 @@
+relpath,verdict,deviations,notes
+Script/CardEffectCommons/GiveEffect/GiveEffectToPlayer/ChangeDP.cs,MATCH-TRANSLATED,,bridge: AS-IS-signature Task overload delegating to verified substrate ChangeDigimonDPPlayerEffect in CardEffectCommons.cs
+Script/CardEffectCommons/GiveEffect/GiveEffectToPlayer/IgnoreDigivolutionRequirement.cs,MATCH-1:1,,"1:1 factory-wiring port, null-checks -> is null, substrate only"
+Script/OptionResolutionClass.cs,MATCH-TRANSLATED,,"IEnumerator->Task, StartCoroutine->await; Unity/Photon usings stripped; logic verbatim"
+Script/CardEffects/ImmuneFromDPMinusClass.cs,MATCH-1:1,,"byte-identical body, namespace only"
+Script/CardEffects/CannotReturnToLibraryClass.cs,MATCH-1:1,,"byte-identical body, namespace only"
+Script/CardEffectFactory/KeyWordEffects/Ascension.cs,MATCH-TRANSLATED,,"IEnumerator ActivateCoroutine -> Task ActivateCoroutine (substrate adaptation), logic verbatim"
+Script/CardEffects/CannotReturnToHandClass.cs,MATCH-1:1,,"byte-identical body, namespace only"
+Script/CardEffectCommons/CanUseEffects/WhenWouldLink.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/OnSuspend.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/OnTrashBySelfDigiBurst.cs,MATCH-TRANSLATED,,"PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard() established adaptation, logic verbatim"
+Script/CardEffectCommons/CanUseEffects/CanSuspend.cs,MATCH-TRANSLATED,,"AS-IS CanActivateSuspendCostEffect(CardSource,bool) omitted (CS0111 dup vs CardEffectCommons.cs substrate reimpl, documented+body quoted); CanActivatePermanentSuspendCostEffect ported verbatim"
+Script/CardEffects/ActivateClass.cs,MATCH-TRANSLATED,,"IEnumerator->Task, StartCoroutine->await; BOM stripped; logic verbatim (core kind-class)"
+Script/CardEffectCommons/CanUseEffects/OnTrashHand.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CannotAddSecurityClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CannotAddMemoryClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/OnReturnLibraryBottomDigivolutionCards.cs,MATCH-TRANSLATED,,"PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard() established adaptation, logic verbatim"
+Script/CardEffectCommons/CanUseEffects/OptionEffect.cs,MATCH-TRANSLATED,,"CanDeclareOptionDelayEffect(CardSource) omitted (CS0111 dup vs CardEffectCommons.cs substrate reimpl, documented+body quoted); CanTriggerOptionMainEffect ported verbatim"
+Script/CardEffectCommons/GiveEffect/GiveEffectToPlayer/ChangePlayCost.cs,MATCH-TRANSLATED,,bridge: AS-IS-signature Task overload delegating to verified substrate ChangePlayCostPlayerEffect in CardEffectCommons.cs
+Script/CardEffects/CanSelectAssemblyClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanSelectDigiXrosClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/OnCardsReturnToHandFromTrash.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/OnCardsReturnToLibraryFromTrash.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/DeleteSelf.cs,MATCH-TRANSLATED,,bridge: DeleteTiming enum re-declared 1:1; Task overload delegates to substrate AddSelfDeleteEffect(string timing) via own/opponent/each mapping
+Script/CardEffects/AddSkillClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanAttackTargetDefendingPermanentClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotBeDestroyedBySkillClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/WhenUseDigiBurst.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotTrashFromDigivolutionCardsClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/DigiXrosEffects.cs,MATCH-1:1,,"byte-identical body, rehoused from monolith"
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/ChangeDP.cs,MATCH-TRANSLATED,,bridge: AS-IS-signature Task overload delegating to verified substrate ChangeDigimonDP in CardEffectCommons.cs
+Script/CardEffectCommons/MinMax_DP_Cost_Level/Cost/IsMinCost.cs,MATCH-TRANSLATED,,"Player owner -> HeadlessPlayerId owner; GetBattleAreaDigimons/Permanents -> IZoneStateReader.GetCards scan; condition gates subject only per AS-IS, verbatim logic"
+Script/CardEffects/AddDetailClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/BlockerClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/IcecladClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/RebootClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/RushClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/ScapegoatClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/ChangeOriginDP.cs,MATCH-TRANSLATED,,bridge: AS-IS-signature Task overload delegating to verified substrate ChangeBaseDigimonDP in CardEffectCommons.cs
+Script/CardEffects/CanNotEvolveClass.cs,MATCH-1:1,,byte-identical body (class name CanNotDigivolveClass preserved)
+Script/CardEffectCommons/CanUseEffects/OnMove.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/WhenDiscardLibrary.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/ImmuneFromDeDigivolveClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotSuspendClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CannotIgnoreDigivolutionConditionClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/AddJogressLevelsClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotBeDestroyedClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotBeRemovedClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotUnsuspendClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CannotBlockClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/DontHaveDPClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/OnCardsAddedToHand.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotSwitchAttackTargetClass.cs,MATCH-1:1,,byte-identical body
+Script/MainPhaseAction/AttackPermanentAction.cs,MATCH-TRANSLATED,,"Photon byte[] Serialize/Deserialize ctor stripped (documented transport decision, MainPhaseAction.cs); void Execute -> Task Execute; typo SetAttackingPermaent preserved verbatim"
+Script/CardEffectCommons/KeyWordEffects/Collision.cs,MATCH-TRANSLATED,,IEnumerator->Task; terminal CreateBuffEffect VFX dropped (documented ADAPTATION); core AddEffectToPermanent wiring verbatim
+Script/CardEffects/CanNotAffectedClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotAttackTargetDefendingPermanentClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotMoveClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotPutFieldClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CanNotSelectBySkillClass.cs,MATCH-1:1,,byte-identical body
+Script/MainPhaseAction/ActivateCardAction.cs,MATCH-TRANSLATED,,Photon byte[] Serialize/Deserialize ctor stripped (documented transport decision); void Execute -> Task Execute; logic verbatim
+Script/CardEffects/ChangePermanentLevelClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/CollisionClass.cs,MATCH-1:1,,byte-identical body
+Script/MainPhaseAction/ActivatePermanentAction.cs,MATCH-TRANSLATED,,Photon byte[] Serialize/Deserialize ctor stripped (documented transport decision); void Execute -> Task Execute; logic verbatim
+Script/CardEffects/DontBattleSecurityDigimonClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/OnFaceUpSecurityIncrease.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/WhenPermanentWouldPlay.cs,MATCH-1:1,,byte-identical body
+Script/StarterDeck.cs,BLOCKED,,"TO-BE is skeleton stub (7-line TODO); MonoBehaviour+PlayerPrefs UI-save logic. Verified: deck-list data rehoused into Headless/DataLoading/StarterDecks.cs (StarterDeck record); the PlayerPrefs idempotency-flag wrapper has no headless equivalent (not needed, no save-state)"
+Script/CardEffectCommons/MinMax_DP_Cost_Level/DP/IsMaxDP.cs,MATCH-TRANSLATED,,"Player owner -> HeadlessPlayerId; GetBattleAreaDigimons -> IZoneStateReader.GetCards scan; condition gates subject+scan per AS-IS, verbatim logic"
+Script/CardEffectCommons/MinMax_DP_Cost_Level/DP/IsMinDP.cs,MATCH-TRANSLATED,,Player owner -> HeadlessPlayerId; GetBattleAreaDigimons -> IZoneStateReader.GetCards scan; verbatim logic
+Script/CardEffects/CanNotPlayClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/IgnoreColorConditionClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/TreatAsDigimonClass.cs,MATCH-1:1,,byte-identical body
+Script/ShowPhaseNotificationObject.cs,BLOCKED,,"TO-BE is skeleton stub; AS-IS is pure Unity UI (Text/Animator/Coroutine phase-banner), no game-rule logic — correctly out of headless scope"
+Script/CardEffectCommons/CanUseEffects/WhenAddHand.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/AddEvolutionConditionClass.cs,MATCH-1:1,,byte-identical body (class name AddDigivolutionRequirementClass preserved)
+Script/DigiXrosEffectObject.cs,BLOCKED,,"TO-BE is skeleton stub; AS-IS is pure Unity VFX (DOTween shake/SE), no game-rule logic — correctly out of headless scope"
+Script/CardEffectCommons/MinMax_DP_Cost_Level/DigivolutionCards/IsMinDigivolutionCards.cs,MATCH-TRANSLATED,,Player owner -> HeadlessPlayerId; GetBattleAreaDigimons -> IZoneStateReader.GetCards scan; verbatim logic
+Script/CardEffects/AddAssemblyConditionClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/AddDigiXrosConditionClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/AddAppFusionConditionClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/AddBurstDigivolutionConditionClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/AddLinkConditionClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/ChangeCardLevelClass .cs,MATCH-1:1,,"byte-identical body (AS-IS filename has trailing space before .cs, preserved)"
+Script/GSSReader.cs,BLOCKED,,"TO-BE is skeleton stub; AS-IS is Unity UnityWebRequest Google-Sheets import tool (editor/data-import utility), no game-rule logic — correctly out of headless scope"
+Script/CardEffectCommons/MinMax_DP_Cost_Level/Level/IsMaxLevel.cs,MATCH-TRANSLATED,,Player owner -> HeadlessPlayerId; GetBattleAreaDigimons -> IZoneStateReader.GetCards scan; verbatim logic
+Script/CardEffects/ChangeBaseCardColorClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/PermanentEnterField/WhenDigivolving.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/ChangeCardColorClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/ChangeDPDeleteEffectMaxDPClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/PermanentEnterField/OnPlay.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/AddMaxTrashCountDigiXrosClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/AddMaxUnderTamerCountDigiXrosClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/ChangeTraitsClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/ShowReducedCost.cs,MATCH-TRANSLATED,,"documented UI-ONLY no-op mirror (mutation_helper_bridge_map.md): AS-IS body is pure cost-preview overlay + WaitForSeconds, no state mutation; verified genuinely no-op in AS-IS"
+Script/CardEffects/ChangeBaseCardNameClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/ChangeCardLevelForAssemblyClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/ChangeCardNamesClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/ChangeCardNamesForDigiXrosClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffects/DisableEffectClass.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/WhenLoseSecurity.cs,MATCH-1:1,,byte-identical body
+Script/Networking/GamePacketFactory.cs,BLOCKED,,"TO-BE is skeleton stub; AS-IS is Photon-era byte-id packet-factory registry. Verified: documented substrate decision (MainPhaseAction.cs comment) — IGamePacket network-transport half is stripped, headless transport is LegalAction/TurnFlowDriver; no callers reference GamePacketFactory in mirror"
+Script/CardEffects/ChangeEndTurnMinMemoryClass.cs,MATCH-1:1,,byte-identical body
+Script/SkillInfo.cs,MATCH-1:1,,"1:1 port, previously a bare stub, now real; global namespace -> CardEffectCommons namespace only"
+Script/CardEffectCommons/IsDigivolvedByTheEffect.cs,MATCH-TRANSLATED,,"permanent.TopCard==cardSource -> InstanceId equality (established CardSource view-comparison adaptation), verbatim logic"
+Script/AutomaticOrder/StartTurnTamerMemory.cs,BLOCKED,,TO-BE is skeleton stub. Verified: documented no-mirror decision (MultipleSkills.cs comment) — AutomaticOrder.GetSkillIndexAutomaticOrder is a client-side UI auto-order preference with no mirror; order pick always routes through the port instead. Not a silent gap
+Script/CardEffectCommons/CanUseEffects/OnAttackTargetSwitch.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/OnUnsuspend.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/WhenDiscardSecurity.cs,MATCH-1:1,,byte-identical body
+Script/MainPhaseAction/PassAction.cs,MATCH-TRANSLATED,,"Photon byte[] Serialize/Deserialize + ctor stripped (documented transport decision); void Execute -> async Task Execute awaiting PassTurn; StartCoroutine fire-and-forget -> inline await, same interleaving"
+Script/CardDistributionTab.cs,BLOCKED,,"TO-BE is skeleton stub; AS-IS is pure Unity deck-builder UI (TextMeshPro/Image bar), no game-rule logic — correctly out of headless scope"
+Script/CardEffects/VortexCanAttackPlayersClass.cs,MATCH-1:1,,byte-identical body
+Script/JogressEffectObject.cs,BLOCKED,,"TO-BE is skeleton stub; AS-IS is pure Unity VFX (sprite/cutin animation), no game-rule logic — correctly out of headless scope"
+Script/CEntity_Effect.cs,BLOCKED,,"TO-BE is skeleton stub. Verified: MonoBehaviourPunCallbacks base is Unity/Photon-only; GetCardEffects/CardEffects contract rehoused into CardEffectInterfaces.cs (mirror, GetCardEffects present); isExistOnField rehoused as inherited static helper used unqualified across ported cards (BT9_009/BT2_025/BT2_090/BT2_087 comments confirm 'mirror has identical helper'). Not a silent gap"
+Script/CardEffectCommons/CanUseEffects/IgnoreBattle.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/OnEndAttack.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/SecurityEffect.cs,MATCH-1:1,,byte-identical body
+Script/CardEffectCommons/CanUseEffects/WhendAddSecurity.cs,MATCH-1:1,,byte-identical body
+Script/PlayerSelection/ValueSelection.cs,BLOCKED,,"TO-BE is skeleton stub. Verified: functionality rehoused into UserSelectionManager.cs (documented: 'Set*ForPlayer -> player.QueuePlayerSelection(new ValueSelection(value))' replaced by int/bool channel design, _selectedIntValue). No ValueSelection class exists anywhere in mirror; rehoused, not gap"
+Script/CardEffectCommons/CanUseEffects/CanUnsuspend.cs,MATCH-TRANSLATED,,"CanUnsuspend(Permanent) omitted (CS0111 dup vs CardEffectCommons.cs substrate reimpl, documented+body quoted verbatim)"
+Script/Networking/GamePacketRegistration.cs,BLOCKED,,"TO-BE is skeleton stub. Verified: documented substrate decision — Photon RuntimeInitializeOnLoadMethod packet registration has no headless equivalent (network transport stripped, see MainPhaseAction.cs); not a silent gap"
+Script/LoadJSON_CardEntity.cs,BLOCKED,,"TO-BE is skeleton stub; AS-IS is a Unity ScriptableObject asset (CreateAssetMenu, editor-only index fields), no game-rule logic — correctly out of headless scope"
+Script/Utils.cs,MATCH-1:1,,"1:1 port, UnityEngine using stripped (unused)"
+Script/MainPhaseAction/MainPhaseAction.cs,MATCH-TRANSLATED,,"documented: IGamePacket half (Photon Serialize/Deserialize) stripped, headless transport is LegalAction/TurnFlowDriver; void Execute -> abstract Task Execute; CheatAction intentionally not mirrored (rejected at headless boundary)"
+Script/PlayerSelection/PermanentSelection.cs,BLOCKED,,"TO-BE is skeleton stub. Verified: rehoused into UserSelectionManager.cs's channel-based selection design (same as ValueSelection.cs); no PermanentSelection class in mirror, not a silent gap"
+Script/PlayerSelection/CardSelection.cs,BLOCKED,,"TO-BE is skeleton stub. Verified: rehoused into UserSelectionManager.cs's channel-based selection design (same as ValueSelection.cs); no CardSelection class in mirror, not a silent gap"
+Script/LoadCSV_CardEntity.cs,BLOCKED,,"TO-BE is skeleton stub; AS-IS is a Unity ScriptableObject asset (CreateAssetMenu, TextAsset field), no game-rule logic — correctly out of headless scope"
+Script/PlayerSelection/IPlayerSelection.cs,BLOCKED,,"TO-BE is skeleton stub. Verified: marker interface for the PlayerSelection family, all of which rehoused into UserSelectionManager.cs's channel design; no IPlayerSelection in mirror, not a silent gap"
+Script/Networking/IGamePacket.cs,BLOCKED,,TO-BE is skeleton stub. Verified: documented substrate decision — network-transport marker interface stripped (MainPhaseAction.cs comment: 'IGamePacket half...stripped'); not a silent gap

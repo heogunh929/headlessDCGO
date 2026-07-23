@@ -1,0 +1,5 @@
+Script/ICardEffect.cs
+Script/Effects.cs
+Script/SelectDigiXrosClass.cs
+Script/SelectCardEffect.cs
+Script/SelectPermanentEffect.cs

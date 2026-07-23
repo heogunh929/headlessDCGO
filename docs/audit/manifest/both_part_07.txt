@@ -1,0 +1,9 @@
+Script/EditDeck.cs
+Script/OfficialCardListUtility.cs
+Script/CardEffectInterfaces.cs
+Script/CardEffectCommons/DNADigivolveEffects.cs
+Script/DataBase.cs
+Script/HandCard.cs
+Script/SelectAttackEffect.cs
+Script/MultipleSkills.cs
+Script/CEntity_EffectController.cs

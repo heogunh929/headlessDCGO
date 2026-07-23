@@ -1,0 +1,33 @@
+relpath,verdict,deviations,notes
+Script/PermanentDetail.cs,BLOCKED,,스텁(TODO Skeleton) vs 순수 Unity UI 패널(CardImage/ScrollRect/DOTween/TMP) — §3 UI-panel UNPORTED류
+Script/SelectJogressEffect.cs,BLOCKED,,스텁이나 사유 명기: UI-flow orchestrator 재분류 — 실결정은 ChoiceProvider 기반 DNA-digivolve 파이프라인(DNADigivolvePermanentsIntoHandOrTrashCard)으로 대체
+Script/SelectCountEffect.cs,MATCH-TRANSLATED,,MIG7 count-picker + P6C1 AS-IS 시그니처 전면 포팅(SetUp/SetCandidates/SetPreferMin/SetIsDigivolutionCost/Activate) 1:1; UI(outline/commandText) stripped
+Script/CheckCardPanel.cs,BLOCKED,,스텁(TODO Skeleton) vs 순수 Unity UI 패널(ScrollRect/EventTrigger/Photon) — §3류
+Script/CheckEffectDisabledClass.cs,MATCH-1:1,,disable-tree 평가기 순수 LINQ 로직 verbatim 포팅(메서드 순서까지 동일)
+Script/CEntity_Base.cs,MATCH-TRANSLATED,,EFFECT-MODEL REBUILD 부분 미러 — CardColor enum만 우선 이식(성장형), 문서화된 partial 재하우징
+Script/UserSelectionManager.cs,MATCH-TRANSLATED,,bridge W5 1:1 — Photon/panel 전송을 ChoiceProvider ModeChoice 1건으로 치환(문서화); WaitForEndSelect 무한폴링 불가경로는 throw(RD-W5-3, 문서화된 설계항목)
+Script/PermanentEffectFactory.cs,MATCH-TRANSLATED,,DeleteSelfEffect/DigimonEffectImmunity/OptionEffectImmunity/CanNotSwitchAttackTargetEffect/CollisionEffect/AddDetailClass 전원 1:1; 발명 string-key 오버로드는 0-consumer 확인 후 물리삭제(G-clean, 문서화)
+Script/CardEffectCommons/KeyWordEffects/Partition.cs,MATCH-TRANSLATED,,CanTriggerPartition/CanActivatePartition/PartitionProcess/PartitionClass 1:1; CreateDebuffEffect·Play Log = UI stripped
+Script/CardEffectCommons/KeyWordEffects/Retaliation.cs,MATCH-TRANSLATED,,CanActivateRetaliation/RetaliationProcess/GainRetaliation 1:1; 종단 delete는 검증된 DeletePeremanentAndProcessAccordingToResult 경유(동일 파이프라인)
+Script/CardEffectFactory/KeyWordEffects/Partition.cs,MATCH-TRANSLATED,,PartitionCondition(string 색상)+PartitionSelfEffect/PartitionEffect 1:1; SetHashString의 card.CardID→card.CardNumber는 전역 CardID→CardNumber 개명 컨벤션(전 파일 일관)
+Script/CardEffectFactory/ChangePlayCost.cs,MATCH-1:1,,ChangePlayCostStaticEffect/MandatorySelfPlayCostReduction 바이트 수준 동일(최근 W3c-final AS-IS화 커밋 반영 확인)
+Script/DeckInfoPanel.cs,BLOCKED,,스텁(TODO Skeleton) vs 순수 Unity 덱정보 UI 패널(InputField/Animator/Clipboard)
+Script/GameContext.cs,MATCH-TRANSLATED,,MIG6 stateless VIEW 1:1(Players/Players_ForTurnPlayer/TurnPlayer/TurnPhase/Memory/PermanentsForTurnPlayer/ActiveCardList); FirstPlayer·SwitchTurnPlayer/DoSwitchTurnPlayer는 GameContextStateAccessor로, TurnCount는 TurnStateMachine.cs로 전역 재하우징 확인(grep); IsSecurityLooking만 추적 중인 설계항목(MIG6-SECURITYLOOKING, 미해결이나 문서화·상환계획 있음)
+Script/SelectDeck.cs,BLOCKED,,스텁이나 사유 명기: 순수 Unity 덱선택 화면(OffAnimation/Animator/ScrollRect) — §3 UI-panel류와 동급 재분류
+Script/CardEffectFactory/KeyWordEffects/Link.cs,MATCH-TRANSLATED,,LinkEffect+ChangeLinkCostClass 계열 1:1; PermanentOfThisCard→ResolvePermanentOfThisCard 등 확립된 substrate 치환만
+Script/CardEffectCommons/KeyWordEffects/Execute.cs,MATCH-TRANSLATED,,CanActivateExecute/ExecuteProcess/GainExecute 1:1; OnEndTurn 창 경유로 재배선(문서화, Vortex/Overclock와 동일 패턴)
+Script/CardEffectCommons/KeyWordEffects/Overclock.cs,MATCH-TRANSLATED,,CanActivateOverclock/OverclockProcess/GainOverclock 1:1; SelectAttackEffect 오퍼는 확립된 EffectDrivenAttack substrate
+Script/CardEffectFactory/ChangeDP.cs,MATCH-TRANSLATED,,ChangeSelfDPStaticEffect/ChangeTargetDPStaticEffect/ChangeDPStaticEffect 1:1; PermanentView 브릿지·CanNotBeAffected 시그니처만 substrate 치환
+Script/Effect Examples/Link_Examples.cs,BLOCKED,,스텁(TODO Skeleton)이나 AS-IS 자체가 DCGO.CardEffects.Examples 네임스페이스의 문서화 TEMPLATE — 실제 카드번호 아님·카드DB 미등재·인스턴스화 안 됨(TrashLinkedCards.cs RD-SKEL-01 주석에서 교차 확인)
+Script/DeckBuildingRule.cs,BLOCKED,,스텁(TODO Skeleton)이나 census(design_item_census_2026-07-23.md:259)에서 "스테일 플레이스홀더·정리 후보"로 명시 확인 — 덱합법성 로직은 헤드리스 룰 파이프라인 전역에 재하우징(카드당 4장/디지타마 5장 등은 rl_env_design 문서가 별도 확인)
+Script/CardEffectCommons/KeyWordEffects/Vortex.cs,MATCH-TRANSLATED,,CanActivateVortex/PermanentHasVortexCanAttackPlayers/VortexProcess/GainVortex 1:1; GameContext 인스턴스화로 컨텍스트 획득만 substrate 치환
+Script/CardEffectFactory/ChangeLinkMax.cs,MATCH-TRANSLATED,,ChangeSelfLinkMaxStaticEffect/ChangeTargetLinkMaxStaticEffect/ChangeLinkMaxStaticEffect 1:1
+Script/CardEffectFactory/KeyWordEffects/Scapegoat.cs,MATCH-TRANSLATED,,ScapegoatSelfEffect/ScapegoatEffect/ScapegoatStaticEffect 1:1; card.CardID→CardNumber 개명 컨벤션
+Script/CardEffectFactory/ChangeDigivolutionCost.cs,MATCH-1:1,,ChangeDigivolutionCostStaticEffect 바이트 수준 동일
+Script/CardEffectFactory/KeyWordEffects/BlastDigivolution.cs,MATCH-TRANSLATED,,BlastDigivolveEffect 1:1 — RD-P6C2-11 필드-프레임 슬롯 read-side 착륙 확인 후 정식 포팅(과거 STOP 해소 문서화)
+Script/CardEffectCommons/KeyWordEffects/Blitz.cs,MATCH-TRANSLATED,,CanActivateBlitz/BlitzProcess(훅 유/무 양경로)/GainBlitz 1:1; RD-W3-7 문서화된 잔여 설계항목(무훅 경로의 causing-effect 미threading, latent)
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/CanNotUnsuspend.cs,MATCH-TRANSLATED,,GainCanNotUnsuspend/GainCantUnsuspendUntilOpponentTurnEnd/GainCantUnsuspendNextActivePhase 1:1(공유 Impl로 리팩터되었으나 판정 로직 동일)
+Script/CardEffectFactory/KeyWordEffects/Alliance.cs,MATCH-TRANSLATED,,AllianceSelfEffect/AllianceEffect/AllianceStaticEffect 1:1
+Script/CardEffectCommons/KeyWordEffects/Decode.cs,MATCH-TRANSLATED,,CanActivateDecode/DecodeProcess/GainDecode 1:1; PlayPermanentCards는 sourceCard 오버로드(별도 확인된 기존 오버로드) 사용
+Script/CardEffectCommons/TrashLinkedCards.cs,BLOCKED,,SelectTrashLinkedCards — RD-SKEL-01: AS-IS 자체가 LinkedCards/DigivolutionCards 예산 불일치로 인한 잠재 무한루프 구조(재검증 완료, DEAD-IN-AS-IS-TOO 확인) — 가드 물리부착 유지가 정당(retirement-guard-protocol)
+Script/CardEffectCommons/CanUseEffects/WhenDeleteOpponentDigimon.cs,MATCH-1:1,,CanTriggerWhenDeleteOpponentDigimon 바이트 수준 동일

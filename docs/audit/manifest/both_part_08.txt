@@ -1,0 +1,15 @@
+Script/CardEffectCommons/GameContextDeterminarion.cs
+Script/FieldPermanentCard.cs
+Script/SelectAssemblyClass.cs
+Script/GManager.cs
+Script/DeckData.cs
+Script/CardEffectCommons/CanUseEffects/OnDeletion.cs
+Script/SelectBurstDigivolutionEffect.cs
+Script/CardEffectCommons/HashtableSetting.cs
+Script/SelectCardPanel.cs
+Script/CardPrefab_CreateDeck.cs
+Script/CardEffectFactory/KeyWordEffects/BlastDNADigivolution.cs
+Script/CardEffectFactory/ChangeSAttack.cs
+Script/DetailCard_DeckEditor.cs
+Script/SelectAppFusionEffect.cs
+Script/CardEffectCommons/KeyWordEffects/Alliance.cs

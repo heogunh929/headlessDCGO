@@ -1,0 +1,12 @@
+Script/CEntity_EffectController.cs
+Script/CardController.cs
+Script/CardEffectCommons/CanUseEffects/OnReturnLibraryBottomDigivolutionCards.cs
+Script/CardEffectCommons/CanUseEffects/OnTrashBySelfDigiBurst.cs
+Script/CardEffectCommons/GiveEffect/GiveEffectToPlayer/ChangeSAttack.cs
+Script/CardEffectCommons/HashtableSetting.cs
+Script/CardEffectCommons/KeyWordEffects/Fragment.cs
+Script/CardEffectCommons/KeyWordEffects/Save.cs
+Script/CardEffectCommons/MinMax_DP_Cost_Level/Cost/IsMaxCost.cs
+Script/CardEffectCommons/MinMax_DP_Cost_Level/Cost/IsMinCost.cs
+Script/CardEffectCommons/MinMax_DP_Cost_Level/DP/IsMaxDP.cs
+Script/CardEffectCommons/MinMax_DP_Cost_Level/DP/IsMinDP.cs

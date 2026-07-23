@@ -1,0 +1,56 @@
+relpath,verdict,deviations,notes
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/ChangeSAttack.cs,DEVIATION,GAP@AS-IS:124 InverteDigimonSAttack·:176 InvertDigimonSAttack — TO-BE 전역 무대응(grep 확인),ChangeDigimonSAttack 2오버로드는 충실 브릿지
+Script/StreamingAssetsUtility.cs,BLOCKED,,스텁 vs Unity 이미지/IO 인프라(룰층 아님)
+Script/CardEffectCommons/KeyWordEffects/Raid.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectFactory/KeyWordEffects/Blitz.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectFactory/AddDigivolutionRequirement.cs,MATCH-TRANSLATED,,경계값 전 보존
+Script/CardEffectCommons/KeyWordEffects/Pierce.cs,MATCH-TRANSLATED,,substrate only
+Script/OptionalSkill.cs,MATCH-TRANSLATED,,ChoiceProvider seam
+Script/CardEffectCommons/TrashDigivolutionCards.cs,MATCH-TRANSLATED,,재하우징 확인(CardEffectCommons.cs:2126)
+Script/CardEffectFactory/CanNotBlock.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/ChangeLinkMax.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanentOrPlayer.cs,MATCH-TRANSLATED,,+무해 null-가드(강화)
+Script/CardEffectCommons/KeyWordEffects/Progress.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectFactory/CanNotDigivolve.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/KeyWordEffects/MaterialSave.cs,MATCH-TRANSLATED,,가드-역전=행동등가
+Script/CardEffectCommons/CanUseEffects/WhenDeleteOpponentDigimonByBattle.cs,MATCH-TRANSLATED,,body byte-identical
+Script/CardEffectCommons/KeyWordEffects/MindLink.cs,MATCH-TRANSLATED,IsFlipped narrowing 드롭(flip 미모델)·self-tuck 가드 추가(무해),headless choice-model
+Script/NextPhaseButton.cs,BLOCKED,,스텁 — pass/hatch 디스패치는 TurnStateMachine/TurnFlowDriver/PassAction 재하우징 확인(갭 아님)
+Script/CardEffectFactory/CanNotAttack.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/KeyWordEffects/Fortitude.cs,MATCH-TRANSLATED,,AS-IS Evade-quirk verbatim 보존
+Script/IEnumerableExtension.cs,MATCH-TRANSLATED,,verbatim helpers
+Script/CardEffectFactory/AddAppfusionMethod.cs,MATCH-TRANSLATED,,Unity-truthy→!=null
+Script/CardEffectCommons/KeyWordEffects/Blocker.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectFactory/KeyWordEffects/Decoy.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffects/ChangeCostClass.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectFactory/AddLinkRequirement.cs,MATCH-1:1,,byte-identical
+Script/CardEffectCommons/KeyWordEffects/Barrier.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/KeyWordEffects/Rush.cs,MATCH-TRANSLATED,,+CanResolveRush scaffolding
+Script/SelectDNACondition.cs,MATCH-TRANSLATED,,dead branch preserved
+Script/CardEffectFactory/VortexCanAttackPlayers.cs,MATCH-TRANSLATED,,verbatim
+Script/CardEffectCommons/CanUseEffects/WhenWinBattle.cs,MATCH-1:1,,byte-identical
+Script/Combinations.cs,BLOCKED,GAP@whole: TO-BE 스텁 vs AS-IS 실로직(GetUniqueName/ColorCardCount·GetCombinations) 미포팅·미재하우징,로직-축 GAP — 소비자 지도 후속
+Script/CardEffectFactory/ChangeOriginDP.cs,MATCH-1:1,,byte-identical
+Script/CardEffectCommons/CustomMessage.cs,MATCH-1:1,,verbatim
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/CanNotSuspend.cs,MATCH-TRANSLATED,,Impl 공유 추출·전 분기 보존
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/StartOfMainAttack.cs,MATCH-TRANSLATED,,RD-3A-01 STOP→풀 포트
+Script/CardEffectFactory/KeyWordEffects/Barrier.cs,MATCH-TRANSLATED,,CardID→CardNumber=동일값 rename
+Script/CardEffectCommons/KeyWordEffects/ArmorPurge.cs,MATCH-TRANSLATED,,+CanResolveArmorPurge 문서화 additive
+Script/CardEffectCommons/GiveEffect/GiveEffectToPlayer/CanNotUnsuspend.cs,MATCH-TRANSLATED,,substrate only
+Script/DeckListPanel.cs,BLOCKED,,스텁 vs 순수 Unity UI(룰층 0)
+Script/CardEffectFactory/KeyWordEffects/Fragment.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectFactory/KeyWordEffects/Pierce.cs,MATCH-TRANSLATED,,구 발명 Pierce.Create 대체 확인
+Script/CardEffectFactory/KeyWordEffects/Evade.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/GiveEffect/GiveEffectToPlayer/CanNotSuspend.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/KeyWordEffects/Iceclad.cs,MATCH-TRANSLATED,,substrate only
+Script/ShuffleDeckCode.cs,BLOCKED,,"스텁 vs 덱코드 난독화 client util(GetConvertDeckCode/GetDeckCode 셔플-암호화, ConvertBinaryNumber 기반) — 규칙층 아님"
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/CanNotAttack.cs,MATCH-TRANSLATED,,"IEnumerator->Task·grant-time 면역가드 제거(RD-J-01, AS-IS 무조건부여 복원)·CreateDebuffEffect UI 드롭; ICardEffect+CardSource 오버로드 공유 Impl"
+Script/CardEffectFactory/KeyWordEffects/Raid.cs,MATCH-TRANSLATED,,PermanentOfThisCard->ICardEffect.ResolvePermanentOfThisCard·IEnumerator->Task; CanActivateRaid/RaidProcess에 card 인자 추가=commons측과 정합(전역 시그니처 번역)
+Script/CreateNewDeckButton.cs,BLOCKED,,스텁 vs 순수 Unity UI MonoBehaviour(덱생성 버튼) — 규칙층 0
+Script/DeckCodeUtility.cs,BLOCKED,,스텁 vs 덱코드 import/export UI 유틸(ContinuousController.instance 등 Unity 싱글톤 의존) — 규칙층 아님
+Script/CardEffectFactory/KeyWordEffects/Progress.cs,MATCH-TRANSLATED,,"PermanentOfThisCard->ResolvePermanentOfThisCard·IsOpponentEffect(ICardEffect,card)->IsOpponentEffect(cardEffect.EffectSourceCard,card)=엔진전역 시그니처 번역(CardEffectCommons.cs:3807)"
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/CanNotBeAttacked.cs,MATCH-TRANSLATED,,CanNotAttack.cs 자매 패턴과 동일: IEnumerator->Task·grant-time 가드 제거(RD-J-01)·UI 드롭
+Script/CardEffectCommons/KeyWordEffects/Evade.cs,MATCH-TRANSLATED,,"4개 헬퍼(GainEvade/CanTriggerEvade/CanActivateEvade/EvadeProcess) 전량 포팅 완료; SuspendPermanentsClass ctor 형태만 substrate 번역, willBeRemoveField=false 복원"
+Script/CardEffectCommons/KeyWordEffects/Fragment.cs,MATCH-TRANSLATED,,maxCount:3 하드코드 quirk verbatim 보존; TrashDigivolutionCards->DigivolutionStackHelpers.TrashSpecificSourcesAsync 치환(동일 행동모델 명시)
+Script/CardEffectFactory/KeyWordEffects/Decode.cs,MATCH-TRANSLATED,,본문 verbatim; DecodeSourceConditionKey 상수 홀더=외부 소비자(DeletionReplacementTiming/CardLeavePlayCleanup) 존재로 보존
+Script/CardEffectFactory/KeyWordEffects/Jamming.cs,MATCH-TRANSLATED,,PermanentOfThisCard->Resolve...·DefendingCard==SecurityDigimon(CardSource)->DefendingCard.InstanceId==SecurityDigimon(HeadlessEntityId?)=엔진전역 필드타입 번역(AttackProcess.cs:128)
