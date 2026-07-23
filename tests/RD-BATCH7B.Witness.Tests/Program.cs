@@ -129,6 +129,23 @@ async Task W3_PumpDigiXrosPlay()
     AssertTrue(handFused || trashFused, "선택한 Vemmon 소재(손패/트래시)가 진화원으로 편입");
     AssertTrue(trashFused, "트래시 Vemmon 소재가 AddMaxTrashCountDigiXros 경유로 진화원 편입(트래시-cap 팔 실발화)");
     AssertTrue(!ZoneCards(match, P1, ChoiceZone.Hand).Contains(bt), "BT18_065 은 손패를 떠남");
+
+    // ═══ (P2-9 상환) DigiXros 지불-시점 검증: the translated-recipe MemoryCost:0 is INERT for a live DigiXros play ═══
+    // AS-IS DigiXros charge (CardSource.cs:664-701 GetPayingCostWithBaseCost / :695): baseCost − selectedMaterial
+    // Count × digiXrosCondition.reduceCostPerCard. The mirror ports this 1:1 (CardSource.cs:1382). The pump lane
+    // DELIBERATELY OMITS SpecialPlayAction (HeadlessLegalActionDispatcher :77-88, Option A / batch 7b) and routes
+    // BT18_065 through PlayCardAction → PlayCardClass.PlayCard → SelectDigiXros → GetPayingCostWithBaseCost, so
+    // SpecialPlayAction.EnsureSpecialPlayRecipe's hardcoded `MemoryCost: 0` (SpecialPlayAction.cs:185) is NEVER the
+    // amount charged for a live DigiXros — it is inert as a PAY amount (its only live role is the AS-IS-faithful
+    // availability gate CanPay(0), mirroring AS-IS's `if (checkAvailability) return 0`). PROOF: BT18_065 playCost 6,
+    // reduceCostPerCard 1, 3 materials fused → the live charge is 6 − 3×1 = 3 (memory 10→7). Were the recipe's 0 the
+    // governing charge, the delta would be 0 (memory would stay 10). It is 3 — the recipe field is not consumed here.
+    const int Bt18_065PlayCost = 6;        // cards.json BT18_065.playCost
+    const int ReduceCostPerCard = 1;       // BT18_065.cs DigiXrosCondition(elements, null, 1)
+    int materialsFused = underIds.Count;   // = SelectDigiXros.selectedDigicrossCards.Count (the tucked materials)
+    int expectedCharge = Bt18_065PlayCost - materialsFused * ReduceCostPerCard;   // AS-IS baseCost − count × reduce
+    AssertTrue(match.Context.MemoryController.Current.Current == 10 - expectedCharge,
+        $"DigiXros live-pay = AS-IS baseCost({Bt18_065PlayCost}) − {materialsFused}×reduceCostPerCard({ReduceCostPerCard}) = {expectedCharge} (memory 10→{10 - expectedCharge}); the translated recipe's MemoryCost:0 is INERT for the live play [got memory {match.Context.MemoryController.Current.Current}]");
 }
 
 // ═══════════════════════════════════ W4 negative ═══════════════════════════════════

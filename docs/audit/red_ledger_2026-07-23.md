@@ -102,24 +102,34 @@ Each design item the suite pinned went live; the suite was re-driven through the
 
 ---
 
-## Open ledger lines (not closure-blocking — flagged by REPAIR-batch adversarial review, 2026-07-23)
+## Open ledger lines (flagged by REPAIR-batch adversarial review, 2026-07-23)
 
-Two witness-adequacy gaps the "0 red" count does not surface (both suites are GREEN today; the gap is in what
-they prove, not in a failing assertion):
+Two witness-adequacy gaps the "0 red" count did not surface. **Both REPAID 2026-07-23** (REPAIR batch); the
+lines are retained below for provenance.
 
-- **P2-8 — BlastDNA witness-pin-on-first-caller.** `DNATEMP-Witness.Tests` Test 7
-  (`BlastDNAConstructionSmoke`) only proves `CardEffectFactory.BlastDNADigivolveEffect(...)` constructs an
-  `ActivateClass` without throwing (guards pass, wiring compiles) — per its own in-test comment, "the factory
-  has no live card caller" today (grepped: no ported `CardEffects()` body calls `BlastDNADigivolveEffect`; the
-  `AD1_025` card staged in the test uses the unrelated `GetJogressConditionClass` DNA path for its own
-  digivolution, purely a hand-card fixture here). Full activation-body fidelity (the `SelectHandEffect` →
-  `CreateNewPermanent` → `SetJogress` → `DiscardEvoRoots`/`AddHandCard` collapse) is therefore UNWITNESSED
-  end-to-end. Close when the first real card wiring `BlastDNADigivolveEffect` is ported — upgrade or supersede
-  this smoke test with that card's witness.
-- **P2-9 — DigiXros translated-recipe MemoryCost verification.** `RD-BATCH7B.Witness.Tests` `W1_EnumerationOffers`
-  asserts the PlayCard lane's cost-PROJECTION for a DigiXros-eligible card (`BT18_065`) is `0`
-  (`HeadlessActionParameterKeys.MemoryCost` on the offered `LegalAction`), but does not independently verify the
-  underlying DigiXros recipe fold that PRODUCES that `0` is itself a faithful AS-IS translation (vs. a
-  fixture that happens to net to zero) — no assertion drives an actual PAYMENT through the reduced cost and
-  checks the resulting memory delta. Open: add a payment-time (not projection-only) assertion for a DigiXros
-  play, or cite the suite that already covers it if one exists.
+- **P2-8 — BlastDNA witness-pin-on-first-caller. ✅ REPAID 2026-07-23.** The first real card wiring
+  `BlastDNADigivolveEffect` is now ported: **`EX6_011`** (RagnaLoardmon, EX6/Red — its `[Ace]` `OnCounterTiming`
+  arm) — a full 1:1 port of the DCGO original (was a 7-line stub), giving the keyword body its FIRST live caller.
+  The `DNATEMP-Witness.Tests` smoke pin is UPGRADED to behavioral with two new witnesses driving `EX6_011`:
+  (1) **trigger window** — `new EX6_011().CardEffects(OnCounterTiming, card)` yields the live `ActivateClass`
+  whose `CanTrigger` opens on an OPPONENT permanent's attack (`AttackingPermanent`=P2 Digimon → TRUE) and stays
+  shut on an ally attack (→ FALSE, no blast offer — negative control); (2) **DNA jogress end-to-end** — a field
+  `[Durandamon]` Lv.6 Red + a hand `[BryweLudramon]` Lv.6 Black → `CanActivate` TRUE → `Activate` drives the blast
+  DNA flow (select field root → select hand material → `CreateNewPermanent` → `EX6_011.CanPlayJogress` →
+  `PlayCardClass.SetJogress` collapse WRITE); EX6_011 survives as the field top with BOTH material roots stacked
+  underneath (full live frame-write collapse), plus a negative control (no hand material → `CanActivate` FALSE).
+  Construction-smoke Test 7 is retained; the pin is now behavioral. DNATEMP 9/9 green.
+- **P2-9 — DigiXros translated-recipe MemoryCost verification. ✅ REPAID 2026-07-23 (VERDICT: hardcoded 0 is
+  INERT for the live play).** AS-IS charges, at DigiXros payment, `baseCost − selectedMaterialCount ×
+  digiXrosCondition.reduceCostPerCard` (`CardSource.GetPayingCostWithBaseCost`, DCGO CardSource.cs:664-701/:695);
+  the mirror ports this 1:1 (`CardSource.cs:1382`). `SpecialPlayAction.EnsureSpecialPlayRecipe` hardcodes
+  `MemoryCost: 0` (`SpecialPlayAction.cs:185`), and that field IS consumed by `ProcessAsync` (`Pay(memoryCost)`,
+  :385) — but ONLY in the retained NON-pump boundary lane (G8-006 pin). The LIVE (pump) lane DELIBERATELY OMITS
+  `SpecialPlayAction` (`HeadlessLegalActionDispatcher` :77-88, Option A / batch 7b) and routes a DigiXros through
+  `PlayCardAction → PlayCardClass.PlayCard → SelectDigiXros → GetPayingCostWithBaseCost`, so the translated
+  recipe's `MemoryCost: 0` is NEVER the amount charged for a live DigiXros — it is inert as a pay amount (its only
+  live role is the AS-IS-faithful availability gate `CanPay(0)`, mirroring AS-IS's `if (checkAvailability)
+  return 0`). PAYMENT-TIME WITNESS added to `RD-BATCH7B.Witness.Tests` `W3_PumpDigiXrosPlay` (a real full-pump
+  `BT18_065` DigiXros play): playCost 6, `reduceCostPerCard` 1, 3 materials fused → the live charge is `6 − 3×1 =
+  3` (memory 10→7), asserted against the AS-IS formula. Were the recipe's 0 governing, the delta would be 0; it is
+  3 — proving the field is inert for the live play. RD-BATCH7B 5/5 green.

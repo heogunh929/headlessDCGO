@@ -1,5 +1,7 @@
 using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT17.Red;
 using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX6.White;
+using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX6.Red;   // EX6_011 (RagnaLoardmon) — the FIRST live [Blast DNA Digivolve] caller (P2-8)
+using CE = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;   // ActivateClass
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -40,6 +42,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("EX6_072 helper gate — CanJogressWithHandOrTrash (ported co-eval): AD1_025 in hand WITH a field Lv.6 [Greymon] + a hand Lv.6 [Garurumon] passes; missing the hand material FAILS; a false targetCardCondition FAILS (control)", Ex6072HelperGate),
     ("EX6_072 [Main] end-to-end (raw DNADigivolveWithHandOrTrash helper): DNA-target select → From-Battle-Area branch → field-root + temp hand-material co-eval → materialize → jogress collapse completes — AD1_025 surviving with BOTH roots stacked underneath (full collapse WRITE)", Ex6072MainEndToEndToMig4),
     ("BlastDNADigivolveEffect construction smoke (PORTED 2026-07-23, latent factory): guards pass (card on hand + >=2 hand cards + a battle-area permanent) → returns a non-null ActivateClass; the ported jogress-frame body (SelectHandEffect + CreateNewPermanent + SetJogress + DiscardEvoRoots(false) + AddHandCard) compiles and wires without throwing at construction", BlastDNAConstructionSmoke),
+    ("EX6_011 <Blast DNA Digivolve> trigger window (P2-8, the FIRST live caller): the OnCounterTiming factory returns a live ActivateClass whose CanTrigger opens on an OPPONENT permanent's attack (AttackingPermanent = P2 Digimon → TRUE) and stays shut on an ALLY attack (AttackingPermanent = P1 Digimon → FALSE, no blast offer — negative control)", Ex6011BlastTriggerWindow),
+    ("EX6_011 <Blast DNA Digivolve> end-to-end (P2-8, behavioral upgrade): field [Durandamon] Lv.6 Red + hand [BryweLudramon] Lv.6 Black → CanActivate TRUE → Activate drives the blast DNA flow (select field root → select hand material → CreateNewPermanent → EX6_011.CanPlayJogress → PlayCardClass.SetJogress collapse WRITE); EX6_011 (RagnaLoardmon) is the surviving top with BOTH material roots stacked underneath. Negative control: with no hand material, CanActivate FALSE (no valid DNA targets)", Ex6011BlastDnaEndToEnd),
 };
 
 int failed = 0;
@@ -315,6 +319,121 @@ async Task BlastDNAConstructionSmoke()
     var effect = Cec.CardEffectFactory.BlastDNADigivolveEffect(card, conditions, null);
     AssertTrue(effect is not null,
         "BlastDNADigivolveEffect returns a non-null ActivateClass (all guards pass) — the ported body wires without throwing");
+}
+
+// ═══════════════════════════ Test 8: EX6_011 blast trigger window (P2-8, first live caller) ═══════════════════════════
+
+async Task Ex6011BlastTriggerWindow()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewMatchAsync(seed: 8801);
+    await ReachMainWaitAsync(match);
+
+    // EX6_011 (RagnaLoardmon) sits in hand; a second hand card satisfies the factory's HandCards.Count >= 2 guard;
+    // an OWNER battle-area permanent satisfies the GetBattleAreaPermanents().Count > 0 guard.
+    HeadlessEntityId ex6011 = Stage(match, P1, "EX6_011", "1:hand:ex6011", zone: ChoiceZone.Hand, register: false);
+    StageSynthetic(match, P1, "BRYWE", dp: 6000, level: 6, "1:hand:brywe", name: "BryweLudramon", zone: ChoiceZone.Hand, colors: new[] { "Black" });
+    StageSynthetic(match, P1, "DURAND", dp: 6000, level: 6, "1:battle:durand", name: "Durandamon", colors: new[] { "Red" });
+    // The attackers.
+    HeadlessEntityId oppAttacker = StageSynthetic(match, P2, "OPPATK", dp: 7000, level: 6, "2:battle:oppatk", name: "OpponentDigimon");
+    HeadlessEntityId allyAttacker = StageSynthetic(match, P1, "ALLYATK", dp: 7000, level: 6, "1:battle:allyatk", name: "AllyDigimon");
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var card = new Cec.CardSource(match.Context, ex6011, P1);
+
+    // The AS-IS [Ace] arm: timing OnCounterTiming → CardEffectFactory.BlastDNADigivolveEffect. This is the FIRST
+    // live card caller of the ported keyword body (P2-8). The AS-IS attack-trigger WINDOW is not modelled here —
+    // the gate is exercised via the SAME member the window calls: ActivateClass.CanTrigger (A8G1 precedent).
+    var blast = new EX6_011().CardEffects(Cec.EffectTiming.OnCounterTiming, card)
+        .OfType<CE.ActivateClass>().First();
+    AssertTrue(blast is not null, "EX6_011's OnCounterTiming arm yields the live BlastDNADigivolveEffect ActivateClass (guards pass)");
+
+    // Window OPENS: the blast <Counter> triggers when an OPPONENT permanent attacks (CanTriggerOnPermanentAttack +
+    // IsOpponentPermanent) while this card is in hand.
+    var oppPerm = new Cec.Permanent(match.Context, oppAttacker, P2);
+    var oppAttackHash = new Hashtable { ["AttackingPermanent"] = oppPerm };
+    AssertTrue(blast!.CanTrigger(oppAttackHash),
+        "CanTrigger TRUE: an opponent (P2) Digimon's attack opens the blast window while EX6_011 is in hand");
+
+    // Window STAYS SHUT (negative control — no blast offer): an ALLY attack fails IsOpponentPermanent.
+    var allyPerm = new Cec.Permanent(match.Context, allyAttacker, P1);
+    var allyAttackHash = new Hashtable { ["AttackingPermanent"] = allyPerm };
+    AssertTrue(!blast.CanTrigger(allyAttackHash),
+        "CanTrigger FALSE: an ally (P1) Digimon's attack does NOT open the blast window (IsOpponentPermanent gate) — no blast offer");
+}
+
+// ═══════════════════════════ Test 9: EX6_011 blast DNA end-to-end (P2-8, behavioral upgrade) ═══════════════════════════
+
+async Task Ex6011BlastDnaEndToEnd()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewMatchAsync(seed: 8901);
+    await ReachMainWaitAsync(match);
+
+    // The two DNA materials — each satisfies BOTH the blast condition NAME and one DNA colour element:
+    //   * field root [Durandamon] Lv.6 Red  → blast condition[0] name + DNA element[0] (Red).
+    //   * hand material [BryweLudramon] Lv.6 Black → blast condition[1] name + DNA element[1] (Black).
+    HeadlessEntityId durand = StageSynthetic(match, P1, "DURAND", dp: 6000, level: 6, "1:battle:durand", name: "Durandamon", colors: new[] { "Red" });
+    HeadlessEntityId brywe = StageSynthetic(match, P1, "BRYWE", dp: 6000, level: 6, "1:hand:brywe", name: "BryweLudramon", zone: ChoiceZone.Hand, colors: new[] { "Black" });
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+
+    // Ample memory so the jogress cost gate (cost 0, but checkAvailability) passes end-to-end.
+    match.Context.MemoryController.Set(10);
+
+    // EX6_011 (RagnaLoardmon, the jogress TOP) in hand, registered so its ported DNA condition (timing None →
+    // AddJogressConditionClass: a Lv.6 Red + a Lv.6 Black material) is live for CanPlayJogress. Registered INSIDE
+    // the match scope because its OnCounterTiming arm eagerly reads GetBattleAreaPermanents at construction.
+    HeadlessEntityId ex6011 = Stage(match, P1, "EX6_011", "1:hand:ex6011", zone: ChoiceZone.Hand, register: true);
+
+    // Each blast selection is unambiguous after the canTargetCondition filter — pick the first selectable candidate
+    // (the field root; then the hand material).
+    policy.On(_ => true, req =>
+    {
+        ChoiceCandidate? sel = req.Candidates.FirstOrDefault(c => c.IsSelectable);
+        if (sel is not null)
+        {
+            return ChoiceResult.Select(sel.Id);
+        }
+
+        return req.CanSkip ? ChoiceResult.Skip() : (req.Candidates.Count > 0 ? ChoiceResult.Select(req.Candidates[0].Id) : ChoiceResult.Skip());
+    }, oneShot: false);
+
+    var card = new Cec.CardSource(match.Context, ex6011, P1);
+    var blast = new EX6_011().CardEffects(Cec.EffectTiming.OnCounterTiming, card)
+        .OfType<CE.ActivateClass>().First();
+
+    AssertTrue(blast!.CanActivate(new Hashtable()),
+        "CanActivate TRUE: a field [Durandamon] Lv.6 Red + a hand [BryweLudramon] Lv.6 Black are valid DNA targets (HasValidDNATargets)");
+
+    // Drive the blast DNA flow END-TO-END (the behavioral upgrade over the construction smoke): select field root →
+    // filter + select hand material → CreateNewPermanent materialises it → EX6_011.CanPlayJogress(true) →
+    // PlayCardClass.SetJogress collapse WRITE (both roots detach under the new top, the live frame-write path).
+    await blast.Activate(new Hashtable());
+
+    List<Cec.Permanent> field = new Cec.Player(match.Context, P1).GetFieldPermanents();
+    Cec.Permanent? topPerm = field.FirstOrDefault(p => p.InstanceId == ex6011);
+    AssertTrue(topPerm is not null,
+        "EX6_011 (RagnaLoardmon) is the surviving jogress permanent — the field [Durandamon] + the materialised hand [BryweLudramon] collapsed into it");
+    IReadOnlyList<Cec.CardSource> sources = topPerm!.DigivolutionCards;
+    AssertTrue(sources.Any(s => s.InstanceId == durand) && sources.Any(s => s.InstanceId == brywe),
+        "both material roots — the field [Durandamon] AND the temp hand [BryweLudramon] (materialised via CreateNewPermanent, then consumed) — are stacked underneath EX6_011 (full blast-DNA collapse WRITE)");
+    AssertTrue(field.All(p => p.InstanceId != durand && p.InstanceId != brywe),
+        "neither material survives as a standalone field permanent (bare-detached into the jogress stack)");
+
+    // ── negative control: no hand material → no valid DNA targets → no blast offer. ──
+    (DcgoMatch match2, PolicyChoiceProvider _) = await NewMatchAsync(seed: 8902);
+    await ReachMainWaitAsync(match2);
+    // A field root + a SECOND hand card (so the factory's >=2-hand + battle-permanent guards still pass and the
+    // effect is non-null), but NO hand material named to fill the other DNA root.
+    StageSynthetic(match2, P1, "DURAND", dp: 6000, level: 6, "1:battle:durand", name: "Durandamon", colors: new[] { "Red" });
+    StageSynthetic(match2, P1, "FILLER", dp: 3000, level: 3, "1:hand:filler", name: "Filler", zone: ChoiceZone.Hand, colors: new[] { "Red" });
+
+    using AmbientMatchContext.Scope _s2 = AmbientMatchContext.Enter(match2.Context);
+    HeadlessEntityId ex6011b = Stage(match2, P1, "EX6_011", "1:hand:ex6011", zone: ChoiceZone.Hand, register: true);
+    var cardB = new Cec.CardSource(match2.Context, ex6011b, P1);
+    var blastB = new EX6_011().CardEffects(Cec.EffectTiming.OnCounterTiming, cardB)
+        .OfType<CE.ActivateClass>().First();
+    AssertTrue(!blastB!.CanActivate(new Hashtable()),
+        "negative control: a field root but NO hand material to fill the second DNA slot → HasValidDNATargets FALSE → no blast offer");
 }
 
 // ═══════════════════════════════ assertions ═══════════════════════════════
