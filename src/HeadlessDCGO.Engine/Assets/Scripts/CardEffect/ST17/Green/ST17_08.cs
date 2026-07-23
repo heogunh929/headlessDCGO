@@ -13,8 +13,9 @@
 // ② 프리미티브 매핑:
 //    * P:AddSelfDigivolutionRequirementStaticEffect — [Rapidmon] 위 코스트 5, 요구무시 (AS-IS :25-30)
 //    * P:BlockerSelfStaticEffect / P:RebootSelfStaticEffect — 상시 [Blocker]/[Reboot] (AS-IS :37/42)
-//    * P:BlastDigivolveEffect — [Counter Timing] (AS-IS :49; 내부 CanActivateCondition/ActivateCoroutine은
-//      RD-P6C2-11 latent 갭으로 NotSupportedException — 카드 등재 자체는 AS-IS 그대로, Script/ 공용층 수정 아님)
+//    * P:BlastDigivolveEffect — [Counter Timing] (AS-IS :49; RD-P6C2-11 RESOLVED 2026-07-22 — BlastDigivolution.cs:4
+//      A8 구조골 GOAL 1: read-side PermanentFrame idiom 착지, CanActivate/ActivateCoroutine 실행. 구 "latent 갭으로
+//      NotSupportedException" 주석은 stale이라 정정. 카드 등재는 AS-IS 그대로 — witness A8G1-BlastDigivolve + PILOT-S2 ST17_08 W2)
 //    * P:SelectPermanentEffect Mode.Tap — 상대 Digimon/Tamer 최대 2 tap (AS-IS :121-150)
 //    * P:CanNotDigivolveClass + Permanent.UntilOwnerTurnEndEffects — tap된 대상에 진화불가 부여 (AS-IS :180-183)
 //    * P:GainCantUnsuspendUntilOpponentTurnEnd — 같은 대상에 언서스펜드 불가 부여 (AS-IS :241-244)

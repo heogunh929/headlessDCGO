@@ -47,7 +47,7 @@ var tests = new (string Name, Func<Task> Body)[]
     // EX5_053 — Baihumon (축: DontBattleSecurityDigimonClass·OnSecurityCheck)
     ("EX5_053 W1 [Security check]: 체크 카드가 [Deva] 디지몬이면 전투없이·무료 플레이 → 자기 보드 진입", EX5053_SecurityCheckPlaysDeva),
     ("EX5_053 W2 [Security check] 경계: 체크 카드가 비-[Deva]면 발화 안 함(플레이 없음)", EX5053_SecurityCheckNonDevaNoPlay),
-    ("EX5_053 W3 [Counter] 잠복 STOP: BlastDigivolveEffect 등록·CanUse는 안전, 실해소는 RD-P6C2-11 STOP (수확 문서화)", EX5053_BlastLatentStop),
+    ("EX5_053 W3 [Counter] RD-P6C2-11 RESOLVED: BlastDigivolveEffect 등록 + CanActivate 실행(throw 부재; read-side frame/CanEvolve 체인 완주)", EX5053_BlastCounterActivationRuns),
     // EX11_074 — Vortexdramon (축: Vortex·DigimonEffectImmunity)
     ("EX11_074 W1 [Vortex] 상시: OnEndTurn EffectList에 Vortex 등재 (미등록 카드는 부재 — 양/음 대조)", EX11074_VortexPresent),
     ("EX11_074 W2 [When Attacking]: 공격 시 자기 디지몬 서스펜드 → DigimonEffectImmunity 부여 + 6000DP 획득", EX11074_WhenAttackingImmunity),
@@ -435,23 +435,29 @@ async Task EX5053_SecurityCheckNonDevaNoPlay()
         "negative: a non-[Deva] security Digimon does not trigger the self-play (stays out of the battle area)");
 }
 
-async Task EX5053_BlastLatentStop()
+async Task EX5053_BlastCounterActivationRuns()
 {
     (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 2603, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
-    // BlastDigivolveEffect는 손패에서 등록 — 등록·CanUse는 안전(잠복 STOP). 카운터 실해소는 하지 않는다.
+    // BlastDigivolveEffect는 손패에서 등록. RD-P6C2-11 RESOLVED(2026-07-22, A8 구조골 GOAL 1): read-side
+    // PermanentFrame idiom 착지로 CanActivate/ActivateCoroutine이 실행된다(구 "잠복 STOP → NotSupportedException"는 stale).
     // 팩토리 게이트: 손패 존재 + 배틀에어리어 permanent ≥1 이어야 ActivateClass를 반환(AS-IS :24-26).
     HeadlessEntityId baihu = Stage(match, P1, "EX5_053", ChoiceZone.Hand, "1:hand:Baihumon");
     StageSynthetic(match, P1, "EXT2B-P1D", dp: 3000, level: 4, "1:battle:p1d");
 
     using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
     var src = new Cec.CardSource(match.Context, baihu, P1);
-    // 등록 자체(OnCounterTiming EffectList 빌드)는 throw하지 않는다 — 잠복 STOP는 CanActivate/ActivateCoroutine에만.
     List<Cec.ICardEffect> counter = src.EffectList(Cec.EffectTiming.OnCounterTiming);
-    AssertTrue(counter.Count >= 1,
-        "HARVEST RD-P6C2-11: BlastDigivolveEffect registers safely (latent STOP) — actual counter resolution throws " +
-        "NotSupportedException (Permanent.PermanentFrame absent). When this factory is repaid this witness must be " +
-        "upgraded to drive the Blast Digivolve counter.");
+    AssertTrue(counter.Count >= 1, "BlastDigivolveEffect가 OnCounterTiming에 등록됨");
+
+    // RD-P6C2-11 RESOLVED: 이전에 "throw"한다고 표기됐던 CanActivate가 이제 실행되어 bool을 반환(throw 부재).
+    // lv4 합성 베이스는 [Deva] lv5 진화 타깃이 아니므로 FALSE — 요점은 read-side frame/CanEvolve 체인이 완주한다는 것.
+    // (TRUE + Activate 실드라이브는 A8G1-BlastDigivolve.Witness 팩토리 witness가 담당.)
+    var blast = counter.OfType<CecFx.ActivateClass>().First();
+    bool canActivate = blast.CanActivate(null);
+    AssertTrue(!canActivate,
+        "RD-P6C2-11 RESOLVED: BlastDigivolveEffect.CanActivate가 throw 없이 실행(비-[Deva]-lv5 베이스라 FALSE 반환; " +
+        "read-side frame/CanEvolve 체인 완주). 팩토리-레벨 TRUE+Activate: A8G1-BlastDigivolve.");
 }
 
 // ═══════════════════════════════════ EX11_074 ═══════════════════════════════════

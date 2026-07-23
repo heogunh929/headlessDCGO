@@ -57,10 +57,10 @@ public static partial class CardEffectCommons
         if (!IsPermanentExistsOnBattleArea(targetPermanent)) return false;  // AS-IS :13
         if (card is null || cause is null) return false;                    // AS-IS :14-15
 
-        // (B군 P0-1) grant-time !CanNotBeAffected refusal — the sync-bool rendering of AS-IS's immunity-gated
-        // grant (the live CanUseCondition would gate an immune target to false anyway); matches sibling
-        // GainCanNotBeDeletedByBattle:80 and the retired funnel guard.
-        if (targetPermanent.TopCard.CanNotBeAffected(cause)) return false;
+        // (RD-J-01) AS-IS grants UNCONDITIONALLY — there is NO grant-time immunity guard (the AS-IS CanNotBeAffected
+        // check is read-time inside CanUseCondition below, plus a dropped UI visual). The earlier invented grant-time
+        // refusal is removed so a temporarily-immune target still receives the inert grant, which activates once
+        // immunity lifts (the AS-IS re-application semantics the invented guard broke).
 
         // AS-IS :19-27 — the caller's `attackerCondition` narrows which attackers cannot be blocked (AS-IS names
         // the local param `defender`, kept verbatim).

@@ -10,12 +10,10 @@
 //
 // ② 프리미티브 매핑:
 //    * P:IgnoreColorConditionClass, P:BlockerStaticEffect, P:ChangeLinkMaxStaticEffect
-//    * P:ReplaceBottomSecurityWithFaceUpOptionEffect — [Main] 몸통 1문 (AS-IS :111). **주의: 미러 substrate
-//      스텁이 이미 NotSupportedException으로 선언되어 있음(CardEffectFactory.cs:244-250, design item
-//      RD-P6C3-B1 — ContinuousController/CardObjectController.AddHandCards+AddSecurityCard/CreateRecoveryEffect
-//      미포팅). 공용층 수정 금지 규칙상 이 스텁은 그대로 두고 AS-IS 그대로 호출 — 등재 팔(CanUseCondition 등)은
-//      실배선, ActivateCoroutine은 실행 시 이 지점에서 낙뢰(loud throw)한다. STOP 대상은 이 substrate 갭이며
-//      카드 자체가 아니다(레지스트리/게이팅 로직은 100% 이식).**
+//    * P:ReplaceBottomSecurityWithFaceUpOptionEffect — [Main] 몸통 1문 (AS-IS :111). **RESOLVED: 미러 substrate
+//      가 폴리시 아크에서 이식됨(CardEffectFactory.cs:259-269, RD-P6C3-B1 UN-STOP — AddSecurityCard/AddHandCards
+//      착지). 구 "NotSupportedException 스텁" 주석은 stale이라 정정(BT21_030 자기-정정 판례). [Main] 활성화가
+//      실행되며 Replace 경로 실착지 — witness PILOT-S3 BT25_102 W3.**
 //
 // ③ 배선 관례 근거:
 //    * [Main] → OptionSkill + CanTriggerOptionMainEffect. [Security] → SecuritySkill + CanTriggerSecurityEffect.
@@ -144,9 +142,10 @@ public sealed class BT25_102 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable hashtable)
             {
-                // AS-IS :111 ReplaceBottomSecurityWithFaceUpOptionEffect — substrate STOP stub
-                // (CardEffectFactory.cs:244-250, design item RD-P6C3-B1). Called verbatim per no-simplification;
-                // this line throws NotSupportedException at activation until the substrate is built.
+                // AS-IS :111 ReplaceBottomSecurityWithFaceUpOptionEffect — 1:1 mirror, now PORTED (RD-P6C3-B1
+                // UN-STOP, CardEffectFactory.cs:259-269: AddSecurityCard/AddHandCards substrate landed in the
+                // final-polish arc). This activation runs; the earlier "throws NotSupportedException" note was
+                // stale and is struck. Witnessed: PILOT-S3 BT25_102 W3 (Replace flip).
                 await CardEffectFactory.ReplaceBottomSecurityWithFaceUpOptionEffect(card, activateClass);
 
                 SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();

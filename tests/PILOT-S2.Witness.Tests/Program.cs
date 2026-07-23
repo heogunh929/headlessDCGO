@@ -7,6 +7,7 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 using Cec = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using Cfx = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using ScriptSelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -30,6 +31,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT25_039 W1: [On Deletion] 발화 → 자신을 시큐리티 맨 밑에 앞면으로 배치(트래시 아님)", BT25039_OnDeletionPlacesFaceUpBottomSecurity),
     ("BT25_092 W1: [Start of your Main Phase] 발화 → [TS] 카드 트래시 → Draw 1 + 메모리 +1", BT25092_StartOfMainDiscardDrawsAndGainsMemory),
     ("ST17_08 W1: [When Digivolving] 발화 → 상대 디지몬 최대 2체 tap(서스펜드)", ST17_08_WhenDigivolvingTapsOpponents),
+    ("ST17_08 W2 (REPAIR stale-STOP): [Counter] BlastDigivolveEffect 등록 + CanActivate 실행(RD-P6C2-11 RESOLVED, throw 부재)", ST17_08_BlastCounterActivationRuns),
 };
 
 int failed = 0;
@@ -365,6 +367,32 @@ async Task ST17_08_WhenDigivolvingTapsOpponents()
     AssertTrue(IsSuspended(match, opp1) || IsSuspended(match, opp2),
         $"[When Digivolving]: at least 1 of the 2 opponent Digimon was tapped (suspended) via SelectPermanentEffect Mode.Tap " +
         $"[debug prompts:{string.Join(" | ", policy.Seen)}]");
+}
+
+// ST17_08 W2 (REPAIR batch A — stale-STOP strike) — the [Counter Timing] BlastDigivolveEffect is RESOLVED
+// (RD-P6C2-11, BlastDigivolution.cs:4, A8 구조골 GOAL 1); the earlier "CanActivate/ActivateCoroutine throws
+// NotSupportedException" note was stale. This proves ST17_08's registered Blast reaches the resolved substrate:
+// the OnCounterTiming ActivateClass registers and its CanActivate executes to completion WITHOUT throwing
+// (FALSE for the synthetic non-matching base; the factory-level TRUE+Activate drive lives in A8G1-BlastDigivolve).
+async Task ST17_08_BlastCounterActivationRuns()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewPilotMatchAsync(seed: 5002, MonoDecks("BT1_028", "BT1_028"));
+    await ReachMainWaitAsync(match);
+    HeadlessEntityId st1708 = Stage(match, P1, "ST17_08", ChoiceZone.Hand, "1:hand:ST1708blast");
+    // A battle-area permanent so the factory does not early-return null (AS-IS gate: hand card + battle permanent >= 1).
+    StageSynthetic(match, P1, "EXT2-BASE4", dp: 3000, level: 4, "1:battle:base4", colors: new[] { "Green" });
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var src = new Cec.CardSource(match.Context, st1708, P1);
+    List<Cec.ICardEffect> counter = src.EffectList(Cec.EffectTiming.OnCounterTiming);
+    AssertTrue(counter.Count >= 1, "ST17_08 registers BlastDigivolveEffect at OnCounterTiming");
+
+    // RD-P6C2-11 RESOLVED: the previously-"throwing" CanActivate now runs and returns a bool (no throw).
+    var blast = counter.OfType<Cfx.ActivateClass>().First();
+    bool canActivate = blast.CanActivate(new System.Collections.Hashtable());
+    AssertTrue(!canActivate,
+        "RD-P6C2-11 RESOLVED: ST17_08's BlastDigivolveEffect.CanActivate executes without throwing (FALSE for the " +
+        "non-matching lv4 base; the read-side PermanentFrame/CanEvolve chain runs). Factory TRUE+Activate: A8G1-BlastDigivolve.");
 }
 
 // ═══════════════════════════════════ harness ═══════════════════════════════════

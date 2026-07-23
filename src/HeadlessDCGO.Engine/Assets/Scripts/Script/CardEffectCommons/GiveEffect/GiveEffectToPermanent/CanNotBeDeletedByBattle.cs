@@ -18,10 +18,11 @@ public static partial class CardEffectCommons
     /// (GiveEffect/GiveEffectToPermanent/CanNotBeDeletedByBattle.cs:11-54): grant the TARGET permanent a
     /// timed battle-deletion immunity. Registers a duration-tagged, card-TARGETED restriction binding
     /// (consumed by <see cref="Headless.Runtime.BattleDeletionGate"/>): the flag + the caller's 4-arg battle
-    /// predicate stored verbatim + a LIVE condition (target still on the battle area — the AS-IS
-    /// <c>CanUseCondition</c>). The AS-IS grant-time <c>CanNotBeAffected</c> guard is mirrored: an immune
-    /// target refuses the grant. Synchronous (all ported Gain-commons are; the AS-IS coroutine only drove UI).
-    /// Returns true when the grant registered.</summary>
+    /// predicate stored verbatim + a LIVE condition (target still on the battle area && !CanNotBeAffected — the
+    /// AS-IS <c>CanUseCondition</c>). (RD-J-01) The grant is UNCONDITIONAL — AS-IS has no grant-time immunity
+    /// refusal; an immune target still receives the (inert) grant and it activates once immunity lifts.
+    /// Synchronous (all ported Gain-commons are; the AS-IS coroutine only drove UI). Returns true when the grant
+    /// registered.</summary>
     public static bool GainCanNotBeDeletedByBattle(
         Permanent targetPermanent,
         Func<Permanent, Permanent, Permanent, CardSource, bool>? canNotBeDestroyedByBattleCondition,
@@ -50,11 +51,11 @@ public static partial class CardEffectCommons
             return false;   // AS-IS :14 IsPermanentExistsOnBattleArea guard.
         }
 
-        // (R3-W3c-1) AS-IS grant-time guard `!targetPermanent.TopCard.CanNotBeAffected(activateClass)` (AS-IS :26).
-        if (targetPermanent.TopCard.CanNotBeAffected(activateClass))
-        {
-            return false;
-        }
+        // (RD-J-01) AS-IS grants UNCONDITIONALLY — there is NO grant-time immunity guard. The earlier
+        // "(R3-W3c-1) AS-IS grant-time guard (AS-IS :26)" note was a MISREAD: AS-IS :26 is the read-time
+        // CanUseCondition check (kept below); AS-IS AddEffectToPermanent runs regardless, with CanNotBeAffected
+        // otherwise only gating the dropped CreateBuffEffect UI visual. Removed so a temporarily-immune target
+        // still receives the inert grant, which activates once immunity lifts.
 
         // (R3-W3c-2) AS-IS 1:1 (…/CanNotBeDeletedByBattle.cs:36-47): build the CanNotBeDestroyedByBattleClass via
         // the factory (carrying the 4-arg battle predicate + the PermanentCondition `permanent == targetPermanent`

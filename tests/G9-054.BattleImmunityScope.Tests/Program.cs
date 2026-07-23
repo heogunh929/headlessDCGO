@@ -23,7 +23,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("condition gate (e.g. memory>=1) is honoured LIVE — immunity off when false, on when true", ConditionGate),
     ("(AD1-G) GainCanNotBeDeletedByBattle: timed grant protects the TARGET, expires at opponent turn end", GainTimedGrant),
     ("(AD1-G) the grant is LIVE-gated on the target staying in play (leave -> off)", GainLiveGate),
-    ("(AD1-G) a CanNotBeAffected target refuses the grant (AS-IS CanUse guard)", GainRefusedByImmunity),
+    ("(AD1-G / RD-J-01) grant LANDS on a live-immune target — inert while immune, ACTIVE once immunity lifts", GainLandsInertUntilImmunityLifts),
     ("(AD1-G) the stored 4-arg battle predicate gates the immunity against the current attack", GainBattlePredicate),
 };
 
@@ -139,25 +139,36 @@ async Task GainLiveGate()
     AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "leaving the battle area turns the grant off (live CanUse mirror)");
 }
 
-async Task GainRefusedByImmunity()
+async Task GainLandsInertUntilImmunityLifts()
 {
     EngineContext ctx = Ctx();
-    var src = await Place(ctx, P2, "ENEMYSRC", level: 4);   // OPPONENT grants -> blocked by CanNotBeAffected
+    var src = await Place(ctx, P2, "ENEMYSRC", level: 4);   // OPPONENT grants -> immunity-gated
     var target = await Place(ctx, P1, "TGT", level: 5);
-    // (R3-W3c-1) the flipped CanNotAffectedStaticEffect returns a new-model CanNotAffectedClass consumed by the LIVE
-    // CardSource.CanNotBeAffected scan; attach it to the target's live effect list (no registry binding).
+    // A TOGGLEABLE immunity: the flipped CanNotAffectedStaticEffect (live CardSource.CanNotBeAffected scan) whose
+    // CanUse re-reads `immunityActive` each call, so the same grant flips with the immunity state.
+    bool immunityActive = true;
     var targetCard = new CardSource(ctx, target, P1);
     ICardEffect cnaEffect = CardEffectFactory.CanNotAffectedStaticEffect(
-        null, null, false, targetCard, null);
+        null, null, false, targetCard, () => immunityActive);
     targetCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(cnaEffect);
 
-    // (R3-W3c-1) the grant-refusal guard now reads the live CanNotBeAffected scan (CanUse->IsDisabled reads
-    // GManager.instance) — enter the ambient match scope (production runs inside the game loop's scope).
     using var _ = AmbientMatchContext.Enter(ctx);
-    AssertTrue(!CardEffectCommons.GainCanNotBeDeletedByBattle(
-        new Permanent(ctx, target, P1), null, EffectDuration.UntilOpponentTurnEnd,
-        Grant(ctx, src, P2), "test-refused"), "an immune target refuses the grant");
-    AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "nothing registered");
+    // (RD-J-01) AS-IS grants UNCONDITIONALLY — the grant LANDS on a live-immune target (no grant-time refusal;
+    // the earlier "immune target refuses the grant" pin asserted an INVENTED behavior).
+    // Non-null 4-arg battle predicate (AS-IS callers always pass one; a null predicate grants no immunity —
+    // GainTimedGrant note): trivially true for a battle participant, so the ONLY live gate is the immunity toggle.
+    AssertTrue(CardEffectCommons.GainCanNotBeDeletedByBattle(
+        new Permanent(ctx, target, P1), (p, atk, def, defCard) => true, EffectDuration.UntilOpponentTurnEnd,
+        Grant(ctx, src, P2), "test-inert"), "RD-J-01: the grant LANDS on a live-immune target (AS-IS unconditional grant)");
+
+    // While immune: the granted battle-immunity is INERT — its live CanUse is gated by CanNotBeAffected, so the
+    // gate does not fire.
+    AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "inert while immune: the granted battle-immunity does not fire (live CanUse gated)");
+
+    // Immunity expires -> the SAME grant becomes ACTIVE. The invented grant-time refusal would have stored nothing,
+    // so this re-application could never happen.
+    immunityActive = false;
+    AssertTrue(BattleDeletionGate.PreventsBattleDeletion(ctx, target), "ACTIVE after immunity lifts: the same grant now prevents battle deletion (AS-IS re-application)");
 }
 
 async Task GainBattlePredicate()

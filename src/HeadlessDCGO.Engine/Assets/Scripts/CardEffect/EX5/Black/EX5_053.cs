@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 // ① AS-IS 앵커: DCGO/Assets/Scripts/CardEffect/EX5/Black/EX5_053.cs (200 lines, 4 regions)
 //    * [None] alt-digivolve   :13-21  (AddSelfDigivolutionRequirementStaticEffect: [Deva]Lv.5 위 코스트3)
-//    * [Counter] Blast Digi   :23-26  (OnCounterTiming — BlastDigivolveEffect)  ← 잠복 STOP(아래 ③ 참조)
+//    * [Counter] Blast Digi   :23-26  (OnCounterTiming — BlastDigivolveEffect; RD-P6C2-11 RESOLVED, 아래 ③ 참조)
 //    * [Security check]        :28-127 (OnSecurityCheck — 체크 카드가 [Deva] 디지몬이면 전투없이·무료 플레이)
 //    * [On Deletion]          :129-196(OnDestroyedAnyone — 상대 최고 플레이코스트 디지몬 삭제)
 //
@@ -21,9 +21,9 @@
 //        PlayPermanentCards(root:Security)가 착지하지 못한다(play-from-security 순서 갭). 카드 포팅은 AS-IS 1:1로
 //        정확 — 갭은 SecurityResolver 루프 측. 상환 시 witness를 뒤집어 자기-플레이 착지를 검증할 것.
 //    * [Counter] BlastDigivolveEffect(card, null) — 미러 팩토리(KeyWordEffects/BlastDigivolution.cs)는
-//      **잠복 STOP RD-P6C2-11**: 등록·CanUse는 안전하나 카운터가 실제 해소되면 CanActivate/ActivateCoroutine이
-//      NotSupportedException(Permanent.PermanentFrame 미러 부재). 정본 1:1 유지 — 이 카드의 T2B 타깃 축
-//      (OnSecurityCheck)은 별개 리전이라 클린. Blast 카운터를 실발화하는 witness는 만들지 않음(수확 원장 참조).
+//      **RD-P6C2-11 RESOLVED (2026-07-22, A8 구조골 GOAL 1)**: read-side PermanentFrame idiom 착지로
+//      CanActivate/ActivateCoroutine이 실행된다. 구 "잠복 STOP → NotSupportedException" 주석은 stale이라 정정
+//      (BT21_030 자기-정정 판례). Blast 카운터 활성화 경로 실행 — witness EXEMPLAR-T2B EX5_053 W3(flip) + A8G1-BlastDigivolve.
 //    * [On Deletion] → OnDestroyedAnyone + CanTriggerOnDeletion/CanActivateOnDeletion(AS-IS :154-170).
 //
 // 치환(substrate translations only):
@@ -64,7 +64,7 @@ public sealed class EX5_053 : CEntity_Effect
         }
         #endregion
 
-        #region Blast Digivolve (latent STOP RD-P6C2-11)
+        #region Blast Digivolve (RD-P6C2-11 RESOLVED)
         if (timing == EffectTiming.OnCounterTiming)
         {
             cardEffects.Add(CardEffectFactory.BlastDigivolveEffect(card: card, condition: null));

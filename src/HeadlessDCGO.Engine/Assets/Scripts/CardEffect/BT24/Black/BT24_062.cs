@@ -14,12 +14,13 @@
 // ② 프리미티브 매핑 (감사 축 이름 — coverage_exemplar_audit_2026-07-18.md §4 #10, 4축):
 //    * K:ArmorPurge — Armor Purge 팔(AS-IS :45). ★수확 예상 정정: 감사 §2′은 🟡stop-only(BT24_018)로 표기했으나
 //      미러 팩토리 ArmorPurgeEffect(ArmorPurge.cs:19)+ArmorPurgeProcess 실존 — 포팅 성공. 예상 빗나감 → 원장 정정.
-//    * P:AddAssemblyConditionClass — Assembly 등록(AS-IS :52). ★수확: None-타이밍 등록은 데이터-홀더로 착지
-//      (AD1_025 판례와 동형)하나, 이 조건을 소비하는 인터랙티브 Assembly 플레이는 STOP(RD-P6C1-5):
-//      PlayCardClass의 Assembly 컴포넌트 호출부가 SelectAssemblyClass 정적 헬퍼 경계에서 throw. 즉 등록 팔은
-//      실착지·소비 팔은 잠복 STOP(RD-EXT3-02, AD1_025 D2w-25와 동일 클러스터).
+//    * P:AddAssemblyConditionClass — Assembly 등록(AS-IS :52). None-타이밍 등록은 데이터-홀더로 착지
+//      (AD1_025 판례와 동형). **RD-EXT3-02 RESOLVED (해소 — G-AppF, SelectAssemblyClass 전이식·throw 부재):
+//      이 조건을 소비하는 인터랙티브 Assembly 플레이가 실행된다. 구 "SelectAssemblyClass 정적 헬퍼 경계 throw →
+//      잠복 STOP" 주석은 stale이라 정정(BT21_030 자기-정정 판례). 등록·소비 팔 전부 실착지 —
+//      witness EXEMPLAR-T3B BT24_062 W2(Assembly 소비 실행).**
 //    * P:CanNotSwitchAttackTargetClass — ESS 팔(AS-IS :206). 미러 CardEffects/CanNotSwitchAttackTargetClass 실존.
-//    * X:Assembly — Assembly 특수플레이(위 잠복 STOP과 동일 요지).
+//    * X:Assembly — Assembly 특수플레이(위 RD-EXT3-02 RESOLVED와 동일 요지).
 //    * (+P:BlockerSelfStaticEffect·P:AddSelfDigivolutionRequirementStaticEffect·P:PlayPermanentCards(진화원 root),
 //       S:SelectCardEffect(Root.Custom 진화원), T:OnEndAttack/OnEndTurn/WhenPermanentWouldBeDeleted)
 //

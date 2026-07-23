@@ -33,7 +33,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("sink Bounce (ReturnToHand) on a live-immune card is skipped", SinkBounce),
     ("sink PutSecurity (AddToSecurity) on a live-immune card is skipped", SinkPutSecurity),
     ("an OWN-sourced delete on the immune card still applies (source-relativity)", OwnSourceDeleteApplies),
-    ("Commons GainCanNotAttack refuses a grant to a live-immune target; accepts a non-immune one", CommonsGrantRefused),
+    ("Commons GainCanNotAttack LANDS on a live-immune target (AS-IS unconditional grant, RD-J-01) — inert while immune, ACTIVE once immunity lifts", CommonsGrantLandsInertUntilImmunityLifts),
     ("memory: a +delta from a non-turn source gates the TURN player (gainer), not the source owner", MemPositiveGatesGainer),
     ("memory: a -delta (opponent gains) is gated on the opponent; ungranted it applies", MemNegativeGatesOpponent),
 };
@@ -100,22 +100,49 @@ async Task OwnSourceDeleteApplies()
     Assert(InZone(ctx, P1, ChoiceZone.Trash, immune), "an OWN delete applies (opponent-only immunity does not shield it)");
 }
 
-async Task CommonsGrantRefused()
+// (RD-J-01 retarget) The old CommonsGrantRefused pinned the INVENTED grant-time immunity refusal (an immune
+// target's grant returned false). AS-IS grants UNCONDITIONALLY and gates at the live CanUse read-time, so a grant
+// onto a temporarily-immune target must LAND (inert while immunity holds) and become ACTIVE once immunity lifts —
+// the re-application semantics the invented guard broke. TfxCanNotBeAffectedToggle provides a flippable immunity.
+async Task CommonsGrantLandsInertUntilImmunityLifts()
 {
-    EngineContext ctx = Ctx();
-    using var _ = AmbientMatchContext.Enter(ctx);
-    var immune = await Place(ctx, P1, "IMMUNE", "TfxCanNotBeAffected");
-    var plain = await Place(ctx, P1, "PLAIN", "VANILLA");
-    var enemy = await Place(ctx, P2, "ENEMY", "VANILLA");
-    var enemyCard = new CardSource(ctx, enemy, P2);
+    TfxCanNotBeAffectedToggle.ImmunityActive = true;
+    try
+    {
+        EngineContext ctx = Ctx();
+        using var _ = AmbientMatchContext.Enter(ctx);
+        var immune = await Place(ctx, P1, "IMMUNE", "TfxCanNotBeAffectedToggle");
+        var plain = await Place(ctx, P1, "PLAIN", "VANILLA");
+        var enemy = await Place(ctx, P2, "ENEMY", "VANILLA");
+        var enemyCard = new CardSource(ctx, enemy, P2);
 
-    bool grantedToImmune = CardEffectCommons.GainCanNotAttack(
-        new Permanent(ctx, immune, P1), defenderCondition: null, EffectDuration.UntilOpponentTurnEnd, enemyCard);
-    Assert(!grantedToImmune, "GainRestrictionToPermanent refuses a live-immune target (grant-time CanNotBeAffected guard)");
+        // (RD-J-01) AS-IS grants unconditionally: the grant LANDS even on a live-immune target (no grant-time refusal).
+        bool grantedToImmune = CardEffectCommons.GainCanNotAttack(
+            new Permanent(ctx, immune, P1), defenderCondition: null, EffectDuration.UntilOpponentTurnEnd, enemyCard);
+        Assert(grantedToImmune, "RD-J-01: GainCanNotAttack LANDS on a live-immune target (AS-IS unconditional grant — the invented grant-time refusal is removed)");
 
-    bool grantedToPlain = CardEffectCommons.GainCanNotAttack(
-        new Permanent(ctx, plain, P1), defenderCondition: null, EffectDuration.UntilOpponentTurnEnd, enemyCard);
-    Assert(grantedToPlain, "GainRestrictionToPermanent accepts a non-immune target (control)");
+        bool grantedToPlain = CardEffectCommons.GainCanNotAttack(
+            new Permanent(ctx, plain, P1), defenderCondition: null, EffectDuration.UntilOpponentTurnEnd, enemyCard);
+        Assert(grantedToPlain, "control: the grant also lands on a non-immune target");
+
+        // Retrieve the granted restriction from the target's LIVE effect list. Its CanUse re-reads
+        // !CanNotBeAffected(cause) each call, so the SAME stored grant flips with the immunity state.
+        ICardEffect Restriction() => new Permanent(ctx, immune, P1)
+            .EffectList(EffectTiming.None)
+            .First(e => e is HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.CanNotAttackTargetDefendingPermanentClass);
+
+        // While immune: the granted restriction is INERT (its CanUse is false — the opponent-sourced cause is immunity-gated).
+        Assert(!Restriction().CanUse(null), "inert while immune: the granted restriction's CanUse is FALSE (live immunity gate)");
+
+        // Immunity expires -> the SAME granted restriction becomes ACTIVE (CanUse true). The invented grant-time
+        // refusal would have stored NOTHING, so this re-application could never happen.
+        TfxCanNotBeAffectedToggle.ImmunityActive = false;
+        Assert(Restriction().CanUse(null), "ACTIVE after immunity lifts: the same granted restriction's CanUse is now TRUE (AS-IS re-application)");
+    }
+    finally
+    {
+        TfxCanNotBeAffectedToggle.ImmunityActive = true;
+    }
 }
 
 // ===== P1-1: memory-gain gate keys on the GAINING player =============================================

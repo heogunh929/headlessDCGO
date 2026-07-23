@@ -1090,8 +1090,25 @@ public sealed class CardSource
     }
 
     /// <summary>The card's PRINTED level, or -1. AS-IS <c>HasLevel</c> is printed-data based
-    /// (CEntity_Base.cs:317) — level-change folds never alter it.</summary>
-    private int PrintedLevel => Definition?.Metadata is { } m && m.TryGetValue("level", out object? raw) && raw is int lv ? lv : -1;
+    /// (CEntity_Base.cs:317) — level-change folds never alter it. ADAPTATION (mirrors
+    /// <see cref="BaseCardDP"/>): the mirror materialises the printed level on the card INSTANCE metadata
+    /// ("level") at creation, so this reads the instance value first (the exact seed the engine used before
+    /// the LevelOf re-point), falling back to the definition and then -1 for a level-less card. Reading the
+    /// materialised instance value is NOT a fold — it is the printed base, so the "folds never grant a level"
+    /// contract stands.</summary>
+    private int PrintedLevel
+    {
+        get
+        {
+            if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? inst) && inst is not null
+                && inst.Metadata.TryGetValue("level", out object? raw) && raw is int instanceLevel)
+            {
+                return instanceLevel;
+            }
+
+            return Definition?.Metadata is { } m && m.TryGetValue("level", out object? def) && def is int lv ? lv : -1;
+        }
+    }
 
     /// <summary>(A3 / P6C3 re-fold) The card's level (mirror of <c>Level =&gt; TreatedLevel</c>,
     /// CardSource.cs:941-975): printed level transformed by the card's OWN

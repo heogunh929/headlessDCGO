@@ -27,6 +27,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT25_061 W1: [Start of Your Main Phase] 발화 → Appmon 트레잇 손패 트래시 → Draw 1 + 메모리 +1", BT25061_StartOfMainDiscardDrawsAndGainsMemory),
     ("BT25_102 W1: [Blocker]/[Link+1] 술어 — 흑/적+[TS] 배틀에어리어 디지몬에 TRUE, 비-[TS]에 FALSE(부정 단언)", BT25102_BlockerAndLinkMaxPredicates),
     ("BT25_102 W2 (P1-1 face-gate): Ignore Color Requirement 게이트 — 시큐리티 전부 face-down이면 TRUE, 1장 face-up이면 FALSE(SecurityFaceState)", BT25102_IgnoreColorGateReadsSecurityFaceState),
+    ("BT25_102 W3 (REPAIR stale-STOP): [Main] ReplaceBottomSecurityWithFaceUpOption 실행(RD-P6C3-B1 UN-STOP) — 바텀 시큐리티→손패, self가 face-up 바텀 시큐리티로 착지", BT25102_MainReplacesBottomSecurity),
     ("BT25_101 W1: [Link Condition] AddLinkConditionClass.GetLinkCondition — cost=3 + [Vulcanusmon]명 digimonCondition 술어 평가", BT25101_LinkConditionPredicateAndCost),
     ("EX7_058 W1: [On Play] 발화 → 상대 디지몬 선택 → UntilOwnerTurnEndEffects에 [End of Attack] 삭제 그랜트 등재", EX7058_OnPlayGrantsEndOfAttackDelete),
     ("EX7_010 W1: [When Digivolving] 발화 → 진화원의 Option 카드 1장 트래시", EX7010_WhenDigivolvingTrashesOption),
@@ -194,6 +195,38 @@ async Task BT25102_IgnoreColorGateReadsSecurityFaceState()
     SecurityFaceState.Stamp(ctx.CardInstanceRepository, other, faceUp: true);
     AssertTrue(!card.IgnoreColorConditionActive(),
         "one face-up security card: the Ignore Color Requirement gate is FALSE");
+}
+
+// BT25_102 W3 (REPAIR batch A — stale-STOP strike) — the [Main] body's
+// ReplaceBottomSecurityWithFaceUpOptionEffect is PORTED (RD-P6C3-B1 UN-STOP, CardEffectFactory.cs:259-269);
+// the earlier "throws NotSupportedException at activation" note was stale. This drives the [Main] OptionSkill
+// ActivateClass and proves the previously-"throwing" Replace path RUNS: the bottom security card moves to hand
+// and BT25_102 lands as the face-up bottom security card (BT25_094 LT-B W2 sibling).
+async Task BT25102_MainReplacesBottomSecurity()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPilotMatchAsync(seed: 8303, MonoDecks("BT1_028", "BT1_028"));
+    await ReachMainWaitAsync(match);
+    HeadlessEntityId bt = Stage(match, P1, "BT25_102", ChoiceZone.Hand, "1:hand:BT25102main");
+    // Bottom security card (the Replace target).
+    HeadlessEntityId sec = StageSynthetic(match, P1, "EXT3-SECBOT", dp: 0, level: 1, "1:sec:secbot",
+        cardType: "Digimon", zone: ChoiceZone.Security);
+    // The follow-up "play 1 [TS] Digimon for -3" hand prompt is optional — skip it (isolate the Replace).
+    policy.On(req => true, req => ChoiceResult.Skip(), oneShot: false);
+
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        var cs = new Cec.CardSource(match.Context, bt, P1);
+        var main = (Cfx.ActivateClass)cs.EffectList(Cec.EffectTiming.OptionSkill).First();
+        await main.Activate(new System.Collections.Hashtable());
+    }
+    await DriveUntilAsync(match, m => ZoneCards(m, P1, ChoiceZone.Hand).Contains(sec)
+        || ZoneCards(m, P1, ChoiceZone.Security).Contains(bt) || m.IsTerminal());
+
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Hand).Contains(sec),
+        $"ReplaceBottomSecurityWithFaceUpOption(RD-P6C3-B1 UN-STOP): the old bottom security card is now in hand " +
+        $"[hand:{string.Join(",", ZoneCards(match, P1, ChoiceZone.Hand).Select(i => i.Value))}]");
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Security).Contains(bt),
+        "ReplaceBottomSecurityWithFaceUpOption: BT25_102 is now placed as the face-up bottom security card");
 }
 
 // ═══════════════════════════════════ BT25_101 ═══════════════════════════════════

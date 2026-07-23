@@ -17,9 +17,11 @@
 //       a matching permanent is blocked during its owner's active phase, a non-matching one unsuspends (predicate
 //       narrowing), and the grant expires at the AS-IS reset (TSM:256 turn-player UntilOwnerActivePhase bucket, which
 //       AddEffectToPlayer routes into the card owner's Enemy).
-//   (c) an immune target refuses the grant (grant-time CanNotBeAffected guard) — the bool grant returns false and the
-//       immune card unsuspends normally; a non-immune control accepts the grant and stays suspended.
+//   (c) RD-J-01: a grant onto a live-immune target LANDS (AS-IS grants unconditionally — no grant-time refusal) but
+//       is INERT while immunity holds (CanUnsuspend stays TRUE), and the SAME grant becomes ACTIVE once immunity
+//       lifts (CanUnsuspend flips FALSE) — the re-application semantics the invented guard broke.
 
+using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;   // TfxCanNotBeAffectedToggle
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;   // CardEffectCommons / Permanent / CardSource / TurnStateMachine
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -37,7 +39,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(a) BT7_055 UntilNextUntap: grant expires at TSM:259 reset, next unsuspend works", A_PermanentGrantExpiresNextUntap),
     ("(b) BT1_113 player-scope UntilOwnerActivePhase: matching blocked, non-matching unsuspends", B_PlayerScopeGrantNarrows),
     ("(b) BT1_113 player-scope: grant expires at TSM:256 reset, next unsuspend works", B_PlayerScopeGrantExpires),
-    ("(c) immune target refuses the grant (CanNotBeAffected guard); non-immune control accepts it", C_ImmuneRefusesGrant),
+    ("(c) RD-J-01: grant LANDS on a live-immune target — inert while immune, ACTIVE once immunity lifts", C_ImmuneGrantLandsInertUntilImmunityLifts),
     ("(d) ST17_08 UntilOpponentTurnEnd: blocked through opponent turn, cleared by REAL HeadlessEndTurnCleanupFlow, unsuspends next untap", D_UntilOpponentTurnEndClearedByEndTurnCleanup),
 };
 
@@ -144,28 +146,42 @@ async Task B_PlayerScopeGrantExpires()
 
 // ===== (c) immunity guard ===========================================================================
 
-async Task C_ImmuneRefusesGrant()
+async Task C_ImmuneGrantLandsInertUntilImmunityLifts()
 {
-    EngineContext ctx = Ctx(turnPlayer: P1);   // P1 owns the (immune) targets; P2 is the opponent effect source.
-    using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(ctx);
-    HeadlessEntityId source = Place(ctx, P2, "C-SRC", "VANILLA", suspended: false);   // opponent of the targets
-    HeadlessEntityId immune = Place(ctx, P1, "C-IMM", "TfxCanNotBeAffected", suspended: true);
-    HeadlessEntityId plain = Place(ctx, P1, "C-PLN", "VANILLA", suspended: true);
+    TfxCanNotBeAffectedToggle.ImmunityActive = true;
+    try
+    {
+        EngineContext ctx = Ctx(turnPlayer: P1);   // P1 owns the (immune) targets; P2 is the opponent effect source.
+        using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(ctx);
+        HeadlessEntityId source = Place(ctx, P2, "C-SRC", "VANILLA", suspended: false);   // opponent of the targets
+        HeadlessEntityId immune = Place(ctx, P1, "C-IMM", "TfxCanNotBeAffectedToggle", suspended: true);
+        HeadlessEntityId plain = Place(ctx, P1, "C-PLN", "VANILLA", suspended: true);
 
-    bool grantedToImmune = CardEffectCommons.GainCanNotUnsuspend(
-        new Permanent(ctx, immune, P1), EffectDuration.UntilNextUntap, new CardSource(ctx, source, P2),
-        condition: () => true, effectName: "This Digimon can't unsuspend.");
-    Assert(!grantedToImmune, "grant REFUSED on a live-immune target (grant-time CanNotBeAffected guard)");
+        // (RD-J-01) AS-IS grants unconditionally: the grant LANDS even on a live-immune target (no grant-time refusal).
+        bool grantedToImmune = CardEffectCommons.GainCanNotUnsuspend(
+            new Permanent(ctx, immune, P1), EffectDuration.UntilNextUntap, new CardSource(ctx, source, P2),
+            condition: () => true, effectName: "This Digimon can't unsuspend.");
+        Assert(grantedToImmune, "RD-J-01: GainCanNotUnsuspend LANDS on a live-immune target (AS-IS unconditional grant)");
 
-    bool grantedToPlain = CardEffectCommons.GainCanNotUnsuspend(
-        new Permanent(ctx, plain, P1), EffectDuration.UntilNextUntap, new CardSource(ctx, source, P2),
-        condition: () => true, effectName: "This Digimon can't unsuspend.");
-    Assert(grantedToPlain, "grant ACCEPTED on a non-immune control");
+        bool grantedToPlain = CardEffectCommons.GainCanNotUnsuspend(
+            new Permanent(ctx, plain, P1), EffectDuration.UntilNextUntap, new CardSource(ctx, source, P2),
+            condition: () => true, effectName: "This Digimon can't unsuspend.");
+        Assert(grantedToPlain, "control: the grant lands on a non-immune target");
 
-    await DriveActivePhase(ctx);
+        // While immune: the granted block is INERT via the live CanUnsuspend read (immunity gates its CanUse). The
+        // non-immune control is blocked.
+        Assert(new Permanent(ctx, immune, P1).CanUnsuspend, "inert while immune: the granted can't-unsuspend block does not bite (CanUnsuspend TRUE)");
+        Assert(!new Permanent(ctx, plain, P1).CanUnsuspend, "control: the block bites a non-immune target (CanUnsuspend FALSE)");
 
-    Assert(!new Permanent(ctx, immune, P1).IsSuspended, "immune target unsuspends normally (never blocked)");
-    Assert(new Permanent(ctx, plain, P1).IsSuspended, "non-immune control stays suspended (grant took hold)");
+        // Immunity expires -> the SAME granted block becomes ACTIVE (CanUnsuspend FALSE). The invented grant-time
+        // refusal would have stored nothing, so this re-application could never happen.
+        TfxCanNotBeAffectedToggle.ImmunityActive = false;
+        Assert(!new Permanent(ctx, immune, P1).CanUnsuspend, "ACTIVE after immunity lifts: the same granted block now bites (CanUnsuspend FALSE — AS-IS re-application)");
+    }
+    finally
+    {
+        TfxCanNotBeAffectedToggle.ImmunityActive = true;
+    }
 }
 
 // ===== (d) UntilOpponentTurnEnd cleared by the REAL end-turn cleanup (ST17_08 idiom) ================

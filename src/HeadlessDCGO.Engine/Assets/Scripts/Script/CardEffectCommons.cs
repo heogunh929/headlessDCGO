@@ -4329,8 +4329,15 @@ public static partial class CardEffectCommons
     /// printed level (Digimon / DigiEgg do; Tamers / Options do not).</summary>
     public static bool TopCardHasLevel(CardSource card, HeadlessEntityId id) => LevelOf(card, id) > 0;
 
-    /// <summary>Mirror of the original <c>Permanent.Level</c> (entity-id form): the printed level of the
-    /// battle-area card topped by <paramref name="id"/> (0 when unknown), read from instance/def metadata.</summary>
+    /// <summary>Mirror of the original <c>Permanent.Level</c> (entity-id form): the battle-area card topped by
+    /// <paramref name="id"/>, EFFECT-FOLDED. (permanent_fidelity_audit_2026-07-20 §결론 3b) Delegates to the
+    /// folding <see cref="Permanent.Level"/> — exactly as <see cref="CurrentDp"/> delegates to
+    /// <c>Permanent.DP</c> — so live <see cref="IChangePermanentLevelEffect"/> grants (which the old
+    /// metadata-only read bypassed) are visible to every gate routed through this helper. Reconciliation of the
+    /// two sentinels: <c>Permanent.Level</c> returns its -1 no-level sentinel, whereas this helper's historic
+    /// contract is 0 for unknown/no-level (and <see cref="TopCardHasLevel"/> = <c>LevelOf &gt; 0</c>); the early
+    /// guard keeps unknown→0 and the final clamp folds the -1 no-level sentinel back to 0, so no consumer
+    /// (numeric compare or HasLevel gate) sees a negative value.</summary>
     public static int LevelOf(CardSource card, HeadlessEntityId id)
     {
         ArgumentNullException.ThrowIfNull(card);
@@ -4339,25 +4346,8 @@ public static partial class CardEffectCommons
             return 0;
         }
 
-        return ReadLevel(instance.Metadata)
-            ?? (card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) && def is not null
-                ? ReadLevel(def.Metadata) ?? 0
-                : 0);
-    }
-
-    private static int? ReadLevel(IReadOnlyDictionary<string, object?> metadata)
-    {
-        foreach (string key in new[] { "level", "Level" })
-        {
-            if (metadata.TryGetValue(key, out object? raw))
-            {
-                if (raw is int i) return i;
-                if (raw is long l) return (int)l;
-                if (raw is string s && int.TryParse(s, out int p)) return p;
-            }
-        }
-
-        return null;
+        int level = new Permanent(card.Context, id, instance.OwnerId).Level;
+        return level < 0 ? 0 : level;
     }
 
     /// <summary>Mirror of the original <c>HasMatchConditionOpponentsPermanent</c> (entity-id predicate form):
