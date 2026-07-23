@@ -5,6 +5,72 @@
 - 목적: 개발된 프리미티브가 (1) AS-IS를 **1:1 미러**했는지, (2) **호출부가 없다는 이유로 스킵**한 부분이 있는지를 전수 판정하고, AS-IS 함수 ↔ TO-BE 함수 매핑을 확정한다.
 - 파일 경로 약칭: **CPF** = `src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CardPortingFramework.cs`. AS-IS 파일은 전부 `DCGO/Assets/Scripts/Script/` 하위.
 
+---
+
+# 2026-07-23 개정 (소프트 동결 시점 · HEAD 5e314380)
+
+> **읽는 법**: 이 문서의 §감사기준 이하 본문은 **2026-07-08 작성 + 07-09까지의 상환 주석**이 누적된 역사 기록이다(각 심볼 행에 `~~취소선~~ ✅상환` 형태로 07-08/09 시점 판정과 그 상환이 병기됨). 아래 개정 블록은 **07-09 이후 소프트 동결(2026-07-23)까지의 구조 변화**를 반영해, 대량 카드 포팅(Haiku 파일럿)이 참조할 **현재 실상태**를 상단에 확정한다. **본문의 07-08 판정은 그대로 두되(`[07-08 판정]` 태그로 읽을 것), 아래 개정과 충돌하면 개정이 우선한다.** 판정 근거는 전부 HEAD `5e314380` 실소스 grep(`--binary-files=text`)·census 07-22 대조로 재검증했다(문서·기억 불신 원칙).
+
+## R0. 동결 계기판 (07-23 실측)
+
+- **발명물 물리 삭제 확정**: `EffectRegistry`·`EffectBinding`·`LegacyBindingBridge`·`IActivatedCardEffect`·`ToBinding`·`PermanentEffectFactoryBinding` 전부 **클래스/인터페이스 정의 0 · live 참조 0**(grep 실측). 07-08 본문이 이들을 "seal/binding-rule 소비"로 판정한 항목(§D DeleteSelf/Collision, §E name-only seal 3종)은 전부 **AS-IS 정본 경로로 재배선 후 발명물 청산 완료**로 갱신 — 아래 R3 참조.
+- **live NotSupportedException = 4좌석**(전수 원장-매핑, 동결 증거 §7과 동기):
+  1. `GManager.cs:198` — RD-W4-3(브릿지 W4 미지원 컴포넌트 타입, **조건부** — 새 컴포넌트 요청 시에만 좌석화, 심층-불가 아님)
+  2. `CardController.cs:4283` — 리뷰3 P2-② 코퍼스 **중복-키 방어가드**(fidelity 갭 아님 — DISPATCH-REMAP 방언이 효과당 1키 강제; 잘못 배선한 카드를 잡는 가드)
+  3. `Permanent.cs:4549` — MIG4-DETACH-LIVE-TOP 직접-라이브-탑 가드
+  4. `CardEffectCommons/TrashLinkedCards.cs:72` — RD-SKEL-01 **dead-가드**(AS-IS 내부 비대칭 = LinkedCards 풀 vs DigivolutionCards.Count 예산 불일치 → 충실 headless ChoiceProvider 번역 시 비종결 루프. 얕은 뭉갬/발명 가드 회피 위해 STOP-가드. **진짜 AS-IS 한계**)
+- **게이트**: 전체 스위트 425/425 green · 확장 다이제스트 10시드 + behavior 5시드 bit-identical · 500판 strict 퍼징 PASS(결함 0) · 동결-게이트 적대리뷰 GO(엔진 P0/P1 0).
+
+## R1. 요약표 — 신구 대비 (07-08 판정 vs 07-23 실상태)
+
+**주의**: 두 시점은 **카운트 단위가 다르다**. 07-08 감사 = "public 팩토리 메서드/함수" 182심볼(허브 파일 내 메서드 단위). census 07-22/07-23 = "파일/인터페이스/kind-class" 340유닛(B군/R시리즈가 허브 파일을 파일-당-프리미티브로 재분해). **두 숫자는 직접 비교 불가** — 아래 표는 (A) 07-08 렌즈의 상환 진척, (B) 07-23 census 렌즈의 구조 상태를 **각각** 제시한다.
+
+### (A) 07-08 렌즈 — 182 심볼의 상환 진척 (본문 주석 집계)
+
+| 원본 그룹 | 수 | [07-08] PASS | [07-08] PARTIAL | [07-08] FAIL(+MISSING) | → [07-23] 실동작-버그(a/b/c) 잔존 | → [07-23] 구조-only FAIL(결과동일·폴딩) |
+|---|---:|---:|---:|---:|---:|---:|
+| CardEffectFactory | 41 | 2 | 14 | 25 | **0**(타이밍-폴딩 19 = 정본 확정) | 타이밍-클래스 19 (uniform ActivateClass) + PlaceToSecurity·ActivateClassesForShared 등 |
+| CardEffectCommons(비-토큰) | 22 | 6 | 9 | 7 | **0** | success-list 콜백 int화 등 계약 잔여 |
+| CardEffectCommons(토큰) | 18 | 15 | 2 | 1 | **0**(PlayToken Form/Attr 상환·empty-frame=UI 제외 확정) | — |
+| PermanentEffectFactory | 6 | 0 | 2 | 4 | **0**(Immunity/Collision AS-IS 오버로드 상환·발명 binding 청산) | AddDetail(cosmetic)·CanNotSwitchAttackTarget(stale-capture) |
+| 효과 본체 `*Class` | 95 | 27 | 31 | 37 | **0**(FAILa~d 전량 상환·오분류 5 LIVE 정정) | 타이밍-폴딩·Change* Func-transform·Select* 고급술어 등 |
+| **합계** | **182** | **50** | **58** | **74** | **실동작-버그 0** | 구조-only 잔여만 |
+
+- **07-08의 "완전 FAIL 51" → 07-23 실동작-버그 잔존 = 0.** (a)틀린결과 15 + (b)dead 2 + (c)트리거미발화 1 = **18건 전량 상환**(FAILa-01~13, FAILb-01/02, FAILc-01, FAILd-01~08 등). (b)그룹 중 5건(Scapegoat·TreatAsDigimon·Vortex·DeleteSelf·Collision)은 **오분류 정정=LIVE**(코드 검증). (d)MISSING 27 중 실카드 수요 항목 상환 완료.
+- **딥 잔여 1건**: `CanNotTrashFromDigivolutionCardsClass`(전역 source-protection 스캔) — 07-23 현재 kind-class 미러 파일 존재(`CardEffects/CanNotTrashFromDigivolutionCardsClass.cs`, 40줄) + 소비자 배선(MatchStateMutationSink·DeletionSourceTrash·DigivolutionStackHelpers). census는 FULL 계수. **전역-스캔 심층 충실성은 유일 호출카드 BT9_109가 STOP-포팅 상태라 정본 카드로 재검증 불가** — 포팅 재개 시 BT9_109 재활로만 확인 가능(coverage 감사 §6 `딥 잔여`).
+
+### (B) 07-23 census 렌즈 — 340 유닛의 구조 상태 (파일/인터페이스/kind-class)
+
+| 카테고리 | 유닛 | [census 07-22] FULL/SKEL/UNP/DIV | → [07-23 HEAD 재검증] |
+|---|---:|---|---|
+| A. GiveEffect | 33 | 28 / 4 / 1 / 0 | **33 / 0 / 0 / 0** — SKEL 4(ChangeLinkMax·StartOfMainAttack·ChangeDigivolutionCost·IgnoreDigivolutionRequirement) **전부 본체 충전**(스켈레톤-보일러 0줄 → 34~109줄) · UNP `CanNotBeDeletedByBattle`(permanent-scope) **충전(94줄, 비대칭 갭 해소)** |
+| B. CardEffectFactory(top27+KeyWord32) | 59 | 57 / 0 / 0 / 2 | **59 / 0 / 0 / 0** — DIV 2(BlastDigivolution·BlastDNADigivolution) **전부 포팅**(field-frame W4 인덱스 적응; Blast=07-22 STOP-stale 실증·verbatim 미러, BlastDNA=07-23 잔여블로커 전폐쇄) |
+| C. CardEffects/*.cs (kind-class) | 73 | 73 / 0 / 0 / 0 | **73 / 0 / 0 / 0** (무변) |
+| D. CardEffectInterfaces.cs | 74 | 74 / 0 / 0 / 0 | **74 / 0 / 0 / 0** (무변) |
+| E. KeyWordEffects 본체 | 29 | 28 / 1 / 0 / 0 | **29 / 0 / 0 / 0** — SKEL 1(`KeyWordEffects/Training.cs`) **본체 충전**(59줄) |
+| F. Commons(top11+CanUse37+MinMax7) | 55 | 47 / 8 / 0 / 0 | **54 / 0 / 0 / 1** — SKEL 8 중 7(MinMax_DP_Cost_Level IsMax/Min×Cost/DP/Level/DigivolutionCards) **전부 충전**, 1(`TrashLinkedCards`)은 **DIVERGENT로 이동**(RD-SKEL-01 dead-가드, AS-IS 한계) |
+| G. Select*/choice | 17 | 10 / 3 / 4 / 0 | **10 / 2 / 4 / 0**(엔진 프리미티브 기준) — SKEL `SelectJogressEffect`는 **UI-플로우 오케스트레이터로 재분류·의도적 bodiless**(substrate DNA 경로가 대체). SelectCardPanel/SelectDeck(SKEL 2)·SelectBattleDeck/Mode/Command/CommandPanel(UNP 4) = **UI 패널, 엔진 스코프 밖**(동결 계약 제외 대상) |
+| **합계** | **340** | **317 / 16 / 5 / 2** | **엔진-프리미티브 잔여 비-FULL: DIVERGENT 3(TrashLinkedCards + Blast 2는 해소) → 실질 1(TrashLinkedCards) + UI 6(스코프 밖)** |
+
+**핵심 델타**: census 07-22의 SKELETON 16·UNPORTED 5·DIVERGENT 2 (총 23 비-FULL) 중, **엔진-프리미티브 실 갭은 07-23 HEAD에서 1건(TrashLinkedCards RD-SKEL-01, AS-IS 한계 dead-가드)으로 수렴**. 나머지는 (i)스켈레톤 소진 아크에서 본체 충전(13+1+7=글자 그대로 채워짐), (ii)Blast 2종 포팅, (iii)UI 패널 6종(엔진 스코프 밖)으로 정리됨.
+
+## R2. 구조 재해석 — 타이밍-클래스 "결과동일 FAIL"의 종결
+
+07-08 본문이 최대 FAIL 원인으로 지목한 **타이밍-클래스 폴딩 19종**(OnPlay/OnDeletion/Counter/EndOf*/StartOf*/When*/YourTurn/OpponentsTurn/SecurityClass 등 → uniform `ActivatedEffect`+triggerGate 카드별 인라인)은, **창엔진 SkillWindowSupply 컷오버 + A군 키워드 재하우징 18/18** 이후 **uniform ActivateClass가 AS-IS 정본 경로임이 확정**됐다(coverage_exemplar_audit §2 "은퇴가 아니라 표현 방식 확정"). → 이 19종은 **"1:1 팩토리 심볼 부재"를 갭으로 계상하지 않는다**. 정본 카드가 해당 타이밍 창을 실발화하면 커버로 친다. 잔여 부채는 `ActivateClassesForSharedEffects`의 **공유 hashValue once-per-turn** 캡뿐인데, 07-18 실측(§8)에서 "순수 디스패처(공유 캡 불요)"로 격파 — 다중발동 위험 실증 없음.
+
+## R3. 07-08 본문 참조 중 스테일이 된 인프라 (개정 필독)
+
+07-08 본문(특히 §D·§E)이 **살아있는 것으로 서술한 발명 클러스터는 전부 물리 삭제**됐다. 본문을 읽을 때 아래 치환을 적용하라:
+
+| 07-08 본문 서술 | 07-23 실상태 |
+|---|---|
+| §D `Binding DeleteSelf (PermanentEffectFactoryBinding.cs:375)` · `Binding Detail (:444)` | **PermanentEffectFactoryBinding 삭제.** DeleteSelf/AddDetailClass는 **AS-IS `PermanentEffectFactory.cs` 본체**로 live(발명 string-key binding-rule 오버로드 = G-clean 배치서 제거) |
+| §E "FAIL — name-only seal (Scapegoat·TreatAsDigimon·Vortex)" | **오분류 정정 = 전부 LIVE**(07-09 검증). producer=`ContinuousPlayerScopeKeywordEffect`, 소비자=`ContinuousKeywordGate`/`DeletionReplacementGate` |
+| §D DeleteSelfEffect/CollisionEffect "0 callers, binding-rule 폼" | `PermanentEffectFactory.cs`에 **AS-IS 형태 오버로드**로 live(DigimonEffectImmunity:53·OptionEffectImmunity:86·CollisionEffect:121) + G3J-002 테스트 |
+| "EffectRegistry/EffectBinding/ToBinding/IActivatedCardEffect 경유" 일반 | **전부 삭제.** live 경로 = AS-IS EffectList 버킷 스캔(NewModelContinuousScan·Permanent.CanX getter) |
+
+---
+
 ## 감사 기준 (두 렌즈)
 
 - **LENS1 (1:1 미러)**: 구조 + 동작 재현. 결과-동일이라도 **구조가 다르면 FAIL**. 술어/파라미터를 AS-IS는 평가하나 TO-BE가 무시·하드코딩·평면화 = FAIL. 가드/조건/임계값/분기 누락 = FAIL.
@@ -12,7 +78,9 @@
 
 판정: **PASS**(1:1) · **PARTIAL**(일부 미러/일부 이탈) · **FAIL**(구조·동작 상이) · **MISSING**(TO-BE 부재/스텁).
 
-## 요약 (인벤토리 182 심볼, 코드 직접 추출)
+## 요약 (인벤토리 182 심볼, 코드 직접 추출) — [07-08 판정 · 역사 보존]
+
+> 이 표는 **2026-07-08 시점 판정**이다. 상환 진척·신구 대비는 상단 **R1 요약표**를 우선하라.
 
 | 원본 그룹 | 파일 | 수 | PASS | PARTIAL | FAIL(MISSING 포함) |
 |---|---|---:|---:|---:|---:|
@@ -84,6 +152,8 @@ PlayPermanentCards(:23→CPF:8360, CanPlayAsNewPermanent에 cardEffect:null·isB
 ---
 
 ## D. PermanentEffectFactory (6) — 전부 미배선 static binding(zero callers) = 호출부-없음 스킵 전형
+
+> **[07-23 개정]** 아래 표의 `Binding …(PermanentEffectFactoryBinding.cs:…)` 서술은 **스테일**. `PermanentEffectFactoryBinding` 클러스터는 **물리 삭제**됐고, DeleteSelf·AddDetailClass·Immunity·Collision은 전부 **AS-IS `PermanentEffectFactory.cs` 본체 오버로드**로 live(R3 표 참조). DigimonEffectImmunity/OptionEffectImmunity/CollisionEffect는 07-08 상환 완료(FAILa-03). 잔여 실-갭 없음(DeleteSelf turn-branch·AddDetail cosmetic만 07-08 판정대로 저영향).
 
 | AS-IS | AS-IS loc | TO-BE | 판정/이탈 |
 |---|---|---|---|
@@ -204,3 +274,92 @@ AddBurstDigivolutionConditionClass · AddDigiXrosConditionClass(costReduction �
 - CollisionClass(predicate-grant 형 부재) · DisableEffectClass(선택적 per-effect disable 부재) · SelectCardConditionClass(고급 술어 미평가) · SelectDigiXrosClass(ByPreSelectedList+substitution 드롭).
 
 > 상환 순서: **완전 FAIL (a)(b)(c) 먼저**(지금 틀림) → **(d) 중 실카드 수요 큰 것**(CanNotSelectBySkill 등) → **결과동일 FAIL**(구조 복원, 저우선). ⚠️ 표기 verify 2건(StartOfYourMainPhase 타이밍, DeckTopBounce 프롬프트)은 상환 전 재대조.
+
+---
+
+# R4. 현재 정본 idiom 색인 (대량 포팅 참조 · 2026-07-23)
+
+> **용도**: Haiku 파일럿이 프리미티브를 호출할 때 참조할 **정본 예제 카드**(포팅 코퍼스 339장 중, 미러 파일 경로 병기)와 **호출 관용구**. 카드 경로 규약 = `src/HeadlessDCGO.Engine/Assets/Scripts/CardEffect/<SET>/<Color>/<ID>.cs` (예: `.../CardEffect/BT13/Blue/BT13_023.cs`). 예제 선정은 coverage_exemplar_audit_2026-07-18.md §3 커버리지 행렬의 **클린 커버(✅) 카드**와 연결 — 아래는 그 EXEMPLAR 앵커의 프리미티브-축 발췌. `∅`/`❌`(정본 부재) 축은 §R5 잔여 리스트로 넘긴다.
+
+## R4.1 프리미티브 축 — 정본 앵커 (coverage §3 ✅ 발췌)
+
+| 프리미티브/축 | 정본 예제 카드 | 미러 경로(색상 세트) | 관용구 메모 |
+|---|---|---|---|
+| ActivateClass(uniform 타이밍-창) | BT13_023, BT16_025 | BT13/Blue, BT16/? | 전 타이밍-클래스(OnPlay/When*/EndOf*/StartOf* 등 19종)의 **정본 진입점** — triggerGate로 창 지정(R2) |
+| SelectPermanentEffect | BT13_023, BT16_025, BT19_024 | — | 후보-스코프 연속 제약(CanNotSelectBySkill 등)이 BuildRequest 단일 chokepoint에서 배제 |
+| SelectHandEffect | BT19_024, BT1_039, BT1_056 | — | 손패 선택 정본 |
+| SelectCardEffect | BT19_024, BT1_010, BT1_011 | — | 범용 카드 선택 |
+| DrawClass | BT1_003, BT1_006 (18장) | BT1/? | OnDraw 트리거 sink 배선 확인됨 |
+| DestroyPermanentsClass | BT1_084, BT9_081 | — | CanBeDestroyedBySkill 가드 경유 |
+| SuspendPermanentsClass | BT16_025, BT1_086 (10장) | — | already-suspended 필터·DPWhenSuspended 스냅샷 확인 |
+| SimplifiedSelectCardConditionClass | BT1_010, BT1_048 (9장) | — | Mode 기반 술어 |
+| TrashDigivolutionCardsFromTopOrBottom | BT13_023, BT1_043 (9장) | — | (count,isFromTop) 계약 |
+| DisableEffectClass | BT1_025 | — | (07-08 FAIL 표기 ↔ 실 커버; E-3 상환 반영) |
+| PlayCardClass | BT1_078 | — | 구조 분리 폼 |
+| HatchDigiEggClass | BT1_089 | — | sink 위임 |
+| ChangeCostClass | BT2_023, BT2_099 | BT2/? | CostModification 정본 |
+| CanNotPlayClass | BT8_057, EX1_072 | — | ICanNotPlay 연속스캔(E-3 상환) |
+| AddJogressConditionClass / Jogress·DNA | BT16_025 | BT16/? | 특수플레이 정본; DNA는 substrate ChoiceProvider 경로 |
+| PlaySelfTamerSecurityEffect / SetMemoryTo3 | BT1_085, BT1_086, BT1_087 | BT1/? | [Security] 타이머 정본 |
+| AddActivateMainOptionSecurityEffect | BT1_094, BT1_101 | BT1/? | [Main]→[Security] 파생 |
+| AddThisCardToHand | BT1_093, BT1_096 | BT1/? | — |
+| PlayPermanentCards | BT19_024, BT1_044 | — | CanPlayAsNewPermanent 게이트 |
+
+## R4.2 키워드/특수플레이 축 — 정본 앵커 (coverage §3 ②·⑤ ✅)
+
+| 축 | 정본 예제 | 메모 |
+|---|---|---|
+| Retaliation | BT2_074 | — |
+| Pierce | BT1_022, BT1_026, BT1_081 | OnDetermineDoSecurityCheck 연동 |
+| Blocker | BT19_071, BT1_023, BT1_031 | A군 재하우징 후 정본 |
+| Jamming | BT1_016, BT1_098, BT2_057 | — |
+| Reboot | BT2_055, BT2_063, BT2_065 | — |
+| Collision / Fragment | EX8_051 | OnCounterTiming 동반 |
+| Scapegoat | EX8_061 | LIVE(오분류 정정) |
+| Barrier | BT14_035 | WhenPermanentWouldBeDeleted 창 |
+| Evade / Decode / Partition | BT13_023 / BT19_024 / BT16_025 | — |
+| DigiBurst | ST4_13 | — |
+| TokenPlay | BT8_092 | Form/Attribute 방출 상환(FAILa-08) |
+| CostModification | BT2_023, BT2_099 | — |
+
+## R4.3 창-타이밍 축 — 정본 앵커 (coverage §3 ③ ✅ 발췌)
+
+OnDeclaration=BT1_088/089 · OnEnterFieldAnyone=BT16_025/BT19_024 · OptionSkill=BT1_091/092/093 · OnDestroyedAnyone=BT1_030/035/049 · WhenRemoveField=BT16_025 · WhenPermanentWouldBeDeleted=BT13_023/BT14_035/EX8_051 · OnEndTurn=BT1_040 · OnStartTurn=BT1_085/086/087 · OnStartMainPhase=ST15_02 · OnEndBattle=BT1_077/112/ST4_11 · OnEndAttack=BT19_024/BT1_081 · OnDigivolutionCardDiscarded=BT2_085/EX8_051 · WhenLinked=BT22_003 · OnTappedAnyone=ST4_14 · OnUnTappedAnyone=BT2_002/BT8_057 · OnAddDigivolutionCards=BT22_044/EX6_001 · OnAllyAttack=BT13_023/BT16_025 · OnCounterTiming=EX8_051 · SecuritySkill=BT1_085/086/087.
+
+> **선정 확장**: coverage §4 greedy set-cover 상위 30장(BT25_104·LM_054·BT21_030 …)은 **미커버 축을 새로 덮는 witness 후보**다(정본 idiom이 아직 없는 축). 신규 축 정본을 만들 때 그 표를 witness 선정 입력으로 쓰라 — 단, STOP-리스크 21장(coverage §6)은 Opus 프리미티브 선행 개발 트리거([[primitive-predevelopment-role]]).
+
+---
+
+# R5. 잔여 비-1:1 항목 전수 리스트 (2026-07-23 HEAD 실측)
+
+> 실동작-버그(틀린 결과 산출)는 **0**(R1-A). 아래는 **구조-only 이탈**(결과동일이나 1:1 심볼/조합성 부재) + **진짜 AS-IS 한계** + **UI 스코프-밖**의 전수 분류. 빈도 가중 없음(전수 분류만).
+
+## R5.1 진짜 AS-IS 한계 / 인프라 갭 (live STOP·dead-가드)
+
+| 항목 | 좌석/원장 | 성격 |
+|---|---|---|
+| TrashLinkedCards 선택 루프 | `TrashLinkedCards.cs:72` (RD-SKEL-01) | dead-가드. AS-IS 비대칭(LinkedCards 풀 vs DigivolutionCards.Count 예산)이 충실 headless 번역 시 비종결 루프 → 얕은 뭉갬/발명 가드 회피 위해 STOP. **AS-IS 한계** |
+| W4 브릿지 미지원 컴포넌트 | `GManager.cs:198` (RD-W4-3) | **조건부** — 새 컴포넌트 타입 요청 시에만 좌석화(심층-불가 아님) |
+| 직접-라이브-탑 detach 가드 | `Permanent.cs:4549` (MIG4-DETACH-LIVE-TOP) | latent(호출자 0) |
+| 코퍼스 중복-키 방어 | `CardController.cs:4283` (리뷰3 P2-②) | **fidelity 갭 아님** — 잘못 배선한 카드를 잡는 방어가드 |
+| field-frame 슬롯 WRITE 모델 | (Blast 2종 W4-적응으로 소비자 해소) | 인프라 latent — 현재 소비자(Blast) 포팅됨. 새 frame-WRITE 요구 카드 등장 시 재점화 가능 |
+| CanNotTrashFromDigivolutionCards 전역-스캔 심층 | kind-class FULL, BT9_109 STOP | 미러+소비자 존재. 전역 source-protection 심층 충실성은 유일카드 STOP 상태라 재검증 불가(딥 잔여) |
+
+## R5.2 구조-only 이탈 (결과동일 FAIL — 07-08 렌즈 잔여, 저우선)
+
+- **타이밍-클래스 uniform 폴딩 (19)**: OnPlay·OnDeletion·Counter·EndOfAttack·EndOfYourTurn·EndOfYourOpponentsTurn·EndOfAllTurns·AllTurns·OpponentsTurn·TurnTiming·StartOfYourTurn·StartOfOpponentsTurn·StartOfYourOpponentsMainPhase·YourTurn·WhenAttacking·WhenDigivolving·WhenLinking·WhenMoving·SecurityClass. → **R2에서 정본 확정**(uniform ActivateClass = AS-IS 정본 경로). "1:1 팩토리 심볼 부재"는 **갭으로 계상 안 함**.
+- **공유 once-per-turn**: ActivateClassesForSharedEffects(공유 hashValue 캡). 07-18 실측서 "순수 디스패처(캡 불요)"로 격파 — 다중발동 위험 실증 0. 잔여=심볼 조합성뿐.
+- **delta 재구현 (2)**: ChangeLinkMaxClass(고정 ±N) · ChangeSAttackClass(delta+Func<int>). 현 카드 동일결과; arbitrary `Func<Permanent,int,int>`만 미표현.
+- **success 콜백 계약 (Trash*/Play*ProcessAccordingToResult)**: success가 int(삭제 리스트 아님). 현 카드 동일결과, 계약 복원은 저우선.
+- **cosmetic (2)**: AddDetailClass(표시 전용) · CanNotSwitchAttackTargetEffect(topCard stale-capture, 진화 시).
+- **구조 대체 (1)**: DeckTopBounceClass(직접-리스트 미러 없이 select 경로로 달성 — ⚠️프롬프트 추가여부 verify 미해소).
+
+## R5.3 UI 스코프-밖 (엔진 동결 계약 제외 대상)
+
+- **UNPORTED UI 패널 (4)**: SelectBattleDeck·SelectBattleMode·SelectCommand·SelectCommandPanel — 배틀덱/모드/커맨드 선택 **화면**. 카드-효과 프리미티브 아님.
+- **near-empty UI 스텁 (2)**: SelectCardPanel·SelectDeck.
+- **재분류 bodiless (1)**: SelectJogressEffect — UI-플로우 오케스트레이터, substrate DNA 경로(DNADigivolvePermanentsIntoHandOrTrashCard + SpecialPlayRecipeRegistry)가 게임 결정을 담당. 엔진-프리미티브 본체 없음(의도적).
+
+## R5.4 포팅 중 정직-STOP 예상 (coverage §6 인프라 갭 — 신규 카드가 건드리면 수확)
+
+Assembly/DigiXros 인터랙티브 pre-play(RD-P6C1-5) · Burst/AppFusion select 컴포넌트(RD-P6C1-6) · Execute 발화(RD-R2-01) · Ascension writer(RD-3A-01) · AddSkillClass 중첩부여(nested-grant 원칙 STOP) · Digisorption 진입(G11) · 고급 SelectCardCondition 술어(뭉개면 FAIL) · CanNotPutField 필드제약 · 전역 digi-source 보호(딥 잔여). → 정본 포팅이 이들을 실호출하면 **runtime throw 아닌 정직 STOP 마커**로 원장 등재 후 Opus 프리미티브 선행([[primitive-predevelopment-role]]).

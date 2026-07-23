@@ -1,5 +1,27 @@
 # Porting Translation Cheatsheet — AS-IS (Unity) domain patterns → Headless (.NET)
 
+> ## ⚠️ SUPERSEDED (2026-07-23) — DO NOT inject this cheatsheet into any porting prompt
+>
+> **Its foundational rule is now REVERSED.** Section 0 tells you to lower the AS-IS `Func<Permanent,bool>`
+> predicate into a `Func<HeadlessEntityId,bool>` and route every state read through `CardEffectCommons.X(card, id)`.
+> The current canonical idiom does the **opposite**: ported cards keep the AS-IS **`Func<Permanent,bool>`**
+> predicate and read the enriched `Permanent` domain object directly — e.g. `permanent.TopCard.CardNames.Contains(...)`,
+> `permanent.IsSuspended`, `permanent.Level`. Verified in current src: `BT6_106`, `BT16_033`, `ST1_12`
+> (2026-07-22/23 ports). A weak model following section 0 would **strip the AS-IS `Permanent` mirror** — the same
+> class of failure as reproducing a deleted invented symbol.
+>
+> Also stale: the "auto-processing bridge" model (sections 7–8) is replaced by the **uniform `ActivateClass`**
+> path (`SetUpICardEffect`/`SetUpActivateClass`, `CanUseCondition(Hashtable)` trigger gate) + window supply. The
+> registry pipeline this cheatsheet assumes (`ToBinding`/`EffectRegistry`/gates) was physically deleted at the
+> 2026-07-23 soft freeze (freeze_evidence_2026-07-23.md §1: invented-symbol grep = 0). The factory-name/signature
+> tables below are **unverified against current src** — never copy a name from here; verify against the actual
+> factory source (`CardEffectFactory.cs` and siblings).
+>
+> **Read instead:** `card_porting_standard.md` (revised, see its status banner), `coverage_exemplar_audit_2026-07-18.md`,
+> and the live exemplar cards named above. What survives here as still-true *principle* (not mechanism): evaluate
+> predicates faithfully / never blur them (fidelity-over-coverage), and never invent factory names or argument lists.
+> Everything below is historical record only.
+
 - Written: 2026-07-05. Basis: full analysis of CS1061 (domain-member hallucination) in failed cards from the pilot (BT1 exact).
 - Purpose: codify the **semantic translation layer** that the symbol surface (factory/commons signatures) alone does not catch. The pilot confirmed:
   pass rate climbs to ~50% from the symbol surface, and everything beyond that is this layer. This cheatsheet is the only lever that opens that wall.

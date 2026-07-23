@@ -1,5 +1,23 @@
 # 카드 포팅 파일럿 — Sonnet 4.6 실측 설계 (draft v0.1)
 
+> ## 상태 (2026-07-23): 설계 방법론=유효 / 전제 일부 갱신 필요
+>
+> 이 파일럿 설계(2026-07-04)의 **티어 측정 방법론**(T1 exact/T2 family/T3 cold, G1~G4 게이트)은 유효하다.
+> 단 작성 후 두 가지가 바뀌었다: ⑴ 엔진이 **AS-IS 미러**로 전환되고 레지스트리-시대 발명 클러스터가
+> **물리 삭제**됨(2026-07-23 소프트 동결, freeze_evidence_2026-07-23.md), ⑵ 파일럿 모델이 **Haiku**로 재지정됨
+> (freeze_evidence §9: ⑦ 대량 포팅 = Haiku 파일럿 재실측 선행).
+>
+> 갱신 사항:
+> - **시스템 프롬프트(§3)**: `porting_translation_cheatsheet.md` 주입 지시는 **폐기**한다 — 그 문서는 은퇴됨
+>   (핵심 규칙이 역전: id+commons가 아니라 `Func<Permanent,bool>` 도메인 술어가 정본). 대신 현재 정본 idiom
+>   (uniform `ActivateClass`·`Func<Permanent,bool>` 술어·AS-IS 클래스 미러·substrate 번역만)과
+>   `card_porting_standard.md`(개정판)를 주입.
+> - **G2 구조 동일(§4)**: 이제 **AS-IS-미러 idiom** 일치를 본다(Permanent 도메인 술어·`ActivateClass`·같은 팩토리 이름).
+> - **기준값/게이트**: run-tests green·확장 다이제스트·퍼징 기준값은 freeze_evidence_2026-07-23.md §2·§8이 정본.
+> - **모델(§3)**: `claude-sonnet-4-6` 상한 측정은 역사적; 재실측 대상은 Haiku(§9).
+>
+> 아래 본문은 그 갱신을 전제로 읽을 것.
+
 - 작성일: 2026-07-04. 상태: 설계(실행은 사용자 승인·API 키 필요).
 - 기준: [card_porting_database_design.md](card_porting_database_design.md)(§0.2 북극성, §9-A 프론티어),
   P-DB1 산출물(`tools/porting/porting_task.py` 태스크 카드), [rl_l4_match_log_design.md](rl_l4_match_log_design.md)(L4 발화 검증).

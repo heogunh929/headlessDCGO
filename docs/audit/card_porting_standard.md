@@ -1,5 +1,23 @@
 # Card Porting Standard (구조 동일 원칙)
 
+> ## 상태 (2026-07-23): 원칙=정본 유지 / 메커니즘 예시=일부 스테일
+>
+> 이 문서의 **원칙**(구조 동일·파일 위치/팩토리 이름 1:1·행동 AS-IS 대조·단순화 금지·라이브 검증)은
+> **현재도 정본**이다. 다만 아래 본문의 일부 **메커니즘 예시**는 레지스트리-시대 표기라 스테일이다:
+> `.ToBinding()` / `EffectRegistry.Register` / `ContinuousKeywordGate`로 등록·검증한다는 서술(특히 §1.4·§2.4)은
+> 2026-07-23 소프트 동결에서 그 발명 클러스터가 물리 삭제돼 더는 live 경로가 아니다
+> (freeze_evidence_2026-07-23.md §1: 발명물 grep=0).
+>
+> **현재 정본 등록·검증(실소스: `CardEffectInterfaces.cs`·BT6_106·BT16_033·ST1_12):**
+> - 반환형은 `List<ICardEffect> CardEffects(EffectTiming, CardSource)`. 카드는 `CardEffectFactory.<AsIsName>(...)`
+>   정적효과 또는 uniform `ActivateClass`(`SetUpICardEffect`/`SetUpActivateClass`, `async Task ActivateCoroutine(Hashtable)`)를
+>   반환할 뿐이고, 등록/소비/만료는 substrate가 처리한다.
+> - 술어는 `Func<Permanent,bool>`로 `Permanent` 도메인 객체를 **직접** 읽는다(id+commons로 낮추지 않음).
+> - 검증은 `EffectRegistry` 질의가 아니라 **행동 witness**(펌프-드라이브 매치 `DcgoMatch.CreatePumpDriven` +
+>   `DoneStartGame`/`SetPhase(Main)` 게이트)와 `RuleAudit 0`으로 한다. 테스트 정본 = `tests/EXEMPLAR-T1~T3B.Witness.Tests/`
+>   (`suite_retarget_4b_design_2026-07-18.md` §2.0).
+> - EX8_074(§5 로드맵)는 이후 **완료**됐다(BeforePayCost 윈도우·availability 감소 착지; freeze_evidence §7).
+
 > 목표: 로컬 LLM이 카드를 대량 포팅할 수 있도록 **재현 가능한 작업 기준**을 세운다.
 > 핵심 원칙(사용자 지시): **"원본구조랑 같게하는게 중요하다."** — 행동(behavior)만이 아니라
 > 원본 DCGO `Script/`의 **구조**(파일 위치 · 팩토리/메서드 이름 · 논리 분해)까지 1:1로 미러한다.
@@ -41,6 +59,8 @@
      `ContinuousKeywordGate` 질의로 표현된다(주석에 매핑 명시).
 4. **라이브 검증** — 실 카드 경로로:
    `CardEffectFactory.X(card,...).ToBinding()` → `EffectRegistry.Register` → 소비자(게이트/EndOfTurnEffectAttack)가 인식.
+   > ⚠️ 스테일(상단 상태 배너 참조): `ToBinding`/`EffectRegistry`는 2026-07-23 삭제됨. 현재는 카드가 팩토리/`ActivateClass`만
+   > 반환하고 substrate가 등록·소비하며, 검증은 행동 witness + `RuleAudit 0`으로 한다.
    - 등록 전 게이트가 false(거짓양성 없음), 등록 후 true, **자기 카드에만** 적용(bystander 미적용).
 5. **전체 회귀** `bash scripts/run-tests.sh` → `FAIL=0`.
 

@@ -1,5 +1,33 @@
 # 카드 포팅 레시피 (Phase 1 산출물)
 
+> ## ⚠️ SUPERSEDED (2026-07-23) — 이 문서를 카드 포팅 지침으로 사용하지 말 것
+>
+> 이 레시피(2026-06-29)는 **레지스트리-시대 아키텍처**를 가르친다. 그 아키텍처의 발명 클러스터
+> (`EffectBinding`·`ToBinding()`·`EffectRegistry`·`ContinuousDpGate`/`ContinuousModifierGate`·
+> `CardEffectRegistrar.RegisterOnEnterPlay`·`KeywordBaseBatch1`·`IActivatedCardEffect` 마커·발명 파일
+> `CardPortingFramework.cs`)는 2026-07-23 소프트 동결 시점에 **live 경로에서 물리 삭제**됐다
+> (freeze_evidence_2026-07-23.md §1 계기판: 발명물 grep=0). 약한 모델이 이 문서를 따르면 **이미 삭제된
+> 발명물을 재생산**한다 — 최악의 실패 모드.
+>
+> **현재 정본 카드-저작 관례(실소스 검증: `CardEffectInterfaces.cs`·BT6_106·BT16_033·ST1_12):**
+> - 반환형은 `List<ICardEffect> CardEffects(EffectTiming, CardSource)` (아래 §3의 `IReadOnlyList`는 스테일).
+> - 활성 효과 = uniform `ActivateClass` (`new ActivateClass()` + `SetUpICardEffect(name, CanUseCondition, card)` +
+>   `SetUpActivateClass(canActivate, ActivateCoroutine, -1, false, desc)`; 본체 `async Task ActivateCoroutine(Hashtable)`).
+> - 트리거 게이트 = AS-IS `bool CanUseCondition(Hashtable)` → `CardEffectCommons.CanTrigger*(hashtable, card)`.
+> - 술어는 `Func<Permanent,bool>` — `Permanent` 도메인 객체를 **직접** 읽음(`permanent.TopCard.CardNames`,
+>   `permanent.IsSuspended`…). id+commons로 낮추지 **않는다**.
+> - AS-IS 클래스 직접 미러: `DestroyPermanentsClass(...).Destroy()`·`SuspendPermanentsClass`·
+>   `new Player(card.Context, card.Owner)`·`new IRecovery(...).Recovery()`. **substrate 번역만 허용**
+>   (`IEnumerator→async Task`, `yield return StartCoroutine(X)→await X`, `card.Owner.X→new Player(...).X`,
+>   엔티티-id는 `activateClass.EffectSourceCard?.InstanceId`로 스레딩).
+> - STOP = 정직한 `throw new NotSupportedException("design item RD-x-NN: ...")`; 리터럴 "TODO" 금지.
+>
+> **읽을 것(정본):** 최근 포팅 카드 `BT6_106`/`BT16_033`/`ST1_12`(실소스) · `coverage_exemplar_audit_2026-07-18.md` ·
+> 개정된 `card_porting_standard.md`(상단 상태 배너) · 테스트 정본 `tests/EXEMPLAR-T1~T3B.Witness.Tests/`
+> (`suite_retarget_4b_design_2026-07-18.md` §2.0).
+>
+> 아래 원문은 **역사적 기록**으로만 보존한다.
+
 - 작성일: 2026-06-29
 - 목적: 원본 DCGO 카드효과(`DCGO/Assets/Scripts/CardEffect/<set>/<color>/<id>.cs`)를 헤드리스 엔진으로 **1:1 미러 포팅**하는 반복 절차. 로컬 LLM이 그대로 따라 할 수 있게 작성.
 - 검증된 첫 사례: **ST7_10** (security attack +1 연속 + Piercing). 테스트 `tests/P1-ST710.Port.Tests` 3/3 green, 전체 200/200 무회귀.
