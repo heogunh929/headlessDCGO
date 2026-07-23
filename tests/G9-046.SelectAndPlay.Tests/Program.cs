@@ -96,8 +96,14 @@ async Task Bt1044Candidates()
     AssertTrue(eff.CanActivate(new System.Collections.Hashtable()), "canActivate: on battle area with a Lv<=4 own-stack under-card");
 
     ChoiceRequest req = await OpenUnderSelect(ctx, eff);
-    AssertTrue(req.Candidates.Count == 1, $"exactly ONE candidate (got {req.Candidates.Count})");
-    AssertTrue(req.Candidates[0].Id == lv3, "the candidate is the own-stack Lv3 under-card (Lv5 and other-stack Lv3 excluded)");
+    // The custom-root pool is this card's OWN stack only (other-stack Lv3 is NOT even in the pool), and the
+    // Level<=4 gate is carried by the per-candidate IsSelectable flag (the established whole-pool-with-greying
+    // contract — SelectCardEffect RunAsIsSelectionAsync / PILOT-S3 IsSelectable precedent). So the SELECTABLE
+    // set is exactly the own-stack Lv3 under-card; Lv5 is present-but-greyed, other-stack Lv3 is absent.
+    var selectable = req.Candidates.Where(c => c.IsSelectable).ToList();
+    AssertTrue(selectable.Count == 1, $"exactly ONE selectable candidate (got {selectable.Count} of {req.Candidates.Count} shown)");
+    AssertTrue(selectable[0].Id == lv3, "the selectable candidate is the own-stack Lv3 under-card (Lv5 greyed, other-stack Lv3 excluded)");
+    AssertTrue(req.Candidates.All(c => c.Id != otherUnder), "the other permanent's under-card is NOT in the pool (self-stack scope)");
     AssertTrue(req.MinCount == 1 && !req.CanSkip, "mandatory pick (AS-IS canNoSelect: () => false)");
     _ = (lv5, otherUnder);
 }

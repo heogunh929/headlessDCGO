@@ -204,6 +204,7 @@ EngineContext Board()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 17);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main); // (harness) DoneStartGame gate: CanTrigger needs a live phase (not None)
     return context;
 }
 

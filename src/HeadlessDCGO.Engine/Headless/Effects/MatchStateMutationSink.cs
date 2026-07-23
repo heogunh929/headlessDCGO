@@ -485,6 +485,25 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     {
         ArgumentNullException.ThrowIfNull(mutation);
 
+        // (substrate) The synchronous delete path reads continuous immunity through Permanent.CanBeDestroyed()
+        // (IsDeletionPreventedByContinuous), which — like every ported effect getter — resolves game state via
+        // GManager.instance (the ambient match). In production Apply is always reached inside the match's
+        // AmbientMatchContext scope; when the sink is driven directly (a unit re-drive) no ambient is set, so
+        // self-scope on the sink's own _context. Nested Enter is a save/restore no-op in production, matching the
+        // sink's async methods that already self-scope (e.g. OpenLeaveWindowsAsync). Only enter when the sink
+        // carries a context — a context-less sink must not touch (and on dispose clobber) any outer ambient.
+        if (_context is null)
+        {
+            ApplyJournalled(mutation);
+            return;
+        }
+
+        using Bridge.AmbientMatchContext.Scope _applyScope = Bridge.AmbientMatchContext.Enter(_context);
+        ApplyJournalled(mutation);
+    }
+
+    private void ApplyJournalled(EffectMutation mutation)
+    {
         // (B-1 rework, mutation replay journal) During a uniform-cycle REPLAY (a suspended resolution re-invoked
         // after an agent answer), an Apply call the original run performed PURELY IMMEDIATELY (no pending thunk)
         // already mutated game state and must NOT re-apply (double memory / double DP / double timing events); a

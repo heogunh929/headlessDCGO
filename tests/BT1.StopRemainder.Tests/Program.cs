@@ -100,7 +100,9 @@ async Task Bt1_084_SourceToHandUnsuspend()
     var src = Instance(ctx, "src6", "SRC6", level: 6);
     var self = Battle(ctx, "BT1_084", "BT1_084", level: 6, colors: new[] { "White" }, sources: new[] { src.Value }, suspended: true);
 
-    Script(ctx, ChoiceResult.Select(src));
+    // BT1_084 branch 2 is OPTIONAL ("You can unsuspend..."): the AS-IS Activate_Optional yes/no prompt fires
+    // first (candidate = the effect source card = self). Answer YES (Select self), THEN pick the source to return.
+    Script(ctx, ChoiceResult.Select(self), ChoiceResult.Select(src));
     await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack);
 
     AssertTrue(InZone(ctx, ChoiceZone.Hand, src), "the level-6 digivolution source returned to hand");
@@ -118,7 +120,10 @@ async Task Bt1_056_PlayFromTrash()
     var handTink = Hand(ctx, "hT", "Tinkermon", level: 3);
     var trashTink = Trash(ctx, "tT", "Tinkermon", level: 3);
 
-    Script(ctx, ChoiceResult.Select(trashTink));
+    // BT1_056 is OPTIONAL with a multi-zone pool, so AS-IS drives THREE prompts: (1) optional yes/no
+    // (Select self = YES); (2) the "from hand / from trash" area bool (SetBoolSelection → ModeChoice with
+    // synthetic ids userSelection#0=hand / #1=trash); (3) the card select in the chosen zone.
+    Script(ctx, ChoiceResult.Select(self), ChoiceResult.Select(new HeadlessEntityId("userSelection#1")), ChoiceResult.Select(trashTink));
     await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnEnterFieldAnyone);
 
     AssertTrue(InZone(ctx, ChoiceZone.BattleArea, trashTink), "the trash Tinkermon was played to the battle area");
@@ -134,7 +139,9 @@ async Task Bt1_056_PlayFromHand()
     var handTink = Hand(ctx, "hT", "Tinkermon", level: 3);
     var trashTink = Trash(ctx, "tT", "Tinkermon", level: 3);
 
-    Script(ctx, ChoiceResult.Select(handTink));
+    // BT1_056 OPTIONAL multi-zone: (1) optional YES (Select self); (2) area bool = "from hand"
+    // (userSelection#0); (3) the hand card select.
+    Script(ctx, ChoiceResult.Select(self), ChoiceResult.Select(new HeadlessEntityId("userSelection#0")), ChoiceResult.Select(handTink));
     await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnEnterFieldAnyone);
 
     AssertTrue(InZone(ctx, ChoiceZone.BattleArea, handTink), "the hand Tinkermon was played to the battle area");
@@ -268,13 +275,19 @@ async Task Bt1_088_NonDigimonToBottomAndGate()
     var self = Battle(ctx, "BT1_088", "BT1_088");
     var top = Place(ctx, "topO", "topO", "TopOption", ChoiceZone.Library, "Option", null, null, null, null, false);
 
-    // Gate: WITHOUT a level-5+ green Digimon the [Main] cannot be used at all (AS-IS CanUseCondition).
-    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnDeclaration, declarative: true);
+    // Gate: WITHOUT a level-5+ green Digimon the [Main] is not a legal declaration (AS-IS
+    // Permanent.CanDeclareSkillList = CanUse(null) = the card's CanUseCondition) — the MainSkillActivateAction
+    // gate. A declared [Main] is resolved ONLY when declarable; the direct declarative resolve bypasses that
+    // gate, so the harness checks CanDeclareAt exactly as the production declaration action does.
+    AssertFalse(ActivatedEffectResolver.CanDeclareAt(ctx, self, P1, EffectTiming.OnDeclaration),
+        "without the level-5+ green gate the [Main] is NOT declarable");
     AssertFalse(IsSuspended(ctx, self), "without the level-5+ green gate the skill did not fire (no self-suspend)");
     AssertTrue(InZone(ctx, ChoiceZone.Library, top), "the library is untouched");
 
-    // With the gate satisfied, a NON-Digimon reveal routes to the deck bottom.
+    // With the gate satisfied, the [Main] becomes declarable; a NON-Digimon reveal routes to the deck bottom.
     Battle(ctx, "g5", "G5Green", level: 5, colors: new[] { "Green" });
+    AssertTrue(ActivatedEffectResolver.CanDeclareAt(ctx, self, P1, EffectTiming.OnDeclaration),
+        "with the level-5+ green gate the [Main] IS declarable");
     await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnDeclaration, declarative: true);
     AssertTrue(IsSuspended(ctx, self), "BT1_088 suspended itself (the cost)");
     AssertTrue(InZone(ctx, ChoiceZone.Library, top), "the revealed non-Digimon card returned to the deck (bottom)");
@@ -286,7 +299,9 @@ async Task Bt1_089_HatchBranch()
     EngineContext ctx = NewContext();
     var self = Battle(ctx, "BT1_089", "BT1_089");
     Battle(ctx, "g5", "G5Green", level: 5, colors: new[] { "Green" });
-    var egg = Place(ctx, "egg", "egg", "Egg", ChoiceZone.DigitamaLibrary, "Digi-Egg", 2, null, null, null, false);
+    // cardType must be "Digitama" (or "DigiEgg") — the spellings CardSource.IsDigiEgg recognises; a hyphenated
+    // "Digi-Egg" is NOT an egg, so once hatched to breeding the rule sweep trashes it as a non-Digimon.
+    var egg = Place(ctx, "egg", "egg", "Egg", ChoiceZone.DigitamaLibrary, "Digitama", 2, null, null, null, false);
 
     await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnDeclaration, declarative: true);
 
@@ -340,6 +355,7 @@ EngineContext NewContext()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 11);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness) DoneStartGame gate: the direct resolver path runs CanTrigger, which needs a live phase (not None)
     return ctx;
 }
 

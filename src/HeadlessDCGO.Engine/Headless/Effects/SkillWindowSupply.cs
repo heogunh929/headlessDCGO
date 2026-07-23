@@ -400,6 +400,16 @@ public static class SkillWindowSupply
             // converting the event here is the sole opener with no double-fire.
             case EffectTiming.OnTappedAnyone:
             case EffectTiming.OnUnTappedAnyone:
+            // (G2 PRIM) OnUseOption "when an Option is used" broadcast — AS-IS opens the window INLINE at the
+            // option-use seat (UseOptionClass.UseOption, CardController.cs:1765; the mirror PlayCardsBridge:172 /
+            // CardController:4314 do the same via StackSkillInfos). But the OPTION-ACTIVATE action path emits the
+            // OnUseOption event WITHOUT an inline opener (OptionActivateAction.cs:95, subject = the used option,
+            // + "cost" metadata), relying on this converter to open the reactor window — and that emit is the SOLE
+            // OnUseOption TriggerEventEmitter.Emit in the engine (the inline openers stack directly, never emit),
+            // so converting it here is the sole opener with no double-fire (identical geometry to OnTappedAnyone /
+            // OnDeclaration). Payload = ActivatedHashtableBridge's OptionMainCheckHashtable {Card} (Root/Cost are
+            // the documented P6A-HT-USEOPTION residual; no reactor gate reads them).
+            case EffectTiming.OnUseOption:
                 return TryBuildEventBroadcast(context, gameEvent, timing, out hashtable);
 
             // NOTE (L1): OnAllyAttack is deliberately NOT supply-handled — the C2r flip made AttackProcess's inline
