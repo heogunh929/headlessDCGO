@@ -27,8 +27,12 @@ HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("BT25_104 GAP2-a (StartOfYourTurnClass): [Start of Your Turn] companion이 OnStartTurn 창에서 발화 → [Marcus Damon] Tamer가 treat-as-Digimon (flip false→true, 관찰)", BT25104_StartOfYourTurnMarcusTreatedAsDigimon),
+    ("BT25_104 GAP2-a (StartOfYourTurnClass): OnStartTurn 창 GATE가 열림(on-battle + owner-turn → CanUse TRUE) → 발화 → [Marcus Damon] Tamer가 treat-as-Digimon (flip false→true, 관찰)", BT25104_StartOfYourTurnMarcusTreatedAsDigimon),
     ("BT25_104 GAP2-b (WhenMovingClass): [Your Turn] Marcus 그랜트가 OnMove 창에서 발화 → [Marcus Damon] Tamer가 treat-as-Digimon (flip false→true, 관찰)", BT25104_WhenMovingMarcusTreatedAsDigimon),
+    ("BT25_104 GAP2-a NEG(board-absent): BT25_104가 배틀에어리어에 없으면(hand) StartOfYourTurn 창 GATE FALSE (IsExistOnBattleAreaTrigger=false → CanUse=false) — 창 밖 미발화", BT25104_StartOfYourTurnNegBoardAbsent),
+    ("BT25_104 GAP2-a NEG(wrong-turn): 상대(P2) 소유 BT25_104는 P1 턴의 StartOfYourTurn 창 GATE FALSE (IsOwnerTurn=false → CanUse=false) — 잘못된 턴 미발화", BT25104_StartOfYourTurnNegWrongTurn),
+    ("BT25_104 GAP2-b NEG(board-absent): BT25_104가 배틀에어리어에 없으면(hand) OnMove 창 GATE FALSE (IsExistOnBattleAreaTrigger=false → CanUse=false) — 창 밖 미발화", BT25104_WhenMovingNegBoardAbsent),
+    ("BT25_104 GAP2-b NEG(no-move-window): 배틀에 있어도 이동 이벤트가 없으면 OnMove 창 GATE FALSE (CanTriggerOnMove=false → CanUse=false) — 창 자체가 닫혀 미발화", BT25104_WhenMovingNegNoMoveWindow),
 };
 
 int failed = 0;
@@ -71,11 +75,89 @@ async Task BT25104_StartOfYourTurnMarcusTreatedAsDigimon()
     AssertTrue(!Perm(match, marcus, P1).IsDigimon,
         "control: the [Marcus Damon] Tamer is not treated as a Digimon before the [Start of Your Turn] grant");
 
-    var st = (Cec.ActivateICardEffect)First(new CBT25104().CardEffects(Cec.EffectTiming.OnStartTurn, card), "ActivateClass");
-    await st.Activate(new Hashtable());
+    Cec.ICardEffect stEffect = First(new CBT25104().CardEffects(Cec.EffectTiming.OnStartTurn, card), "ActivateClass");
+
+    // WINDOW-GATE (positive): at the real start-of-your-turn window — BT25_104 on the owner's battle area, P1's turn —
+    // the StartOfYourTurnClass CanUse gate OPENS (IsExistOnBattleAreaTrigger && IsOwnerTurn). Asserting the gate here
+    // (rather than a blind Activate) proves the companion is admitted BY its window, matched against the NEG cases below
+    // where the same gate stays shut. (Full L1-broadcast auto-fire is exercised by the live-drive suites; this witness
+    // pins the gate + the observable grant landing that the broadcast would produce.)
+    AssertTrue(stEffect.CanUse(new Hashtable()),
+        "the StartOfYourTurn window gate is OPEN (on-battle + owner-turn) — the companion is admitted at its window");
+
+    await ((Cec.ActivateICardEffect)stEffect).Activate(new Hashtable());
 
     AssertTrue(Perm(match, marcus, P1).IsDigimon,
         "StartOfYourTurnClass companion FIRED at the OnStartTurn window: the [Marcus Damon] Tamer is now treated as a Digimon (grant landed on player UntilEachTurnEndEffects, IsDigimon flip observed)");
+}
+
+// ═══════════════════════════════════ GAP2-a NEG: window gate stays shut outside its window ═══════════════════════════════════
+
+async Task BT25104_StartOfYourTurnNegBoardAbsent()
+{
+    (DcgoMatch match, _) = await NewMatchAsync(seed: 9111);
+    await ReachMainWaitAsync(match);
+
+    // BT25_104 sits in HAND (NOT on the battle area) — the [Start of Your Turn] companion must NOT be admitted.
+    HeadlessEntityId shine = Stage(match, P1, "BT25_104", ChoiceZone.Hand, "1:hand:shine", register: true);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var card = new Cec.CardSource(match.Context, shine, P1);
+
+    Cec.ICardEffect st = First(new CBT25104().CardEffects(Cec.EffectTiming.OnStartTurn, card), "ActivateClass");
+    AssertTrue(!st.CanUse(new Hashtable()),
+        "board-absent: with BT25_104 off the battle area the StartOfYourTurn gate is SHUT (IsExistOnBattleAreaTrigger=false → CanUse=false) — the companion does not fire outside its window");
+}
+
+async Task BT25104_StartOfYourTurnNegWrongTurn()
+{
+    (DcgoMatch match, _) = await NewMatchAsync(seed: 9112);
+    await ReachMainWaitAsync(match); // P1's turn.
+
+    // BT25_104 owned by P2, on P2's battle area — during P1's turn it is NOT the owner's turn.
+    HeadlessEntityId shine = Stage(match, P2, "BT25_104", ChoiceZone.BattleArea, "2:battle:shine", register: true);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var card = new Cec.CardSource(match.Context, shine, P2);
+
+    Cec.ICardEffect st = First(new CBT25104().CardEffects(Cec.EffectTiming.OnStartTurn, card), "ActivateClass");
+    AssertTrue(!st.CanUse(new Hashtable()),
+        "wrong-turn: P2's BT25_104 on P1's turn — the StartOfYourTurn gate is SHUT (IsOwnerTurn=false → CanUse=false) — the [Your Turn] companion is turn-scoped and does not fire on the opponent's turn");
+}
+
+// ═══════════════════════════════════ GAP2-b NEG: OnMove window gate stays shut ═══════════════════════════════════
+
+async Task BT25104_WhenMovingNegBoardAbsent()
+{
+    (DcgoMatch match, _) = await NewMatchAsync(seed: 9113);
+    await ReachMainWaitAsync(match);
+
+    HeadlessEntityId shine = Stage(match, P1, "BT25_104", ChoiceZone.Hand, "1:hand:shine", register: true);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var card = new Cec.CardSource(match.Context, shine, P1);
+
+    Cec.ICardEffect mv = First(new CBT25104().CardEffects(Cec.EffectTiming.OnMove, card), "ActivateClass");
+    AssertTrue(!mv.CanUse(new Hashtable()),
+        "board-absent: with BT25_104 off the battle area the OnMove gate is SHUT (IsExistOnBattleAreaTrigger=false → CanUse=false) — the WhenMoving companion does not fire outside its window");
+}
+
+async Task BT25104_WhenMovingNegNoMoveWindow()
+{
+    (DcgoMatch match, _) = await NewMatchAsync(seed: 9114);
+    await ReachMainWaitAsync(match);
+
+    // BT25_104 IS on the battle area, but NO move event is in flight — the OnMove window itself is closed.
+    HeadlessEntityId shine = Stage(match, P1, "BT25_104", ChoiceZone.BattleArea, "1:battle:shine", register: true);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var card = new Cec.CardSource(match.Context, shine, P1);
+
+    Cec.ICardEffect mv = First(new CBT25104().CardEffects(Cec.EffectTiming.OnMove, card), "ActivateClass");
+    // The board-presence sub-gate passes here; the ONLY thing shutting the gate is the absent move broadcast
+    // (CanTriggerOnMove finds no moved subject in an empty hashtable) — this isolates the WINDOW itself.
+    AssertTrue(!mv.CanUse(new Hashtable()),
+        "no-move-window: on-battle but with no move event in flight the OnMove gate is SHUT (CanTriggerOnMove=false → CanUse=false) — the companion fires only inside a real move window");
 }
 
 // ═══════════════════════════════════ GAP2-b WhenMovingClass ═══════════════════════════════════

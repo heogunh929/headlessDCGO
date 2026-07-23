@@ -16,12 +16,14 @@
 //   * (P6C1) the W4 SelectPermanentEffect.SetUp canTargetCondition is the established
 //     Func<HeadlessEntityId,bool> id idiom — `CanSelectPermanentById` adapts the VERBATIM AS-IS
 //     Permanent predicate (the BT2_097 pattern).
-//   * (P6C1) STOP — the jogress-frame play inside SelectPermanentCoroutine. (수리-9 재판정: RD-P6C1-7
-//     SelectHandEffect and RD-P6C1-2 CanPlayJogress are now CLOSED/available; the block now stands ONLY on
-//     design items RD-P6C1-1 (field-frame SLOT model — Player.fieldCardFrames / PreferredFrame /
-//     `new Permanent(List<CardSource>)` ctor / frame-indexed CreateNewPermanent, live STOPs at
-//     CardController.cs:2820/2936/3078) + RD-P6C1-8 (its zone statics). docs/audit/rebuild_p6_cluster1_notes.md.
-//     The AS-IS remainder is preserved as comments at the STOP.
+//   * (P6C1 — PORTED 2026-07-23) the jogress-frame play inside SelectPermanentCoroutine is now LIVE. All four
+//     original blockers closed: RD-P6C1-7 SelectHandEffect + RD-P6C1-2 CanPlayJogress (available), the field-
+//     frame WRITE (SetJogress + frameless zone-append CreateNewPermanent + PlayCardClass), and the jogress
+//     COLLAPSE detach leaf Permanent.DiscardEvoRoots(putToTrash:false) (MIG4-DISCARDEVOROOTS-PUTTOTRASH now
+//     LIVE at Permanent.cs:3920) + AddHandCard else-branch (RD-P6C1-8 RESOLVED). FRAME ADAPTATION: the AS-IS
+//     PreferredFrame()/frameID slot-capacity dance reduces to the frameless CreateNewPermanent zone-append
+//     (BT17_095 idiom). This factory is latent (no live card caller); the construction smoke test exercises it.
+//     docs/audit/rebuild_p6_cluster1_notes.md.
 // Replaces the monolith's invented BlastDNADigivolveEffect.
 // (P6C1 FINDING, logged in the notes doc: tests/G9-048.SpecialPlay.Tests expects this factory to register a
 // SpecialPlayRecipe (the pre-P4 monolith behavior); the AS-IS-verbatim factory returns an ActivateClass and
@@ -194,118 +196,87 @@ public partial class CardEffectFactory
 
                 maxCount = Math.Min(1, handSources.Count);
 
-                // (unused until the STOP below lifts — kept as AS-IS state)
-                _ = selectedCardSource;
-                _ = (Func<CardSource, bool>)CanSelectHandSource;
+                // (P6C1 — PORTED 2026-07-23) The AS-IS remainder (:173-254): hand-material pick + jogress-FRAME
+                // play. All four original blockers are now CLOSED — RD-P6C1-7 SelectHandEffect (Script/
+                // SelectHandEffect.cs, 1:1), RD-P6C1-2 CardSource.CanPlayJogress (CardSource.cs:549), the field-
+                // frame WRITE (SetJogress + CreateNewPermanent zone-append + PlayCardClass, all live), and the
+                // jogress COLLAPSE detach leaf Permanent.DiscardEvoRoots(putToTrash:false)
+                // (MIG4-DISCARDEVOROOTS-PUTTOTRASH, Permanent.cs:3920 — the bare-detach body is LIVE) plus the
+                // private CardObjectController.AddHandCard(cardSource,false) else-branch (RD-P6C1-8 RESOLVED,
+                // CardObjectController.cs:398). This factory has no live card caller yet (latent); it is exercised
+                // only by the construction smoke test. FRAME ADAPTATION (BT17_095 idiom / CreateNewPermanent doc):
+                // the AS-IS PreferredFrame()/frameID/`0<=frameID<fieldCardFrames.Count` slot-capacity dance reduces
+                // to the frameless zone-append CreateNewPermanent (materialisation always succeeds); the AS-IS
+                // material frame `selectedCardSource.PermanentOfThisCard().PermanentFrame.FrameID` = the returned
+                // materialised Permanent's PermanentFrame.FrameID.
+                SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
 
-                // (P6C1 — 재판정 2026-07-23) STOP — the AS-IS remainder (:173-254) is the hand-material pick + the
-                // jogress-FRAME play. THREE of the four original blockers are now CLOSED:
-                //   - RD-P6C1-7 SelectHandEffect — CLOSED (Script/SelectHandEffect.cs, 550-line 1:1, R5-A 00552dbf).
-                //   - RD-P6C1-2 CardSource.CanPlayJogress — CLOSED (CardSource.cs:549, live).
-                //   - RD-P6C1-1 field-frame WRITE — CLOSED this pass: SetJogress is live, the transient hand-material
-                //     placement maps to CardObjectController.CreateNewPermanent(card, isSuspended:false) (zone
-                //     append) and the two jogress frame ids are the placed/target Permanent.PermanentFrame.FrameID
-                //     (the compacted-list idiom); PreferredFrame's canvas-geometry slot pick reduces to that append
-                //     (documented ADAPTATION — the slot value only round-trips place→FrameID→resolve, unobservable
-                //     in game state). CardController's SetBurst/BurstTamer/jogress-target/burst-play/turn-end-trash
-                //     seats all went live.
-                // THE RESIDUAL BLOCKER is NOT a frame seat — it is the jogress COLLAPSE detach leaf shared by EVERY
-                // jogress play: `Permanent.DiscardEvoRoots(putToTrash:false)` (Permanent.cs:3853) = design item
-                // MIG4-DISCARDEVOROOTS-PUTTOTRASH (a bare detach-without-trash of the evo sources), plus the private
-                // `CardObjectController.AddHandCard(cardSource,false)` else-branch (RD-P6C1-8 residual). Porting this
-                // latent body (no live card caller) would compile+construct but throw at the MIG4 leaf inside
-                // PlayCardClass.PlayCard the moment it runs, so it is held here until MIG4 lands. AS-IS body verbatim:
-                //
-                //     SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
-                //
-                //     selectHandEffect.SetUp(
-                //         selectPlayer: card.Owner,
-                //         canTargetCondition: CanSelectHandSource,
-                //         canTargetCondition_ByPreSelecetedList: null,
-                //         canEndSelectCondition: null,
-                //         maxCount: maxCount,
-                //         canNoSelect: false,
-                //         canEndNotMax: false,
-                //         isShowOpponent: true,
-                //         selectCardCoroutine: SelectCardCoroutine,
-                //         afterSelectCardCoroutine: null,
-                //         mode: SelectHandEffect.Mode.Custom,
-                //         cardEffect: activateClass);
-                //
-                //     selectHandEffect.SetUpCustomMessage("Select 1 Digimon to DNA digivolve.", "The opponent is selecting 1 Digimon to DNA digivolve.");
-                //
-                //     yield return ContinuousController.instance.StartCoroutine(selectHandEffect.Activate());
-                //
-                // IEnumerator SelectCardCoroutine(CardSource cardSource)
-                // {
-                //     selectedCardSource = cardSource;
-                //
-                //     Permanent playedPermanent;
-                //     int frameID = -1;
-                //
-                //     FieldCardFrame preferredFrame = selectedCardSource.PreferredFrame();
-                //
-                //     if (preferredFrame != null)
-                //     {
-                //         frameID = preferredFrame.FrameID;
-                //     }
-                //
-                //     if (0 <= frameID && frameID < card.Owner.fieldCardFrames.Count)
-                //     {
-                //         playedPermanent = new Permanent(new List<CardSource>() { selectedCardSource }) { IsSuspended = false };
-                //
-                //         yield return ContinuousController.instance.StartCoroutine(CardObjectController.CreateNewPermanent(playedPermanent, frameID));
-                //     }
-                //
-                //     int[] JogressEvoRootsFrameIDs = { 0, 0 };
-                //
-                //     if (selectedPermanent.TopCard.EqualsCardName(blastDNAConditions[0].Name))
-                //     {
-                //         JogressEvoRootsFrameIDs[0] = selectedPermanent.PermanentFrame.FrameID;
-                //         JogressEvoRootsFrameIDs[1] = selectedCardSource.PermanentOfThisCard().PermanentFrame.FrameID;
-                //     }
-                //     else
-                //     {
-                //         JogressEvoRootsFrameIDs[0] = selectedCardSource.PermanentOfThisCard().PermanentFrame.FrameID;
-                //         JogressEvoRootsFrameIDs[1] = selectedPermanent.PermanentFrame.FrameID;
-                //     }
-                //
-                //     if (card.CanPlayJogress(true))
-                //     {
-                //         PlayCardClass playCard = new PlayCardClass(
-                //             cardSources: new List<CardSource>() { card },
-                //             hashtable: CardEffectCommons.CardEffectHashtable(activateClass),
-                //             payCost: true,
-                //             targetPermanent: null,
-                //             isTapped: false,
-                //             root: SelectCardEffect.Root.Hand,
-                //             activateETB: true);
-                //
-                //         playCard.SetJogress(JogressEvoRootsFrameIDs);
-                //
-                //         yield return ContinuousController.instance.StartCoroutine(playCard.PlayCard());
-                //
-                //         foreach (BlastDNACondition DNACondition in blastDNAConditions)
-                //         {
-                //             DNACondition.Permanents = new List<Permanent>();
-                //             DNACondition.CardSources = new List<CardSource>();
-                //         }
-                //     }
-                //     else
-                //     {
-                //         yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCard(selectedCardSource, false));
-                //     }
-                // }
-                throw new NotSupportedException(
-                    "STOP: [Blast DNA Digivolve] jogress-FRAME play — the frame WRITE side (SetJogress / " +
-                    "SetBurst / BurstTamer / jogress-target resolution / capacity checks) is now LIVE (P6C1, " +
-                    "2026-07-23), and PreferredFrame's canvas-geometry slot pick reduces to the compacted-list " +
-                    "zone append (documented ADAPTATION). The RESIDUAL blocker is NOT a frame seat: the jogress " +
-                    "COLLAPSE detach leaf Permanent.DiscardEvoRoots(putToTrash:false) (design item " +
-                    "MIG4-DISCARDEVOROOTS-PUTTOTRASH) — shared by EVERY jogress collapse — plus the private " +
-                    "CardObjectController.AddHandCard else-branch (RD-P6C1-8 residual). This card has no live " +
-                    "caller; its latent body would throw at the MIG4 leaf on execution, so it is held until MIG4 " +
-                    "lands. docs/audit/rebuild_p6_cluster1_notes.md.");
+                selectHandEffect.SetUp(
+                    selectPlayer: card.Owner,
+                    canTargetCondition: CanSelectHandSource,
+                    canTargetCondition_ByPreSelecetedList: null,
+                    canEndSelectCondition: null,
+                    maxCount: maxCount,
+                    canNoSelect: false,
+                    canEndNotMax: false,
+                    isShowOpponent: true,
+                    selectCardCoroutine: SelectCardCoroutine,
+                    afterSelectCardCoroutine: null,
+                    mode: SelectHandEffect.Mode.Custom,
+                    cardEffect: activateClass);
+
+                selectHandEffect.SetUpCustomMessage("Select 1 Digimon to DNA digivolve.", "The opponent is selecting 1 Digimon to DNA digivolve.");
+
+                await selectHandEffect.Activate();
+
+                async Task SelectCardCoroutine(CardSource cardSource)
+                {
+                    selectedCardSource = cardSource;
+
+                    // AS-IS :183-193 material placement (`new Permanent(new List<CardSource>{selectedCardSource})
+                    // {IsSuspended=false}` + CreateNewPermanent(perm, frameID)) → the frameless zone-append overload
+                    // that returns the materialised Permanent VIEW (see FRAME ADAPTATION above).
+                    Permanent materialized = await CardObjectController.CreateNewPermanent(selectedCardSource, isSuspended: false);
+
+                    int[] JogressEvoRootsFrameIDs = { 0, 0 };
+
+                    if (selectedPermanent.TopCard.EqualsCardName(blastDNAConditions[0].Name))
+                    {
+                        JogressEvoRootsFrameIDs[0] = selectedPermanent.PermanentFrame.FrameID;
+                        JogressEvoRootsFrameIDs[1] = materialized.PermanentFrame.FrameID;
+                    }
+                    else
+                    {
+                        JogressEvoRootsFrameIDs[0] = materialized.PermanentFrame.FrameID;
+                        JogressEvoRootsFrameIDs[1] = selectedPermanent.PermanentFrame.FrameID;
+                    }
+
+                    if (card.CanPlayJogress(true))
+                    {
+                        PlayCardClass playCard = new PlayCardClass(
+                            cardSources: new List<CardSource>() { card },
+                            hashtable: CardEffectCommons.CardEffectHashtable(activateClass),
+                            payCost: true,
+                            targetPermanent: null,
+                            isTapped: false,
+                            root: SelectCardEffect.Root.Hand,
+                            activateETB: true);
+
+                        playCard.SetJogress(JogressEvoRootsFrameIDs);
+
+                        await playCard.PlayCard();
+
+                        foreach (BlastDNACondition DNACondition in blastDNAConditions)
+                        {
+                            DNACondition.Permanents = new List<Permanent>();
+                            DNACondition.CardSources = new List<CardSource>();
+                        }
+                    }
+                    else
+                    {
+                        await CardObjectController.AddHandCard(selectedCardSource, false);
+                    }
+                }
             }
         }
 

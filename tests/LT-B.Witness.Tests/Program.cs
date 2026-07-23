@@ -35,7 +35,7 @@ var tests = new (string Name, Func<Task> Body)[]
     // ── EX8_072 — Barbamon(X) support (Purple Option; OptionMainEffect) ───────────────────────────
     ("EX8_072 W1 등록: [Trash][Your Turn](WhenDigivolving)·[Main](OptionSkill)·[Security](SecuritySkill) 실착지", EX8072_ArmsRegistered),
     ("EX8_072 W2 [Main] flip: 상대 손패 6장→1장 트래시 + levelMax=5(=7-6/3) 이하 상대 Digimon 삭제", EX8072_MainDiscardAndDelete),
-    ("EX8_072 W3 levelMax 경계: 상대 손패 9장 → levelMax=4 (=7-9/3): lvl5 Digimon 비적격·lvl4 적격 (술어 실평가)", EX8072_MainLevelMaxScales),
+    ("EX8_072 W3 levelMax 경계(over-level control): 상대 손패 11장→discard 후 levelMax=4: lvl5 삭제-select 비적격·survives / lvl4 적격·삭제 (실 select 구동)", EX8072_MainLevelMaxScales),
 
     // ── BT20_072 — Execute + [On Deletion] play-from-trash (Purple Digimon) ───────────────────────
     ("BT20_072 W1 등록: Execute(OnEndTurn)·[On Deletion](OnDestroyedAnyone) normal+ESS 실착지", BT20072_ArmsRegistered),
@@ -197,24 +197,49 @@ async Task EX8072_MainDiscardAndDelete()
 
 async Task EX8072_MainLevelMaxScales()
 {
-    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 4203, MonoDecks("BT1_028", "BT1_028"));
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed: 4203, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
-    HeadlessEntityId ex = Stage(match, P1, "EX8_072", ChoiceZone.BattleArea, "1:battle:ex8");
-    // 상대 손패 9장 → levelMax = 7 - 9/3 = 4. lvl5 Digimon 비적격 / lvl4 Digimon 적격.
-    for (int i = 0; i < 9; i++)
+    HeadlessEntityId ex = Stage(match, P1, "EX8_072", ChoiceZone.Hand, "1:hand:ex8");
+    // The [Main] discards 1 opponent hand card FIRST, THEN computes levelMax = 7 - (handCount/3) for the delete.
+    // Bring the opponent's hand to exactly 11 (the setup already deals some cards): after the 1-card discard the hand
+    // is 10 → levelMax = 7 - 10/3 = 4 (and 11/3 = 3 → 4 pre-discard too, so the boundary is 4 either way). The delete
+    // select's canTargetCondition (SelectOpponentsDigimon) is evaluated then: level ≤ 4 eligible, level 5 EXCLUDED.
+    int baseHand = Count(match, P2, ChoiceZone.Hand);
+    for (int i = 0; baseHand + i < 11; i++)
     {
         StageSynthetic(match, P2, "LTB-OPPH2", dp: 1000, level: 3, $"2:hand:hh{i}", zone: ChoiceZone.Hand);
     }
+    AssertTrue(Count(match, P2, ChoiceZone.Hand) == 11, $"precondition: opponent hand set to 11 (levelMax=4 after the discard) [got {Count(match, P2, ChoiceZone.Hand)}]");
+    // over-level control: level 5 (> levelMax 4) — must be EXCLUDED from the delete select; eligible target = level 4.
     HeadlessEntityId lvl5 = StageSynthetic(match, P2, "LTB-OPP5", dp: 6000, level: 5, "2:battle:opp5");
     HeadlessEntityId lvl4 = StageSynthetic(match, P2, "LTB-OPP4", dp: 4000, level: 4, "2:battle:opp4");
 
-    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
-    Cec.CardSource cs = MakeSource(match, ex, P1);
-    var main = cs.EffectList(Cec.EffectTiming.OptionSkill).First();
-    // levelMax=4 게이트 fidelity: 삭제 후보 술어가 lvl4는 적격, lvl5는 비적격이어야 한다.
-    // (CanActivate 게이트는 적어도 하나의 적격 후보 존재를 반영)
-    bool gate = main.CanActivate(new System.Collections.Hashtable());
-    AssertTrue(gate, "with a level-4 opponent Digimon present (≤ levelMax 4) the [Main] has an eligible delete target");
+    bool lvl5Selectable = false;
+    policy.On(req => req.Candidates.Any(c => c.IsSelectable), req =>
+    {
+        if (req.Type == ChoiceType.Permanent)
+        {
+            lvl5Selectable |= req.Candidates.Any(c => c.Id == lvl5 && c.IsSelectable);
+        }
+
+        return ChoiceResult.Select(req.Candidates.First(c => c.IsSelectable).Id);
+    }, oneShot: false);
+
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        Cec.CardSource cs = MakeSource(match, ex, P1);
+        var main = (Cec.ActivateICardEffect)cs.EffectList(Cec.EffectTiming.OptionSkill).First();
+        await main.Activate(new System.Collections.Hashtable());
+    }
+
+    await DriveUntilAsync(match, m => !ZoneCards(m, P2, ChoiceZone.BattleArea).Contains(lvl4) || m.IsTerminal());
+
+    AssertTrue(!ZoneCards(match, P2, ChoiceZone.BattleArea).Contains(lvl4),
+        "levelMax scaling: the level-4 opponent Digimon (≤ levelMax 4 after the discard) was deleted by the [Main]");
+    AssertTrue(!lvl5Selectable,
+        "over-level control: the level-5 opponent Digimon was NEVER a selectable delete candidate (level 5 > levelMax 4 → excluded by SelectOpponentsDigimon)");
+    AssertTrue(ZoneCards(match, P2, ChoiceZone.BattleArea).Contains(lvl5),
+        "over-level control: the level-5 opponent Digimon (> levelMax 4) survives on the battle area");
 }
 
 // ═══════════════════════════════════ BT20_072 ═══════════════════════════════════

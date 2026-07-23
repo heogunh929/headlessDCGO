@@ -48,6 +48,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT25_034 W1 (Ascension): Ascension 효과(OnDestroyedAnyone, name=='Ascension') 생산 + Barrier(WhenPermanentWouldBeDeleted) + When-Trashed 무료플레이(OnDiscardSecurity) ActivateClass 생산", BT25034_AscensionProducedAndWhenTrashedGate),
     ("BT7_087 W1 (IsPlaceToTrashDueToNotHavingDP WRITE): 3팔 등재(OnDeclaration/SecuritySkill/OnAddHand) + [Main] CanUse 게이트([Hybrid] 5장 양·음) + no-DP-trash 플래그 write surface: default TRUE → suppress(false) → restore(true)", BT7087_TreatAsDigimonFlagWriteSurface),
     ("BT7_087 W2 ([Main] treat-as-Digimon digivolve flow): 손패 [Hybrid] 5장을 이 Tamer 밑 진화원으로 배치 + treat-as-Digimon 윈도우 종료 후 no-DP-trash 플래그 복원(TRUE)", BT7087_MainPlaceUnderAndFlagRestored),
+    ("BT7_087 W3 (IsPlaceToTrashDueToNotHavingDP READ — rule-sweep 소비): DP-less treated-as-Digimon 대상 no-DP rule-sweep(AutoProcessing.RuleProcess) — flag suppress(false)→미청소, restore(true)→청소", BT7087_NoDpSweepReadsFlag),
 };
 
 int failed = 0;
@@ -414,6 +415,59 @@ async Task BT7087_MainPlaceUnderAndFlagRestored()
         $"[Main] placed the 5 [Hybrid] cards UNDER this Tamer as digivolution cards (AddDigivolutionCardsBottom) [got {tamerPerm.DigivolutionCards.Count}]");
     AssertTrue(tamerPerm.IsPlaceToTrashDueToNotHavingDP,
         "the no-DP-trash flag was RESTORED to true after the treat-as-Digimon window closed (BT7_087 :259 release)");
+}
+
+async Task BT7087_NoDpSweepReadsFlag()
+{
+    (DcgoMatch match, _) = await NewMatchAsync(seed: 8103);
+    await ReachMainWaitAsync(match);
+
+    // The READ side of BT7_087's Permanent.IsPlaceToTrashDueToNotHavingDP flag is AutoProcessing.IsNotHavingDP
+    // (:176-:183): a DP-LESS (DP<0 / undefined) permanent treated-as-Digimon is swept to trash ONLY when the flag
+    // is true. NOTE (substrate D-2 fixture guard, IsNotHavingDP :171): a DP-undefined Digimon that is NOT a DigiEgg
+    // — i.e. exactly a treated-as-Digimon TAMER — is pre-empted (returns false) by the "abstract-Digimon fixture"
+    // guard, so in the mirror that subject survives regardless of the flag (a documented divergence from AS-IS,
+    // where real cards always print DP). To exercise the flag's actual READ we drive the SAME IsDigimon sweep
+    // branch (:180) with a DP-less DigiEgg-typed subject treated-as-Digimon: IsDigiEgg=true escapes the :171 guard,
+    // and IsDigimon=true (grant) lands on the identical :182 trash decision a treated Tamer would hit sans guard.
+    EngineContext ctx = match.Context;
+    var defId = new HeadlessEntityId("DEF:NODP-EGG");
+    ((CardDatabase)ctx.CardRepository).Upsert(new CardRecord(defId, "NODP-EGG", "NoDpEgg",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 2 }, CardType: "DigiEgg", PlayCost: null));
+    var subject = new HeadlessEntityId("1:battle:nodpegg");
+    // NO "dp" metadata → HasDP=false → DP<0 (undefined), the exact "card without DP" the sweep targets.
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(subject, defId, P1,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = false }));
+    ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, subject, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var card = new Cec.CardSource(match.Context, subject, P1);
+
+    // Grant treat-as-Digimon to the subject (BT7_087's own window behaviour: the DP-less card counts as a Digimon).
+    var treat = Cec.CardEffectFactory.TreatAsDigimonStaticEffect(
+        permanentCondition: p => p.InstanceId == subject, isInheritedEffect: false, card: card, condition: () => true);
+    Cec.ICardEffect? GetEffect(Cec.EffectTiming t) => t == Cec.EffectTiming.None ? treat : null;
+    new Cec.Player(match.Context, P1).UntilEachTurnEndEffects.Add(GetEffect);
+
+    var zones = (IZoneStateReader)match.Context.ZoneMover;
+    bool OnBattle() => zones.GetCards(P1, ChoiceZone.BattleArea).Contains(subject);
+
+    var perm = Perm(match, subject, P1);
+    AssertTrue(OnBattle(), "precondition: the subject is on the battle area");
+    AssertTrue(perm.IsDigimon && perm.TopCard!.IsDigiEgg && perm.DP < 0,
+        $"precondition: DP-less (DP={perm.DP}<0) DigiEgg treated-as-Digimon (IsDigimon={perm.IsDigimon}) — reaches the flag branch, past the :171 fixture guard");
+
+    // SUPPRESS (false): the no-DP rule-sweep must NOT trash the treated-as-Digimon subject.
+    perm.IsPlaceToTrashDueToNotHavingDP = false;
+    await Script.AutoProcessing.For(match.Context).RuleProcess();
+    AssertTrue(OnBattle(),
+        "SUPPRESS: with IsPlaceToTrashDueToNotHavingDP=false the AutoProcessing no-DP rule-sweep leaves the DP-less treated-as-Digimon subject on the field (the flag gates IsNotHavingDP off — the BT7_087 mid-window self-trash is suppressed)");
+
+    // RESTORE (true): the same rule-sweep now trashes it (normal no-DP sweep applies once the window closes).
+    Perm(match, subject, P1).IsPlaceToTrashDueToNotHavingDP = true;
+    await Script.AutoProcessing.For(match.Context).RuleProcess();
+    AssertTrue(!OnBattle(),
+        "RESTORE: with IsPlaceToTrashDueToNotHavingDP=true the no-DP rule-sweep trashes the DP-less treated-as-Digimon subject (normal sweep applies — the flag is READ by AutoProcessing.IsNotHavingDP :178)");
 }
 
 // ═══════════════════════════════════ harness ═══════════════════════════════════

@@ -179,13 +179,43 @@ array was ported; a frame id is that compacted-list index throughout.
 * **RD-P6C1-8** — the failed-play restore was already resolved (수리 배치 5); the only residual is the private
   `CardObjectController.AddHandCard` single-card overload used by BlastDNADigivolution's latent else-branch.
 
-### Residual (NOT a frame seat)
+### Residual — CLOSED (2026-07-23)
 
-The jogress COLLAPSE cannot execute end-to-end because of `Permanent.DiscardEvoRoots(putToTrash:false)`
-(Permanent.cs:3853) = **MIG4-DISCARDEVOROOTS-PUTTOTRASH**, the bare detach-without-trash of the evo sources
-shared by EVERY jogress collapse. The frame-WRITE jogress path resolves both roots, passes the capacity gate,
-and hands off to the collapse executor — stopping only at that MIG4 leaf (witnessed). `BlastDNADigivolution:294`
-stays STOP for the same reason (its latent body would throw at the MIG4 leaf); its STOP evidence was refreshed.
+~~The jogress COLLAPSE cannot execute end-to-end because of `Permanent.DiscardEvoRoots(putToTrash:false)`.~~
+**MIG4-DISCARDEVOROOTS-PUTTOTRASH is now LIVE** (Permanent.cs:3920 — snapshot both root lists + ACE-Overflow +
+`RemoveFromAllArea` each, no trash). The jogress + burst collapse execute end-to-end (DNATEMP-Witness Test 3/6,
+FRAME-Write.Witness). Consequently **`BlastDNADigivolution` was PORTED** (2026-07-23): the STOP throw is retired,
+the hand-material pick + jogress-FRAME play (SelectHandEffect → CreateNewPermanent zone-append → SetJogress →
+PlayCardClass → DiscardEvoRoots(false) collapse, else `AddHandCard`) is live. The factory has no live card caller
+yet (latent); a construction smoke test (DNATEMP-Witness Test 7) exercises it.
+
+### RD-JOGRESS-P2 — jogress no-slot-model residual debt (4 sub-items, consolidated 2026-07-23)
+
+The frame-WRITE path is live, but the AS-IS **fixed per-player slot array** (`fieldCardFrames`) has NO mirror —
+the substrate uses the COMPACTED field-permanent list + zone membership (the established no-slot/no-capacity
+convention, BT1_089 / RD-P6C1-1/-2 / RD-P6C2-11). Four corners of that adaptation carry documented, ACCEPTED
+debt (all verified accurate at HEAD; none is a code bug and none trivially resolves — each is inherent to the
+absent slot model, so they stay as ADAPTATION, not STOP). Each site cites `RD-JOGRESS-P2 #N`:
+
+* **#1 survivor field position (append vs root[0] slot)** — CardController.cs (jogress collapse survivor
+  placement, `AS-IS :1446 targetFrameID = evoRootPermanents[0]`). The survivor is APPENDED to the battle zone
+  rather than placed at root[0]'s physical slot. Unobservable in game state (no slot model; battle/breeding
+  answered by zone membership). ACCURATE.
+* **#2 SnapshotZone field-visibility asymmetry** — Permanent.cs `SnapshotZone` (:76-86). A transient view carrying
+  `snapshotZone:BattleArea` over a card whose LIVE zone is hand answers the field-MEMBERSHIP predicates
+  (`IsPermanentExistsOnBattleArea/BreedingArea`) TRUE while a live zone read would differ — an intentional
+  asymmetry, bounded: null for every normally-constructed permanent, so no other gate is affected. This is the
+  load-bearing mirror of the AS-IS `FieldPermanents[0]=transient` sparse injection (DNATEMP-Witness Test 1).
+  ACCURATE.
+* **#3 BurstTamer compacted-index time-stability** — CardController.cs `SetBurst`/`BurstTamer` (:2828-2833,
+  :2941-2944). The burst-tamer frame id indexes the owner's COMPACTED field-permanent list (tighter+exact vs
+  the AS-IS fixed slot bound). Residual: the index is only stable if the field composition does NOT mutate
+  between the SetBurst WRITE and the BurstTamer READ; every live jogress/burst flow resolves both in the same
+  synchronous span (no interleaving mutation), so the corner is unreachable in practice. ACCURATE.
+* **#4 full-field capacity corner** — Permanent.cs frame-model note (:3024-3027). The AS-IS `fieldCardFrames`
+  empty-battle-slot CAPACITY gate has no mirror; a materialisation always succeeds (zone append). The "field
+  full" corner (AS-IS would refuse placement) is not modeled — the established no-capacity convention (BT1_089).
+  ACCURATE.
 
 ### Witnesses (tests/FRAME-Write.Witness.Tests, 5/5)
 

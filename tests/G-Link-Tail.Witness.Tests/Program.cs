@@ -158,16 +158,22 @@ async Task T4_BT25070_DeleteLowCost()
     await ReachMainWaitAsync(match);
     Stage(match, P1, "BT25_070", ChoiceZone.BattleArea, "1:battle:Logamon", register: true);
     HeadlessEntityId enemy = StageSynthetic(match, P2, "ENEMY-4", dp: 3000, level: 4, "2:battle:enemy", playCost: 3);
+    // over-cost control: a 5-cost enemy Digimon (> 4 cost) — must be EXCLUDED from the ≤4-cost delete select.
+    HeadlessEntityId enemyHigh = StageSynthetic(match, P2, "ENEMY-4H", dp: 3000, level: 4, "2:battle:enemyHigh", playCost: 5);
 
     HeadlessEntityId host = new("1:battle:Logamon");
     Cec.ICardEffect? whenLinked = EffectNamed(match, host, Cec.EffectTiming.WhenLinked, "Delete 1 enemy 4 cost or less Digimon");
     AssertTrue(whenLinked is not null, "BT25_070 registers the [Your Turn] delete ActivateClass under WhenLinked");
 
+    bool highSelectable = false;
     policy.On(req => req.Type == ChoiceType.Permanent && req.Candidates.Any(c => c.Id == enemy),
-        req => ChoiceResult.Select(enemy));
+        req => { highSelectable |= req.Candidates.Any(c => c.Id == enemyHigh && c.IsSelectable); return ChoiceResult.Select(enemy); });
     await DriveActivateAsync(match, whenLinked!);
     AssertTrue(!ZoneCards(match, P2, ChoiceZone.BattleArea).Contains(enemy), "the enemy 3-cost Digimon left the battle area");
     AssertTrue(ZoneCards(match, P2, ChoiceZone.Trash).Contains(enemy), "the enemy 3-cost Digimon was deleted to the trash");
+    // over-cost negative: the 5-cost enemy is never a selectable target and survives.
+    AssertTrue(!highSelectable, "over-cost control: the 5-cost enemy Digimon was NEVER a selectable delete candidate (the ≤4-cost threshold excludes it)");
+    AssertTrue(ZoneCards(match, P2, ChoiceZone.BattleArea).Contains(enemyHigh), "over-cost control: the 5-cost enemy Digimon (> 4 cost) survives on the battle area");
 }
 
 // ═══════════════════════════════════ T5 BT25_072 can't-unsuspend ═══════════════════════════════════
@@ -199,16 +205,22 @@ async Task T6_ST2212_BottomDeckLowDp()
     await ReachMainWaitAsync(match);
     Stage(match, P1, "ST22_12", ChoiceZone.BattleArea, "1:battle:DoGatchamon", register: true);
     HeadlessEntityId enemy = StageSynthetic(match, P2, "ENEMY-6", dp: 4000, level: 4, "2:battle:enemy");
+    // over-DP control: a 6000-DP enemy Digimon (> 5000 DP) — must be EXCLUDED from the ≤5000 bottom-deck select.
+    HeadlessEntityId enemyHigh = StageSynthetic(match, P2, "ENEMY-6H", dp: 6000, level: 4, "2:battle:enemyHigh");
 
     HeadlessEntityId host = new("1:battle:DoGatchamon");
     Cec.ICardEffect? whenLinking = EffectNamed(match, host, Cec.EffectTiming.WhenLinked, "Return a digimon to bottom of deck");
     AssertTrue(whenLinking is not null, "ST22_12 registers the [When Linking] bottom-deck ActivateClass under WhenLinked");
 
+    bool highSelectable = false;
     policy.On(req => req.Type == ChoiceType.Permanent && req.Candidates.Any(c => c.Id == enemy),
-        req => ChoiceResult.Select(enemy));
+        req => { highSelectable |= req.Candidates.Any(c => c.Id == enemyHigh && c.IsSelectable); return ChoiceResult.Select(enemy); });
     await DriveActivateAsync(match, whenLinking!);
     AssertTrue(!ZoneCards(match, P2, ChoiceZone.BattleArea).Contains(enemy), "the enemy ≤5000 DP Digimon left the battle area");
     AssertTrue(ZoneCards(match, P2, ChoiceZone.Library).Contains(enemy), "the enemy ≤5000 DP Digimon was returned to the deck (Library)");
+    // over-DP negative: the 6000-DP enemy is never a selectable target and survives.
+    AssertTrue(!highSelectable, "over-DP control: the 6000-DP enemy Digimon was NEVER a selectable bottom-deck candidate (the ≤5000 DP threshold excludes it)");
+    AssertTrue(ZoneCards(match, P2, ChoiceZone.BattleArea).Contains(enemyHigh), "over-DP control: the 6000-DP enemy Digimon (> 5000 DP) survives on the battle area");
 }
 
 // ═══════════════════════════════════ T7 P_234 link-discard suspend ═══════════════════════════════════

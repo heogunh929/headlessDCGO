@@ -39,6 +39,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Rollback half: CardObjectController.AddHandCard(material, false) un-materializes a battle-area temp material back to its owner's hand", RollbackUnmaterialize),
     ("EX6_072 helper gate — CanJogressWithHandOrTrash (ported co-eval): AD1_025 in hand WITH a field Lv.6 [Greymon] + a hand Lv.6 [Garurumon] passes; missing the hand material FAILS; a false targetCardCondition FAILS (control)", Ex6072HelperGate),
     ("EX6_072 [Main] end-to-end (raw DNADigivolveWithHandOrTrash helper): DNA-target select → From-Battle-Area branch → field-root + temp hand-material co-eval → materialize → jogress collapse completes — AD1_025 surviving with BOTH roots stacked underneath (full collapse WRITE)", Ex6072MainEndToEndToMig4),
+    ("BlastDNADigivolveEffect construction smoke (PORTED 2026-07-23, latent factory): guards pass (card on hand + >=2 hand cards + a battle-area permanent) → returns a non-null ActivateClass; the ported jogress-frame body (SelectHandEffect + CreateNewPermanent + SetJogress + DiscardEvoRoots(false) + AddHandCard) compiles and wires without throwing at construction", BlastDNAConstructionSmoke),
 };
 
 int failed = 0;
@@ -284,6 +285,36 @@ async Task Ex6072MainEndToEndToMig4()
         "both roots — the field Greymon AND the temp hand-material Garurumon (materialized via CreateNewPermanent, then consumed) — are stacked underneath AD1_025 (full collapse WRITE through the raw DNADigivolveWithHandOrTrash helper)");
     AssertTrue(field.All(p => p.InstanceId != grey && p.InstanceId != garu),
         "neither root survives as a standalone field permanent (bare-detached into the jogress stack)");
+}
+
+// ═══════════════════════════════ Test 7: BlastDNA construction smoke (PORTED, latent factory) ═══════════════════════════════
+
+async Task BlastDNAConstructionSmoke()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewMatchAsync(seed: 8701);
+    await ReachMainWaitAsync(match);
+
+    // The [Blast DNA Digivolve] card sits in hand; a second hand card satisfies the HandCards.Count >= 2 guard;
+    // a battle-area permanent satisfies the GetBattleAreaPermanents().Count > 0 guard.
+    HeadlessEntityId blast = Stage(match, P1, "AD1_025", "1:hand:blast", zone: ChoiceZone.Hand, register: false);
+    StageSynthetic(match, P1, "MGARU", dp: 6000, level: 6, "1:hand:mgaru", name: "MetalGarurumon", zone: ChoiceZone.Hand);
+    StageSynthetic(match, P1, "WGREY", dp: 6000, level: 6, "1:battle:wgrey", name: "WarGreymon");
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var card = new Cec.CardSource(match.Context, blast, P1);
+
+    var conditions = new List<Cec.BlastDNACondition>
+    {
+        new Cec.BlastDNACondition("WarGreymon"),
+        new Cec.BlastDNACondition("MetalGarurumon"),
+    };
+
+    // Construction only (item 3a scope: the factory has no live card caller): the ported jogress-frame play lives
+    // inside the nested SelectPermanentCoroutine/SelectCardCoroutine local functions, which run on Activate — not
+    // at construction. This proves the port compiles + wires the ActivateClass without throwing the retired STOP.
+    var effect = Cec.CardEffectFactory.BlastDNADigivolveEffect(card, conditions, null);
+    AssertTrue(effect is not null,
+        "BlastDNADigivolveEffect returns a non-null ActivateClass (all guards pass) — the ported body wires without throwing");
 }
 
 // ═══════════════════════════════ assertions ═══════════════════════════════

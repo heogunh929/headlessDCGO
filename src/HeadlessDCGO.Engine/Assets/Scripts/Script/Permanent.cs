@@ -82,7 +82,8 @@ public sealed class Permanent
     /// checks (<see cref="CardEffectCommons.IsPermanentExistsOnBattleArea"/> /
     /// <see cref="CardEffectCommons.IsPermanentExistsOnBreedingArea"/>) answer from this snapshot instead of the
     /// live zone, reproducing the AS-IS pre-removal truth. Null for every normally-constructed permanent, so no
-    /// other gate is affected.</summary>
+    /// other gate is affected. (RD-JOGRESS-P2 #2 field-visibility asymmetry — the jogress temp-material reuses this
+    /// snapshot to answer battle-area membership over a hand-resident card; docs/audit/rebuild_p6_cluster1_notes.md.)</summary>
     public ChoiceZone? SnapshotZone { get; }
 
     // (EFFECT-MODEL REBUILD, design item CARDSOURCE-EQUALITY) AS-IS relies on stable per-permanent object identity
@@ -3024,7 +3025,8 @@ public sealed class Permanent
     //   * Frame model absent (design item RD-P6C1-1 / MIG5-FRAME-MODEL): AS-IS `PermanentFrame.IsBattleAreaFrame()`
     //     → CardEffectCommons.IsPermanentExistsOnBattleArea(this) (zone membership); AS-IS `isBreedingAreaFrame()`
     //     → GetBreedingAreaPermanents() membership; the `fieldCardFrames` empty-battle-slot capacity check has no
-    //     mirror (design item RD-P6C1-2) — the established no-capacity convention (BT1_089) omits it.
+    //     mirror (design item RD-P6C1-2 / RD-JOGRESS-P2 #4 full-field capacity corner — the established
+    //     no-capacity convention (BT1_089) omits it; docs/audit/rebuild_p6_cluster1_notes.md).
     //   * AS-IS `EnterFieldTurnCount == TurnCount` (summoning sickness) → the established `enteredThisTurn` boolean
     //     substrate flag (MatchStateMutationSink.EnteredThisTurnKey), read via EnteredThisTurn below.
 
@@ -3915,8 +3917,8 @@ public sealed class Permanent
     /// first (unless <paramref name="ignoreOverflow"/>). Delegates to
     /// <see cref="DeletionSourceTrash.TrashEvoSourcesAsync"/> (the putToTrash==true path every headless deletion
     /// call site uses, always gameEventQueue:null — AS-IS's own trash-add is direct, no OnDigivolutionCardDiscarded).
-    /// The AS-IS <c>putToTrash == false</c> RETURN variant has no headless bare-detach primitive — design item
-    /// MIG4-DISCARDEVOROOTS-PUTTOTRASH.</summary>
+    /// The AS-IS <c>putToTrash == false</c> RETURN variant (bare detach-without-trash, MIG4-DISCARDEVOROOTS-PUTTOTRASH)
+    /// is now LIVE below (snapshot roots + ACE-Overflow + RemoveFromAllArea each, no trash).</summary>
     public async Task DiscardEvoRoots(bool ignoreOverflow = false, bool putToTrash = true, CancellationToken cancellationToken = default)
     {
         if (!putToTrash)

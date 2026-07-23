@@ -2831,6 +2831,8 @@ public class PlayCardClass
     // (Permanent.cs:118-135, the established READ-side no-slot-model idiom RD-P6C2-11), so the bound is that list's
     // Count — tighter than AS-IS and exact: every in-range id references an occupied frame. An out-of-range id is the
     // AS-IS not-set fallthrough (kept: BurstTamer then returns null ⇒ IsBurst false on ordinary plays).
+    // (RD-JOGRESS-P2 #3 compacted-index time-stability — the id is stable only across the synchronous SetBurst→
+    // BurstTamer span, which every live burst flow satisfies; docs/audit/rebuild_p6_cluster1_notes.md.)
     public void SetBurst(int BurstTamerFrameID, CardSource card)
     {
         if (0 <= BurstTamerFrameID && BurstTamerFrameID <= new Player(card.Context, card.Owner).GetFieldPermanents().Count - 1)
@@ -4003,7 +4005,8 @@ public class PlayPermanentClass
                     }
 
                     // AS-IS :1446 targetFrameID = evoRootPermanents[0]'s frame — frame-less: placement is the
-                    // zone append (the first root's slot has no mirror meaning). ADAPTATION.
+                    // zone append (the first root's slot has no mirror meaning). ADAPTATION (RD-JOGRESS-P2 #1
+                    // survivor field position — docs/audit/rebuild_p6_cluster1_notes.md).
 
                     foreach (Permanent evoRootPermanent in evoRootPermanents)
                     {

@@ -16,7 +16,9 @@
 // `permanent.TopCard.IsLevel6` → `HasLevel && Level == 6` (AS-IS CardSource.IsLevel6, CardSource.cs:2941);
 // `CanTriggerOptionMainEffect(hashtable, card)`/`CanTriggerSecurityEffect(hashtable, card)` → the Hashtable
 // overloads (OptionEffect.cs / SecurityEffect.cs); `AddThisCardToHand(card, activateClass)` → the mirror
-// `(card, sourceCard)` shape (BT9_109 convention, sourceCard = the effect's source card).
+// `(card, activateClass.EffectSourceCard)` shape (BT17_095 convention — the second arg is the AS-IS
+// activateClass's source card, not `card`; here EffectSourceCard == card but the faithful mirror passes
+// the activateClass source so the shape survives if they ever diverge).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX6.White;
 
 using System;
@@ -175,7 +177,7 @@ public sealed class EX6_072 : CEntity_Effect
                     await selectCardEffect.Activate();
                 }
 
-                await CardEffectCommons.AddThisCardToHand(card, card);
+                await CardEffectCommons.AddThisCardToHand(card, activateClass.EffectSourceCard);
             }
         }
         #endregion
