@@ -1174,12 +1174,27 @@ public class ITrashDigivolutionCards
         // AS-IS :5167-5169 ShowCardEffect / CreateDebuffEffect = UI (stripped).
 
         #region cut in effect - Would discard
-        // AS-IS :5171-5192: LIVE WhenWouldDigivolutionCardDiscarded cut-in — StackSkillInfos(
-        // WhenDigivolutionCardWouldDiscardedCheckHashtable(...)) then, if anything stacked,
-        // TriggeredSkillProcess(false, HasExecutedSameEffect) drains it synchronously. Headless has no such
-        // timing/gate/producer yet and no synchronous cut-in drive at this leaf: design item
-        // MIG3-CUTIN-WOULDDISCARD. Nothing clears willBeRemoveSources today — the round-trip below is wired
-        // for when the cut-in lands.
+        // AS-IS :5171-5192 (design item MIG3-CUTIN-WOULDDISCARD, now RESOLVED = RD-SW-E-01): the LIVE
+        // "[When digivolution cards would be trashed]" PRE cut-in. Rides the shared ForCutIn synchronous
+        // stack+drain primitive (same seat as DestroyPermanentsClass's WhenPermanentWouldBeDeleted /
+        // ILinkCard's WhenWouldLink / IPlacePermanentTo*'s WhenRemoveField pre-mutation windows). Opened
+        // BEFORE the digivolution-source trash is fixed (:5194 trashDigivolutionCardsFixed): a reactor
+        // (BT10_084 [Opponent's Turn]) can observe the pre-trash DiscardedCards list and clear
+        // willBeRemoveSources on a source to spare it, so the survivor read below drops it from the fix.
+        // AS-IS :5183 gates the drain on HasAwaitingActivateEffects(); :5189 drains with
+        // HasExecutedSameEffect as the skip predicate. UI (ShowCardEffect/ShrinkSecurityDigimonDisplay)
+        // stripped. StackSkillInfos is a live re-enumeration (GetSkillInfos over the WhenWouldDigivolution-
+        // CardDiscarded EffectList) — a structural no-op when no reactor of this timing is on field.
+        AutoProcessing cutIn = AutoProcessing.ForCutIn(context);
+        await cutIn.StackSkillInfos(
+            CardEffectCommons.CardEffectCommons.WhenDigivolutionCardWouldDiscardedCheckHashtable(
+                _permanent, _trashTargetCards, _cardEffect),
+            EffectTiming.WhenWouldDigivolutionCardDiscarded).ConfigureAwait(false);
+
+        if (cutIn.HasAwaitingActivateEffects())
+        {
+            await cutIn.TriggeredSkillProcess(false, AutoProcessing.HasExecutedSameEffect).ConfigureAwait(false);
+        }
         #endregion
 
         // AS-IS :5194-5200 fix the target permanent + surviving willBeRemoveSources list.
@@ -1935,9 +1950,10 @@ public class SuspendPermanentsClass
 /// window per post-cut-in batch (:5746-5754).
 ///
 /// AS-IS :5682-5720 the WhenUntapAnyone cut-in (manual GetSkillInfos + PutStackedSkill + synchronous drain —
-/// a structurally DIFFERENT pattern from the StackSkillInfos cut-ins, preserved in doc form) has NO headless
-/// timing/producer at all: design item MIG3-CUTIN-WHENUNTAP. Inert today; the re-filter below re-applies the
-/// identical predicate, exactly the AS-IS structure.
+/// a structurally DIFFERENT pattern from the StackSkillInfos cut-ins) is now WIRED (design item
+/// MIG3-CUTIN-WHENUNTAP RESOLVED = RD-SW-E-02): the Unsuspend body below opens the PRE cut-in over the pre-fix
+/// untappedPermanents list, and the re-filter (untappedPermanentsFixed) re-applies the identical predicate so a
+/// reactor (BT7_055) that cancels an unsuspend before it lands is honoured — the AS-IS PRE semantics.
 ///
 /// Substrate notes: CanUnsuspend = the existing CardEffectCommons.CanUnsuspend mirror; null cause never
 /// blocked. OnUnTappedAnyone NOT zone-derived — manual emit, zero prior consumers
@@ -1983,10 +1999,35 @@ public class IUnsuspendPermanents
         _ = untappedPermanents; // AS-IS keeps the pre-cut-in list alive for the cut-in region below.
 
         #region "When permanents would unsuspend" effect (cut-in)
-        // AS-IS :5682-5720: WhenUntapAnyone cut-in — GetSkillInfos + manual PutStackedSkill + synchronous
-        // TriggeredSkillProcess(false, HasExecutedSameEffect) drain (the MANUAL-push variant, structurally
-        // distinct from the StackSkillInfos cut-ins elsewhere). No headless timing/producer/drive point yet:
-        // design item MIG3-CUTIN-WHENUNTAP. Inert today.
+        // AS-IS :5682-5720 (design item MIG3-CUTIN-WHENUNTAP, now RESOLVED = RD-SW-E-02): the LIVE
+        // "[When permanents would unsuspend]" PRE cut-in — the MANUAL-push variant. AS-IS collects with
+        // AutoProcessing.GetSkillInfos (a pure live re-enumeration, NO ActivateBackgroundEffects — which is
+        // exactly why AS-IS hand-rolls the push here instead of StackSkillInfos), manually PutStackedSkill's
+        // each onto the cut-in stack, then synchronously drains with HasExecutedSameEffect as the skip
+        // predicate. INLINE geometry at the unsuspend step (this SuspendPermanentsClass/unsuspend side), NOT
+        // a SkillWindowSupply converter. Opened over the pre-fix `untappedPermanents` list BEFORE the untap
+        // applies (:5734 SetIsSuspended below), so a reactor (BT7_055) may cancel/change an unsuspend before
+        // it lands; the `untappedPermanentsFixed` re-filter below picks up any change. UI
+        // (ShowUnsuspendEffect / WillUntapObject) stripped. Structural no-op when no WhenUntapAnyone reactor
+        // is on field (GetSkillInfos returns empty → nothing stacked → drain skipped).
+        var wouldUnsuspendSkillInfos = AutoProcessing.GetSkillInfos(
+            new System.Collections.Hashtable
+            {
+                { "CardEffect", _cardEffect },
+                { "Permanents", untappedPermanents },
+            },
+            EffectTiming.WhenUntapAnyone);
+
+        if (wouldUnsuspendSkillInfos.Count >= 1)
+        {
+            AutoProcessing cutIn = AutoProcessing.ForCutIn(context);
+            foreach (var skillInfo in wouldUnsuspendSkillInfos)
+            {
+                cutIn.PutStackedSkill(skillInfo);
+            }
+
+            await cutIn.TriggeredSkillProcess(false, AutoProcessing.HasExecutedSameEffect).ConfigureAwait(false);
+        }
         #endregion
 
         // AS-IS :5723-5728 untappedPermanets_Fixed — re-filter after the (today inert) cut-in.
