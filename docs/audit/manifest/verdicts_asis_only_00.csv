@@ -1,0 +1,35 @@
+relpath,verdict,mirror_anchor,evidence,note
+DCGO/Assets/Scripts/Script/BGMObject.cs,UI-OUT-OF-SCOPE,,"AudioSource BGM play/stop/fade (DOTween); no state mutation or rule",Audio presentation only
+DCGO/Assets/Scripts/Script/BattleMode.cs,UI-OUT-OF-SCOPE,,"Lobby screen on/off toggling (RoomManager/SelectBattleMode); no rule",Lobby UI navigation
+DCGO/Assets/Scripts/Script/BendText.cs,UI-OUT-OF-SCOPE,,"TextMeshPro mesh curve/vertex deformation + Gizmos; pure visual",Text rendering effect
+DCGO/Assets/Scripts/Script/BrainStormObject.cs,UI-OUT-OF-SCOPE,,"Shows/rotates HandCard GameObjects for brainstorm display; SetActive only; rule logic invoked elsewhere",Brainstorm card display; no security/reveal rule here
+DCGO/Assets/Scripts/Script/BreakGlass.cs,UI-OUT-OF-SCOPE,,"Rigidbody explosion VFX + SE; no game state",Shatter visual effect
+DCGO/Assets/Scripts/Script/BurstEffectObject.cs,UI-OUT-OF-SCOPE,,"Evolution cut-in animation text/material/SE (extends EvolutionEffectObject)",Evolution animation visual
+DCGO/Assets/Scripts/Script/CPlayerElement.cs,UI-OUT-OF-SCOPE,,"Sets room-list player name/ready Text labels; no rule",Room list UI element
+DCGO/Assets/Scripts/Script/CRoomElement.cs,UI-OUT-OF-SCOPE,,"Room-list row: name/player-count Text + join button UnityAction",Room list UI element
+DCGO/Assets/Scripts/Script/CardDetail.cs,UI-OUT-OF-SCOPE,,"Opens card zoom panel via HandCard + DOTween; SetActive/animate only",Card detail popup
+DCGO/Assets/Scripts/Script/CardDistribution.cs,UI-OUT-OF-SCOPE,,"Deck-builder distribution chart: sets CardCondition lambdas (CardKind/Level) to categorize tabs for display; no mutation/validation",Deck-editor display classification only
+DCGO/Assets/Scripts/Script/CardImagePanel.cs,UI-OUT-OF-SCOPE,,"Dev tool: lists cards whose image sprite missing (StreamingAssetsUtility) + clipboard copy",Asset-check tooling UI
+DCGO/Assets/Scripts/Script/CheckUpdate.cs,UI-OUT-OF-SCOPE,,"Version-string compare vs GSSReader for update prompt; network/UI",App update check
+DCGO/Assets/Scripts/Script/CircleFill.cs,UI-OUT-OF-SCOPE,,"Image.fillAmount timer animation",UI fill animation
+DCGO/Assets/Scripts/Script/ColorDropdownController.cs,UI-OUT-OF-SCOPE,,"Dropdown caption color tinting for CardColor items; presentation",Dropdown styling
+DCGO/Assets/Scripts/Script/CommandButton.cs,UI-OUT-OF-SCOPE,,"IPointerClickHandler: plays SE + invokes UnityAction",Button input relay
+DCGO/Assets/Scripts/Script/CommandPanel.cs,UI-OUT-OF-SCOPE,,"Builds command buttons from List<CardCommand>; reads IsSuspended/IsExistOnTrash only for rotation/position; actions created elsewhere",Command menu layout; no rule
+DCGO/Assets/Scripts/Script/CommandText.cs,UI-OUT-OF-SCOPE,,"Shows/hides command message text + DigiXros/assembly objects via Animator",Message banner UI
+DCGO/Assets/Scripts/Script/CreateRoom.cs,UI-OUT-OF-SCOPE,,"Create-room panel open/close + sets isAI/isRandomMatch flags; delegates to RoomManager",Lobby create-room UI
+DCGO/Assets/Scripts/Script/CutInGif.cs,UI-OUT-OF-SCOPE,,"Sprite-array frame animation (red/blue bg)",GIF-style animation
+DCGO/Assets/Scripts/Script/DeckInfoPrefab.cs,UI-OUT-OF-SCOPE,,"Deck list card: key-card sprite + color-icon SetActive from DeckData counts; display only",Deck list UI element
+DCGO/Assets/Scripts/Script/DeckMode.cs,UI-OUT-OF-SCOPE,,"Deck screen on/off (SelectDeck/EditDeck/TrialDraw panels)",Deck mode UI navigation
+DCGO/Assets/Scripts/Script/Draggable.cs,UI-OUT-OF-SCOPE,,"Base drag: RectTransform local-pos + DropArea raycast; input only",Drag base class
+DCGO/Assets/Scripts/Script/Draggable_Card.cs,UI-OUT-OF-SCOPE,,"Deck-editor card drag; invokes OnDrag/OnDropAction UnityActions; sprite/transform only",Card drag (deck editor)
+DCGO/Assets/Scripts/Script/Draggable_HandCard.cs,UI-OUT-OF-SCOPE,,"Hand-card drag; gated by handCard.CanDrag/Owner.isYou (UI gate), invokes BeginDrag/EndDragAction; play validation elsewhere",Hand-card drag input
+DCGO/Assets/Scripts/Script/Draggable_Window.cs,UI-OUT-OF-SCOPE,,"Draggable window clamp to min/max bounds; transform only",Window drag UI
+DCGO/Assets/Scripts/Script/DropArea.cs,UI-OUT-OF-SCOPE,,"Drop-target panel show/hide + GameObject child-tree helper",Drop-zone UI + tree util
+DCGO/Assets/Scripts/Script/EnterRoom.cs,UI-OUT-OF-SCOPE,,"Photon JoinRoom by 5-char room ID; MonoBehaviourPunCallbacks; networking/UI",Join-room lobby UI
+DCGO/Assets/Scripts/Script/EvolutionEffectObject.cs,UI-OUT-OF-SCOPE,,"Evolution cut-in Animator/Image/SE coroutine; gated by showCutInAnimation",Evolution animation base
+DCGO/Assets/Scripts/Script/FilterCardList.cs,UI-OUT-OF-SCOPE,,"Deck-builder search/filter predicates (color/cost/rarity/level/kind/set/name-text) over CEntity_Base metadata for display list; no mutation/validation",Deck-editor search filter; reads metadata only
+DCGO/Assets/Scripts/Script/FirstPlayerIndexIdToggle.cs,UI-OUT-OF-SCOPE,,"Toggle relays FirstPlayerIndexID via UnityAction<int>; no rule",First-player select toggle
+DCGO/Assets/Scripts/Script/GameplayOption.cs,UI-OUT-OF-SCOPE,,"Settings toggles bound to ContinuousController flags (autoEffectOrder/autoMinDigivolutionCost/autoHatch/useBanlist etc.) via OptionUtility; persists prefs, no rule",Client preference toggles; automation behavior lives elsewhere
+DCGO/Assets/Scripts/Script/GifImage.cs,UI-OUT-OF-SCOPE,,"Sprite-array frame animation on Image",GIF-style animation
+DCGO/Assets/Scripts/Script/GlowAnimation.cs,UI-OUT-OF-SCOPE,,"Empty Start/Update stub",Empty MonoBehaviour
+DCGO/Assets/Scripts/Script/GraphicsOptionPanel.cs,UI-OUT-OF-SCOPE,,"showBackgroundParticle toggle bound via OptionUtility; graphics pref",Graphics settings toggle
