@@ -35,6 +35,7 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("MAIN GRANT: [Main] grants the selected owner Digimon immune-from-DP-minus (plain opponent cause blocked) + immune-from-opponent-Option", MainGrantsImmunities),
     ("DUAL-FLAG refinement (live read): an opponent cause flagged BOTH digimon- AND tamer-effect is NOT immune; own cause not immune", DualFlagRefinementHonoured),
+    ("APPLICATION PATH (RD-J-03): a cause rebuilt from a bare source id (BuildCausingEffectStandIn) reproduces the real IsDigimonEffect/IsTamerEffect — a both-flagged enemy cause is NOT immune (DP-minus applies); plain-enemy blocked + own not-immune controls unchanged", ApplicationPathReconstructsFlags),
     ("SECURITY: [Security] adds this card from security to the hand", SecurityAddsToHand),
 };
 
@@ -99,6 +100,39 @@ async Task DualFlagRefinementHonoured()
     AssertFalse(targetPerm.ImmuneFromDPMinus(ownCause), "an OWN effect's DP-minus is not immune (Owner != Enemy)");
 }
 
+async Task ApplicationPathReconstructsFlags()
+{
+    // RD-J-03 / RD-P6B-13 DP-application half. Where the read path (above) passes the LIVE causing effect, the
+    // APPLICATION path rebuilds the cause from a bare source id via NewModelContinuousScan.BuildCausingEffectStandIn
+    // (the shared stand-in the restriction/mutation cause-scans and the retired ContinuousDpGate DP half consume).
+    // The fix threads the source card's IsDigimonEffect/IsTamerEffect onto that stand-in, so BT19_089's dual-flag
+    // SkillCondition (`Owner==Enemy && (!IsDigimonEffect || !IsTamerEffect)`) now evaluates IDENTICALLY to the read
+    // path. Before the fix the stand-in defaulted both flags false, so a both-flagged enemy cause wrongly satisfied
+    // the refinement (immune / DP-minus blocked — a narrow over-approximation).
+    var (ctx, _, target) = await DriveMain(9004);
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(ctx);
+    var targetPerm = new Cec.Permanent(ctx, target, P1);
+
+    // A BOTH-flagged enemy cause — a dual Digimon-and-Tamer source card, so the reconstructed stand-in reports
+    // IsDigimonEffect && IsTamerEffect: the refinement excludes it → NOT immune → the DP-minus APPLIES.
+    var bothFlaggedId = StageCauseCard(ctx, P2, "cause-both", cardType: "Digimon", extraTypes: "Tamer");
+    var bothStandIn = Cec.NewModelContinuousScan.BuildCausingEffectStandIn(ctx, bothFlaggedId);
+    AssertFalse(targetPerm.ImmuneFromDPMinus(bothStandIn),
+        "application path: a stand-in rebuilt from a BOTH-flagged (Digimon+Tamer) enemy cause is NOT immune — DP-minus applies (dual-flag refinement now honoured on the reconstruction path; previously wrongly blocked)");
+
+    // Control: a plain enemy cause (Option — neither flag) still satisfies the refinement → immune → BLOCKED.
+    var plainId = StageCauseCard(ctx, P2, "cause-plain", cardType: "Option", extraTypes: null);
+    var plainStandIn = Cec.NewModelContinuousScan.BuildCausingEffectStandIn(ctx, plainId);
+    AssertTrue(targetPerm.ImmuneFromDPMinus(plainStandIn),
+        "application path (control): a stand-in rebuilt from a PLAIN enemy cause is immune — DP-minus blocked (unchanged)");
+
+    // Control: an OWN cause (Owner != Enemy) is never immune.
+    var ownId = StageCauseCard(ctx, P1, "cause-own", cardType: "Option", extraTypes: null);
+    var ownStandIn = Cec.NewModelContinuousScan.BuildCausingEffectStandIn(ctx, ownId);
+    AssertFalse(targetPerm.ImmuneFromDPMinus(ownStandIn),
+        "application path (control): a stand-in rebuilt from an OWN cause is not immune (unchanged)");
+}
+
 async Task SecurityAddsToHand()
 {
     (EngineContext ctx, PolicyChoiceProvider policy) = NewCtx(9003, P1);
@@ -131,6 +165,21 @@ Cec.ICardEffect MakeCause(EngineContext ctx, HeadlessPlayerId owner, string inst
     eff.SetIsDigimonEffect(digimon);
     eff.SetIsTamerEffect(tamer);
     return eff;
+}
+
+// Stage a bare CAUSE card (definition + owned instance) whose type drives the reconstructed stand-in's
+// IsDigimonEffect/IsTamerEffect (source.IsDigimon/IsTamer). `extraTypes` rides the AdditionalCardTypesKey so a
+// single card can report BOTH Digimon and Tamer (a dual card), the only shape that exercises the refinement.
+HeadlessEntityId StageCauseCard(EngineContext ctx, HeadlessPlayerId owner, string instance, string cardType, string? extraTypes)
+{
+    var defId = new HeadlessEntityId($"DEF:CAUSE:{instance}");
+    var meta = new Dictionary<string, object?>(StringComparer.Ordinal);
+    if (extraTypes is not null) meta[CardRecord.AdditionalCardTypesKey] = extraTypes;
+    ((CardDatabase)ctx.CardRepository).Upsert(new CardRecord(defId, instance, instance, meta, CardType: cardType));
+    var id = new HeadlessEntityId($"{owner.Value}:cause:{instance}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)));
+    return id;
 }
 
 (EngineContext, PolicyChoiceProvider) NewCtx(int seed, HeadlessPlayerId turnPlayer)

@@ -29,6 +29,11 @@
 //       GManager.instance; the mirror resolves that from AmbientMatchContext, so each public entry point
 //       scopes the match (a caller already in the same scope re-enters harmlessly).
 
+// (RD-J-03 witness seam) Expose the shared causing-effect stand-in builder to the RD-J03 witness so it can drive
+// the source-id reconstruction path that BuildCausingEffectStandIn serves (restriction/mutation cause-scans; the
+// retired ContinuousDpGate DP half) — a compile-time-only grant, no runtime/digest effect.
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("RD-J03-BT19_089.Witness.Tests")]
+
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using System;
@@ -103,10 +108,29 @@ public static class NewModelContinuousScan
     // IsInheritedEffect, …) sees defaults, not the real causing effect's.
     private sealed class CausingEffectStandIn : ICardEffect
     {
-        public CausingEffectStandIn(CardSource? causingSource) => SetEffectSourceCard(causingSource!);
+        public CausingEffectStandIn(CardSource? causingSource)
+        {
+            SetEffectSourceCard(causingSource!);
+
+            // (RD-J-03 / RD-P6B-13 DP-application half) Reproduce the causing effect's per-instance
+            // IsDigimonEffect / IsTamerEffect from the source card's type. AS-IS the causing effect is the source
+            // card's OWN effect, so those two flags reflect that card's type (a Digimon card's effect is a Digimon
+            // effect; a dual Digimon-and-Tamer card's effect is BOTH). A cardEffectCondition that refines on the
+            // pair — BT19_089's ImmuneFromDPMinus SkillCondition `Owner==Enemy && (!IsDigimonEffect ||
+            // !IsTamerEffect)` — previously saw the ctor-default `false`/`false` on this source-id-only stand-in and
+            // wrongly returned true (immune) for a both-flagged cause (narrow over-approximation). This threads the
+            // real flag pair 1:1 through the shared stand-in, mirroring the established source-derived stamp
+            // precedent (ActivatedHashtableBridge.CauseStubEffect L1: `SetIsDigimonEffect(source.IsDigimon)` /
+            // `SetIsTamerEffect(source.IsTamer)`; RD-W3-5 effectStamp). Inert for any cause without the dual flag.
+            if (causingSource is not null)
+            {
+                SetIsDigimonEffect(causingSource.IsDigimon);
+                SetIsTamerEffect(causingSource.IsTamer);
+            }
+        }
     }
 
-    private static ICardEffect BuildCausingEffectStandIn(EngineContext context, HeadlessEntityId causingSourceId)
+    internal static ICardEffect BuildCausingEffectStandIn(EngineContext context, HeadlessEntityId causingSourceId)
     {
         CardSource? source = causingSourceId.IsEmpty ? null : MakeSource(context, causingSourceId);
         return new CausingEffectStandIn(source);
