@@ -1,7 +1,572 @@
-// Source: Assets/Scripts/CardEffect/EX9/White/EX9_074.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX9.White
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/CardEffect/EX9/White/EX9_074.cs (1:1 mirror) — "Kimeramon".
+//
+// RD-SW-C-01 — the Assembly level-treatment consumer. 6 regions:
+//   * Assembly            :16-94  (None — AddAssemblyConditionClass; 7 different-named Lv.4 [DM] Digimon,
+//     reduceCost 7. The material gate reads `IsLevel4 || Level_Assembly.Contains(4)` — the read-side of the
+//     ChangeCardLevelForAssembly chain that EX9_062 (SkullGreymon) feeds.)
+//   * Sec +1              :96-107 (None — ChangeSelfSAttackStaticEffect(+1))
+//   * Rush                :109-116(None — RushSelfStaticEffect)
+//   * On Play             :118-308(OnEnterFieldAnyone + CanTriggerOnPlay — place 1 Lv.4↓ [DM] Digimon from
+//     trash as top source, then delete opponent Digimon sharing a digivolution-card colour; 6+ colours →
+//     delete 1 of each different colour.)
+//   * When Digivolving    :310-502(OnEnterFieldAnyone + CanTriggerWhenDigivolving — same body; the 6+ branch
+//     keeps the AS-IS hashtable quirk verbatim, see note below.)
+//   * All Turns           :504-534(None — ChangeSelfDPStaticEffect(+1000 per digivolution-card colour))
+//
+// substrate translations only:
+//   * IEnumerator→async Task, `yield return StartCoroutine(X)`/`ContinuousController.instance.StartCoroutine(X)`
+//     →`await X`, `yield return null`→`return Task.CompletedTask` (EX9_062/BT9_062 idiom).
+//   * `cardSource.IsLevel4` → `cardSource.IsLevel(4)` (mirror IsLevel(int) idiom; IsLevel4 property translated
+//     per BT24_062/EX9_062 precedent — symbol_map §2.4).
+//   * `card.PermanentOfThisCard()` → `ICardEffect.ResolvePermanentOfThisCard(card)` (PermanentView→Permanent
+//     bridge, LM_054/EX9_062 precedent).
+//   * SelectPermanentEffect / CardEffectCommons permanent-scan predicates: AS-IS `Func<Permanent,bool>` supplied
+//     as the entity-id predicate via a `PermanentOf(id)` reconstruction (BT9_062 idiom); the `HasMatchCondition
+//     Permanent(card, Func<Permanent,bool>)` overload is used directly where AS-IS passes a Permanent predicate.
+//   * colour model: AS-IS `CardColors` is `List<CardColor>`; the mirror CardSource surface is `IReadOnlyList
+//     <string>`, folded to the AS-IS enum via `CardSource.ToCardColorList` (P6C3 reconciliation). `.Filter`
+//     (List/array extension) over the IReadOnlyList `DigivolutionCards` → LINQ `.Where`.
+//   * `GManager.instance.GetComponent<Select*Effect>()` + full AS-IS SetUp (bridge W4 idiom).
+namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX9.White;
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Services;
+
+public sealed class EX9_074 : CEntity_Effect
+{
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+        #region Assembly
+        if (timing == EffectTiming.None)
+        {
+            AddAssemblyConditionClass addAssemblyConditionClass = new AddAssemblyConditionClass();
+            addAssemblyConditionClass.SetUpICardEffect($"Assembly", CanUseCondition, card);
+            addAssemblyConditionClass.SetUpAddAssemblyConditionClass(getAssemblyCondition: GetAssembly);
+            addAssemblyConditionClass.SetNotShowUI(true);
+            cardEffects.Add(addAssemblyConditionClass);
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return true;
+            }
+
+            AssemblyCondition GetAssembly(CardSource cardSource)
+            {
+                if (cardSource == card)
+                {
+                    AssemblyConditionElement element = new AssemblyConditionElement(CanSelectCardCondition);
+
+                    bool CanSelectCardCondition(CardSource cardSource)
+                    {
+                        if (cardSource != null)
+                        {
+                            if (cardSource.Owner == card.Owner)
+                            {
+                                if (cardSource.IsDigimon)
+                                {
+                                    if (cardSource.IsLevel(4) || cardSource.Level_Assembly.Contains(4))
+                                    {
+                                        if (cardSource.HasDMTraits)
+                                        {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        return false;
+                    }
+
+                    bool CanTargetCondition_ByPreSelecetedList(List<CardSource> cardSources, CardSource cardSource)
+                    {
+                        List<string> cardNames = new List<string>();
+
+                        foreach (CardSource cardSource1 in cardSources)
+                        {
+                            foreach (string cardName in cardSource1.CardNames)
+                            {
+                                if (!cardNames.Contains(cardName))
+                                {
+                                    cardNames.Add(cardName);
+                                }
+                            }
+                        }
+
+                        if (cardSource.CardNames.Count((cardName) => cardNames.Contains(cardName)) >= 1)
+                        {
+                            return false;
+                        }
+
+                        return true;
+                    }
+
+                    AssemblyCondition assemblyCondition = new AssemblyCondition(
+                        element: element,
+                        CanTargetCondition_ByPreSelecetedList: CanTargetCondition_ByPreSelecetedList,
+                        selectMessage: "7 level 4 [DM] trait Digimon cards w/different names",
+                        elementCount: 7,
+                        reduceCost: 7);
+
+                    return assemblyCondition;
+                }
+
+                return null;
+            }
+        }
+        #endregion
+
+        #region Sec +1
+        if (timing == EffectTiming.None)
+        {
+            cardEffects.Add(CardEffectFactory.ChangeSelfSAttackStaticEffect(
+            changeValue: 1,
+            isInheritedEffect: false,
+            card: card,
+            condition: null));
+        }
+        #endregion
+
+        #region Rush
+        if (timing == EffectTiming.None)
+        {
+            cardEffects.Add(CardEffectFactory.RushSelfStaticEffect(isInheritedEffect: false, card: card, condition: null));
+        }
+        #endregion
+
+        #region On Play
+        if (timing == EffectTiming.OnEnterFieldAnyone)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Place digimon from trash as top source card, delete digimon", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[On Play] You may place 1 level 4 or lower [DM] trait Digimon card from your trash as this Digimon's top digivolution card. Then, delete 1 of your opponent's Digimon with the same color as any of this Digimon's digivolution cards. If this Digimon has 6 or more colors in its digivolution cards, instead delete 1 of each of your opponent's Digimon with different colors.";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleArea(card);
+            }
+
+            bool CanSelectCardCondition(CardSource cardSource)
+            {
+                return cardSource.IsDigimon && cardSource.HasLevel && cardSource.Level <= 4 && cardSource.HasDMTraits;
+            }
+
+            bool CanSelectPermanentCondition(Permanent permanent, List<CardColor> cardColors)
+            {
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) && CardSource.ToCardColorList(permanent.TopCard.CardColors).Exists(color => cardColors.Contains(color));
+            }
+
+            bool CanEndSelectCondition(List<Permanent> permanents)
+            {
+                if (permanents.Count <= 0)
+                    return false;
+
+                return true;
+            }
+
+            Permanent? PermanentOf(HeadlessEntityId id) =>
+                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
+                    ? new Permanent(card.Context, id, rec.OwnerId)
+                    : null;
+
+            async Task ActivateCoroutine(Hashtable hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
+                {
+                    CardSource? selectedCard = null;
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionOwnersCardCountInTrash(card, CanSelectCardCondition));
+                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+                    Task SelectCardCoroutine(CardSource cardSource)
+                    {
+                        selectedCard = cardSource;
+                        return Task.CompletedTask;
+                    }
+
+                    selectCardEffect.SetUp(
+                                canTargetCondition: CanSelectCardCondition,
+                                canTargetCondition_ByPreSelecetedList: null,
+                                canEndSelectCondition: null,
+                                canNoSelect: () => true,
+                                selectCardCoroutine: SelectCardCoroutine,
+                                afterSelectCardCoroutine: null,
+                                message: "Select 1 [DM] digimon to add as top source",
+                                maxCount: maxCount,
+                                canEndNotMax: true,
+                                isShowOpponent: true,
+                                mode: SelectCardEffect.Mode.Custom,
+                                root: SelectCardEffect.Root.Trash,
+                                customRootCardList: null,
+                                canLookReverseCard: true,
+                                selectPlayer: card.Owner,
+                                cardEffect: activateClass);
+
+                    selectCardEffect.SetUpCustomMessage("Select 1 [DM] digimon to add as top source", "The opponent is selecting 1 digimon to add as top source");
+                    await selectCardEffect.Activate();
+
+                    if (selectedCard != null)
+                    {
+                        await CardObjectController.AddExecutingCard(selectedCard);
+                        await ICardEffect.ResolvePermanentOfThisCard(card).AddDigivolutionCardsTop(new List<CardSource>() { selectedCard }, card.InstanceId);
+                    }
+                }
+
+                List<CardColor> colours = ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards
+                            .Where(x => !x.IsFlipped)
+                            .SelectMany(e => CardSource.ToCardColorList(e.CardColors))
+                            .Distinct()
+                            .ToList();
+
+                if (colours.Count <= 5 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours)))
+                {
+                    int maxCount1 = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours)));
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours),
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount1,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: null,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Destroy,
+                        cardEffect: activateClass);
+
+                    await selectPermanentEffect.Activate();
+                }
+
+                if (colours.Count >= 6 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => PermanentOf(id) is { } p && CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(p, card)))
+                {
+                    List<Permanent> permanentToDelete = new List<Permanent>();
+                    List<CardColor> selectableColors = new List<CardColor>();
+
+                    foreach (string cardColor in DataBase.CardColorNameDictionary.Values)
+                    {
+
+                        CardColor compareColor = DictionaryUtility.GetCardColor(cardColor.Trim(), DataBase.CardColorNameDictionary);
+
+                        bool CanSelectOpponentDigimon(Permanent permanent)
+                        {
+                            return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) &&
+                                   CardSource.ToCardColorList(permanent.TopCard.CardColors).Contains(compareColor);
+                        }
+
+                        if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectOpponentDigimon))
+                        {
+                            selectableColors.Add(compareColor);
+                        }
+                    }
+
+                    foreach (CardColor deletableColor in selectableColors)
+                    {
+
+                        bool CanSelectOpponentDigimon(Permanent permanent)
+                        {
+                            return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) &&
+                                   CardSource.ToCardColorList(permanent.TopCard.CardColors).Contains(deletableColor) &&
+                                   CanTargetCondition_ByPreSelecetedList(permanentToDelete, permanent);
+                        }
+
+                        if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectOpponentDigimon))
+                        {
+                            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                            selectPermanentEffect.SetUp(
+                                selectPlayer: card.Owner,
+                                canTargetCondition: id => PermanentOf(id) is { } p && CanSelectOpponentDigimon(p),
+                                canTargetCondition_ByPreSelecetedList: CanTargetCondition_ByPreSelecetedList,
+                                canEndSelectCondition: CanEndSelectCondition,
+                                maxCount: 1,
+                                canNoSelect: false,
+                                canEndNotMax: true,
+                                selectPermanentCoroutine: DigimonToDelete,
+                                afterSelectPermanentCoroutine: null,
+                                mode: SelectPermanentEffect.Mode.Custom,
+                                cardEffect: activateClass);
+
+                            selectPermanentEffect.SetUpCustomMessage($"Select 1 {deletableColor.ToString()} Digimon to delete", $"Opponent is selecting 1 {deletableColor.ToString()} Digimon to delete");
+
+                            await selectPermanentEffect.Activate();
+                        }
+                    }
+
+                    bool CanTargetCondition_ByPreSelecetedList(List<Permanent> permanents, Permanent permanent)
+                    {
+                        if (permanentToDelete.Contains(permanent))
+                            return false;
+
+                        return true;
+                    }
+
+                    Task DigimonToDelete(Permanent permanent)
+                    {
+                        if (permanent != null)
+                            permanentToDelete.Add(permanent);
+
+                        return Task.CompletedTask;
+                    }
+
+                    if (permanentToDelete.Count > 0)
+                    {
+                        await new DestroyPermanentsClass(permanentToDelete, hashtable).Destroy();
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region When Digivolving
+        if (timing == EffectTiming.OnEnterFieldAnyone)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Place digimon from trash as top source card, delete digimon", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[When Digivolving] You may place 1 level 4 or lower [DM] trait Digimon card from your trash as this Digimon's top digivolution card. Then, delete 1 of your opponent's Digimon with the same color as any of this Digimon's digivolution cards. If this Digimon has 6 or more colors in its digivolution cards, instead delete 1 of each of your opponent's Digimon with different colors.";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleArea(card);
+            }
+
+            bool CanSelectCardCondition(CardSource cardSource)
+            {
+                return cardSource.IsDigimon && cardSource.HasLevel && cardSource.Level <= 4 && cardSource.HasDMTraits;
+            }
+
+            bool CanSelectPermanentCondition(Permanent permanent, List<CardColor> cardColors)
+            {
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) && CardSource.ToCardColorList(permanent.TopCard.CardColors).Exists(color => cardColors.Contains(color));
+            }
+
+            bool CanEndSelectCondition(List<Permanent> permanents)
+            {
+                if (permanents.Count <= 0)
+                    return false;
+
+                return true;
+            }
+
+            Permanent? PermanentOf(HeadlessEntityId id) =>
+                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
+                    ? new Permanent(card.Context, id, rec.OwnerId)
+                    : null;
+
+            async Task ActivateCoroutine(Hashtable hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
+                {
+                    CardSource? selectedCard = null;
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionOwnersCardCountInTrash(card, CanSelectCardCondition));
+                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+                    Task SelectCardCoroutine(CardSource cardSource)
+                    {
+                        selectedCard = cardSource;
+                        return Task.CompletedTask;
+                    }
+
+                    selectCardEffect.SetUp(
+                                canTargetCondition: CanSelectCardCondition,
+                                canTargetCondition_ByPreSelecetedList: null,
+                                canEndSelectCondition: null,
+                                canNoSelect: () => true,
+                                selectCardCoroutine: SelectCardCoroutine,
+                                afterSelectCardCoroutine: null,
+                                message: "Select 1 [DM] digimon to add as top source",
+                                maxCount: maxCount,
+                                canEndNotMax: true,
+                                isShowOpponent: true,
+                                mode: SelectCardEffect.Mode.Custom,
+                                root: SelectCardEffect.Root.Trash,
+                                customRootCardList: null,
+                                canLookReverseCard: true,
+                                selectPlayer: card.Owner,
+                                cardEffect: activateClass);
+
+                    selectCardEffect.SetUpCustomMessage("Select 1 [DM] digimon to add as top source", "The opponent is selecting 1 digimon to add as top source");
+                    await selectCardEffect.Activate();
+
+                    if (selectedCard != null)
+                    {
+                        await CardObjectController.AddExecutingCard(selectedCard);
+                        await ICardEffect.ResolvePermanentOfThisCard(card).AddDigivolutionCardsTop(new List<CardSource>() { selectedCard }, card.InstanceId);
+                    }
+                }
+
+                List<CardColor> colours = ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards
+                            .Where(x => !x.IsFlipped)
+                            .SelectMany(e => CardSource.ToCardColorList(e.CardColors))
+                            .Distinct()
+                            .ToList();
+
+                if (colours.Count <= 5 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours)))
+                {
+                    int maxCount1 = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours)));
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours),
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount1,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: null,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Destroy,
+                        cardEffect: activateClass);
+
+                    await selectPermanentEffect.Activate();
+                }
+
+                if (colours.Count >= 6 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => PermanentOf(id) is { } p && CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(p, card)))
+                {
+                    List<Permanent> permanentToDelete = new List<Permanent>();
+                    List<CardColor> selectableColors = new List<CardColor>();
+
+                    foreach (string cardColor in DataBase.CardColorNameDictionary.Values)
+                    {
+
+                        CardColor compareColor = DictionaryUtility.GetCardColor(cardColor.Trim(), DataBase.CardColorNameDictionary);
+
+                        bool CanSelectOpponentDigimon(Permanent permanent)
+                        {
+                            return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) &&
+                                   CardSource.ToCardColorList(permanent.TopCard.CardColors).Contains(compareColor);
+                        }
+
+                        if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectOpponentDigimon))
+                        {
+                            selectableColors.Add(compareColor);
+                        }
+                    }
+
+                    foreach (CardColor deletableColor in selectableColors)
+                    {
+
+                        bool CanSelectOpponentDigimon(Permanent permanent)
+                        {
+                            return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) &&
+                                   CardSource.ToCardColorList(permanent.TopCard.CardColors).Contains(deletableColor) &&
+                                   CanTargetCondition_ByPreSelecetedList(permanentToDelete, permanent);
+                        }
+
+                        if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectOpponentDigimon))
+                        {
+                            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                            selectPermanentEffect.SetUp(
+                                selectPlayer: card.Owner,
+                                canTargetCondition: id => PermanentOf(id) is { } p && CanSelectOpponentDigimon(p),
+                                canTargetCondition_ByPreSelecetedList: CanTargetCondition_ByPreSelecetedList,
+                                canEndSelectCondition: CanEndSelectCondition,
+                                maxCount: 1,
+                                canNoSelect: false,
+                                canEndNotMax: true,
+                                selectPermanentCoroutine: DigimonToDelete,
+                                afterSelectPermanentCoroutine: null,
+                                mode: SelectPermanentEffect.Mode.Custom,
+                                cardEffect: activateClass);
+
+                            selectPermanentEffect.SetUpCustomMessage($"Select 1 {deletableColor.ToString()} Digimon to delete", $"Opponent is selecting 1 {deletableColor.ToString()} Digimon to delete");
+
+                            await selectPermanentEffect.Activate();
+                        }
+                    }
+
+                    bool CanTargetCondition_ByPreSelecetedList(List<Permanent> permanents, Permanent permanent)
+                    {
+                        if (permanentToDelete.Contains(permanent))
+                            return false;
+
+                        return true;
+                    }
+
+                    Task DigimonToDelete(Permanent permanent)
+                    {
+                        if (permanent != null)
+                            permanentToDelete.Add(permanent);
+
+                        return Task.CompletedTask;
+                    }
+
+                    if (permanentToDelete.Count > 0)
+                    {
+                        // AS-IS quirk kept verbatim (EX9_074.cs:494-497): a FRESH empty `_hashtable` is passed to
+                        // DestroyPermanentsClass while "CardEffect" is added to the ORIGINAL `hashtable` instead.
+                        Hashtable _hashtable = new Hashtable();
+                        hashtable.Add("CardEffect", activateClass);
+                        await new DestroyPermanentsClass(permanentToDelete, _hashtable).Destroy();
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region All Turns
+        if (timing == EffectTiming.None)
+        {
+            int count()
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    return ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCardsColors.Count;
+                }
+
+                return 0;
+            }
+
+            bool Condition()
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (count() >= 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect<Func<int>>(changeValue: () => 1000 * count(), isInheritedEffect: false, card: card, condition: Condition));
+        }
+        #endregion
+
+        return cardEffects;
+    }
+}

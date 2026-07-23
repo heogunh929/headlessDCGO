@@ -1,6 +1,9 @@
 // Source: DCGO/Assets/Scripts/Script/DataBase.cs
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+using System.Collections.Generic;
+using System.Linq;
+
 /// <summary>(EFFECT-MODEL REBUILD) Minimal mirror of AS-IS <c>DataBase</c> (DCGO Script/DataBase.cs) — the
 /// large static card-data / text service. Only the members ported effect code needs so far are mirrored here,
 /// grown member-by-member as ports require (not ported wholesale). Current members: <see cref="ReplaceToASCII"/>.
@@ -157,5 +160,36 @@ public static class DataBase
     public static string LinkEffectDiscription()
     {
         return "[Link] (Plug this card from the hand or battle area sideways into the specified Digimon in the battle area.)";
+    }
+
+    /// <summary>(RD-SW-C-01) 1:1 mirror of AS-IS <c>DataBase.CardColorNameDictionary</c> (DataBase.cs:34-44):
+    /// the canonical <see cref="CardColor"/> → lower-case colour-name map. Verbatim, including the
+    /// <c>CardColor.None → "-"</c> entry. Consumed by <see cref="DictionaryUtility.GetCardColor"/> (name → enum
+    /// reverse lookup) and EX9_074's per-colour opponent-deletion branch.</summary>
+    public static Dictionary<CardColor, string> CardColorNameDictionary = new Dictionary<CardColor, string>()
+    {
+        { CardColor.Green, "green" },
+        { CardColor.Red, "red" },
+        { CardColor.Blue, "blue" },
+        { CardColor.Yellow, "yellow" },
+        { CardColor.Purple, "purple" },
+        { CardColor.Black, "black" },
+        { CardColor.White, "white" },
+        { CardColor.None, "-" },
+    };
+}
+
+/// <summary>(RD-SW-C-01) Minimal mirror of AS-IS <c>DictionaryUtility</c> (DataBase.cs:904): the enum
+/// reverse-lookup helpers, grown member-by-member as ports require. Current members: <see cref="GetCardColor"/>.</summary>
+public static class DictionaryUtility
+{
+    /// <summary>1:1 mirror of AS-IS <c>DictionaryUtility.GetCardColor</c> (DataBase.cs:906-911): the
+    /// <see cref="CardColor"/> whose name equals <paramref name="s"/> in
+    /// <paramref name="cardColorNameDictionary"/> (verbatim <c>.First(x =&gt; x.Value == s).Key</c>).</summary>
+    public static CardColor GetCardColor(string s, Dictionary<CardColor, string> cardColorNameDictionary)
+    {
+        CardColor cardColor = cardColorNameDictionary.First(x => x.Value == s).Key;
+
+        return cardColor;
     }
 }

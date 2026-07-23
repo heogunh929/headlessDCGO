@@ -1132,6 +1132,36 @@ public sealed class CardSource
         }
     }
 
+    /// <summary>(RD-SW-C-01) 1:1 mirror of AS-IS <c>CardSource.Level_Assembly</c> (CardSource.cs:2213-2233): the
+    /// card level(s) this card counts as when used as ASSEMBLY material — its <see cref="Level"/> (AS-IS seeds
+    /// <c>TreatedLevel</c>, the folded printed level; the mirror <see cref="Level"/> IS that surface), extended by
+    /// the card's OWN <see cref="IChangeCardLevelForAssemblyEffect"/> effects (AS-IS scans self
+    /// <c>EffectList(EffectTiming.None)</c> only — same shape as <see cref="CardNames_DigiXros"/>, ungated by
+    /// permanent membership, no post-fold Distinct). Consumed by the Kimeramon-line assembly gate (EX9_074's
+    /// <c>IsLevel4 || Level_Assembly.Contains(4)</c>) and P_220. Producer: EX9_062's
+    /// <see cref="CardEffects.ChangeCardLevelForAssemblyClass"/> (appends 4 for SkullGreymon). Substrate note:
+    /// the mirror <see cref="Level"/> sentinel for a level-less card is -1 (AS-IS 1145140) — neither equals a
+    /// real level, so the folded list's membership tests are behaviour-equivalent.</summary>
+    public List<int> Level_Assembly
+    {
+        get
+        {
+            List<int> cardLevel_Assembly = new List<int>();
+            cardLevel_Assembly.Add(Level);
+
+            // the effects of itself
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
+            {
+                if (cardEffect is IChangeCardLevelForAssemblyEffect transform && cardEffect.CanUse(null))
+                {
+                    cardLevel_Assembly = transform.ChangeCardLevelForAssembly(cardLevel_Assembly, this);
+                }
+            }
+
+            return cardLevel_Assembly;
+        }
+    }
+
     /// <summary>The card's printed number (e.g. "BT10-012"), used as the SpecialPlayRecipe key.</summary>
     public string CardNumber => Definition?.CardNumber ?? string.Empty;
 
@@ -1615,6 +1645,11 @@ public sealed class CardSource
     /// <c>EqualsTraits("TS")</c> — whether this card carries the "[TS]" (Tamer-support) trait. Used by BT24_062's
     /// alternate-digivolution/Assembly/play-from-source predicates.</summary>
     public bool HasTSTraits => EqualsTraits("TS");
+
+    /// <summary>(RD-SW-C-01) 1:1 mirror of AS-IS <c>CardSource.HasDMTraits</c> (CardSource.cs:3715-3721):
+    /// <c>EqualsTraits("DM")</c> — whether this card carries the "[DM]" (Dark Masters) trait. Read by EX9_074's
+    /// (Kimeramon) assembly-material gate and its trash-play conditions.</summary>
+    public bool HasDMTraits => EqualsTraits("DM");
 
     /// <summary>(bridge W5) 1:1 mirror of AS-IS <c>CardSource.HasXAntibodyTraits</c> (CardSource.cs:1975):
     /// <c>CardTraits.Some(DataBase.IsXAntibodyString)</c> — any trait normalising to "xantibody"
