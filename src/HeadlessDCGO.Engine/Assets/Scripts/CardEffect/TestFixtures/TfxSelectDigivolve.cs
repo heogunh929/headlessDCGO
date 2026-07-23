@@ -109,10 +109,10 @@ public sealed class TfxSelectDigivolve : CEntity_Effect
 
             await context.ZoneMover.MoveAsync(
                 new ZoneMoveRequest(card.Owner, targetId, ChoiceZone.BattleArea, ChoiceZone.None,
-                    Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), CancellationToken.None).ConfigureAwait(false);
+                    Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata), CancellationToken.None).ConfigureAwait(false);
             await context.ZoneMover.MoveAsync(
                 new ZoneMoveRequest(card.Owner, sourceId, ChoiceZone.Hand, ChoiceZone.BattleArea,
-                    Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), CancellationToken.None).ConfigureAwait(false);
+                    Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata), CancellationToken.None).ConfigureAwait(false);
             DigivolveAction.AttachTargetAsSource(context.CardInstanceRepository, sourceId, targetId);
             TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.WhenDigivolving, actor: card.Owner, subject: sourceId);
             CardEffectRegistrar.RegisterCard(context, sourceId, card.Owner);

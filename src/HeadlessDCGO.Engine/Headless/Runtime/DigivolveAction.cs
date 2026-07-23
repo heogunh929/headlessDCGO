@@ -177,7 +177,7 @@ public sealed class DigivolveAction
                 payload.TargetCardId,
                 targetZone,
                 ChoiceZone.None,
-                Metadata: Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata),
+                Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata),
             cancellationToken).ConfigureAwait(false);
         // (C1d RDW-04) enrich the digivolve entry with the AS-IS OnEnterFieldHashtable params (isEvolution=true;
         // evoRoots == evoRootTops == the pre-digivolve top = the target; oldLevels = [pre-digivolve level]; root
@@ -193,7 +193,7 @@ public sealed class DigivolveAction
             [SkillWindowSupply.OnEnterFieldOldLevelsKey] = new[] { preDigivolveTargetLevel },
             [SkillWindowSupply.OnEnterFieldIsFromDigimonDigivolutionCardsKey] = false,
             // (RD-R3-02) the entering half of the top swap — see the targetRemoval marker above.
-            [Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.PermanentContinuityKey] = true,
+            [HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.PermanentContinuityKey] = true,
         };
         ZoneMoveResult cardMovement = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
@@ -1071,7 +1071,7 @@ public sealed class DigivolveAction
         repository.Upsert(card with { Metadata = metadata });
         // (R4 S3b-2②) the AS-IS Permanent OBJECT persists across the top swap — carry its just-after
         // bookkeeping (PlayingEffect / LevelJustAfterPlayed / …) to the new top key.
-        Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ReKey(repository, targetCardId, cardId);
+        HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ReKey(repository, targetCardId, cardId);
         return sourceIds;
     }
 

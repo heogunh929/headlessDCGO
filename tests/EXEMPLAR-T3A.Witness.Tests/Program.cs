@@ -495,9 +495,9 @@ async Task BT25089_AppFusionResolveFlip()
         "re-root: the Dreammon link was consumed into the digivolution stack (no longer a link card)");
 
     // (4) bookkeeping re-key: the sentinel followed the persisting permanent to the new top; old key defaults.
-    AssertTrue(Cec.PermanentBookkeepingStore.Get(match.Context.CardInstanceRepository, link).LevelJustAfterPlayed == 7,
+    AssertTrue(HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(match.Context.CardInstanceRepository, link).LevelJustAfterPlayed == 7,
         "re-root: the persisting permanent's just-after bookkeeping re-keyed from the old top to the new top (ReKey)");
-    AssertTrue(Cec.PermanentBookkeepingStore.Get(match.Context.CardInstanceRepository, host).LevelJustAfterPlayed == -1,
+    AssertTrue(HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(match.Context.CardInstanceRepository, host).LevelJustAfterPlayed == -1,
         "re-root: the old top key falls back to AS-IS field defaults (bookkeeping was moved, not copied)");
 
     // === NEGATIVE CONTROL: a batch that does NOT contain the host's own top keeps the PLAIN place-under path
@@ -907,7 +907,7 @@ HeadlessEntityId Stage(DcgoMatch match, HeadlessPlayerId owner, string cardNumbe
 
     if (register)
     {
-        Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+        HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     }
 
     return id;
@@ -943,7 +943,7 @@ HeadlessEntityId StageSynthetic(DcgoMatch match, HeadlessPlayerId owner, string 
         ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone)).GetAwaiter().GetResult();
     }
 
-    Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     return id;
 }
 

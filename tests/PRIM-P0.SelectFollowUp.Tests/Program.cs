@@ -3,6 +3,7 @@
 // mechanism needed for unconditional tails), and (2) the new SelectAndReturnToDeckEffect / SelectAndPutSecurityEffect
 // factories (over the already-dispatched PutLibrary*/PutSecurity* modes). Fixture: TfxSelectFollowUp.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;

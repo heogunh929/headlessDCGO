@@ -25,7 +25,7 @@
 //   * [When Digivolving] (BT16_025.cs:131-186) — "Suspend all of your opponent's Digimon with as many or fewer
 //     digivolution cards as this Digimon. Then, if DNA digivolving, none of your opponent's Digimon can unsuspend
 //     until the end of their turn." The suspend-all half maps to ApplyToAllMatchingBody + sink Suspend, and the
-//     jogress marker IS surfaced — FusionDigivolveHelpers stamps SpecialConditionHelpers.IsJogressKey onto the
+//     jogress marker IS surfaced — FusionDigivolveHelpers stamps FusionDigivolveHelpers.IsJogressKey onto the
 //     WhenDigivolving event metadata (FusionDigivolveHelpers.cs:145-148), readable by canUse via the resolve
 //     context's "event.<key>" values. The REAL gaps (C-3 재상환 P2-4② corrected): ① the driving event does not
 //     reach the BODY — IEffectBody.Apply/ApplyAsync receives (card, sink, selected) with no resolve-context, so

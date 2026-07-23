@@ -16,14 +16,23 @@ var phase3Goals = new Phase3Goal[]
     // 2026-07-18 은퇴됨(suite_retarget_4b_design §3.1a) — 결과 문서는 역사 기록으로 잔존하므로
     // TestProjectDirectory=null로 존재-단언에서 제외(계약 갱신 관례: binding 23→22 판례).
     new("G3B-001", "EffectContext", "G3B-001_hashtable_replacement_adapter_unit_test_results.md", null),
-    new("G3C-001", "Conditions", "G3C-001_trigger_condition_helpers_unit_test_results.md", "G3C-001.Trigger.condition.helper.Tests"),
-    new("G3C-002", "Conditions", "G3C-002_can_use_effect_helpers_unit_test_results.md", "G3C-002.CanUseEffects.helper.Tests"),
-    new("G3D-001", "Requirements", "G3D-001_minmax_dp_cost_level_unit_test_results.md", "G3D-001.MinMax.DP.Cost.Level.helper.Tests"),
+    // (TOBE_ONLY C0/C1) G3C-001/G3C-002 physically retired with the TriggerConditionHelpers/CanUseEffectHelpers
+    // invented-framework deletion (production consumers 0; the helpers' only consumers were these white-box suites).
+    // Result documents kept as history; excluded from the project-existence assertion (TestProjectDirectory=null)
+    // per the G3B-001 / G3G / G3L reconciliation convention.
+    new("G3C-001", "Conditions", "G3C-001_trigger_condition_helpers_unit_test_results.md", null),
+    new("G3C-002", "Conditions", "G3C-002_can_use_effect_helpers_unit_test_results.md", null),
+    // (TOBE_ONLY C0) G3D-001 physically retired with the MinMaxRequirementHelpers invented-framework deletion
+    // (canonical min/max mirror lives in MinMax_DP_Cost_Level/*.cs; the record framework had 0 production consumers).
+    new("G3D-001", "Requirements", "G3D-001_minmax_dp_cost_level_unit_test_results.md", null),
     new("G3D-002", "Requirements", "G3D-002_name_color_trait_requirements_unit_test_results.md", "G3D-002.Name.color.trait.requirement.Tests"),
     new("G3E-001", "Costs", "G3E-001_play_cost_helper_unit_test_results.md", "G3E-001.Play.cost.helper.Tests"),
     new("G3E-002", "Costs", "G3E-002_digivolution_cost_helper_unit_test_results.md", "G3E-002.Digivolution.cost.helper.Tests"),
-    new("G3F-001", "Targeting", "G3F-001_target_filtering_helpers_unit_test_results.md", "G3F-001.Target.filtering.helper.Tests"),
-    new("G3F-002", "Targeting", "G3F-002_zone_query_helpers_unit_test_results.md", "G3F-002.Zone.query.helper.Tests"),
+    // (TOBE_ONLY C0) G3F-001/G3F-002 physically retired with the TargetFilterHelpers/ZoneQueryHelpers invented-
+    // framework deletion (0 production consumers). Result documents kept as history; project-existence assertion
+    // excluded (TestProjectDirectory=null) per the same convention.
+    new("G3F-001", "Targeting", "G3F-001_target_filtering_helpers_unit_test_results.md", null),
+    new("G3F-002", "Targeting", "G3F-002_zone_query_helpers_unit_test_results.md", null),
     // (R7 종점) G3G-001/G3G-002 keyword-base contract test projects physically retired with the EffectRegistry
     // teardown (947d0ab9; 0 tracked source files at HEAD). Result documents kept as history; excluded from the
     // project-existence assertion (TestProjectDirectory=null) per the G3B-001 / G3J reconciliation convention.
@@ -39,7 +48,10 @@ var phase3Goals = new Phase3Goal[]
     // (G-clean) G3J-002 (PermanentEffectFactory binding) dropped: the invented string-key binding-rule model it
     // gated was physically deleted (0 src consumers). Phase-3 gate goals: 23 -> 22.
     new("G3K-001", "Selection", "G3K-001_effect_selection_helpers_unit_test_results.md", "G3K-001.Effect.selection.helper.Tests"),
-    new("G3K-002", "Timing", "G3K-002_timing_priority_helpers_unit_test_results.md", "G3K-002.Timing.priority.helper.Tests"),
+    // (TOBE_ONLY C0) G3K-002 physically retired with the TimingPriorityHelpers invented-framework deletion (dead
+    // duplicate of Headless/Effects/MandatoryEffectOrdering.cs; 0 production consumers). Result document kept as
+    // history; project-existence assertion excluded (TestProjectDirectory=null) per the same convention.
+    new("G3K-002", "Timing", "G3K-002_timing_priority_helpers_unit_test_results.md", null),
     // (R7 종점) G3L-001/G3L-002 flag/inherited-grant contract test projects physically retired with the
     // EffectRegistry teardown (947d0ab9; 0 tracked source files at HEAD). Result documents kept as history;
     // excluded from the project-existence assertion (TestProjectDirectory=null) per the same convention.

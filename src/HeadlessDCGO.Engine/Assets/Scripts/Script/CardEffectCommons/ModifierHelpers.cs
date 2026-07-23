@@ -24,24 +24,8 @@ public enum NumericModifierMode
     InvertDelta = 2,
 }
 
-/// <summary>
-/// Mirror of AS-IS <c>CalculateOrder</c> (ICardEffect.cs). AS-IS orders the "Change Security Attack" and
-/// "Change Link Max" effects into three tiers applied strictly in this sequence — UpToConstant, then
-/// UpDownValue, then DownToConstant (Permanent.cs:1872-1930 for SAttack, 975-1000 for LinkMax) — while the DP
-/// path uses a separate boolean isUpDown 2-group split (not this enum). Only the three tiers above are bucketed
-/// by the AS-IS switch; <see cref="UpValue"/>/<see cref="DownValue"/> have no switch case and are therefore
-/// collected-but-never-applied (dropped). Every current SAttack/LinkMax producer emits <see cref="UpDownValue"/>
-/// (both factories hardcode it), so this tiering is behaviourally inert for additive deltas today; it exists so
-/// a future non-additive (cap-style) port can set its tier and fold in the correct order.
-/// </summary>
-public enum CalculateOrder
-{
-    UpValue = 0,
-    DownValue = 1,
-    UpToConstant = 2,
-    UpDownValue = 3,
-    DownToConstant = 4,
-}
+// (C3 REHOUSED) enum CalculateOrder folded into its AS-IS home ICardEffect.cs (AS-IS ICardEffect.cs:940);
+// same namespace (...CardEffectCommons) so this file references it unchanged. Precedent: C2 EffectTiming fold.
 
 public sealed record NumericModifier
 {

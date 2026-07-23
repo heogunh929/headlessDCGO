@@ -213,7 +213,7 @@ int CollectOnEndTurn(DcgoMatch match)
 
 void RegisterVortex(DcgoMatch match, HeadlessEntityId id)
 {
-    Cec.CardEffectRegistrar.RegisterCard(match.Context, id, P1);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(match.Context, id, P1);
 }
 
 HeadlessEntityId Place(DcgoMatch match, HeadlessPlayerId owner, string number, bool suspended)

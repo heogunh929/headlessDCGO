@@ -273,7 +273,7 @@ HeadlessEntityId PlaceCore(DcgoMatch match, HeadlessPlayerId owner, string numbe
     if (trait != null) meta["traits"] = trait;
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, def, owner, Metadata: meta));
     ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
-    Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     return id;
 }
 

@@ -586,7 +586,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // live immunity, so it reports none — matching AS-IS, which always runs with full CardSource views.
         if (_context is { } immunityCtx
             && new Assets.Scripts.Script.CardEffectCommons.Permanent(immunityCtx, targetId, record.OwnerId)
-                .TopCard.CanNotBeAffected(Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(immunityCtx, mutation.SourceEntityId)))
+                .TopCard.CanNotBeAffected(HeadlessDCGO.Engine.Headless.Bridge.BareCauseEffect.For(immunityCtx, mutation.SourceEntityId)))
         {
             _skipped.Add(mutation);
             _log?.Warn($"Effect mutation '{mutation.Kind}' on '{targetId.Value}' was prevented by immunity (opponent effect).");
@@ -675,7 +675,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                     HeadlessEntityId burstTargetId = targetId;
                     _pendingAsync.Add(_ =>
                     {
-                        Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore
+                        HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore
                             .Get(_repository, burstTargetId).IsReturnedToHandByBurstDigivolution = true;
                         return Task.CompletedTask;
                     });
@@ -1456,7 +1456,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 // NOTE (RD-C5W-ESSTRASHSCAN precondition): a future gate that inspects the causing effect's own
                 // BEHAVIOR (CanUse over the live effect, not just its source owner) would NOT be satisfied by this
                 // source-carrier; every live consumer today is owner-only, so this seat meets their requirement in full.
-                var causeEffect = Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(_context, causeSourceId);
+                var causeEffect = HeadlessDCGO.Engine.Headless.Bridge.BareCauseEffect.For(_context, causeSourceId);
                 await cutIn.StackSkillInfos(
                     CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(toDelete, cardEffect: causeEffect, battle: null),
                     EffectTiming.WhenPermanentWouldBeDeleted).ConfigureAwait(false);
@@ -1804,7 +1804,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         var gainingPlayer = new Assets.Scripts.Script.CardEffectCommons.Player(_context, player);
         Assets.Scripts.Script.CardEffectCommons.ICardEffect cause =
-            Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(_context, causingSourceId);
+            HeadlessDCGO.Engine.Headless.Bridge.BareCauseEffect.For(_context, causingSourceId);
 
         bool IsSecurity = restrictionKey == Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddSecurityKey;
         foreach (Assets.Scripts.Script.CardEffectCommons.Player scanPlayer in new Assets.Scripts.Script.CardEffectCommons.GameContext(_context).Players_ForTurnPlayer)
@@ -2174,7 +2174,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             // card). Context-less sink => no live immunity (nothing produced the flag after the flip).
             if (_context is { } returnImmuneCtx
                 && new Assets.Scripts.Script.CardEffectCommons.Permanent(returnImmuneCtx, hostId)
-                    .TopCard.CanNotBeAffected(Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(returnImmuneCtx, mutation.SourceEntityId)))
+                    .TopCard.CanNotBeAffected(HeadlessDCGO.Engine.Headless.Bridge.BareCauseEffect.For(returnImmuneCtx, mutation.SourceEntityId)))
             {
                 _skipped.Add(mutation);
                 _applied.Add(new AppliedMutation(mutation.Kind, hostId, "restricted"));
@@ -2199,9 +2199,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             // from the now-dead BlocksOpponentEffect registry scan to the live TopCard.CanNotBeAffected getter.
             if (_context is { } stackTrashCtx
                     && (new Assets.Scripts.Script.CardEffectCommons.Permanent(stackTrashCtx, hostId)
-                            .ImmuneFromStackTrashing(Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(stackTrashCtx, mutation.SourceEntityId))
+                            .ImmuneFromStackTrashing(HeadlessDCGO.Engine.Headless.Bridge.BareCauseEffect.For(stackTrashCtx, mutation.SourceEntityId))
                         || new Assets.Scripts.Script.CardEffectCommons.Permanent(stackTrashCtx, hostId)
-                            .TopCard.CanNotBeAffected(Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(stackTrashCtx, mutation.SourceEntityId))))
+                            .TopCard.CanNotBeAffected(HeadlessDCGO.Engine.Headless.Bridge.BareCauseEffect.For(stackTrashCtx, mutation.SourceEntityId))))
             {
                 _skipped.Add(mutation);
                 _applied.Add(new AppliedMutation(mutation.Kind, hostId, "restricted"));

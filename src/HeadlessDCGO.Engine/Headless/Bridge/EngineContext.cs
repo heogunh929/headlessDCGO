@@ -360,7 +360,7 @@ public sealed class EngineContext
     /// card's <c>EffectList</c> is live regardless of who played it. No-op for un-ported cards;
     /// <c>RegisterOnEnterPlay</c> skips activated effects, so this never double-runs imperative activations.</summary>
     public void RegisterEnteredCardEffects(Services.HeadlessEntityId instanceId, Services.HeadlessPlayerId controller)
-        => Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(this, instanceId, controller);
+        => HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(this, instanceId, controller);
 
     /// <param name="randomSeed">Deterministic RNG seed.</param>
     /// <param name="strictUnbound">(GPT-#1 / 신1) When true, the effect scheduler treats a request with

@@ -582,7 +582,7 @@ HeadlessEntityId Stage(DcgoMatch match, HeadlessPlayerId owner, string cardNumbe
 
     if (register)
     {
-        Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+        HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     }
 
     return id;
@@ -615,7 +615,7 @@ HeadlessEntityId StageSynthetic(DcgoMatch match, HeadlessPlayerId owner, string 
         ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone)).GetAwaiter().GetResult();
     }
 
-    Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     return id;
 }
 

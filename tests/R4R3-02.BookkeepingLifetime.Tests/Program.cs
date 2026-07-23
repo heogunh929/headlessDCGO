@@ -171,7 +171,7 @@ async Task StaleNewTopCleared()
     HeadlessEntityId evoCard = await PlaceInHand(context, "W5EVO");
 
     // a STALE previous-life entry under the future new-top key (the pre-fix ReKey no-op leak shape).
-    Cec.PermanentBookkeepingStore.Get(context.CardInstanceRepository, evoCard).LevelJustAfterPlayed = 7;
+    HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(context.CardInstanceRepository, evoCard).LevelJustAfterPlayed = 7;
     AssertTrue(StoreHasEntry(context.CardInstanceRepository, evoCard), "stale entry seeded under the new-top key");
     AssertTrue(!StoreHasEntry(context.CardInstanceRepository, baseCard), "old top has NO entry (the no-op branch)");
 
@@ -346,7 +346,7 @@ void AssertAllNineDefaults(EngineContext context, HeadlessEntityId id, string la
 // entry-ABSENCE probe: Get() is create-on-read, so peek the private store via reflection instead.
 static bool StoreHasEntry(ICardInstanceRepository repository, HeadlessEntityId id)
 {
-    FieldInfo field = typeof(Cec.PermanentBookkeepingStore)
+    FieldInfo field = typeof(HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore)
         .GetField("_store", BindingFlags.NonPublic | BindingFlags.Static)
         ?? throw new InvalidOperationException("PermanentBookkeepingStore._store not found.");
     object table = field.GetValue(null)!;

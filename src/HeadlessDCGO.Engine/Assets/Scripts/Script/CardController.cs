@@ -154,6 +154,62 @@ public class IDiscardHand
 
 #endregion
 
+#region Hashtable setting class
+
+// (C2 REHOUSED fold) OnEnterFieldHashtableParams relocated from the separate Script/OnEnterFieldHashtableParams.cs
+// into its AS-IS home CardController.cs (AS-IS top-level class at CardController.cs:1100-1146, between
+// HatchDigiEggClass and PlayPermanentClass). Verbatim; now in the ...Script namespace like its AS-IS siblings.
+// AS-IS CardController.cs:1100-1146.
+public class OnEnterFieldHashtableParams
+{
+    public OnEnterFieldHashtableParams(
+        Permanent permanent,
+        List<CardSource> evoRoots,
+        List<CardSource> evoRootTops,
+        SelectCardEffect.Root root,
+        List<int> oldLevels,
+        bool isFromDigimonDigivolutionCards,
+        int digiXrosCount = 0,
+        int assemblyCount = 0)
+    {
+        Permanent = permanent;
+
+        if (evoRoots != null)
+        {
+            EvoRoots = evoRoots.Clone();
+        }
+
+        if (evoRootTops != null)
+        {
+            EvoRootTops = evoRootTops.Clone();
+        }
+
+        Root = root;
+
+        if (oldLevels != null)
+        {
+            OldLevels = oldLevels.Clone();
+        }
+
+        IsFromDigimonDigivolutionCards = isFromDigimonDigivolutionCards;
+
+        DigixrosCount = digiXrosCount;
+
+        AssemblyCount = assemblyCount;
+    }
+
+    public Permanent Permanent { get; private set; } = null;
+    public List<CardSource> EvoRoots = new List<CardSource>();
+    public List<CardSource> EvoRootTops { get; private set; } = new List<CardSource>();
+    public SelectCardEffect.Root Root { get; private set; } = SelectCardEffect.Root.None;
+    public List<int> OldLevels { get; private set; } = new List<int>();
+    public bool IsFromDigimonDigivolutionCards { get; private set; } = false;
+    public int DigixrosCount { get; private set; } = 0;
+    public int AssemblyCount { get; private set; } = 0;
+}
+
+#endregion
+
 #region Draw
 
 /// <summary>
@@ -1270,7 +1326,7 @@ public class ITrashDigivolutionCards
         }
 
         var sourceBeingTrashed = new CardSource(context, sourceId, record.OwnerId, record.OwnerId);
-        ICardEffect cause = cardEffect ?? CardEffectCommons.BareCauseEffect.For(context, causeEffectSourceId);
+        ICardEffect cause = cardEffect ?? BareCauseEffect.For(context, causeEffectSourceId);
         return sourceBeingTrashed.CanNotTrashFromDigivolutionCards(cause);
     }
 

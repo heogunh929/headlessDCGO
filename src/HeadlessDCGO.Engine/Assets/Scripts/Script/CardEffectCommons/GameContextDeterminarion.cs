@@ -9,6 +9,8 @@
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+using HeadlessDCGO.Engine.Headless.Services;
+
 public static partial class CardEffectCommons
 {
     /// <summary>AS-IS <c>IsExistOnBattleAreaDigimonTrigger</c>/<c>IsExistOnBattleAreaDigimonActivate</c>
@@ -20,4 +22,34 @@ public static partial class CardEffectCommons
 
     public static bool IsExistOnBattleAreaDigimonActivate(CardSource card, ICardEffect? cardEffect = null) =>
         IsExistOnBattleAreaDigimon(card);
+}
+
+// (C2 REHOUSED fold) TurnOwnershipHelpers relocated from the separate
+// CardEffectCommons/TurnOwnershipHelpers.cs into its AS-IS home file GameContextDeterminarion.cs
+// (AS-IS IsOwnerTurn/IsOpponentTurn at GameContextDeterminarion.cs:780-782). Verbatim.
+public static class TurnOwnershipHelpers
+{
+    /// <summary>It is <paramref name="owner"/>'s turn.</summary>
+    public static bool IsOwnerTurn(HeadlessPlayerId? turnPlayerId, HeadlessPlayerId owner)
+    {
+        return turnPlayerId is HeadlessPlayerId turn && !turn.IsEmpty && !owner.IsEmpty && turn == owner;
+    }
+
+    /// <summary>It is the opponent's turn (a known turn player that is not <paramref name="owner"/>).</summary>
+    public static bool IsOpponentTurn(HeadlessPlayerId? turnPlayerId, HeadlessPlayerId owner)
+    {
+        return turnPlayerId is HeadlessPlayerId turn && !turn.IsEmpty && !owner.IsEmpty && turn != owner;
+    }
+
+    /// <summary><paramref name="playerId"/> is the owner (same player).</summary>
+    public static bool IsOwner(HeadlessPlayerId playerId, HeadlessPlayerId owner)
+    {
+        return !playerId.IsEmpty && !owner.IsEmpty && playerId == owner;
+    }
+
+    /// <summary><paramref name="playerId"/> is the opponent of <paramref name="owner"/> (a different player).</summary>
+    public static bool IsOpponent(HeadlessPlayerId playerId, HeadlessPlayerId owner)
+    {
+        return !playerId.IsEmpty && !owner.IsEmpty && playerId != owner;
+    }
 }

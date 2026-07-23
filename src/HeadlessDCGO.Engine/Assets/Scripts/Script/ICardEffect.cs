@@ -5,8 +5,8 @@
 //
 // Namespace: placed in `...Script.CardEffectCommons` (NOT `...Script`, where the AS-IS file itself lives) so it
 // sits alongside the already-ported foundation types it depends on verbatim: CardSource, Permanent, GManager,
-// CardEffectCommons (Hashtable builders), CheckEffectDisabledClass (this goal), CalculateOrder (already at
-// CardEffectCommons/ModifierHelpers.cs — NOT redefined here) and EffectDuration (already at
+// CardEffectCommons (Hashtable builders), CheckEffectDisabledClass (this goal), CalculateOrder (C3-folded into
+// this file, its AS-IS home ICardEffect.cs:940 — see bottom) and EffectDuration (already at
 // Headless.Effects.EffectDuration — NOT redefined here; both AS-IS enums already exist on the mirror with a
 // 1:1 value set, so this file only *references* them, per the FOUNDATION brief). The (much larger) mirror
 // `EffectTiming` enum already lives at CardEffectCommons/EffectTiming.cs and is likewise referenced, not
@@ -1057,10 +1057,10 @@ public abstract class ICardEffect
     #endregion
 }
 
-// AS-IS ICardEffect.cs:938-965 (`CalculateOrder` / `EffectDuration` enum regions): both enums already exist on
-// the mirror with a 1:1 AS-IS value set — CalculateOrder at CardEffectCommons/ModifierHelpers.cs:37, EffectDuration
-// at HeadlessDCGO.Engine.Headless.Effects.EffectDuration — so they are referenced, not redefined here (per the
-// FOUNDATION brief's "if already exists, reference it" rule, extended from EffectTiming to these two).
+// AS-IS ICardEffect.cs:938-965 (`CalculateOrder` / `EffectDuration` enum regions): CalculateOrder is C3-folded
+// into this file (its AS-IS home; see the enum at the bottom). EffectDuration already exists at
+// HeadlessDCGO.Engine.Headless.Effects.EffectDuration with a 1:1 AS-IS value set — referenced, not redefined here
+// (per the FOUNDATION brief's "if already exists, reference it" rule).
 
 // AS-IS ICardEffect.cs:967-1032 (`EffectTiming` enum, 65 values): already ported at
 // CardEffectCommons/EffectTiming.cs with every AS-IS member name preserved (string-equal to
@@ -1250,3 +1250,186 @@ public static class ActivateICardEffectExtensionClass
 }
 
 #endregion
+
+// (C2 REHOUSED fold) AS-IS home of the EffectTiming enum is this file (ICardEffect.cs:969); the mirror
+// previously split it into a separate CardEffectCommons/EffectTiming.cs. Folded back verbatim.
+/// <summary>
+/// Headless mirror of the original (large) <c>EffectTiming</c> enum. Only the timings used by ported
+/// cards are listed; grow this as cards require new ones. <see cref="None"/> is the original's marker for
+/// always-on continuous / static effects (registered once while the card is in play).
+/// </summary>
+public enum EffectTiming
+{
+    None = 0,
+    OnEnterFieldAnyone,
+    OnDetermineDoSecurityCheck,
+    OnUseAttack,
+    WhenDigivolving,
+    OnDestroyedAnyone,
+    OnAllyAttack,
+    OnBlockAnyone,
+    OnEndTurn,
+    OnStartTurn,
+
+    // Player-activated abilities (NOT auto-registered on enter-play; activation flow is Wave 3).
+    OptionSkill,
+    SecuritySkill,
+
+    // (EX8_074 Stage 1) "When this card would be played" — the original BeforePayCost timing. Engine-level
+    // string trigger `TriggerTimings.BeforePayCost` already fires in PlayCardAction; this enum value lets a
+    // ported card return BeforePayCost effects. The interactive pre-payment cost-reduction WINDOW that
+    // consumes them is a later stage (PlayCardAction's cost is currently locked at action-generation time).
+    BeforePayCost,
+    // (PRIM-W4 WhenMovingClass) mirrors the original EffectTiming.OnMove — fires when a Digimon is promoted
+    // out of the breeding area (CV-A4). ToTriggerName -> "OnMove" matches the engine's TriggerTimings.OnMove
+    // emit. Appended at the end to keep existing enum ordinals stable.
+    OnMove,
+
+    // (PRIM-P0-timing) High-volume card-facing timings from ALL_CARD_PRIMITIVE_BACKLOG P0. Each enum name
+    // is string-equal to an emitted TriggerTimings value (ToTriggerName -> ToString()); appended at the end
+    // to keep existing ordinals stable.
+    //   OnStartMainPhase — main-phase entry (emit exists: MetadataActionProcessor OnStartMainPhase). 222 cards.
+    //   OnEndBattle      — after battle resolved/deletions applied (emit exists: BattleResolver). 84 cards.
+    //   OnDeclaration    — attack declared; new emit added alongside OnAttack/OnAllyAttack. 298 cards.
+    OnStartMainPhase,
+    OnEndBattle,
+    OnDeclaration,
+
+    // (PRIM-P0-timing batch 2) Timings ALREADY emitted by the engine (verified emit sites) that only lacked
+    // a card-facing enum member. Each name is string-equal to its emitted TriggerTimings value. Pure enum
+    // additions against existing emits (same low-risk shape as OnEndBattle) — collection/resolution reuse the
+    // generic path. "...Anyone" board timings are self-scoped here (cross-card broadcast is a per-card
+    // follow-up via TriggerTimings.BroadcastTimings, as with the existing OnBlockAnyone).
+    //   OnTappedAnyone 139 · OnCounterTiming 111 · WhenLinked 64 · OnAddDigivolutionCards 50 · OnUseOption 30
+    //   OnUnTappedAnyone 29 · OnDiscardSecurity 14 · OnLinkCardDiscarded 7 · AfterPayCost 7 · WhenTopCardTrashed 3
+    //   OnFaceUpSecurityIncreased 1
+    OnTappedAnyone,
+    OnUnTappedAnyone,
+    OnCounterTiming,
+    WhenLinked,
+    OnLinkCardDiscarded,
+    OnAddDigivolutionCards,
+    OnUseOption,
+    OnDiscardSecurity,
+    AfterPayCost,
+    WhenTopCardTrashed,
+    OnFaceUpSecurityIncreased,
+
+    // (PRIM-P0-timing batch 3a) Timings already DERIVED from CardMoved zone transitions (or the SecurityCheck
+    // event) by TriggerTimingMap.Derive — already available, no emit needed, only a card-facing enum member.
+    // Same low-risk shape as batch 2; the derivation is existing engine behavior exercised by the suite.
+    //   WhenRemoveField 164 · OnLoseSecurity 73 · OnDiscardHand 34 · OnAddHand 21 · OnDiscardLibrary 20
+    //   OnAddSecurity 14 · WhenReturntoHandAnyone 9 · WhenReturntoLibraryAnyone 9 · OnSecurityCheck 9
+    //   OnReturnCardsToHandFromTrash 2 · OnPermamemtReturnedToHand 2 (sic) · OnRemovedField 2 ·
+    //   OnLeaveFieldAnyone 1 · OnReturnCardsToLibraryFromTrash 1
+    WhenRemoveField,
+    OnLoseSecurity,
+    OnDiscardHand,
+    OnAddHand,
+    OnDiscardLibrary,
+    OnAddSecurity,
+    WhenReturntoHandAnyone,
+    WhenReturntoLibraryAnyone,
+    OnSecurityCheck,
+    OnReturnCardsToHandFromTrash,
+    OnPermamemtReturnedToHand,
+    OnRemovedField,
+    OnLeaveFieldAnyone,
+    OnReturnCardsToLibraryFromTrash,
+
+    // (PRIM-P0-timing batch 3b) OnEndAttack (80 cards): end of a single attack. Already collected by
+    // EndAttackTriggerHook (keys on "OnEndAttack") at AttackPipeline.AdvanceEndAttackAsync — enum-only add.
+    OnEndAttack,
+
+    // (PRIM-P0-timing batch 3b) new emit sites added:
+    //   OnDigivolutionCardDiscarded 53 — source (under) card trashed by an effect (DigivolutionStackHelpers).
+    //   OnAttackTargetChanged 31 — attack defender switched by raid/block (RaidAttackSwitch/BlockTiming).
+    // Both are broadcast (see TriggerTimings.BroadcastTimings) to mirror the AS-IS global StackSkillInfos.
+    OnDigivolutionCardDiscarded,
+    OnAttackTargetChanged,
+    //   OnDigivolutionCardReturnToDeckBottom — a Digimon's digivolution cards returned to the deck (c-remediation,
+    //   AS-IS ReturnToLibraryBottomDigivolutionCardsClass). Broadcast; emitted by DigivolutionStackHelpers.
+    OnDigivolutionCardReturnToDeckBottom,
+
+    // (PRIM-P0-timing batch 4) The would-be-deleted replacement/prevention window (206 cards). A card
+    // registered here surfaces as a PRE option in the existing DeletionReplacementTiming synchronous window;
+    // activating it prevents/replaces the deletion. See docs/porting/when_permanent_would_be_deleted_design.md.
+    WhenPermanentWouldBeDeleted,
+
+    // (F1-M0-1) Bridge-expansion enum reconciliation — the 9 AS-IS EffectTiming members (ICardEffect.cs:969)
+    // that had NO headless enum member yet, appended AT THE END to keep every existing ordinal stable
+    // (serialization/binding regression point #6). Each name is string-equal to its AS-IS enum member so
+    // EffectTimings.ToTriggerName (== ToString()) matches the emitted TriggerTimings value. These are pure
+    // placeholders: none is registered in ActivatedBridgeTimings' sets and none has an emit wired for the
+    // bridge, so NO new trigger window opens (behavior-neutral). The activated-bridge wiring per timing is the
+    // per-timing F-1 milestones (M1+). The 6 AS-IS DEAD timings (OnEndAttackPhase/OnEndBlockDesignation/
+    // OnEndCoinToss/OnEndMainPhase/OnGetDamage/OnKnockOut — AS-IS never emits them and no card reacts) are
+    // deliberately NOT added — they stay inert.
+    AfterEffectsActivate,
+    OnDraw,
+    OnStartBattle,
+    OnUseDigiburst,
+    RulesTiming,
+    WhenDigisorption,
+    WhenUntapAnyone,
+    WhenWouldDigivolutionCardDiscarded,
+    WhenWouldLink,
+
+    // (F1-DEAD) The 6 AS-IS DEAD timings — declared in the AS-IS EffectTiming enum (ICardEffect.cs:975/984/987/
+    // 996/998/1008) but NEVER stacked/gated there and reacted to by ZERO cards (verified true-scan: each name
+    // appears ONLY at its enum declaration in DCGO/, no StackSkillInfos/GetSkillInfos/gate). Appended AT THE END
+    // (ordinal-stable, regression point #6). Each name is string-equal to its AS-IS enum member so
+    // EffectTimings.ToTriggerName (== ToString()) matches the emitted TriggerTimings value. Included per the
+    // uniform-wiring principle (a missing call-site is not a skip reason): the enum slot + set classification +
+    // emit wiring (where a source exists) are prebuilt so the infra is symmetric with the live timings. They are
+    // behavior-neutral (0 cards react), so no regression can arise; the activated bridge only ever produces a
+    // marker for a TEST FIXTURE (F1-DeadTimingInfra). Emit status per timing (see ActivatedBridgeTimings /
+    // TriggerTimings comments):
+    //   OnEndAttackPhase / OnEndMainPhase — queue-emitted (PassAction.cs:28-29); Boundary set opens the bridge.
+    //   OnKnockOut  — emitted via a SYNC window (BattleResolver.ResolveKnockOutWindowAsync), NOT the GameEventQueue,
+    //                 so the activated bridge never sees it: SubjectScoped registration is LATENT (design item
+    //                 F1-DEAD-KNOCKOUT). It does NOT alter the C-4 vestigial phase-1 window (that path uses its own
+    //                 AutoProcessingTriggerCollector, never ActivatedBridgeTimings), so no double-fire with
+    //                 OnDestroyedAnyone (a distinct timing).
+    //   OnEndCoinToss / OnGetDamage / OnEndBlockDesignation — NO emit source exists in headless (no coin-toss /
+    //                 damage / block-designation pipeline). Set classification is a LATENT placeholder; emit is a
+    //                 design item (F1-DEAD-COINTOSS / F1-DEAD-DAMAGE / F1-DEAD-BLOCKDESIGNATION) — do NOT invent the
+    //                 pipeline.
+    OnEndAttackPhase,
+    OnEndBlockDesignation,
+    OnEndCoinToss,
+    OnEndMainPhase,
+    OnGetDamage,
+    OnKnockOut,
+}
+
+
+/// <summary>The headless <see cref="EffectTiming"/> mirror values are named after the engine trigger
+/// strings (the "...Anyone" forms used by <c>TriggerTimings</c> / <c>GetEffectsForTiming</c>), so the
+/// engine timing string is just the enum name.</summary>
+public static class EffectTimings
+{
+    public static string ToTriggerName(EffectTiming timing) => timing.ToString();
+}
+
+// (C3 REHOUSED fold) AS-IS home of the CalculateOrder enum is this file (ICardEffect.cs:940); the mirror
+// previously split it into CardEffectCommons/ModifierHelpers.cs. Folded back verbatim (same namespace, so the
+// NumericModifier pipeline in ModifierHelpers.cs references it unchanged). Precedent: C2 EffectTiming fold.
+/// <summary>
+/// Mirror of AS-IS <c>CalculateOrder</c> (ICardEffect.cs). AS-IS orders the "Change Security Attack" and
+/// "Change Link Max" effects into three tiers applied strictly in this sequence — UpToConstant, then
+/// UpDownValue, then DownToConstant (Permanent.cs:1872-1930 for SAttack, 975-1000 for LinkMax) — while the DP
+/// path uses a separate boolean isUpDown 2-group split (not this enum). Only the three tiers above are bucketed
+/// by the AS-IS switch; <see cref="UpValue"/>/<see cref="DownValue"/> have no switch case and are therefore
+/// collected-but-never-applied (dropped). Every current SAttack/LinkMax producer emits <see cref="UpDownValue"/>
+/// (both factories hardcode it), so this tiering is behaviourally inert for additive deltas today; it exists so
+/// a future non-additive (cap-style) port can set its tier and fold in the correct order.
+/// </summary>
+public enum CalculateOrder
+{
+    UpValue = 0,
+    DownValue = 1,
+    UpToConstant = 2,
+    UpDownValue = 3,
+    DownToConstant = 4,
+}

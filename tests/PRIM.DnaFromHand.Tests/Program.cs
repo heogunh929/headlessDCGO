@@ -1,6 +1,7 @@
 // PRIM special-play: effect-driven DNA Digivolution from hand/trash — DNA-digivolve into a hand card by fusing
 // a battle-area permanent with a hand material (AS-IS DNADigivolveWithHandOrTrashCardIntoHandOrTrash).
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;

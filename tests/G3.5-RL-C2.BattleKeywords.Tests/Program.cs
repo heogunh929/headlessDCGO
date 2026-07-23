@@ -107,7 +107,7 @@ void GivePierce(EngineContext context, HeadlessEntityId card, HeadlessPlayerId o
         context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
     }
 
-    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, card, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(context, card, owner);
 }
 
 async Task NoPiercingNoSecurityCheck()

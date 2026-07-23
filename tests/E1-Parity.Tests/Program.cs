@@ -19,6 +19,7 @@
 // library), cards move only when the choice resolves, and the digivolve's isEvolution +1 draw flows through
 // the mirrored PlayCardClass.PlayCard() isEvolution path.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;

@@ -131,57 +131,9 @@ using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectF
 // the live immunity. With no producers left, this type is census-0 and removed (structural-invention campaign 1/22).
 
 
-/// <summary>(R3-W3c-4) A minimal cause carrier — an <see cref="ICardEffect"/> whose only meaningful data is its
-/// <c>EffectSourceCard</c>. Used to route id/source-only substrate consumers (trash-protection filters,
-/// stack-trash immunity, …) through the AS-IS live joint-scan getters, every one of which takes the causing
-/// <c>ICardEffect</c> and reduces it to its non-null-ness / <c>EffectSourceCard</c> (the same reduction
-/// <c>ActivatedHashtableBridge.CauseStub</c> uses for driving-event payloads). The old-model
-/// <c>ContinuousTrashProtectionEffect</c> (which lowered this concept into a dead registry binding) is retired:
-/// the sole producer today is BT9_109's inline <c>CanNotTrashFromDigivolutionCardsClass</c>, served by the live
-/// <see cref="CardSource.CanNotTrashFromDigivolutionCards"/> scan.
-///
-/// (design item RD-BCE-01) <see cref="For(EngineContext, HeadlessEntityId)"/> collapses to a source-less cause
-/// (a fresh BareCauseEffect with no EffectSourceCard) when the id is empty/unresolvable, and both factories always
-/// return a NON-null ICardEffect. Some AS-IS restriction/immunity predicates distinguish a null causing effect
-/// (a RULE-sourced action, e.g. battle/end-of-turn, which many `CanNotAffect`/`CanNotBeTrashed` conditions treat
-/// as "not an opponent effect" ⇒ NOT immune) from a real-but-unknown source. A source-LESS BareCauseEffect is not
-/// byte-identical to AS-IS `null`: the getter's own `_cardEffect == null` early-out (CanNotBeAffected :743) is NOT
-/// taken, and an IsOpponentEffect check reads `EffectSourceCard?.Owner` = null-owner rather than short-circuiting.
-/// In practice the sink/Commons consumers here always carry a real card source (SourceEntityId / sourceCard), so
-/// this divergence is latent; revisit if a genuinely rule-sourced (null-cause) mutation is ever routed through a
-/// BareCauseEffect gate.</summary>
-public sealed class BareCauseEffect : ICardEffect
-{
-    /// <summary>A bare cause whose <c>EffectSourceCard</c> is <paramref name="sourceCard"/> (the AS-IS collapse of
-    /// the causing effect to its source card). Null <paramref name="sourceCard"/> yields a source-less cause.</summary>
-    public static BareCauseEffect For(CardSource? sourceCard)
-    {
-        var stub = new BareCauseEffect();
-        if (sourceCard is not null)
-        {
-            stub.SetEffectSourceCard(sourceCard);
-        }
-
-        return stub;
-    }
-
-    /// <summary>A bare cause whose <c>EffectSourceCard</c> resolves <paramref name="sourceId"/> to a
-    /// <see cref="CardSource"/> (owner read from the repository). Empty id — OR an id that resolves to no live
-    /// instance (hence no owner) — yields a source-less cause: a <see cref="CardSource"/> requires a non-empty
-    /// controller, and an unresolvable cause matches no narrowed restriction predicate (AS-IS "unknown causing
-    /// source does not block a conditional restriction").</summary>
-    public static BareCauseEffect For(EngineContext context, HeadlessEntityId sourceId)
-    {
-        if (sourceId.IsEmpty
-            || !(context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance) && instance is not null)
-            || instance.OwnerId.IsEmpty)
-        {
-            return new BareCauseEffect();
-        }
-
-        return For(new CardSource(context, sourceId, instance.OwnerId, instance.OwnerId));
-    }
-}
+// (C3 SUBSTRATE→HEADLESS) class BareCauseEffect RELOCATED verbatim to Headless/Bridge/BareCauseEffect.cs — it is
+// an invented substrate cause-carrier (no AS-IS standalone analogue), now sitting in the Headless bridge layer
+// beside its peer ActivatedHashtableBridge.CauseStub.
 
 
 // (이연④-f) ContinuousCanNotPlayOptionEffect (old-model CanNotPlayOption registry carrier) DELETED. Its ToBinding
@@ -208,59 +160,8 @@ public sealed class BareCauseEffect : ICardEffect
 // and removed (structural-invention campaign 이연④-c).
 
 
-/// <summary>(d-remediation, true-scan) AS-IS <c>ICanNotSelectBySkillEffect</c> / <c>Permanent.CanSelectBySkill</c>:
-/// a continuous effect that, when SCANNED over every field permanent's effects, forbids a candidate from being
-/// CHOSEN by a skill. Carries the AS-IS JOINT predicate <c>CanNotSelectBySkill(candidate, skillSource)</c> as a
-/// single runtime Func (NOT split into scope + causing) so a non-separable predicate is preserved, exactly like
-/// the original's <c>foreach permanent … effect.CanNotSelectBySkill(this, skill)</c> loop.</summary>
-public sealed class CanNotSelectBySkillEffect : ICardEffect, ICanNotSelectBySkillEffect
-{
-    private readonly Func<CardSource, CardSource, bool> _predicate;
-    private readonly Func<bool>? _condition;
-
-    public CanNotSelectBySkillEffect(CardSource card, Func<CardSource, CardSource, bool> predicate, Func<bool>? condition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(predicate);
-        Card = card;
-        _predicate = predicate;
-        _condition = condition;
-        // (R3-W3c-4c D-1) wire the base ICardEffect so the LIVE getter Permanent.CanSelectBySkill can consult
-        // this effect over a permanent's EffectList(None) (its scan gates on cardEffect.CanUse(null), which
-        // returns false unless a CanUseCondition is set). Mirrors the AS-IS SetUpICardEffect construction.
-        SetUpICardEffect("Can't be selected by skill", h => _condition is null || _condition(), card);
-        SetNotShowUI(true);
-    }
-
-    public CardSource Card { get; }
-
-    /// <summary>(R3-W3c-4c D-1 joint↔separate reconciliation) AS-IS
-    /// <c>ICanNotSelectBySkillEffect.CanNotSelectBySkill(permanent, cardEffect)</c>: the AS-IS kind-class ANDs a
-    /// SEPARATE <c>PermanentCondition(permanent)</c> and <c>CardEffectCondition(cardEffect)</c>. The headless
-    /// carrier instead holds the (possibly non-separable) JOINT predicate <c>f(candidate, skillSource)</c> as a
-    /// single Func (memory: scope+causing must NOT be split). This adapter maps the AS-IS interface args onto the
-    /// joint — the candidate = <c>permanent.TopCard</c>, the skill source = <c>cardEffect.EffectSourceCard</c> —
-    /// and reproduces the AS-IS non-null guards verbatim (both the permanent's top and the causing effect's source
-    /// must exist), so no card that AS-IS would treat as untargetable is missed and none is over-blocked.</summary>
-    public bool CanNotSelectBySkill(Permanent permanent, ICardEffect cardEffect)
-    {
-        if (permanent?.TopCard is not null && cardEffect?.EffectSourceCard is not null)
-        {
-            return _predicate(permanent.TopCard, cardEffect.EffectSourceCard);
-        }
-
-        return false;
-    }
-
-    // (이연④-e, substrate reclassification) The old-model registry-WRITE (`EffectBinding ToBinding(string)`) was
-    // DELETED. It wrote the `JointRestrictionEffect.PredicateKey(CannotBeSelectedBySkillKey)` binding, but that key
-    // has ZERO readers: `CannotBeSelectedBySkillKey` is never passed to `RestrictionScan.IsRestricted` — the
-    // select-by-skill restriction was rehoused (R1-d) onto the live AS-IS interface scan
-    // `Permanent.CanSelectBySkill` / `SelectPermanentEffect`, which enumerates the `ICanNotSelectBySkillEffect`
-    // this class implements (over a permanent's `EffectList(None)`; see `SetUpICardEffect` in the ctor). With no
-    // registry reader, the registry-half was 사문 (dead-letter), so removing it registers NOTHING — the class is a
-    // pure kind-class-style substrate effect, live only through the interface (④-a ToBinding-removal precedent).
-}
+// (C3 REHOUSED) class CanNotSelectBySkillEffect RELOCATED verbatim to CardEffects/RestrictionCarriers.cs — it
+// belongs in the CardEffects/ kind-class neighborhood beside its AS-IS analogue CanNotSelectBySkillClass.cs.
 
 
 /// <summary>(joint-migration) Canonical restriction effect: carries the AS-IS JOINT predicate
@@ -284,60 +185,8 @@ public sealed class CanNotSelectBySkillEffect : ICardEffect, ICanNotSelectBySkil
 // (structural-invention campaign 이연④-c).
 
 
-/// <summary>(d-remediation, true-scan) AS-IS <c>ICanNotMoveEffect</c> / <c>Permanent.CanMove</c>: SCANNED over every
-/// field permanent's effects; while any usable one's predicate <c>CanNotMove(candidate, causing)</c> holds, the
-/// candidate cannot move (the move gate passes a null causing effect, AS-IS <c>CanNotMove(TopCard, null)</c>).
-///
-/// (이연④-f, registry-half retired) LIVE-only now. Formerly DUAL: the <c>ToBinding</c> registry-half fed the
-/// breeding→battle move gate (BT1_089) via <c>RestrictionScan.IsRestricted(CannotMoveKey)</c>. That consumer was
-/// re-pointed to the AS-IS interface-scan half (<c>Permanent.CanMove</c> — the same <c>permanent.CanMove</c> the
-/// AS-IS BT1_089:56 uses), so nothing reads the CannotMoveKey binding any more. The <c>ToBinding</c> is dropped:
-/// with no <c>ToBinding</c> method the <see cref="LegacyBindingBridge"/> reflective lowering returns false and the
-/// registrar leaves this effect out of the registry entirely — the interface half (this effect sits on the card's
-/// live EffectList and implements <see cref="ICanNotMoveEffect"/>) is the sole path, feeding <c>Permanent.CanMove</c>
-/// exactly as AS-IS <c>CanNotMoveClass</c> does. Its joint predicate <c>f(candidate, causingSource)</c> is retained
-/// (the joint carrier the fixture/factory build via a single Func; not splittable into the kind-class's separate
-/// cardCondition/cardEffectCondition in general — true-scan-for-joint-predicates).</summary>
-public sealed class CanNotMoveEffect : ICardEffect, ICanNotMoveEffect
-{
-    private readonly Func<CardSource, CardSource?, bool> _predicate;
-    private readonly Func<bool>? _condition;
-
-    public CanNotMoveEffect(CardSource card, Func<CardSource, CardSource?, bool> predicate, Func<bool>? condition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(predicate);
-        Card = card;
-        _predicate = predicate;
-        _condition = condition;
-        // (R3-W3c-4c D-1) wire the base ICardEffect so the LIVE getter Permanent.CanMove can consult this effect
-        // over a permanent's EffectList(None) (its scan gates on cardEffect.CanUse(null)). AS-IS SetUpICardEffect.
-        SetUpICardEffect("Can't move", h => _condition is null || _condition(), card);
-        SetNotShowUI(true);
-    }
-
-    public CardSource Card { get; }
-
-    /// <summary>(R3-W3c-4c D-1 joint↔separate reconciliation) AS-IS
-    /// <c>ICanNotMoveEffect.CanNotMove(cardSource, cardEffect)</c>: the AS-IS <c>CanNotMoveClass</c> ANDs a
-    /// SEPARATE <c>_cardCondition(cardSource)</c> and <c>_cardEffectCondition(cardEffect)</c>. The headless carrier
-    /// holds the JOINT predicate <c>f(candidate, causingSource)</c> as a single Func; this adapter maps the AS-IS
-    /// interface args onto it (the causing source = <c>cardEffect.EffectSourceCard</c>, or null — the move gate
-    /// passes <c>CanNotMove(TopCard, null)</c>, AS-IS Permanent.CanMove).</summary>
-    public bool CanNotMove(CardSource cardSource, ICardEffect cardEffect)
-    {
-        if (cardSource is not null)
-        {
-            return _predicate(cardSource, cardEffect?.EffectSourceCard);
-        }
-
-        return false;
-    }
-
-    // (이연④-f) ToBinding retired — see the class summary. No registry-half: the reflective LegacyBindingBridge
-    // lowering finds no ToBinding and the registrar skips registry registration; the live EffectList /
-    // ICanNotMoveEffect path (Permanent.CanMove) is the sole consumer.
-}
+// (C3 REHOUSED) class CanNotMoveEffect RELOCATED verbatim to CardEffects/RestrictionCarriers.cs — it belongs in
+// the CardEffects/ kind-class neighborhood beside its AS-IS analogue CanNotMoveClass.cs.
 
 
 // (이연④-e) The old-model `CannotIgnoreDigivolutionConditionEffect` (ICardEffect-only, invisible to the live AS-IS

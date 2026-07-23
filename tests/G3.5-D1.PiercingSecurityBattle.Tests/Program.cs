@@ -172,7 +172,7 @@ void GivePierce(EngineContext context, HeadlessEntityId card, HeadlessPlayerId o
         context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
     }
 
-    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, card, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(context, card, owner);
 }
 
 // (B6-Dc D1 re-target) Stage a SURVIVING battle-area reactor for `owner` carrying the live OnSecurityCheck
@@ -189,7 +189,7 @@ async Task<HeadlessEntityId> AddSecurityCheckReactorAsync(EngineContext context,
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(reactorId, defId, owner,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = false, ["dp"] = 1000 }));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, reactorId, ChoiceZone.None, ChoiceZone.BattleArea));
-    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, reactorId, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(context, reactorId, owner);
     return reactorId;
 }
 
@@ -208,7 +208,7 @@ void GiveKnockOutDeleteReactor(EngineContext context, HeadlessEntityId card, Hea
         context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
     }
 
-    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, card, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(context, card, owner);
 }
 
 static CardRecord Digimon(string id) =>

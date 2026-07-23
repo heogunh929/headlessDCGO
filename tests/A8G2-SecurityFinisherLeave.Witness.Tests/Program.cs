@@ -90,7 +90,7 @@ void StageReactor(DcgoMatch match)
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(ReactorId, defId, P1,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = false, ["dp"] = 8000 }));
     ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, ReactorId, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
-    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(ctx, ReactorId, P1);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, ReactorId, P1);
 }
 
 // --- Harness (C5-SecurityPreWindow verbatim) ------------------------------
@@ -179,7 +179,7 @@ void StageInstance(DcgoMatch match, HeadlessPlayerId owner, HeadlessEntityId id,
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
         Metadata: new Dictionary<string, object?>(instMeta, StringComparer.Ordinal)));
     ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone)).GetAwaiter().GetResult();
-    if (register) HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    if (register) HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
 }
 
 static async Task StepOnce(DcgoMatch match)

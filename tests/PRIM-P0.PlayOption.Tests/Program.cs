@@ -2,6 +2,7 @@
 // The selected Option is trashed and its [Main] (OptionSkill) resolves through the same activation cycle. Fixtures:
 // TfxPlayOption (plays an Option from hand) + TfxOptionDraw (the Option: [Main] draw 2).
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;

@@ -114,7 +114,7 @@ void RegisterReactor(EngineContext context, HeadlessEntityId cardId, HeadlessPla
         context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
     }
 
-    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, cardId, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(context, cardId, owner);
 }
 
 int LibraryCount(EngineContext context, HeadlessPlayerId player) =>

@@ -132,7 +132,7 @@ async Task<HeadlessEntityId> StageReal(EngineContext ctx, HeadlessPlayerId owner
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = suspended }));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
-    Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     return id;
 }
 
@@ -145,7 +145,7 @@ HeadlessEntityId StageSyn(EngineContext ctx, HeadlessPlayerId owner, string numb
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4, ["isSuspended"] = suspended }));
     ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
-    Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     return id;
 }
 

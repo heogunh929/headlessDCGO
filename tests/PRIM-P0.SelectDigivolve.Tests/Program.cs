@@ -3,6 +3,7 @@
 // folded under as a digivolution source. Verifies (1) free digivolve places+folds and pays nothing, (2) a
 // normal-cost digivolve pays the evolution cost, (3) no candidates -> no-op. Fixture: TfxSelectDigivolve.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;

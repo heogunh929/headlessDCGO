@@ -1,6 +1,7 @@
 // PRIM special-play: Digi-Burst — "[Digi-Burst N] <effect>" trashes N of the card's own digivolution sources
 // as a cost, then resolves the inner effect. Gated on >= N sources. Fixture: TfxDigiBurst ([Digi-Burst 2] Draw 1).
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;

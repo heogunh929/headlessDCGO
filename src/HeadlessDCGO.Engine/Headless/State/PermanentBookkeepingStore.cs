@@ -29,9 +29,10 @@
 // in-memory continuation substrate (same as SkillWindowContinuation.SkipCondition).
 // ============================================================================================================
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+namespace HeadlessDCGO.Engine.Headless.State;
 
 using System.Runtime.CompilerServices;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>One permanent's AS-IS bookkeeping fields — names and defaults verbatim from Permanent.cs.</summary>

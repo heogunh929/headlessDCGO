@@ -137,7 +137,7 @@ void GiveWouldBeDeleted(EngineContext context, HeadlessEntityId card, HeadlessPl
         context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
     }
 
-    Cec.CardEffectRegistrar.RegisterCard(context, card, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(context, card, owner);
 }
 
 async Task DpZeroFlagStamped()

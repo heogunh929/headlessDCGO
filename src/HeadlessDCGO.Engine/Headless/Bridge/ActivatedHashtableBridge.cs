@@ -25,10 +25,13 @@
 //     cause EFFECT-SOURCE id. A minimal "cause stub" ICardEffect with EffectSourceCard = that card preserves
 //     the two data points AS-IS gates read (CardEffect != null; CardEffect.EffectSourceCard.*).
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+// (C3 SUBSTRATE→HEADLESS) Relocated from Assets/Scripts/Script/CardEffectCommons/ to Headless/Bridge/ — this is a
+// substrate translation layer (GameEvent → AS-IS Hashtable payload), NOT an AS-IS game-rule file; it belongs in
+// the Headless substrate beside the other bridges (peer of BareCauseEffect, EngineContext, GManagerBridge).
+namespace HeadlessDCGO.Engine.Headless.Bridge;
 
 using System.Collections;
-using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;

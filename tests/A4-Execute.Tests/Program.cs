@@ -66,7 +66,7 @@ async Task ExecutePrintedFiresThroughWindow()
     (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
     var execute = Place(match, P1, "TfxExecute", suspended: false, entered: false);
     var foe = Place(match, P2, "FOE", suspended: false, entered: false); // UNSUSPENDED foe
-    Cec.CardEffectRegistrar.RegisterCard(match.Context, execute, P1);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(match.Context, execute, P1);
 
     // Collection proof: the OnEndTurn window collects the printed Execute ActivateClass (GetSkillInfos scan).
     AssertEqual(1, CollectOnEndTurn(match), "the OnEndTurn window collects the printed Execute ActivateClass");
@@ -95,7 +95,7 @@ async Task ExecuteGrantedFiresThroughWindow()
     (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
     var host = Place(match, P1, "PLAIN", suspended: false, entered: false);
     Place(match, P2, "FOE", suspended: false, entered: false);
-    Cec.CardEffectRegistrar.RegisterCard(match.Context, host, P1);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(match.Context, host, P1);
     GrantExecute(match, host, EffectDuration.UntilOwnerTurnEnd);
 
     AssertEqual(1, CollectOnEndTurn(match),
@@ -179,7 +179,7 @@ async Task ExecuteGrantedBucketResetOrder()
     (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
     var host = Place(match, P1, "PLAIN", suspended: false, entered: false);
     Place(match, P2, "FOE", suspended: false, entered: false);
-    Cec.CardEffectRegistrar.RegisterCard(match.Context, host, P1);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(match.Context, host, P1);
     GrantExecute(match, host, EffectDuration.UntilOwnerTurnEnd);
 
     // FIRE first: the pump turn-end drain resolves the bucket effect (window opens the optional) BEFORE the AS-IS

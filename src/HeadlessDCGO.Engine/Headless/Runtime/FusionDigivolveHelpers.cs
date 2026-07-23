@@ -33,6 +33,14 @@ public static class FusionDigivolveHelpers
     public const string SourceIdsKey = "sourceIds";
     public const string EnteredThisTurnKey = "enteredThisTurn";
 
+    // (C3) F-8.5 fusion-digivolve event tags — stamped onto the WhenDigivolving event so the AS-IS IsJogress /
+    // IsDigiXros condition reads (CardEffectCommons.IsJogress(ctx) → "{EventValuePrefix}isJogress";
+    // GetFromHashtable.IsJogress(Hashtable) → "isJogress") see the DNA/Xros flag. Values are load-bearing string
+    // keys and MUST stay "isJogress"/"isDigiXros". Relocated here (their sole producer) from the retired
+    // SpecialConditionHelpers, whose duplicate dict-form predicates had zero live consumers.
+    public const string IsJogressKey = "isJogress";
+    public const string IsDigiXrosKey = "isDigiXros";
+
     /// <summary>
     /// Fuse <paramref name="materials"/> under <paramref name="topCardId"/> (moved from
     /// <paramref name="topFromZone"/> onto the battle area). Returns the merged source id list, or an
@@ -45,8 +53,8 @@ public static class FusionDigivolveHelpers
     /// (D-6 Blast/Arts): AS-IS runs it through the normal evolution arm (`permanent = _targetPermanent;
     /// permanent.AddCardSource(card)`, CardController.cs:1372-1376) — the SAME AS-IS Permanent object
     /// persists across the top swap, so both swap moves carry
-    /// <see cref="PermanentBookkeepingStore.PermanentContinuityKey"/> and this op owns the
-    /// <see cref="PermanentBookkeepingStore.ReKey"/> (the DigivolveAction/DeDigivolveHelpers seat
+    /// <see cref="HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.PermanentContinuityKey"/> and this op owns the
+    /// <see cref="HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ReKey"/> (the DigivolveAction/DeDigivolveHelpers seat
     /// convention). False (default) for Jogress/DigiXros: AS-IS creates a NEW Permanent
     /// (`permanent = new Permanent(...)`, CardController.cs:1497) — the chokepoint CREATE/DIE Resets are
     /// the correct lifetime.</param>
@@ -107,7 +115,7 @@ public static class FusionDigivolveHelpers
         // Move the new top onto the field; move each material off-field (it becomes a source).
         await zoneMover.MoveAsync(
             new ZoneMoveRequest(top.OwnerId, topCardId, topFromZone, ChoiceZone.BattleArea, FaceUp: true,
-                Metadata: topSwap ? Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata : null),
+                Metadata: topSwap ? HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata : null),
             cancellationToken).ConfigureAwait(false);
 
         // (max-trash / max-under-Tamer DigiXros) materials may come from DIFFERENT zones (field + trash) OR from
@@ -122,7 +130,7 @@ public static class FusionDigivolveHelpers
                 await zoneMover.MoveAsync(
                     new ZoneMoveRequest(material.OwnerId, material.InstanceId, zone, ChoiceZone.None,
                         // (RD-R3-02) the leaving half of the D-6 top swap — see the topSwap marker above.
-                        Metadata: topSwap ? Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata : null),
+                        Metadata: topSwap ? HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata : null),
                     cancellationToken).ConfigureAwait(false);
             }
             else
@@ -148,7 +156,7 @@ public static class FusionDigivolveHelpers
         // of DigivolveAction.AttachTargetAsSource / DeDigivolveHelpers' promotes.
         if (topSwap)
         {
-            Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ReKey(
+            HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ReKey(
                 repository, validMaterials[0].InstanceId, topCardId);
         }
 
@@ -174,8 +182,8 @@ public static class FusionDigivolveHelpers
             // F-8.5: tag the digivolve so IsJogress / IsDigiXros conditions can read it.
             IReadOnlyDictionary<string, object?>? tags = kind switch
             {
-                FusionKind.DnaDigivolve => new Dictionary<string, object?>(StringComparer.Ordinal) { [SpecialConditionHelpers.IsJogressKey] = true },
-                FusionKind.DigiXros => new Dictionary<string, object?>(StringComparer.Ordinal) { [SpecialConditionHelpers.IsDigiXrosKey] = true },
+                FusionKind.DnaDigivolve => new Dictionary<string, object?>(StringComparer.Ordinal) { [IsJogressKey] = true },
+                FusionKind.DigiXros => new Dictionary<string, object?>(StringComparer.Ordinal) { [IsDigiXrosKey] = true },
                 _ => null,
             };
             TriggerEventEmitter.Emit(gameEventQueue, TriggerTimings.WhenDigivolving, actor: current.OwnerId, subject: topCardId, extraMetadata: tags);

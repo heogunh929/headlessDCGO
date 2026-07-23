@@ -744,7 +744,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
 
                 try
                 {
-                    await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.ResolveAsync(
+                    await ActivatedEffectResolver.ResolveAsync(
                         context, pendingActivation.CardId, pendingActivation.PlayerId, pendingActivation.Timing, cancellationToken,
                         drivingEvent: pendingActivation.DrivingEvent,
                         declarative: pendingActivation.Declarative, windowDispatched: pendingActivation.WindowDispatched)

@@ -5,6 +5,7 @@
 // (1) selecting a mode runs ONLY that branch, (2) a different selection runs a different branch,
 // (3) an unavailable mode is omitted from the menu. See docs/porting/mode_choice_primitive_design.md.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;

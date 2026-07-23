@@ -4051,9 +4051,9 @@ public sealed class Permanent
     /// <see cref="Headless.Runtime.DigivolveAction.AttachTargetAsSource"/> stack shape — reconstructed on this
     /// dedicated path, WITHOUT touching AttachTargetAsSource itself). The old top physically leaves the field
     /// (→ None, a buried source) and the new top enters it (→ BattleArea, face-up); both moves carry
-    /// <see cref="PermanentBookkeepingStore.PermanentContinuityKey"/> so the zone-mover lifetime chokepoint
+    /// <see cref="HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.PermanentContinuityKey"/> so the zone-mover lifetime chokepoint
     /// leaves the PERSISTING permanent's just-after bookkeeping alone, and this op owns the
-    /// <see cref="PermanentBookkeepingStore.ReKey"/> (the digivolve / de-digivolve top-swap seat convention). The
+    /// <see cref="HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ReKey"/> (the digivolve / de-digivolve top-swap seat convention). The
     /// new top re-registers its ported effects (<see cref="CardEffectRegistrar.RegisterCard"/>, as
     /// <see cref="AddCardSource"/> does), and the persisting permanent fires ONE OnAddDigivolutionCards for the
     /// whole batch (AS-IS :1119). Folding ANOTHER permanent's live top (AS-IS
@@ -4144,7 +4144,7 @@ public sealed class Permanent
             // swap, so the lifetime chokepoint must not Reset the bookkeeping — this op ReKeys below.
             await _context.ZoneMover.MoveAsync(
                 new ZoneMoveRequest(OwnerId, oldTopId, CurrentZoneOf(OwnerId, oldTopId), Headless.Choices.ChoiceZone.None,
-                    Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata),
+                    Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata),
                 cancellationToken).ConfigureAwait(false);
 
             // New top → BattleArea (from wherever it sits: a de-linked card in None, or a hand card). Continuity
@@ -4152,7 +4152,7 @@ public sealed class Permanent
             HeadlessPlayerId newTopOwner = OwnerOfCard(newTopId) ?? OwnerId;
             await _context.ZoneMover.MoveAsync(
                 new ZoneMoveRequest(newTopOwner, newTopId, CurrentZoneOf(newTopOwner, newTopId), Headless.Choices.ChoiceZone.BattleArea,
-                    FaceUp: true, Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata),
+                    FaceUp: true, Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata),
                 cancellationToken).ConfigureAwait(false);
 
             // Any remaining source still sitting in a real zone (a loose hand card folded under) moves off-field.
@@ -4174,7 +4174,7 @@ public sealed class Permanent
             }
 
             WriteReRootedStack(newTopId, oldTopId, newSourceIds);
-            PermanentBookkeepingStore.ReKey(_context.CardInstanceRepository, oldTopId, newTopId);
+            HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ReKey(_context.CardInstanceRepository, oldTopId, newTopId);
             CardEffectRegistrar.RegisterCard(_context, newTopId, OwnerId);
         }
         else
@@ -4364,23 +4364,23 @@ public sealed class Permanent
     public List<CardSource> StackCards => cardSources.Filter(cardSource => !LinkedCards.Contains(cardSource));
 
     // ==== (R4 S3b-2②) AS-IS "just-after" bookkeeping fields (Permanent.cs:3686-3941) — carried by the
-    // match-scoped PermanentBookkeepingStore (the mirror Permanent is a per-access view; see the store header
+    // match-scoped HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore (the mirror Permanent is a per-access view; see the store header
     // for the CREATE/PERSIST/DIE lifetime mapping). Names, defaults and mutability verbatim.
 
     /// <summary>AS-IS <c>Permanent.PlayingEffect</c> (:3686) — the effect that PLAYED this permanent (null for
     /// a normal main-phase play).</summary>
     public ICardEffect? PlayingEffect
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayingEffect;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayingEffect = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayingEffect;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayingEffect = value;
     }
 
     /// <summary>AS-IS <c>Permanent.DigivolvingEffect</c> (:3690) — the effect that DIGIVOLVED this permanent
     /// (null for a normal digivolve; read by <c>CardEffectCommons.IsDigivolvedByTheEffect</c>).</summary>
     public ICardEffect? DigivolvingEffect
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).DigivolvingEffect;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).DigivolvingEffect = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).DigivolvingEffect;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).DigivolvingEffect = value;
     }
 
     /// <summary>(RD-EXT3-05) AS-IS <c>Permanent.PlaceOtherPermanentEffect</c> (:3674) — the effect that
@@ -4390,57 +4390,57 @@ public sealed class Permanent
     /// consistent with there being no ported consumer that reads a dead permanent's PlaceOtherPermanentEffect.</summary>
     public ICardEffect? PlaceOtherPermanentEffect
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlaceOtherPermanentEffect;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlaceOtherPermanentEffect = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlaceOtherPermanentEffect;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlaceOtherPermanentEffect = value;
     }
 
     /// <summary>AS-IS <c>Permanent.LevelJustAfterPlayed</c> (:3890, −1 = never played).</summary>
     public int LevelJustAfterPlayed
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).LevelJustAfterPlayed;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).LevelJustAfterPlayed = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).LevelJustAfterPlayed;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).LevelJustAfterPlayed = value;
     }
 
     /// <summary>AS-IS <c>Permanent.PlayCostJustAfterPlayed</c> (:3894, −1 = never played / no play cost).</summary>
     public int PlayCostJustAfterPlayed
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayCostJustAfterPlayed;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayCostJustAfterPlayed = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayCostJustAfterPlayed;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayCostJustAfterPlayed = value;
     }
 
     /// <summary>AS-IS <c>Permanent.CardNamesJustAfterPlayed</c> (:3898).</summary>
     public List<string> CardNamesJustAfterPlayed
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterPlayed;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterPlayed = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterPlayed;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterPlayed = value;
     }
 
     /// <summary>AS-IS <c>Permanent.CardNamesJustAfterDigivolved</c> (:3902).</summary>
     public List<string> CardNamesJustAfterDigivolved
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterDigivolved;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterDigivolved = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterDigivolved;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterDigivolved = value;
     }
 
     /// <summary>AS-IS <c>Permanent.TraitsJustAfterPlayed</c> (:3906).</summary>
     public List<string> TraitsJustAfterPlayed
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).TraitsJustAfterPlayed;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).TraitsJustAfterPlayed = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).TraitsJustAfterPlayed;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).TraitsJustAfterPlayed = value;
     }
 
     /// <summary>AS-IS <c>Permanent.IsBurstDigivolved</c> (:3938).</summary>
     public bool IsBurstDigivolved
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsBurstDigivolved;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsBurstDigivolved = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsBurstDigivolved;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsBurstDigivolved = value;
     }
 
     /// <summary>AS-IS <c>Permanent.IsAppFusion</c> (Permanent.cs, sibling of IsBurstDigivolved).</summary>
     public bool IsAppFusion
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsAppFusion;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsAppFusion = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsAppFusion;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsAppFusion = value;
     }
 
     /// <summary>(RD-R5-02) AS-IS <c>Permanent.IsReturnedToHandByBurstDigivolution</c> (Permanent.cs:3930) — the
@@ -4448,8 +4448,8 @@ public sealed class Permanent
     /// .BounceTamer reads back to gate TamerBounced. Backed by the bookkeeping store (sibling of IsBurstDigivolved).</summary>
     public bool IsReturnedToHandByBurstDigivolution
     {
-        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsReturnedToHandByBurstDigivolution;
-        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsReturnedToHandByBurstDigivolution = value;
+        get => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsReturnedToHandByBurstDigivolution;
+        set => HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsReturnedToHandByBurstDigivolution = value;
     }
 
     /// <summary>(R4 S3b-2①) AS-IS <c>Permanent.AddCardSource(cardSource)</c> (Permanent.cs:1045-1053): the new
@@ -4486,13 +4486,13 @@ public sealed class Permanent
         // bookkeeping — AttachTargetAsSource ReKeys it below.
         await _context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(controller, oldTopId, fieldZone, Headless.Choices.ChoiceZone.None,
-                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata),
+                Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata),
             cancellationToken).ConfigureAwait(false);
 
         Headless.Choices.ChoiceZone cardFrom = CurrentZoneOf(cardSource.Owner, cardSource.InstanceId);
         await _context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(controller, cardSource.InstanceId, cardFrom, fieldZone,
-                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata),
+                Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata),
             cancellationToken).ConfigureAwait(false);
 
         Headless.Runtime.DigivolveAction.AttachTargetAsSource(

@@ -5,13 +5,13 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
-using ActivatedHashtableBridge = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.ActivatedHashtableBridge;
-using BareCauseEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.BareCauseEffect;
+using ActivatedHashtableBridge = HeadlessDCGO.Engine.Headless.Bridge.ActivatedHashtableBridge;
+using BareCauseEffect = HeadlessDCGO.Engine.Headless.Bridge.BareCauseEffect;
 using CardEffectCommons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
 using CardSource = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource;
 using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.EffectTiming;
 using ICardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.ICardEffect;
-using OnEnterFieldHashtableParams = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.OnEnterFieldHashtableParams;
+using OnEnterFieldHashtableParams = HeadlessDCGO.Engine.Assets.Scripts.Script.OnEnterFieldHashtableParams;
 using Permanent = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent;
 using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
 

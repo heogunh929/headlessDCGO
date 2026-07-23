@@ -25,6 +25,7 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 using Cec = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Bridge;
 using Script = HeadlessDCGO.Engine.Assets.Scripts.Script;
 
 HeadlessPlayerId P1 = new(1);
@@ -126,7 +127,7 @@ async Task DrivenFireReachesReactor()
     using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(ctx);
     var otherPerm = new Cec.Permanent(ctx, other, P1);
     var srcView = new Cec.CardSource(ctx, othersrc, P1);
-    var cause = Cec.BareCauseEffect.For(ctx, new HeadlessEntityId("2:battle:cause"));
+    var cause = BareCauseEffect.For(ctx, new HeadlessEntityId("2:battle:cause"));
 
     await new Script.ITrashDigivolutionCards(
         otherPerm, new List<Cec.CardSource> { srcView },
@@ -149,7 +150,7 @@ async Task DrivenControlNoReactor()
     using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(ctx);
     var otherPerm = new Cec.Permanent(ctx, other, P1);
     var srcView = new Cec.CardSource(ctx, othersrc, P1);
-    var cause = Cec.BareCauseEffect.For(ctx, new HeadlessEntityId("2:battle:cause"));
+    var cause = BareCauseEffect.For(ctx, new HeadlessEntityId("2:battle:cause"));
 
     await new Script.ITrashDigivolutionCards(
         otherPerm, new List<Cec.CardSource> { srcView },
@@ -166,7 +167,7 @@ Hashtable BuildHashtable(EngineContext ctx, HeadlessEntityId permId, HeadlessPla
 {
     var perm = new Cec.Permanent(ctx, permId, owner);
     var src = new Cec.CardSource(ctx, srcId, owner);
-    var cause = Cec.BareCauseEffect.For(ctx, new HeadlessEntityId($"{causeOwner.Value}:battle:cause"));
+    var cause = BareCauseEffect.For(ctx, new HeadlessEntityId($"{causeOwner.Value}:battle:cause"));
     return Cec.CardEffectCommons.WhenDigivolutionCardWouldDiscardedCheckHashtable(
         perm, new List<Cec.CardSource> { src }, cause);
 }
@@ -190,7 +191,7 @@ async Task<HeadlessEntityId> StageReal(EngineContext ctx, HeadlessPlayerId owner
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = false }));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
-    Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     return id;
 }
 

@@ -173,7 +173,7 @@ public sealed class SelectPermanentEffect
             return false;
         }
 
-        ICardEffect skill = _cardEffect ?? CardEffectCommons.BareCauseEffect.For(_context, _sourceEntityId);
+        ICardEffect skill = _cardEffect ?? BareCauseEffect.For(_context, _sourceEntityId);
         return !new Permanent(_context, candidateId).CanSelectBySkill(skill);
     }
 

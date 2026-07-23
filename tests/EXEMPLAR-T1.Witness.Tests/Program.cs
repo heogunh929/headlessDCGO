@@ -445,7 +445,7 @@ async Task BT17026_WhenAttackingInheritedBouncePositiveNegative()
             traits: hybridHost ? new[] { "Hybrid" } : Array.Empty<string>());
         HeadlessEntityId source = Stage(match, P1, "BT17_026", ChoiceZone.None, "1:under:Beowolf");
         SetSources(match, host, source);
-        Cec.CardEffectRegistrar.RegisterCard(match.Context, host, P1);
+        HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(match.Context, host, P1);
         HeadlessEntityId p2digi = StageSynthetic(match, P2, "EXT1-P2D", dp: 4000, level: 4, "2:battle:p2d");
 
         policy.On(req => req.Type == ChoiceType.Permanent && req.Candidates.Any(c => c.Id == p2digi),
@@ -809,7 +809,7 @@ HeadlessEntityId Stage(DcgoMatch match, HeadlessPlayerId owner, string cardNumbe
 
     if (register)
     {
-        Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+        HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     }
 
     return id;
@@ -860,7 +860,7 @@ HeadlessEntityId StageSynthetic(DcgoMatch match, HeadlessPlayerId owner, string 
         ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone)).GetAwaiter().GetResult();
     }
 
-    Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     return id;
 }
 

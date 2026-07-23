@@ -343,7 +343,7 @@ void StageInstance(DcgoMatch match, HeadlessPlayerId owner, HeadlessEntityId id,
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
         Metadata: new Dictionary<string, object?>(instMeta, StringComparer.Ordinal)));
     ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone)).GetAwaiter().GetResult();
-    if (register) HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    if (register) HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
 }
 
 static async Task StepOnce(DcgoMatch match)
@@ -417,7 +417,7 @@ void GiveWouldBeDeleted(EngineContext context, HeadlessEntityId card, HeadlessPl
         context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
     }
 
-    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, card, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(context, card, owner);
 }
 
 static PlayerDeckSetup BuildDeck(HeadlessPlayerId playerId, string prefix) =>

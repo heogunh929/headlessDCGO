@@ -7,6 +7,8 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
+using System.Collections;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 // Aliased (not a namespace import) to avoid pulling the sibling `...Script.CardEffectFactory` namespace
 // into scope, which would clash with the CardEffectFactory type below.
 using SelectPermanentEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPermanentEffect;
@@ -2002,10 +2004,10 @@ public static partial class CardEffectCommons
                     : ChoiceZone.BattleArea;
                 await context.ZoneMover.MoveAsync(
                     new ZoneMoveRequest(targetPermanent.OwnerId, targetId, targetZone, ChoiceZone.None,
-                        Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
+                        Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
                 await context.ZoneMover.MoveAsync(
                     new ZoneMoveRequest(targetPermanent.OwnerId, selected, rootZone, targetZone,
-                        Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
+                        Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
                 if (payCost && cost > 0)
                 {
                     context.MemoryController.Pay(cost);
@@ -4396,3 +4398,955 @@ public static partial class CardEffectCommons
     }
 }
 
+// (C2 REHOUSED fold) CardEffectCommons.OptionMainEffect(card) (AS-IS CardEffectCommons.cs:711)
+// Relocated verbatim from the separate CardEffectCommons/OptionMainEffect.cs into the monolith (its true AS-IS home).
+public static partial class CardEffectCommons
+{
+    /// <summary>AS-IS <c>CardEffectCommons.OptionMainEffect(card)</c> (CardEffectCommons.cs:711): the resolved
+    /// [Main]-tagged <see cref="ActivateClass"/> among this card's OptionSkill-timing effects (or null).</summary>
+    public static ActivateClass? OptionMainEffect(CardSource card) =>
+        card.EffectList(EffectTiming.OptionSkill)
+            .Find(cardEffect => cardEffect != null && cardEffect is ActivateClass && cardEffect.EffectDiscription.Contains("[Main]"))
+            as ActivateClass;
+}
+
+// (C2 REHOUSED fold) digivolve/stack-trash/option-side/draw-discard overloads (AS-IS CardEffectCommons.cs:541/675/733/756/1106/1408)
+// Relocated verbatim from the separate CardEffectCommons/DigivolveAndTrashBridge.cs into the monolith (its true AS-IS home).
+public static partial class CardEffectCommons
+{
+    #region Target permanent Digivolves into Digimon card from hand or trash (AS-IS CardEffectCommons.cs:756)
+
+    /// <summary>(BRIDGE W3) AS-IS <c>DigivolveIntoHandOrTrashCard</c> — AS-IS-signature overload; the substrate
+    /// overload (Script/CardEffectCommons.cs, "verbatim verified" DigivolveIntoZoneCoreAsync) is already
+    /// param-for-param (cost tuples, requirement-ignore, optionality, success/failed branches); only
+    /// <c>ICardEffect</c>→source-card and the AS-IS inert-coroutine references→<c>Func&lt;Task&gt;</c>
+    /// factories (W2 convention) need bridging.</summary>
+    public static async Task DigivolveIntoHandOrTrashCard(
+        Permanent targetPermanent,
+        Func<CardSource, bool> cardCondition,
+        bool payCost,
+        (int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? reduceCostTuple,
+        (int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? fixedCostTuple,
+        int ignoreDigivolutionRequirementFixedCost,
+        bool isHand,
+        ICardEffect activateClass,
+        Func<Task> successProcess,
+        bool ignoreSelection = false,
+        IgnoreRequirement ignoreRequirements = IgnoreRequirement.None,
+        Func<Task> failedProcess = null,
+        bool isOptional = true)
+    {
+        // AS-IS guards (:772-775) — activateClass/EffectSourceCard null → silent no-op.
+        if (activateClass?.EffectSourceCard == null)
+        {
+            return;
+        }
+
+        await DigivolveIntoHandOrTrashCard(
+            targetPermanent, cardCondition, payCost, reduceCostTuple, fixedCostTuple,
+            ignoreDigivolutionRequirementFixedCost, isHand, activateClass.EffectSourceCard,
+            successProcess, ignoreSelection, ignoreRequirements, failedProcess, isOptional).ConfigureAwait(false);
+    }
+
+    #endregion
+
+    #region Target permanent Digivolves into Digimon card execution area (AS-IS CardEffectCommons.cs:1106)
+
+    /// <summary>(BRIDGE W3) AS-IS <c>DigivolveIntoExcecutingAreaCard</c> — AS-IS-signature overload; same
+    /// clean delegation as <see cref="DigivolveIntoHandOrTrashCard"/> (the substrate already carries the
+    /// single-candidate no-pick behaviour of the Execution-zone variant).</summary>
+    public static async Task DigivolveIntoExcecutingAreaCard(
+        Permanent targetPermanent,
+        Func<CardSource, bool> cardCondition,
+        bool payCost,
+        (int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? reduceCostTuple,
+        (int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? fixedCostTuple,
+        int ignoreDigivolutionRequirementFixedCost,
+        ICardEffect activateClass,
+        Func<Task> successProcess,
+        bool ignoreSelection = false,
+        IgnoreRequirement ignoreRequirements = IgnoreRequirement.None)
+    {
+        if (activateClass?.EffectSourceCard == null)
+        {
+            return;
+        }
+
+        await DigivolveIntoExcecutingAreaCard(
+            targetPermanent, cardCondition, payCost, reduceCostTuple, fixedCostTuple,
+            ignoreDigivolutionRequirementFixedCost, activateClass.EffectSourceCard,
+            successProcess, ignoreSelection, ignoreRequirements).ConfigureAwait(false);
+    }
+
+    #endregion
+
+    #region Trash target digivolution cards, and the effect determines the result (AS-IS CardEffectCommons.cs:541)
+
+    /// <summary>(BRIDGE W3) AS-IS <c>TrashDigivolutionCardsAndProcessAccordingToResult</c> — the arbitrary
+    /// pre-selected <c>List&lt;CardSource&gt;</c> shape. The SAME-NAMED substrate method
+    /// (Script/CardEffectCommons.cs) is a DIFFERENT, top/bottom-count shape (bridge-map ⚠️⚠️ "name collision,
+    /// not a valid delegation target"); the true substrate for this shape is
+    /// <c>DigivolutionStackHelpers.TrashSpecificSourcesAsync</c> (explicitly documented as the AS-IS
+    /// <c>ITrashDigivolutionCards(permanent, selectedCards, …)</c> mirror — the same primitive
+    /// <c>SelectTrashDigivolutionCards</c> already rides). The host-level gates AS-IS applies through
+    /// ITrashDigivolutionCards (top card CanNotBeAffected + ImmuneFromStackTrashing) are applied via the same
+    /// <c>IsHostStackTrashGated</c> the substrate's own direct-call mirrors use; per-card
+    /// CanNotTrashFromDigivolutionCards protection is honoured inside TrashSpecificSourcesAsync. Success = any
+    /// requested card actually trashed (AS-IS <c>Some(IsTrashed)</c>); the success payload (AS-IS
+    /// <c>TrashedCards</c>) is reconstructed RD-W2-2-style from real state evidence — a requested card counts
+    /// as trashed iff it was a source before, is no longer one after, and now sits in its owner's trash.</summary>
+    public static async Task TrashDigivolutionCardsAndProcessAccordingToResult(
+        Permanent targetPermanent, List<CardSource> targetDigivolutionCards, ICardEffect activateClass,
+        Func<List<CardSource>, Task> successProcess, Func<Task> failureProcess)
+    {
+        CardSource sourceCard = activateClass?.EffectSourceCard;
+        List<CardSource> targets = targetDigivolutionCards ?? new List<CardSource>();
+        var trashedCards = new List<CardSource>();
+
+        if (sourceCard != null && targetPermanent != null && !targetPermanent.InstanceId.IsEmpty &&
+            targets.Count > 0 && !IsHostStackTrashGated(targetPermanent.InstanceId, sourceCard))
+        {
+            EngineContext context = sourceCard.Context;
+            HashSet<HeadlessEntityId> beforeSources = targetPermanent.DigivolutionCards
+                .Select(cs => cs.InstanceId).ToHashSet();
+
+            int trashed = await Headless.Runtime.DigivolutionStackHelpers.TrashSpecificSourcesAsync(
+                context.CardInstanceRepository, context.ZoneMover,
+                targetPermanent.InstanceId,
+                targets.Where(cs => cs != null).Select(cs => cs.InstanceId).ToList(),
+                gameEventQueue: context.GameEventQueue,
+                context: context,
+                causingEffectSourceId: sourceCard.InstanceId).ConfigureAwait(false);
+
+            if (trashed > 0)
+            {
+                HashSet<HeadlessEntityId> afterSources = targetPermanent.DigivolutionCards
+                    .Select(cs => cs.InstanceId).ToHashSet();
+                var zones = (IZoneStateReader)context.ZoneMover;
+                trashedCards = targets
+                    .Where(cs => cs != null
+                        && beforeSources.Contains(cs.InstanceId)
+                        && !afterSources.Contains(cs.InstanceId)
+                        && zones.GetCards(cs.Owner, ChoiceZone.Trash).Contains(cs.InstanceId))
+                    .ToList();
+            }
+        }
+
+        if (trashedCards.Count > 0)
+        {
+            if (successProcess != null)
+            {
+                await successProcess(trashedCards).ConfigureAwait(false);
+            }
+        }
+        else if (failureProcess != null)
+        {
+            await failureProcess().ConfigureAwait(false);
+        }
+    }
+
+    #endregion
+
+    #region Trash digivolution cards from top or bottom (AS-IS CardEffectCommons.cs:675)
+
+    /// <summary>(BRIDGE W3) AS-IS <c>TrashDigivolutionCardsFromTopOrBottom</c> WITH the optional
+    /// <paramref name="cardCondition"/> filter the substrate overload lacks (121 calls; ST24_06/10/11/12 pass a
+    /// real filter — bridge-map "second-highest-priority gap"). Mirrors the AS-IS body: walk the digivolution
+    /// cards from the top (or bottom), collect up to <paramref name="trashCount"/> cards passing
+    /// <paramref name="cardCondition"/> (protected cards still occupy collection slots, exactly as AS-IS —
+    /// protection is filtered afterwards inside the trash primitive), then trash that SPECIFIC list via
+    /// <c>DigivolutionStackHelpers.TrashSpecificSourcesAsync</c>. Host gates (top card CanNotBeAffected /
+    /// ImmuneFromStackTrashing — AS-IS :679/:681 + ITrashDigivolutionCards re-gate) via
+    /// <c>IsHostStackTrashGated</c>; the AS-IS "no trashable source at all" pre-gate (:680) is
+    /// result-equivalent to the primitive's per-card protection trashing nothing. ORDER NOTE: the mirror
+    /// <c>Permanent.DigivolutionCards</c> lists sources BOTTOM→TOP (DigivolutionStack.UnderCards), the AS-IS
+    /// list is TOP→BOTTOM — hence the reversal for <paramref name="isFromTop"/>.</summary>
+    public static async Task TrashDigivolutionCardsFromTopOrBottom(
+        Permanent targetPermanent, int trashCount, bool isFromTop, ICardEffect activateClass,
+        Func<CardSource, bool> cardCondition = null)
+    {
+        // AS-IS guards (:677-683).
+        CardSource sourceCard = activateClass?.EffectSourceCard;
+        if (sourceCard == null || targetPermanent == null || targetPermanent.InstanceId.IsEmpty ||
+            targetPermanent.TopCard == null || trashCount <= 0 ||
+            IsHostStackTrashGated(targetPermanent.InstanceId, sourceCard))
+        {
+            return;
+        }
+
+        IReadOnlyList<CardSource> sources = targetPermanent.DigivolutionCards;   // bottom→top.
+        IEnumerable<CardSource> walk = isFromTop ? sources.Reverse() : sources;
+
+        var trashTargets = new List<HeadlessEntityId>();
+        foreach (CardSource trashTargetCard in walk)
+        {
+            if (trashTargets.Count >= trashCount)
+            {
+                break;
+            }
+
+            if (cardCondition == null || cardCondition(trashTargetCard))
+            {
+                trashTargets.Add(trashTargetCard.InstanceId);
+            }
+        }
+
+        if (trashTargets.Count == 0)
+        {
+            return;
+        }
+
+        EngineContext context = sourceCard.Context;
+        await Headless.Runtime.DigivolutionStackHelpers.TrashSpecificSourcesAsync(
+            context.CardInstanceRepository, context.ZoneMover,
+            targetPermanent.InstanceId, trashTargets,
+            gameEventQueue: context.GameEventQueue,
+            context: context,
+            causingEffectSourceId: sourceCard.InstanceId).ConfigureAwait(false);
+    }
+
+    #endregion
+
+    #region Activate Main of Dual Cards Option Side (AS-IS CardEffectCommons.cs:733)
+
+    /// <summary>(BRIDGE W3) AS-IS <c>ActivateMainOfOptionSide</c> — AS-IS-signature overload; the substrate
+    /// resolves ONLY the [Main]-tagged OptionSkill effect (the AS-IS <c>OptionMainEffect(card)</c> filter),
+    /// then the AS-IS <paramref name="afterMainEffect"/> follow-up runs with <paramref name="activateClass"/>
+    /// (AS-IS: forwarded verbatim, never inspected by this method itself). (RD-W3-5 RESOLVED) AS-IS stamps the
+    /// resolved [Main] instance with <c>SetIsDigimonEffect(asEffectOfThisDigimon)</c>/<c>SetIsTamerEffect(false)</c>
+    /// BEFORE Activate (CardEffectCommons.cs:738-739); the substrate resolver now threads a per-instance stamp
+    /// (<c>ActivatedEffectResolver.effectStamp</c>) onto the very effect instances it enumerates from the card's
+    /// own <c>EffectList</c> and activates, so the AS-IS stamp — for BOTH the <c>true</c> and the default
+    /// <c>false</c> value — is applied 1:1. The single AS-IS card caller (BT25_104) uses the defaults.</summary>
+    public static async Task ActivateMainOfOptionSide(
+        CardSource card, ICardEffect activateClass, Func<ICardEffect, Task> afterMainEffect = null,
+        bool asEffectOfThisDigimon = false)
+    {
+        if (card == null)
+        {
+            return;
+        }
+
+        // AS-IS :738-739 — stamp the resolved [Main] ActivateClass as (by default) an OPTION effect, unless the
+        // caller declares it an effect OF this Digimon. Threaded onto the resolver-enumerated instance.
+        await ActivateMainOfOptionSide(
+            card, activateClass?.EffectSourceCard!,
+            effectStamp: mainEffect =>
+            {
+                mainEffect.SetIsDigimonEffect(asEffectOfThisDigimon);
+                mainEffect.SetIsTamerEffect(false);
+            }).ConfigureAwait(false);
+
+        if (afterMainEffect != null)
+        {
+            await afterMainEffect(activateClass).ConfigureAwait(false);
+        }
+    }
+
+    #endregion
+
+    #region Draw and discard (AS-IS CardEffectCommons.cs:1408)
+
+    /// <summary>(BRIDGE W3) AS-IS <c>DrawAndDiscardCards</c> — AS-IS-signature overload restoring the four
+    /// parameters the substrate overload drops: <paramref name="canTargetCondition_ByPreSelecetedList"/> /
+    /// <paramref name="canEndSelectCondition"/> (the AS-IS SelectHandEffect advanced select semantics — same
+    /// panel rules as the reveal bridges, see RevealLibrary.cs header) and
+    /// <paramref name="afterSelectPermanentCoroutine"/> (runs with the actually-discarded cards after the
+    /// discard resolves, mirroring SelectHandEffect's <c>_afterSelectCardCoroutine(_targetCards)</c> — invoked
+    /// only when the select phase ran, i.e. ≥1 discardable candidate existed). <paramref name="card"/> is dead
+    /// in the AS-IS body (never read) and <paramref name="isShowOpponent"/> is UI-only (opponent hand-reveal
+    /// overlay + log gating) — both kept for signature fidelity, discarded. When none of the advanced params
+    /// are supplied this delegates to the verified substrate overload unchanged.</summary>
+    public static async Task DrawAndDiscardCards(
+        (Player drawPlayer, Player trashPlayer) player,
+        int drawAmount,
+        int trashAmount,
+        CardSource card,
+        ICardEffect activateClass,
+        Func<CardSource, bool> canTrashTargetCondition = null,
+        Func<List<CardSource>, CardSource, bool> canTargetCondition_ByPreSelecetedList = null,
+        Func<List<CardSource>, bool> canEndSelectCondition = null,
+        bool canNoSelect = false,
+        bool canEndNotMax = false,
+        bool isShowOpponent = true,
+        Func<List<CardSource>, Task> afterSelectPermanentCoroutine = null)
+    {
+        _ = card;             // dead in the AS-IS body.
+        _ = isShowOpponent;   // UI-only.
+        CardSource sourceCard = activateClass?.EffectSourceCard;
+        if (sourceCard == null || player.drawPlayer == null || player.trashPlayer == null)
+        {
+            return;
+        }
+
+        if (canTargetCondition_ByPreSelecetedList == null && canEndSelectCondition == null &&
+            afterSelectPermanentCoroutine == null)
+        {
+            await DrawAndDiscardCards(
+                (player.drawPlayer.PlayerId, player.trashPlayer.PlayerId), drawAmount, trashAmount,
+                sourceCard, canTrashTargetCondition, canNoSelect, canEndNotMax).ConfigureAwait(false);
+            return;
+        }
+
+        EngineContext context = sourceCard.Context;
+
+        // Draw half — the same DrawCards mutation the substrate overload stages (flushed before the discard
+        // pool is read, AS-IS order: DrawClass completes first).
+        if (drawAmount > 0)
+        {
+            var drawSink = NewSink(context);
+            drawSink.Apply(new EffectMutation(
+                MatchStateMutationSink.DrawCardsKind, sourceCard.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [MatchStateMutationSink.PlayerIdKey] = player.drawPlayer.PlayerId.Value,
+                    [MatchStateMutationSink.CountKey] = drawAmount,
+                }));
+            await drawSink.FlushAsync().ConfigureAwait(false);
+        }
+
+        // Discard half — AS-IS SelectHandEffect(Mode.Discard) semantics with the advanced params honoured.
+        var zones = (IZoneStateReader)context.ZoneMover;
+        HeadlessPlayerId trashPlayerId = player.trashPlayer.PlayerId;
+        Func<CardSource, bool> canTarget = canTrashTargetCondition ?? (_ => true);
+        List<CardSource> handPool = zones.GetCards(trashPlayerId, ChoiceZone.Hand)
+            .Select(id => new CardSource(context, id, trashPlayerId, trashPlayerId))
+            .ToList();
+        int maxCount = Math.Min(trashAmount, handPool.Count(canTarget));
+        if (maxCount < 1)
+        {
+            return;   // AS-IS: no discardable candidate -> the select phase (and its callback) never runs.
+        }
+
+        List<CardSource> selected = await SelectCardsFromRevealPoolAsync(
+            context, trashPlayerId, handPool, canTarget,
+            canTargetCondition_ByPreSelecetedList, canEndSelectCondition,
+            maxCount, canNoSelect, canEndNotMax,
+            $"Discard {maxCount} card(s).", ChoiceZone.Hand).ConfigureAwait(false);
+
+        if (selected.Count > 0)
+        {
+            var discardSink = NewSink(context);
+            foreach (CardSource cs in selected)
+            {
+                discardSink.Apply(new EffectMutation(
+                    MatchStateMutationSink.TrashCardKind, sourceCard.InstanceId,
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        [MatchStateMutationSink.TargetEntityIdKey] = cs.InstanceId.Value,
+                    }));
+            }
+
+            await discardSink.FlushAsync().ConfigureAwait(false);
+        }
+
+        if (afterSelectPermanentCoroutine != null)
+        {
+            await afterSelectPermanentCoroutine(selected).ConfigureAwait(false);
+        }
+    }
+
+    #endregion
+}
+
+// (C2 REHOUSED fold) *AndProcessAccordingToResult overloads (AS-IS CardEffectCommons.cs:437-644)
+// Relocated verbatim from the separate CardEffectCommons/ProcessAccordingToResultBridge.cs into the monolith (its true AS-IS home).
+public static partial class CardEffectCommons
+{
+    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.BouncePeremanentAndProcessAccordingToResult</c>
+    /// (CardEffectCommons.cs:489) — AS-IS-signature overload; delegates to the verified substrate
+    /// implementation (CardEffectCommons.cs:214). AS-IS's <c>successProcess</c>/<c>failureProcess</c> are bare
+    /// <c>IEnumerator</c> instances (a not-yet-driven coroutine reference — calling the local iterator method
+    /// that produced them does not itself run any body code; only an explicit drive does). The direct C#-native
+    /// translation of "an inert, undriven coroutine reference" is a deferred <c>Func&lt;Task&gt;</c> factory —
+    /// which is exactly what the substrate itself already expects, so this is a straight pass-through, not a
+    /// re-typed adapter (see docs/audit/rebuild_bridge_w2_notes.md).</summary>
+    public static async Task BouncePeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, Func<Task> successProcess, Func<Task> failureProcess)
+    {
+        await BouncePeremanentAndProcessAccordingToResult(targetPermanents, activateClass?.EffectSourceCard, successProcess, failureProcess).ConfigureAwait(false);
+    }
+
+    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.DeckBouncePeremanentAndProcessAccordingToResult</c>
+    /// (CardEffectCommons.cs:515) — AS-IS-signature overload; delegates to the verified substrate
+    /// implementation (CardEffectCommons.cs:254). Same bare-<c>IEnumerator</c>→<c>Func&lt;Task&gt;</c>
+    /// translation as <see cref="BouncePeremanentAndProcessAccordingToResult"/> above.</summary>
+    public static async Task DeckBouncePeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, Func<Task> successProcess, Func<Task> failureProcess)
+    {
+        await DeckBouncePeremanentAndProcessAccordingToResult(targetPermanents, activateClass?.EffectSourceCard, successProcess, failureProcess).ConfigureAwait(false);
+    }
+
+    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.DeletePeremanentAndProcessAccordingToResult</c>
+    /// (CardEffectCommons.cs:463) — AS-IS-signature overload; delegates to the verified substrate
+    /// implementation (CardEffectCommons.cs:115). Clean 1:1 payload (the substrate already hands back the
+    /// actual destroyed <see cref="Permanent"/> views, not a mere count) — only <c>List</c>&lt;-&gt;
+    /// <c>IReadOnlyList</c> needs bridging.</summary>
+    public static async Task DeletePeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, Func<List<Permanent>, Task> successProcess, Func<Task> failureProcess)
+    {
+        Func<IReadOnlyList<Permanent>, Task>? adaptedSuccess = successProcess is null
+            ? null
+            : (destroyed => successProcess(destroyed.ToList()));
+        await DeletePeremanentAndProcessAccordingToResult(targetPermanents, activateClass?.EffectSourceCard, adaptedSuccess, failureProcess).ConfigureAwait(false);
+    }
+
+    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.SuspendPeremanentAndProcessAccordingToResult</c>
+    /// (CardEffectCommons.cs:437) — AS-IS-signature overload; delegates to the verified substrate
+    /// implementation (CardEffectCommons.cs:174). Same clean payload shape as
+    /// <see cref="DeletePeremanentAndProcessAccordingToResult"/> above (the substrate hands back the actual
+    /// suspended <see cref="Permanent"/> views).</summary>
+    public static async Task SuspendPeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, Func<List<Permanent>, Task> successProcess, Func<Task> failureProcess)
+    {
+        Func<IReadOnlyList<Permanent>, Task>? adaptedSuccess = successProcess is null
+            ? null
+            : (suspended => successProcess(suspended.ToList()));
+        await SuspendPeremanentAndProcessAccordingToResult(targetPermanents, activateClass?.EffectSourceCard, adaptedSuccess, failureProcess).ConfigureAwait(false);
+    }
+
+    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.PlacePermanentInSecurityAndProcessAccordingToResult</c>
+    /// (CardEffectCommons.cs:644) — AS-IS-signature overload (AS-IS param order kept: <c>activateClass</c>
+    /// precedes <c>toTop</c>, matching the original call sites); delegates to the verified substrate
+    /// implementation (CardEffectCommons.cs:440, which takes <c>sourceCard</c> in a different position — a pure
+    /// reorder, no payload adaptation needed since the substrate's <c>successProcess</c> is already
+    /// <c>Func&lt;CardSource,Task&gt;</c>, an exact match for AS-IS's placed-card payload).</summary>
+    public static async Task PlacePermanentInSecurityAndProcessAccordingToResult(Permanent targetPermanent, ICardEffect activateClass, bool toTop, Func<CardSource, Task> successProcess, Func<Task> failureProcess = null, bool isFaceUp = false)
+    {
+        await PlacePermanentInSecurityAndProcessAccordingToResult(targetPermanent, toTop, activateClass?.EffectSourceCard, successProcess, failureProcess, isFaceUp).ConfigureAwait(false);
+    }
+
+    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.TrashHandAndProcessAccordingToResult</c>
+    /// (CardEffectCommons.cs:619) — AS-IS-signature overload; delegates to the verified substrate
+    /// implementation (CardEffectCommons.cs:412). AS-IS's <c>Player player</c>/<c>Hashtable hashtable</c> params
+    /// are dead in the AS-IS body itself (never read) — kept here (not dropped) purely so any AS-IS-verbatim
+    /// card that still passes them positionally keeps compiling; the substrate call simply does not use them.
+    /// AS-IS types <c>activateClass</c> as the concrete <c>ActivateClass</c> (not the usual <c>ICardEffect</c>)
+    /// — widened to <c>ICardEffect</c> here for this batch's uniform convention (every real AS-IS caller
+    /// constructs a genuine <c>ActivateClass</c>, which IS-A <c>ICardEffect</c>, so this accepts every real
+    /// argument unchanged; see docs/audit/mutation_helper_bridge_map.md's own "minor outlier, no behavioral
+    /// implication found" note). The substrate's <c>successProcess</c> takes no payload; AS-IS's takes the
+    /// trashed <c>CardSource</c> — but <c>TrashHandAndProcessAccordingToResult</c> only ever attempts to trash
+    /// the SAME <paramref name="cardToTrash"/> the caller supplied, so on success that IS the trashed card:
+    /// re-supplying <paramref name="cardToTrash"/> itself is exact, not a guess.</summary>
+    public static async Task TrashHandAndProcessAccordingToResult(Player player, Hashtable hashtable, CardSource cardToTrash, ICardEffect activateClass, Func<CardSource, Task> successProcess, Func<Task> failureProcess)
+    {
+        _ = player;
+        _ = hashtable;
+        Func<Task>? adaptedSuccess = successProcess is null ? null : (() => successProcess(cardToTrash));
+        await TrashHandAndProcessAccordingToResult(cardToTrash, activateClass?.EffectSourceCard, adaptedSuccess, failureProcess).ConfigureAwait(false);
+    }
+
+    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.TrashLinkCardsAndProcessAccordingToResult</c>
+    /// (CardEffectCommons.cs:567) — AS-IS-signature overload; delegates to the verified substrate
+    /// implementation (CardEffectCommons.cs:342).
+    ///
+    /// Design item RD-W2-2 (docs/audit/rebuild_bridge_w2_notes.md): the substrate's success payload is an
+    /// <c>int</c> count (its per-card <c>RemoveLinkCardAsync</c> loop can partially succeed), not AS-IS's
+    /// <c>List&lt;CardSource&gt;</c> of the cards that actually ended up trashed. Rather than assume
+    /// "all requested == all trashed" (wrong whenever a subset is protected), this reconstructs the EXACT
+    /// sublist by checking, after the substrate call, which of the caller-supplied <paramref name="targetLinkCards"/>
+    /// now sit in their owner's Trash zone — the same "did it actually land" check the substrate itself uses
+    /// internally to compute its own count, just re-applied per-candidate instead of via a running tally. This is
+    /// a faithful reconstruction (real zone-membership evidence), not a heuristic guess.</summary>
+    public static async Task TrashLinkCardsAndProcessAccordingToResult(Permanent targetPermanent, List<CardSource> targetLinkCards, ICardEffect activateClass, Func<List<CardSource>, Task> successProcess, Func<Task> failureProcess)
+    {
+        CardSource sourceCard = activateClass?.EffectSourceCard;
+        List<CardSource> candidates = targetLinkCards ?? new List<CardSource>();
+        IReadOnlyList<HeadlessEntityId> linkCardIds = candidates.Select(c => c.InstanceId).ToList();
+
+        Func<int, Task>? adaptedSuccess = successProcess is null
+            ? null
+            : async _ =>
+            {
+                var trashedCards = new List<CardSource>();
+                if (sourceCard is not null)
+                {
+                    var zones = (IZoneStateReader)sourceCard.Context.ZoneMover;
+                    foreach (CardSource candidate in candidates)
+                    {
+                        if (candidate is not null && zones.GetCards(candidate.Owner, ChoiceZone.Trash).Contains(candidate.InstanceId))
+                        {
+                            trashedCards.Add(candidate);
+                        }
+                    }
+                }
+
+                await successProcess(trashedCards).ConfigureAwait(false);
+            };
+
+        await TrashLinkCardsAndProcessAccordingToResult(targetPermanent, linkCardIds, sourceCard, adaptedSuccess, failureProcess).ConfigureAwait(false);
+    }
+
+    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.TrashSecurityAndProcessAccordingToResult</c>
+    /// (CardEffectCommons.cs:593) — AS-IS-signature overload; delegates to the verified substrate
+    /// implementation (CardEffectCommons.cs:378).
+    ///
+    /// Design item RD-W2-2 (docs/audit/rebuild_bridge_w2_notes.md, same shape as
+    /// <see cref="TrashLinkCardsAndProcessAccordingToResult"/> above): the substrate's success payload is an
+    /// <c>int</c> trashed count (computed via a before/after Security-zone-count diff), not AS-IS's
+    /// <c>List&lt;CardSource&gt;</c> of the destroyed security cards. This snapshots the player's Security zone
+    /// BEFORE calling the substrate and, on success, diffs against the AFTER snapshot to recover the exact set
+    /// of ids that left — <c>TrashSecurityAndProcessAccordingToResult</c> always removes from the specified
+    /// end (<paramref name="fromTop"/>) deterministically, so "ids present before but absent after" is the
+    /// exact destroyed set, not an approximation.</summary>
+    public static async Task TrashSecurityAndProcessAccordingToResult(Player player, int trashAmount, ICardEffect activateClass, bool fromTop, Func<List<CardSource>, Task> successProcess, Func<Task> failureProcess)
+    {
+        CardSource sourceCard = activateClass?.EffectSourceCard;
+        if (player is null || sourceCard is null)
+        {
+            if (failureProcess is not null)
+            {
+                await failureProcess().ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        var zones = (IZoneStateReader)sourceCard.Context.ZoneMover;
+        List<HeadlessEntityId> before = zones.GetCards(player.PlayerId, ChoiceZone.Security).ToList();
+
+        Func<int, Task>? adaptedSuccess = successProcess is null
+            ? null
+            : async _ =>
+            {
+                IReadOnlyList<HeadlessEntityId> after = zones.GetCards(player.PlayerId, ChoiceZone.Security);
+                List<CardSource> destroyed = before
+                    .Where(id => !after.Contains(id))
+                    .Select(id => new CardSource(sourceCard.Context, id, player.PlayerId, player.PlayerId))
+                    .ToList();
+                await successProcess(destroyed).ConfigureAwait(false);
+            };
+
+        await TrashSecurityAndProcessAccordingToResult(player.PlayerId, trashAmount, fromTop, sourceCard, adaptedSuccess, failureProcess).ConfigureAwait(false);
+    }
+}
+
+// (C2 REHOUSED fold) PLAY-family overloads (AS-IS CardEffectCommons.cs:23-418)
+// Relocated verbatim from the separate CardEffectCommons/PlayCardsBridge.cs into the monolith (its true AS-IS home).
+public static partial class CardEffectCommons
+{
+    #region Play cards as new permanents (AS-IS CardEffectCommons.cs:23-53)
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayPermanentCards</c> — AS-IS-signature overload. The AS-IS body filters
+    /// the given list by <c>CanPlayAsNewPermanent(cardSource, payCost, cardEffect: activateClass,
+    /// isBreedingArea, fixedCost)</c> BEFORE building the PlayCardClass; the substrate overload re-runs that
+    /// filter but with <c>cardEffect: null</c> (its <c>CanPlayAsNewPermanent</c> documents the discard), which
+    /// silently skips the AS-IS <c>CanEnterField(cardEffect)</c> "can't be played (by effects)" scan. Per
+    /// §11.11 rule 4 this wrapper reproduces that filtering WRAPPER-SIDE (via <c>CardSource.CanEnterField</c>)
+    /// and only then delegates to the verified substrate play path (whose own null-effect re-filter passes a
+    /// superset, so the wrapper-side filter is the effective one).</summary>
+    public static async Task PlayPermanentCards(
+        List<CardSource> cardSources, ICardEffect activateClass, bool payCost, bool isTapped,
+        SelectCardEffect.Root root, bool activateETB, bool isBreedingArea = false, int fixedCost = -1)
+    {
+        // AS-IS guard (:25).
+        if (cardSources == null)
+        {
+            return;
+        }
+
+        // AS-IS filter chain (:27-34): null filter + CanPlayAsNewPermanent(cardEffect: activateClass, ...).
+        // The substrate CanPlayAsNewPermanent models the cost/option/frame halves (isBreedingArea has no
+        // frame model — documented there); the cardEffect half is CardSource.CanEnterField (AS-IS position).
+        List<CardSource> playable = cardSources
+            .Where(cardSource => cardSource != null)
+            .Where(cardSource => CanPlayAsNewPermanent(cardSource, payCost, activateClass, isPlayOption: false, fixedCost: fixedCost)
+                              && cardSource.CanEnterField(activateClass))
+            .ToList();
+
+        if (playable.Count == 0)
+        {
+            return;
+        }
+
+        await PlayPermanentCards(
+            playable, activateClass?.EffectSourceCard!, payCost, isTapped,
+            MapRootToChoiceZone(root), activateETB, isBreedingArea, fixedCost).ConfigureAwait(false);
+    }
+
+    #endregion
+
+    #region Play option cards (AS-IS CardEffectCommons.cs:59-109 — NO-MIRROR row, imperative implementation)
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayOptionCards</c> — plays every playable card of a PRE-GIVEN list as an
+    /// Option (unlike the mirror's <c>PlayOptionCardEffect</c>, which runs its own zone select). AS-IS body:
+    /// filter by <c>!CanNotPlayThisOption</c> (mirrored by the same two substrate scans the effect-driven
+    /// option-play path uses — CanNotPlayOptionScan regions ①②③ + the colour requirement), optionally register
+    /// the until-turn-end "place the used Option on top of security" hook (<paramref name="setAddSecurityEndOption"/>),
+    /// then play each card cost-optionally. Play flow per card mirrors the VERIFIED effect-driven option play
+    /// (ActivatedEffectResolver's PlayOptionCardEffect branch): pay (when <paramref name="payCost"/>), move the
+    /// option to the trash (headless OptionActivate order: trash-before-resolve), emit OnUseOption, resolve its
+    /// [Main] (OptionSkill) effects, then — when the security-end hook is armed — move it from the trash to the
+    /// TOP of security face down through the sink's AddToSecurity route (which applies the central AS-IS
+    /// <c>CanAddSecurity</c> gate, mirroring PlaceToSecurityEffect's <c>CanResolveCondition</c>).
+    /// <c>playCard.SetShowEffect()</c> is UI-only (elided).</summary>
+    public static async Task PlayOptionCards(
+        List<CardSource> cardSources, ICardEffect activateClass, bool payCost, SelectCardEffect.Root root,
+        bool setAddSecurityEndOption = false)
+    {
+        // AS-IS guard (:62).
+        if (cardSources == null)
+        {
+            return;
+        }
+
+        CardSource effectSourceCard = activateClass?.EffectSourceCard!;
+
+        // AS-IS filter (:66-68): null + !CanNotPlayThisOption. The mirror models CanNotPlayThisOption as
+        // CanNotPlayOptionScan (regions ①②③) AND !MatchColorRequirement (OptionColorRequirement) — the exact
+        // pair the effect-driven option-play path applies (PlayOptionCardEffect.BuildRequest, E3-P1-1).
+        List<CardSource> playable = cardSources
+            .Where(cardSource => cardSource != null)
+            .Where(cardSource => !CanNotPlayOptionScan.CanNotPlay(cardSource.Context, cardSource.Owner, cardSource.InstanceId)
+                              && OptionColorRequirement.Matches(cardSource.Context, cardSource.Owner, cardSource.InstanceId))
+            .ToList();
+
+        if (playable.Count == 0)
+        {
+            return;
+        }
+
+        EngineContext context = playable[0].Context;
+        ChoiceZone sourceZone = MapRootToChoiceZone(root);
+
+        // AS-IS :81-89: the setAddSecurityEndOption hook (UntilEachTurnEndEffects + PlaceToSecurityEffect,
+        // toTop: true, face down) is armed only while this play runs and only when activateClass != null; it
+        // redirects each used Option's post-use placement from the trash to the top of security.
+        bool armSecurityEnd = setAddSecurityEndOption && activateClass != null;
+
+        foreach (CardSource card in playable)
+        {
+            // Cost (AS-IS: PlayCardClass payCost — resolved play cost through the modifier pipeline; a card
+            // whose cost cannot be paid fails its play and is skipped, AS-IS endPlayCard).
+            if (payCost)
+            {
+                int baseCost = context.CardInstanceRepository.TryGetInstance(card.InstanceId, out CardInstanceRecord? inst) && inst is not null
+                    && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
+                    ? def.PlayCost ?? 0
+                    : 0;
+                int cost = Math.Max(0, card.GetPayingCostWithBaseCost(baseCost, root, targetPermanents: null));
+                if (!context.MemoryController.CanPay(cost))
+                {
+                    continue;
+                }
+
+                if (cost > 0)
+                {
+                    var paySink = NewSink(context);
+                    paySink.Apply(new EffectMutation(
+                        MatchStateMutationSink.AddMemoryKind,
+                        effectSourceCard?.InstanceId ?? card.InstanceId,
+                        new Dictionary<string, object?>(StringComparer.Ordinal)
+                        {
+                            [MatchStateMutationSink.PlayerIdKey] = card.Owner.Value,
+                            [MatchStateMutationSink.AmountKey] = -cost,
+                        }));
+                    await paySink.FlushAsync().ConfigureAwait(false);
+                }
+            }
+
+            // Use flow — AS-IS PlayOptionCards routes each option through `new PlayCardClass(...).PlayCard()`
+            // (CardEffectCommons.cs:72-92), whose option half is `UseOptionClass.UseOption()` (CardController.cs
+            // :1722-1786): trash → OnUseOption WINDOW → resolve [Main]. (EXEMPLAR-T1, first Root.Trash consumer —
+            // P_223 [On Play]) an option used FROM the trash is already resident there; AS-IS hops it through the
+            // execution area and back (presentation), so the zone outcome is identity — the mirror move is skipped
+            // (ZoneMover rejects From==To).
+            if (sourceZone != ChoiceZone.Trash)
+            {
+                await context.ZoneMover.MoveAsync(
+                    new ZoneMoveRequest(card.Owner, card.InstanceId, sourceZone, ChoiceZone.Trash)).ConfigureAwait(false);
+            }
+
+            // (RD-EXT1-03) AS-IS opens the "when option is used" window INLINE via StackSkillInfos(OnUseOption)
+            // + ActivateBackgroundEffects (UseOption, CardController.cs:1765-1767) — the SAME seat the manual pump
+            // play uses (TurnFlowDriver → PlayCardClass → UseOptionClass, mirror CardController.cs:4277-4279). The
+            // former bare TriggerEventEmitter.Emit(OnUseOption) did NOT stack the battle-area OnUseOption reactor
+            // onto the pump's TriggeredSkillProcess drain, so an effect-driven option play never fired the owner's
+            // [All Turns] OnUseOption skill (P_223's [Pipe Fox] token). AS-IS hashtable (CardController.cs:1754):
+            // {Card, Root, Cost}.
+            System.Collections.Hashtable useHashtable = new System.Collections.Hashtable
+            {
+                { "Card", card },
+                { "Root", root },
+                { "Cost", card.GetCostItself },
+            };
+            await GManager.instance.autoProcessing.StackSkillInfos(useHashtable, EffectTiming.OnUseOption).ConfigureAwait(false);
+            await AutoProcessing.ActivateBackgroundEffects(useHashtable, EffectTiming.OnUseOption).ConfigureAwait(false);
+
+            // The substrate ActivateMainOfOptionSide route: ONLY the [Main]-tagged OptionSkill effect.
+            await ActivatedEffectResolver.ResolveAsync(
+                context, card.InstanceId, card.Owner, EffectTiming.OptionSkill,
+                effectFilter: ActivatedEffectResolver.IsMainOptionEffect).ConfigureAwait(false);
+
+            // AS-IS hook resolution (GetCardEffect → PlaceToSecurityEffect(toTop:true), face down): the used
+            // Option leaves the trash for the TOP of security; the sink's AddToSecurity route applies the
+            // central CanAddSecurity gate (= PlaceToSecurityEffect's own CanResolveCondition).
+            if (armSecurityEnd && ((IZoneStateReader)context.ZoneMover).GetCards(card.Owner, ChoiceZone.Trash).Contains(card.InstanceId))
+            {
+                var securitySink = NewSink(context);
+                securitySink.Apply(new EffectMutation(
+                    MatchStateMutationSink.AddToSecurityKind, effectSourceCard!.InstanceId,
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value,
+                    }));
+                await securitySink.FlushAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    #endregion
+
+    #region Play Delay Option cards as new permanents (AS-IS CardEffectCommons.cs:113-135)
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlaceDelayOptionCards</c> — the AS-IS <c>SelectCardEffect.Root</c>
+    /// overload. NOTE (deliberate): <paramref name="root"/> carries NO default value here, unlike AS-IS —
+    /// the substrate overload <c>PlaceDelayOptionCards(CardSource, ICardEffect?, ChoiceZone = Execution)</c>
+    /// already accepts the two-argument AS-IS call shape, so adding a defaulted third parameter would make
+    /// every 2-arg call ambiguous (CS0121). Two-arg AS-IS calls therefore bind to the substrate overload
+    /// directly — whose body still discards <c>cardEffect</c> before <c>CanPlayAsNewPermanent</c> (pre-existing
+    /// substrate gap, design item RD-W3-2); THIS overload applies the AS-IS-position
+    /// <c>CardSource.CanEnterField</c> gate the AS-IS <c>CanPlayAsNewPermanent(cardEffect:, isPlayOption:
+    /// true)</c> chain implies.</summary>
+    public static async Task PlaceDelayOptionCards(CardSource card, ICardEffect cardEffect, SelectCardEffect.Root root)
+    {
+        if (card == null || !card.CanEnterField(cardEffect))
+        {
+            return;
+        }
+
+        await PlaceDelayOptionCards(card, cardEffect, MapRootToChoiceZone(root)).ConfigureAwait(false);
+    }
+
+    #endregion
+
+    #region Play tokens (AS-IS CardEffectCommons.cs:140-420)
+
+    // AS-IS `PlayToken(CEntity_Base tokenData, ICardEffect activateClass, bool isOwnerPermanent, bool
+    // isTapped, int quantity = 1)` itself is NOT bridged: the mirror's `Script/CEntity_Base.cs` carries only
+    // the CardColor enum (no CEntity_Base class), so the AS-IS signature cannot even be declared without a new
+    // declaration error, and ZERO card files call PlayToken directly (grep over DCGO/Assets/Scripts/CardEffect,
+    // --binary-files=text) — every card call goes through the 14 named helpers below. Design item RD-W3-3.
+    //
+    // The named wrappers add the AS-IS gates the substrate PlayToken documents as unmodeled:
+    //   (1) the AS-IS field-CAPACITY check `card.Owner.fieldCardFrames.Count(empty && battleArea) >= quantity`
+    //       (:149). Evidence for the frame count: DCGO/Assets/Scenes/BattleScene.unity — YourPermanentFrame/
+    //       OpponentPermanentFrame each hold exactly 16 qualifying frame children ("カード枠1..16", each with the
+    //       2 sub-objects Player.Start requires), so battle-area capacity = 16 permanents. AS-IS QUIRK KEPT:
+    //       the capacity is checked on the EFFECT SOURCE owner's board (card.Owner) even when the token enters
+    //       the OPPONENT'S board (isOwnerPermanent:false — Fujitsumon/Petrification).
+    //   (2) the AS-IS `CanPlayAsNewPermanent(playCards[0], payCost:false, cardEffect: activateClass)` gate
+    //       (:158) reduces (cost-free, non-option token) to "the TOKEN owner has an empty battle frame" +
+    //       CanEnterField(activateClass). The empty-frame half is applied here against the same 16-frame
+    //       capacity; the CanEnterField half CANNOT run wrapper-side (the token instance does not exist until
+    //       the substrate creates it, and ICanNotPutFieldEffect's predicate receives the token CardSource) —
+    //       design item RD-W3-4, explicitly not silent.
+    private static bool CanPlayTokens(ICardEffect activateClass, bool isOwnerPermanent, int quantity)
+    {
+        // AS-IS guards (:142-144).
+        if (activateClass?.EffectSourceCard == null || quantity <= 0)
+        {
+            return false;
+        }
+
+        CardSource card = activateClass.EffectSourceCard;
+        EngineContext context = card.Context;
+        var zones = (IZoneStateReader)context.ZoneMover;
+
+        // (1) capacity on the effect source OWNER's board (AS-IS :149).
+        if (BattleAreaFrameCount - zones.GetCards(card.Owner, ChoiceZone.BattleArea).Count < quantity)
+        {
+            return false;
+        }
+
+        // (2) empty-frame half of CanPlayAsNewPermanent on the TOKEN owner's board (AS-IS :158).
+        HeadlessPlayerId tokenOwner = isOwnerPermanent ? card.Owner : OpponentOf(card);
+        return !tokenOwner.IsEmpty &&
+            BattleAreaFrameCount - zones.GetCards(tokenOwner, ChoiceZone.BattleArea).Count >= 1;
+    }
+
+    /// <summary>The AS-IS battle-area frame count (BattleScene.unity: 16 "カード枠" children per player's
+    /// PermanentFrame parent — see the region comment above for the derivation).</summary>
+    private const int BattleAreaFrameCount = 16;
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayDiaboromonToken</c> (:182).</summary>
+    public static async Task PlayDiaboromonToken(ICardEffect activateClass, int quantity = 1)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity))
+        {
+            await PlayToken(TokenSpecs["Diaboromon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false, quantity).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayAmonToken</c> (:197).</summary>
+    public static async Task PlayAmonToken(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["Amon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayUmonToken</c> (:211).</summary>
+    public static async Task PlayUmonToken(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["Umon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayFujitsumonToken</c> (:225) — enters SUSPENDED; the only named helper
+    /// whose board side is caller-chosen.</summary>
+    public static async Task PlayFujitsumonToken(ICardEffect activateClass, bool isOwnerPermanent)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["Fujitsumon"], activateClass.EffectSourceCard, isOwnerPermanent, isTapped: true).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayGyuukimonToken</c> (:239).</summary>
+    public static async Task PlayGyuukimonToken(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["Gyuukimon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayKoHagurumonToken</c> (:253).</summary>
+    public static async Task PlayKoHagurumonToken(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["KoHagurumon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayFamiliarToken</c> (:267).</summary>
+    public static async Task PlayFamiliarToken(ICardEffect activateClass, int quantity = 1)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity))
+        {
+            await PlayToken(TokenSpecs["Familiar"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false, quantity).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlaySelfDeleteFamiliarToken</c> (:282).</summary>
+    public static async Task PlaySelfDeleteFamiliarToken(ICardEffect activateClass, int quantity = 1)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity))
+        {
+            await PlayToken(TokenSpecs["SelfDeleteFamiliar"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false, quantity).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayVoleeZerdrucken</c> (:297).</summary>
+    public static async Task PlayVoleeZerdrucken(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["VoleeZerdrucken"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayUkaNoMitama</c> (:311).</summary>
+    public static async Task PlayUkaNoMitama(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["UkaNoMitama"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayWarGrowlmonToken</c> (:325).</summary>
+    public static async Task PlayWarGrowlmonToken(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["WarGrowlmon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayTaomonToken</c> (:339).</summary>
+    public static async Task PlayTaomonToken(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["Taomon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayRapidmonToken</c> (:353).</summary>
+    public static async Task PlayRapidmonToken(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["Rapidmon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayPipeFox</c> (:367).</summary>
+    public static async Task PlayPipeFox(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["PipeFox"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayAthoRenePorToken</c> (:381).</summary>
+    public static async Task PlayAthoRenePorToken(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["AthoRenePor"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayHinukamuyToken</c> (:395).</summary>
+    public static async Task PlayHinukamuyToken(ICardEffect activateClass)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+        {
+            await PlayToken(TokenSpecs["Hinukamuy"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>(BRIDGE W3) AS-IS <c>PlayPetrificationToken</c> (:409) — always the OPPONENT'S board (the
+    /// AS-IS capacity quirk applies: capacity still checked on the effect source owner's board).</summary>
+    public static async Task PlayPetrificationToken(ICardEffect activateClass, int quantity = 1)
+    {
+        if (CanPlayTokens(activateClass, isOwnerPermanent: false, quantity))
+        {
+            await PlayToken(TokenSpecs["Petrification"], activateClass.EffectSourceCard, isOwnerPermanent: false, isTapped: false, quantity).ConfigureAwait(false);
+        }
+    }
+
+    #endregion
+
+    #region Shared play-bridge plumbing (private)
+
+    /// <summary>AS-IS <c>SelectCardEffect.Root</c> → substrate <see cref="ChoiceZone"/> (the same table the
+    /// mirror SelectCardEffect keeps privately).</summary>
+    private static ChoiceZone MapRootToChoiceZone(SelectCardEffect.Root root) => root switch
+    {
+        SelectCardEffect.Root.Library => ChoiceZone.Library,
+        SelectCardEffect.Root.Trash => ChoiceZone.Trash,
+        SelectCardEffect.Root.Clock => ChoiceZone.Clock,
+        SelectCardEffect.Root.Security => ChoiceZone.Security,
+        SelectCardEffect.Root.Hand => ChoiceZone.Hand,
+        SelectCardEffect.Root.Recollection => ChoiceZone.Recollection,
+        SelectCardEffect.Root.Execution => ChoiceZone.Execution,
+        SelectCardEffect.Root.DigivolutionCards => ChoiceZone.DigivolutionCards,
+        SelectCardEffect.Root.LinkedCards => ChoiceZone.LinkedCards,
+        SelectCardEffect.Root.Custom => ChoiceZone.Custom,
+        _ => ChoiceZone.None,
+    };
+
+    // (R4 S3c-d/4b B0, 은퇴 원장 항7) The WRAPPER-SIDE scan copy CanEnterFieldByEffect is fully retired: its
+    // two call sites now invoke the AS-IS-position member CardSource.CanEnterField (CardSource.cs, S3b)
+    // directly — the single owner of the ICanNotPutFieldEffect scan across all three AS-IS regions (players
+    // included; the copy's region ② gap RD-W3-2 closes with it). No ICanNotPutFieldEffect producer exists
+    // yet, so the rewire is behaviourally a no-op today.
+
+    #endregion
+}

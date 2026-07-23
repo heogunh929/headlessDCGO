@@ -53,7 +53,7 @@ async Task LinkAttaches()
     using var _ = HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context);
     HeadlessDCGO.Engine.Headless.DataLoading.CardBaseEntityLoader.LoadInto((CardDatabase)context.CardRepository);
     var host = await Place(context, P1, "HOST", ChoiceZone.BattleArea, traits: new[] { "Appmon" });
-    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, host, P1);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(context, host, P1);
     var linkCard = await PlaceReal(context, P1, "EX10_029", ChoiceZone.Hand);
 
     ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(host));
@@ -151,7 +151,7 @@ async Task<HeadlessEntityId> PlaceReal(EngineContext context, HeadlessPlayerId o
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = false }));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone));
-    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, id, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(context, id, owner);
     return id;
 }
 

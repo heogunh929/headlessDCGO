@@ -70,7 +70,7 @@ HeadlessEntityId StagePermanent(DcgoMatch match, HeadlessPlayerId owner, Headles
     if (isBlocker) instMeta[BlockTiming.HasBlockerKey] = true;
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner, Metadata: instMeta));
     ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
-    Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     return id;
 }
 

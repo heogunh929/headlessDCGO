@@ -289,8 +289,14 @@ void SetNotShowUI(bool);           // :796  UI 비표시(내부 조건 등재용
 
 **trigger-wiring 관례**(실카드·`CardEffectCommons/CanUseEffects/*` 확인):
 - `[On Play]` → `timing == EffectTiming.OnEnterFieldAnyone` + `CardEffectCommons.CanTriggerOnPlay(hashtable, card)`.
-- `[When Digivolving]` → `EffectTiming.OnEnterFieldAnyone` + `CanTriggerWhenDigivolving(hashtable, card)`
-  (On Play와 **같은 창**을 공유하되 `CanTrigger`로 구분).
+- `[When Digivolving]` → **두-방언 이음새 주의 (2026-07-23 파일럿에서 실측 — 신규 포팅 규칙은 아래 한 줄)**:
+  AS-IS 원문은 On Play와 같은 `OnEnterFieldAnyone` 창을 공유하고 `CanTriggerWhenDigivolving`로 구분한다.
+  미러 실행기는 진화 플레이 시 **두 창(OnEnterFieldAnyone + WhenDigivolving)을 같은 hashtable로 모두 연다**
+  (`CardController.cs:4243-4297`, DISPATCH-REMAP BRIDGE — 코퍼스 실측: 전용-키 54파일 / AS-IS-리터럴 20파일 병존, 둘 다 발화).
+  단 **같은 효과를 두 키에 이중 등재하면 실행기가 STOP**한다(double-key 가드, 리뷰3 P2-②).
+  **신규 포팅 규칙: `timing == EffectTiming.WhenDigivolving` + `CanTriggerWhenDigivolving(hashtable, card)` 전용 키를 쓴다**
+  (코퍼스 다수 방언·실행기 :4293 보증 경로). AS-IS-리터럴 20파일의 단일-키 재수렴은 코드 주석에 명기된
+  이연 캠페인(P6A-HT-ENTERFIELD 완성 후)이며 신규 카드가 선택할 사안이 아니다.
 - `[Main]`(옵션) → `EffectTiming.OptionSkill` + `CanTriggerOptionMainEffect(hashtable, card)`.
 - `[Security]` → `EffectTiming.SecuritySkill` + `CanTriggerSecurityEffect(…)` 또는 `AddActivateMainOptionSecurityEffect`로 [Main] 파생.
 - `[Your Turn]` 링크 감소 → `EffectTiming.WhenWouldLink` + `CanTriggerWhenWouldLink(hashtable, cardCondition, permanentCondition)`.

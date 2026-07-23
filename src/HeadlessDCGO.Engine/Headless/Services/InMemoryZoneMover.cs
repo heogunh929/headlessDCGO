@@ -20,12 +20,12 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
     // (invalidation replaces them), so callers keep the same frozen-snapshot semantics as before.
     private readonly Dictionary<(HeadlessPlayerId PlayerId, ChoiceZone Zone), IReadOnlyList<HeadlessEntityId>> _cardsSnapshotCache = new();
 
-    /// <summary>(RD-R3-02) The repository that keys the <see cref="Assets.Scripts.Script.CardEffectCommons.
-    /// PermanentBookkeepingStore"/> for this match — wired by the EngineContext constructor. When set,
+    /// <summary>(RD-R3-02) The repository that keys the
+    /// <see cref="HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore"/> for this match — wired by the EngineContext constructor. When set,
     /// <see cref="MoveCard"/> is the AS-IS Permanent-object lifetime chokepoint: ANY move that changes a
     /// card's field-zone membership (enters/leaves BattleArea/BreedingArea) is a permanent CREATE/DIE and
     /// resets the card's bookkeeping entry, unless the move carries
-    /// <see cref="Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.PermanentContinuityKey"/>
+    /// <see cref="HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.PermanentContinuityKey"/>
     /// (a top-swap half whose owning op ReKeys instead). Null (a bare mover outside an EngineContext) skips
     /// the lifetime handling — the store is unreachable without a repository anyway.</summary>
     public ICardInstanceRepository? BookkeepingRepository { get; set; }
@@ -524,9 +524,9 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         if (wasOnField != entersField
             && BookkeepingRepository is { } bookkeepingRepository
             && !(request.Metadata?.ContainsKey(
-                    Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.PermanentContinuityKey) ?? false))
+                    HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.PermanentContinuityKey) ?? false))
         {
-            Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.Reset(bookkeepingRepository, request.CardId);
+            HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.Reset(bookkeepingRepository, request.CardId);
         }
 
         GameEvent cardMoved = RecordCardMoved(request);

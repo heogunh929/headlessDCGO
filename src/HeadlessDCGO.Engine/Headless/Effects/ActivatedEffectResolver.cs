@@ -1,9 +1,9 @@
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+namespace HeadlessDCGO.Engine.Headless.Effects;
 
 using System.Collections;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -516,8 +516,8 @@ public static class ActivatedEffectResolver
                         }
                     }
 
-                    AutoProcessing autoProcessing = AutoProcessing.For(context);
-                    var skillInfo = new SkillInfo(ce, hashtable!, timing);
+                    Assets.Scripts.Script.AutoProcessing autoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+                    var skillInfo = new Assets.Scripts.Script.CardEffectCommons.SkillInfo(ce, hashtable!, timing);
                     // Stamp the effect via the 1:1 PutStackedSkill and immediately un-stack
                     // (MultipleSkills.Activate removes the executing skill from StackedSkillInfos).
                     autoProcessing.PutStackedSkill(skillInfo);

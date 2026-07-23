@@ -20,6 +20,7 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 using Cec = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Bridge;
 using Script = HeadlessDCGO.Engine.Assets.Scripts.Script;
 
 HeadlessPlayerId P1 = new(1);
@@ -60,7 +61,7 @@ async Task PreWindowCollectsReactor()
 
     var perm = new Cec.Permanent(ctx, ad, P1) { willBeRemoveField = true };
     int srcCountPre = perm.DigivolutionCards.Count;
-    var cause = Cec.BareCauseEffect.For(ctx, new HeadlessEntityId("2:battle:cause"));
+    var cause = BareCauseEffect.For(ctx, new HeadlessEntityId("2:battle:cause"));
     var ht = Cec.CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(new List<Cec.Permanent> { perm }, cause, null);
     int collected = Script.AutoProcessing.GetSkillInfos(ht, Cec.EffectTiming.WhenRemoveField).Count;
     perm.willBeRemoveField = false;
@@ -114,7 +115,7 @@ async Task ControlNoReactor()
     (EngineContext ctx, PolicyChoiceProvider policy) = NewCtx(7104, P1);
     policy.On(req => true, req => req.CanSkip ? ChoiceResult.Skip() : ChoiceResult.Select(req.Candidates.First(c => c.IsSelectable).Id), oneShot: false);
     var plain = StageSyn(ctx, P1, "PLAIN", "1:battle:plain", level: 4, traits: Array.Empty<string>());
-    Cec.CardEffectRegistrar.RegisterCard(ctx, plain, P1);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, plain, P1);
     await MoveToBattle(ctx, P1, plain);
     await StageReal(ctx, P2, "AD1_013", "2:battle:foe");
 
@@ -155,7 +156,7 @@ async Task<HeadlessEntityId> StageReal(EngineContext ctx, HeadlessPlayerId owner
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = false }));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
-    Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(ctx, id, owner);
     return id;
 }
 
