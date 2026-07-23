@@ -16,8 +16,9 @@
 // attempt to fix that separately-tracked debt.
 // AS-IS structure kept verbatim: `null` for CanActivateCondition (SetUpActivateClass's first arg).
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
-// idiom (already correct in the pre-existing file: IsOpponentBattleAreaDigimon); AS-IS
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` kept on the canonical `Func<Permanent,bool>` shape
+// (id-flip 3b; IsOpponentBattleAreaDigimon converts to its Permanent-form sibling
+// IsPermanentExistsOnOpponentBattleAreaDigimon); AS-IS
 // `CardEffectCommons.HasMatchConditionPermanent(cond)` / `MatchConditionPermanentCount(cond)` (global scan, no
 // CardSource arg in AS-IS) -> mirror's `(card, condition)` overloads.
 
@@ -49,9 +50,9 @@ public sealed class ST2_16 : CEntity_Effect
                 return "[Main] Return 1 of your opponent's Digimon to its owner's hand. (Trash all of the digivolution cards of that Digimon.)";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

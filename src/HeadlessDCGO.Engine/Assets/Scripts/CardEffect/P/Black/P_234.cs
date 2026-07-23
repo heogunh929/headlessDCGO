@@ -15,7 +15,7 @@
 //   `card.PermanentOfThisCard()`→`ICardEffect.ResolvePermanentOfThisCard(card)`;
 //   `new SuspendPermanentsClass(list, CardEffectHashtable(activateClass)).Tap()`→
 //     `new SuspendPermanentsClass(list, activateClass, isBlock: false).Tap()` (EX4_062 idiom);
-//   SelectPermanentEffect canTargetCondition = id-형 PermanentOf(id) adapter (BT25_089 idiom).
+//   SelectPermanentEffect canTargetCondition = 정본 Func<Permanent,bool> — Permanent 술어 직결(id 어댑터 없음).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.P.Black;
 
 using System;
@@ -131,11 +131,6 @@ public sealed class P_234 : CEntity_Effect
                     && cardSource.CanLinkToTargetPermanent(permanent, true);
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 await new SuspendPermanentsClass(new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) }, activateClass, isBlock: false).Tap();
@@ -191,7 +186,7 @@ public sealed class P_234 : CEntity_Effect
 
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, cardSource),
+                                canTargetCondition: permanent => CanSelectPermanentCondition(permanent, cardSource),
                                 canTargetCondition_ByPreSelecetedList: null,
                                 canEndSelectCondition: null,
                                 maxCount: 1,

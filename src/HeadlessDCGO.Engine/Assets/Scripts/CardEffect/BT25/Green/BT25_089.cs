@@ -20,7 +20,7 @@
 //   ▸ [Main] / Link (RD-EXT3-01 **해소** — G-Link 배치 2): suspend-cost 절반은 클린 포팅(기존);
 //     link 실행 절반은 AS-IS SuccessProcess(BT25_089.cs:72-229) 원문 복원 — `ILinkCard`/`GetChangedLinkCost`
 //     미러 착지(RD-P6C2-7/C2-02 해소)로 STOP 봉인 제거. 치환: UntilCalculateFixedCostEffect →
-//     미러 Player store-backed 리스트; SelectPermanentEffect canTargetCondition → id-adapter(PermanentOf).
+//     미러 Player store-backed 리스트; SelectPermanentEffect canTargetCondition → 정본 Permanent-형 직결.
 //   ▸ [End of Turn] / AppFusion (RD-EXT3-02 **해소** — G-AppF): ActivateCoroutine 본문을 AS-IS(:289-364)
 //     1:1 복원. 세 갭 해소: (1) `CardSource.CanAppFusionFromTargetPermanent` = 실 1:1 인스턴스 메서드
 //     (CardSource.cs, RD-P6C1-2 상환) + PlayCard() AppFusion 분기(IsAppFusion/LinkedCard 프레임-룩업·
@@ -100,13 +100,6 @@ public sealed class BT25_089 : CEntity_Effect
                 return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
                     && permanent.DigivolutionCards.Any(CanLinkCardEffectCondition);
             }
-
-            // (G-Link batch 2) SelectPermanentEffect's mirror canTargetCondition is the established id-based
-            // Func<HeadlessEntityId, bool> — PermanentOf(id) adapter (ArtsDigivolve/BT25_104 idiom).
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
 
             async Task ActivateCoroutine(Hashtable hashtable)
             {
@@ -198,7 +191,7 @@ public sealed class BT25_089 : CEntity_Effect
 
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: id => PermanentOf(id) is { } p && CanTakeFromDigivolutionCardsEffectCondition(p),
+                                canTargetCondition: CanTakeFromDigivolutionCardsEffectCondition,
                                 canTargetCondition_ByPreSelecetedList: null,
                                 canEndSelectCondition: null,
                                 maxCount: 1,
@@ -254,7 +247,7 @@ public sealed class BT25_089 : CEntity_Effect
 
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: id => PermanentOf(id) is { } p && CanLinkPermanentCondition(p),
+                                canTargetCondition: CanLinkPermanentCondition,
                                 canTargetCondition_ByPreSelecetedList: null,
                                 canEndSelectCondition: null,
                                 maxCount: 1,
@@ -343,13 +336,6 @@ public sealed class BT25_089 : CEntity_Effect
                 return false;
             }
 
-            // (G-AppF) SelectPermanentEffect's mirror canTargetCondition is the id-based Func<HeadlessEntityId,
-            // bool> — the PermanentOf(id) adapter (same idiom as the [Main] region above).
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
             // AS-IS :289-364. IEnumerator → async Task; StartCoroutine(X) → await X;
             // `yield return null` coroutines → Task.CompletedTask.
             async Task ActivateCoroutine(Hashtable hashtable)
@@ -363,7 +349,7 @@ public sealed class BT25_089 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: id => PermanentOf(id) is { } p && CanSelectPermanent(p),
+                        canTargetCondition: CanSelectPermanent,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

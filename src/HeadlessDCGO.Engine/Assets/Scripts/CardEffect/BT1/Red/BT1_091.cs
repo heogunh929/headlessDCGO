@@ -7,8 +7,8 @@
 //   ActivateCoroutine (guarded by HasMatchConditionPermanent): maxCount = Min(1, MatchConditionPermanentCount);
 //   SelectPermanentEffect.SetUp(mode: Custom, canNoSelect:false, canEndNotMax:false, selectPermanentCoroutine);
 //   per selected permanent CardEffectCommons.GainPierce(permanent, UntilEachTurnEnd, activateClass).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` ->
-//   `Func<HeadlessEntityId,bool>` idiom (IsOwnerBattleAreaDigimon); GManager.GetComponent -> bridge W4.
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` kept
+//   verbatim on the canonical shape (id-flip 3b); GManager.GetComponent -> bridge W4.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
 
 using System;
@@ -38,9 +38,9 @@ public sealed class BT1_091 : CEntity_Effect
                 return "[Main] 1 of your Digimon gains <Piercing> (When this Digimon attacks and deletes an opponent's Digimon and survives the battle, it performs any security checks it normally would) for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

@@ -28,7 +28,7 @@
 //    * `card.Owner.Enemy` (Player) → `CardEffectCommons.OpponentOf(card)` (HeadlessPlayerId; BT24_018 idiom).
 //      IsMinDP는 미러에서 HeadlessPlayerId owner를 받음 → OpponentOf(card) 전달.
 //    * `player == card.Owner.Enemy` → `player.PlayerId == CardEffectCommons.OpponentOf(card)` (BT24_018 idiom).
-//    * SelectPermanentEffect.canTargetCondition는 id-형 — 공유 Permanent-술어에 PermanentOf(id) 어댑터 덧댐.
+//    * SelectPermanentEffect.canTargetCondition는 공유 Permanent-술어(CanSelectPermanentCondition)를 직접 받음.
 //    * `MatchConditionPermanentCount(cond)` → `MatchConditionPermanentCount(card, cond)` (미러 card-arg).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT21.Red;
 
@@ -81,18 +81,6 @@ public sealed class BT21_029 : CEntity_Effect
             return false;
         }
 
-        // (BT17_026 관례) SelectPermanentEffect canTargetCondition는 id-형 — Permanent-술어에 id 어댑터를 덧댐.
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
-        bool CanSelectPermanentById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && CanSelectPermanentCondition(permanent);
-        }
-
         async Task WDAndEoAActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
         {
             int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
@@ -100,7 +88,7 @@ public sealed class BT21_029 : CEntity_Effect
 
             selectPermanentEffect.SetUp(
                 selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanentById,
+                canTargetCondition: CanSelectPermanentCondition,
                 canTargetCondition_ByPreSelecetedList: null,
                 canEndSelectCondition: null,
                 maxCount: maxCount,

@@ -21,7 +21,8 @@
 //    * `TrashSecurityAndProcessAccordingToResult(player: card.Owner|card.Owner.Enemy, ...)` — 미러 player 인자는
 //      Player 객체 → `new Player(card.Context, card.Owner|OpponentOf(card))`.
 //    * `card.Owner.SecurityCards.Count`/`card.Owner.Enemy...` → `new Player(card.Context, card.Owner|OpponentOf)`.
-//    * SelectPermanentEffect.canTargetCondition id-형 → id 어댑터. AS-IS Hide* 4종 = UI 연출(스트립, BT25_039 판례);
+//    * SelectPermanentEffect.canTargetCondition은 정본 Func<Permanent,bool> — Permanent 술어 직결. AS-IS Hide* 4종
+//      = UI 연출(스트립, BT25_039 판례);
 //      `willBeRemoveField = false`만 실질 상태 변경 유지.
 //    * UserSelectionManager.SetIntSelection/SetBoolSelection/WaitForEndSelect/SelectedIntValue/SelectedBoolValue 1:1.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT25.Yellow;
@@ -42,11 +43,6 @@ public sealed class BT25_043 : CEntity_Effect
 
         // AS-IS CardSource.HasGlowingDawnTraits (CardSource.cs:4147 => EqualsTraits("Glowing Dawn")) 인라인.
         bool HasGlowingDawn(CardSource cardSource) => cardSource.EqualsTraits("Glowing Dawn");
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Digimon Effects
         #region Alt Digivolution
@@ -216,12 +212,6 @@ public sealed class BT25_043 : CEntity_Effect
                 return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 #region DP minus single target
@@ -231,7 +221,7 @@ public sealed class BT25_043 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: 1,

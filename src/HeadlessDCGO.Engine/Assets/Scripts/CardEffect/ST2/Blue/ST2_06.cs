@@ -8,8 +8,9 @@
 // ActivateCoroutine re-checks HasMatchConditionPermanent before selecting (unlike sibling ST2_03, which does
 // not — this AS-IS difference is preserved as-is).
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
-// idiom (already correct in the pre-existing file: IsOpponentBattleAreaDigimon); AS-IS
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` kept on the canonical `Func<Permanent,bool>` shape
+// (id-flip 3b; IsOpponentBattleAreaDigimon converts to its Permanent-form sibling
+// IsPermanentExistsOnOpponentBattleAreaDigimon); AS-IS
 // `CardEffectCommons.HasMatchConditionPermanent(cond)` / `MatchConditionPermanentCount(cond)` (global scan, no
 // CardSource arg in AS-IS) -> mirror's `(card, condition)` overloads (same substrate adaptation already
 // established, e.g. ST1_08.cs/BT1_017.cs).
@@ -43,9 +44,9 @@ public sealed class ST2_06 : CEntity_Effect
                 return "[When Attacking] Trash the digivolution card at the bottom of 1 of your opponent's Digimon.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

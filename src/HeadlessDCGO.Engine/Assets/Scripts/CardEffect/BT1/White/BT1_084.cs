@@ -12,8 +12,8 @@
 //   canEndNotMax:false, selectPermanentCoroutine) picks 1 reference; SelectPermanentCoroutine derives
 //   destroyTargetPermanents = card.Owner.Enemy.GetBattleAreaDigimons().Filter(p => p.TopCard.HasSameCardName(
 //   reference.TopCard)) and deletes them via new DestroyPermanentsClass(targets, hashtable).Destroy() (reflexive).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` ->
-//   `Func<HeadlessEntityId,bool>` idiom (IsOpponentBattleAreaDigimon); `card.Owner.Enemy` -> `new Player(
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` kept
+//   verbatim on the canonical shape (id-flip 3b); `card.Owner.Enemy` -> `new Player(
 //   card.Context, card.Owner).Enemy!` (established Player mirror route); GManager.GetComponent -> bridge W4.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.White;
 
@@ -43,9 +43,9 @@ public sealed class BT1_084 : CEntity_Effect
                 return "[When Digivolving] Choose 1 of your opponent's Digimon. Delete all of your opponent's Digimon that share a name with it.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

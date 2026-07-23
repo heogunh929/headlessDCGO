@@ -43,7 +43,10 @@ public sealed class SelectPermanentEffect
     }
 
     private HeadlessPlayerId _selectPlayer;
-    private Func<HeadlessEntityId, bool> _canTargetCondition = static _ => true;
+    // (R3 id-flip 3a / D2) AS-IS SelectPermanentEffect.cs:100 — the per-permanent target predicate is the
+    // AS-IS Func<Permanent,bool> shape; the id-form invented SetUp/SetAttackOptions/SetCanEndSelectCondition
+    // surfaces were physically retired (RD-IDFLIP-01, id-surface flip batch 4).
+    private Func<Permanent, bool> _canTargetCondition = static _ => true;
     private int _maxCount = 1;
     private bool _canNoSelect;
     private bool _canEndNotMax;
@@ -54,8 +57,13 @@ public sealed class SelectPermanentEffect
     private bool _faceUp;
     private int _degenerationCount = 1;
     private bool _canAttackPlayer = true;
-    private Func<HeadlessEntityId, bool>? _defenderCondition;
-    private Func<IReadOnlyList<HeadlessEntityId>, bool>? _canEndSelectCondition;
+    // (R3 id-flip 3a / D2; P2-1) AS-IS :123 `Func<Permanent,bool> _defenderCondition = (permanent) => true` —
+    // the Mode.Attack defender narrowing (SetDefenderCondition). The AS-IS non-null allow-all default is adopted
+    // verbatim (no null-vs-allow-all seam); the Attack sub-flow always evaluates it.
+    private Func<Permanent, bool> _defenderCondition = static _ => true;
+    // (R3 id-flip 3a / D2) AS-IS :104 Func<List<Permanent>,bool> _canEndSelectCondition — the selection-SET
+    // combination gate.
+    private Func<List<Permanent>, bool>? _canEndSelectCondition;
 
     // ===== (bridge W4) AS-IS SetUp(...).Activate() surface state (SelectPermanentEffect.cs:98-149) =========
     // The AS-IS-verbatim card corpus reaches this class via GManager.instance.GetComponent<SelectPermanentEffect>()
@@ -63,7 +71,6 @@ public sealed class SelectPermanentEffect
     // AS-IS field names are kept where free; where the name is taken by a legacy mirror member of a DIFFERENT
     // shape, the W3 naming convention applies (…_Permanents suffix for the AS-IS List<Permanent> shapes).
     private Func<List<Permanent>, Permanent, bool>? _canTargetCondition_ByPreSelecetedList;
-    private Func<List<Permanent>, bool>? _canEndSelectCondition_Permanents;
     private Func<Permanent, Task>? _selectPermanentCoroutine;
     private Func<List<Permanent>, Task>? _afterSelectPermanentCoroutine;
     private ICardEffect? _cardEffect;
@@ -72,7 +79,6 @@ public sealed class SelectPermanentEffect
     private string? _customMessage;
     private string? _customMessage_Enemy;        // AS-IS opponent-side UI text — no headless effect.
     private string? _customBackButtonMessage;    // AS-IS "No Selection" button label — no headless effect.
-    private Func<Permanent, bool>? _defenderCondition_Permanent;   // AS-IS SetDefenderCondition shape.
 
     // AS-IS `List<Permanent> _targetPermanents` (:142) — the selected permanents of the last Activate().
     private List<Permanent> _targetPermanents = new();
@@ -84,35 +90,6 @@ public sealed class SelectPermanentEffect
     /// <summary>(bridge W4) The match context the AS-IS <c>GManager.instance.GetComponent&lt;…&gt;()</c> route
     /// injects (the AS-IS component reads the same state through the GManager singleton).</summary>
     internal void AttachContext(EngineContext context) => _context = context;
-
-    /// <summary>Mirrors the original SetUp: who selects, the per-target predicate, the count rules, and
-    /// the action mode. <paramref name="sourceEntityId"/> is the effect source the mutations are attributed
-    /// to (the original threads this through <c>cardEffect.EffectSourceCard</c>).</summary>
-    public void SetUp(
-        HeadlessPlayerId selectPlayer,
-        Func<HeadlessEntityId, bool> canTargetCondition,
-        int maxCount,
-        bool canNoSelect,
-        bool canEndNotMax,
-        Mode mode,
-        HeadlessEntityId sourceEntityId,
-        EngineContext? context = null)
-    {
-        ArgumentNullException.ThrowIfNull(canTargetCondition);
-        if (maxCount < 1)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maxCount), "Max count must be at least 1.");
-        }
-
-        _selectPlayer = selectPlayer;
-        _canTargetCondition = canTargetCondition;
-        _maxCount = maxCount;
-        _canNoSelect = canNoSelect;
-        _canEndNotMax = canEndNotMax;
-        _mode = mode;
-        _sourceEntityId = sourceEntityId.IsEmpty ? new HeadlessEntityId("select") : sourceEntityId;
-        _context = context;
-    }
 
     public void SetUpCustomMessage(string message)
     {
@@ -134,30 +111,14 @@ public sealed class SelectPermanentEffect
     /// removes per selected permanent (default 1).</summary>
     public void SetDegenerationCount(int count) => _degenerationCount = Math.Max(1, count);
 
-    /// <summary>(B5) AS-IS ctor's <c>canAttackPlayer</c> / <c>defenderCondition</c> — forwarded into the
-    /// <see cref="Mode.Attack"/> sub-flow (<c>SelectAttackEffect.SetUp(canAttackPlayerCondition,
-    /// defenderCondition, ...)</c>).</summary>
-    public void SetAttackOptions(bool canAttackPlayer, Func<HeadlessEntityId, bool>? defenderCondition = null)
-    {
-        _canAttackPlayer = canAttackPlayer;
-        _defenderCondition = defenderCondition;
-    }
-
-    /// <summary>(B5) AS-IS <c>CanEndSelect</c>'s combination gate (<c>_canEndSelectCondition(permanents)</c>)
-    /// — constrains which selection SETS are legal (e.g. "two of different colours"). Consult via
-    /// <see cref="IsValidSelection"/> when resolving the choice.</summary>
-    public void SetCanEndSelectCondition(Func<IReadOnlyList<HeadlessEntityId>, bool> canEndSelectCondition)
-    {
-        ArgumentNullException.ThrowIfNull(canEndSelectCondition);
-        _canEndSelectCondition = canEndSelectCondition;
-    }
-
     /// <summary>(B5) whether <paramref name="selection"/> satisfies the AS-IS combination gate (true when
     /// none is configured).</summary>
     public bool IsValidSelection(IReadOnlyList<HeadlessEntityId> selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        return _canEndSelectCondition is null || _canEndSelectCondition(selection);
+        // (D2) materialise the ids to AS-IS Permanent views for the flipped combination gate.
+        return _canEndSelectCondition is null
+            || _canEndSelectCondition(selection.Select(id => new Permanent(_context!, id)).ToList());
     }
 
     /// <summary>Enumerate the battle areas of <paramref name="players"/>, filter by the target predicate,
@@ -176,7 +137,8 @@ public sealed class SelectPermanentEffect
             {
                 // (d-remediation) AS-IS Permanent.CanSelectBySkill — a permanent with an untargetability
                 // restriction is excluded from the candidate pool entirely (never offered as a choice).
-                if (_canTargetCondition(id) && !IsUntargetableBySkill(id))
+                // (D2) AS-IS :169-171 — materialise the candidate to a Permanent view and evaluate the predicate.
+                if (_canTargetCondition(new Permanent(_context!, id)) && !IsUntargetableBySkill(id))
                 {
                     candidates.Add(EffectChoiceHelpers.Candidate(id, id.Value, ChoiceZone.BattleArea, isSelectable: true, player));
                 }
@@ -191,7 +153,9 @@ public sealed class SelectPermanentEffect
         ChoiceRequest request = EffectChoiceHelpers.CreatePermanentRequest(_selectPlayer, _message, minCount, maxCount, canSkip, candidates);
         // (P2) the AS-IS combination gate (CanEndSelect) rides on the request so the choice controller
         // rejects an illegal SET centrally (try-reject-retry).
-        return _canEndSelectCondition is null ? request : request with { SelectionValidator = _canEndSelectCondition };
+        return _canEndSelectCondition is null
+            ? request
+            : request with { SelectionValidator = ids => _canEndSelectCondition(ids.Select(id => new Permanent(_context!, id)).ToList()) };
     }
 
     /// <summary>(d-remediation; R3-W3c-4c D-1 flip) AS-IS <c>!Permanent.CanSelectBySkill(skill)</c>: a candidate is
@@ -295,7 +259,9 @@ public sealed class SelectPermanentEffect
             AllowDigimonTarget: true,
             TargetUnsuspended: false)
         {
-            DefenderCondition = _defenderCondition,
+            // (D2; P2-1) AS-IS passes the non-null _defenderCondition (allow-all default) straight through
+            // (:1020); the effect-attack option channel is id-form, so materialise per candidate.
+            DefenderCondition = id => _defenderCondition(new Permanent(context, id, OwnerOf(context, id))),
         };
         return HeadlessDCGO.Engine.Headless.Runtime.EffectDrivenAttack.RequestQueuedChoices(context, selected.ToArray(), options);
     }
@@ -325,22 +291,24 @@ public sealed class SelectPermanentEffect
     }
 
     // ================================================================================================
-    // (bridge W4) AS-IS SetUp(...).Activate() surface — 1:1 with DCGO SelectPermanentEffect.cs, the
-    // `GManager.instance.GetComponent<SelectPermanentEffect>()` flow verbatim card ports use
-    // (BT1_017/023/092/094 pattern). Substrate translations only (IEnumerator→Task, Player→
-    // HeadlessPlayerId, Func<Permanent,bool> canTargetCondition → the established Func<HeadlessEntityId,
-    // bool> id idiom); UI/Photon statements stripped with their AS-IS line anchors cited in Activate().
+    // (bridge W4 / R3 id-flip 3a) AS-IS SetUp(...).Activate() surface — 1:1 with DCGO
+    // SelectPermanentEffect.cs, the `GManager.instance.GetComponent<SelectPermanentEffect>()` flow
+    // verbatim card ports use (BT1_017/023/092/094 pattern). Substrate translations only (IEnumerator→Task,
+    // Player→HeadlessPlayerId); the AS-IS `Func<Permanent,bool> canTargetCondition` shape is the CANONICAL
+    // surface (id-flip 3a) — the transitional id-form authoring surfaces were physically retired (RD-IDFLIP-01,
+    // batch 4). UI/Photon statements stripped with their AS-IS line anchors cited in Activate().
     // See docs/audit/rebuild_bridge_w4_notes.md.
     // ================================================================================================
 
-    /// <summary>(bridge W4) AS-IS <c>SetUp</c> (SelectPermanentEffect.cs:12-46) — the 11-param overload the
-    /// card corpus calls. Resets exactly the fields AS-IS resets (<c>_isLocal</c>/<c>_isdigiXros</c>/custom
-    /// messages/<c>_degenerationCount</c>); AS-IS quirk KEPT: <c>_canAttackPlayer</c>/<c>_defenderCondition</c>/
+    /// <summary>(id-flip 3a — CANONICAL) AS-IS <c>SetUp</c> (SelectPermanentEffect.cs:12-46) — the 11-param
+    /// overload the card corpus calls, on the AS-IS <c>Func&lt;Permanent,bool&gt; canTargetCondition</c> shape
+    /// (:14). Resets exactly the fields AS-IS resets (<c>_isLocal</c>/<c>_isdigiXros</c>/custom messages/
+    /// <c>_degenerationCount</c>); AS-IS quirk KEPT: <c>_canAttackPlayer</c>/<c>_defenderCondition</c>/
     /// <c>_isFaceUp</c>(=<see cref="_faceUp"/>) are NOT reset and persist across uses of the shared
     /// component instance.</summary>
     public void SetUp(
         HeadlessPlayerId selectPlayer,
-        Func<HeadlessEntityId, bool> canTargetCondition,
+        Func<Permanent, bool> canTargetCondition,
         Func<List<Permanent>, Permanent, bool>? canTargetCondition_ByPreSelecetedList,
         Func<List<Permanent>, bool>? canEndSelectCondition,
         int maxCount,
@@ -354,7 +322,7 @@ public sealed class SelectPermanentEffect
         _selectPlayer = selectPlayer;
         _canTargetCondition = canTargetCondition ?? (static _ => false);
         _canTargetCondition_ByPreSelecetedList = canTargetCondition_ByPreSelecetedList;
-        _canEndSelectCondition_Permanents = canEndSelectCondition;
+        _canEndSelectCondition = canEndSelectCondition;
         _maxCount = maxCount;
         _canNoSelect = canNoSelect;
         _canEndNotMax = canEndNotMax;
@@ -412,7 +380,7 @@ public sealed class SelectPermanentEffect
     /// <summary>AS-IS <c>SetDefenderCondition</c> (:87-90) — Mode.Attack defender narrowing, AS-IS
     /// <c>Func&lt;Permanent,bool&gt;</c> shape (wrapped onto the id-shape substrate option at Activate time).</summary>
     public void SetDefenderCondition(Func<Permanent, bool> defenderCondition) =>
-        _defenderCondition_Permanent = defenderCondition;
+        _defenderCondition = defenderCondition;
 
     /// <summary>AS-IS <c>SetPlaceFaceUp</c> (:92-95) — PutSecurity* places the cards face up.</summary>
     public void SetPlaceFaceUp() => _faceUp = true;
@@ -443,7 +411,8 @@ public sealed class SelectPermanentEffect
 
         if (_canTargetCondition != null)
         {
-            if (_canTargetCondition(permanent.InstanceId))
+            // (D2) AS-IS :171 — the predicate takes the Permanent directly.
+            if (_canTargetCondition(permanent))
             {
                 return !permanent.TopCard!.IsFlipped;
             }
@@ -474,7 +443,7 @@ public sealed class SelectPermanentEffect
                 return false;
             }
 
-            if (_canEndSelectCondition_Permanents != null &&
+            if (_canEndSelectCondition != null &&
                 !Combinations(canSelectedPermanents, _maxCount).Any(permanents => CanEndSelectAsIs(permanents)))
             {
                 return false;
@@ -494,9 +463,9 @@ public sealed class SelectPermanentEffect
         }
 
         // 特定の条件により失敗 (AS-IS :230)
-        if (_canEndSelectCondition_Permanents != null)
+        if (_canEndSelectCondition != null)
         {
-            if (!_canEndSelectCondition_Permanents(permanents))
+            if (!_canEndSelectCondition(permanents))
             {
                 return false;
             }
@@ -638,11 +607,8 @@ public sealed class SelectPermanentEffect
                 // per-selected `if (selectedPermanent.CanAttack(_cardEffect))` re-check. The AS-IS
                 // SetCanNotSelectNotAttack (mandatory attack when !_canNoSelect) has no thread into the
                 // deferred choice — design item RD-W4-6 (latent; zero AS-IS callers in the bridged corpus).
-                if (_defenderCondition_Permanent is { } defenderPermanentCondition)
-                {
-                    _defenderCondition = id => defenderPermanentCondition(new Permanent(context, id, OwnerOf(context, id)));
-                }
-
+                // (D2) the Permanent-form _defenderCondition is materialised to the id-form option channel
+                // inside TryOpenAttack (identical per-candidate wrapping).
                 TryOpenAttack(context, _targetPermanents.Select(permanent => permanent.InstanceId));
                 break;
             }
@@ -696,7 +662,7 @@ public sealed class SelectPermanentEffect
 
             ChoiceRequest request = EffectChoiceHelpers.CreatePermanentRequest(
                 _selectPlayer, message, minCount, maxCount, _canNoSelect, candidates);
-            if (_canEndSelectCondition_Permanents != null)
+            if (_canEndSelectCondition != null)
             {
                 // The AS-IS combination gate rides the request as the SelectionValidator (the established
                 // try-reject-retry route, same as the legacy BuildRequest path).

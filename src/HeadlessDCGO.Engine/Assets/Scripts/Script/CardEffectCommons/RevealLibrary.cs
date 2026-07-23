@@ -60,15 +60,15 @@ public enum RemainingCardsPlace
 
 #endregion
 
-#region Select conditions class — AS-IS-shape constructor overloads (AS-IS RevealLibrary.cs:655-720)
+#region Select conditions class (AS-IS RevealLibrary.cs:655-720, 1:1)
 
-// The legacy (mirror-invented, HeadlessEntityId-predicate) parts of these classes live in
-// CardPortingFramework.cs; these partial parts add the AS-IS constructor shape verbatim cards use
-// (`Func<CardSource,bool>` predicate + `SelectCardEffect.Mode` + per-card coroutine, IEnumerator→Task).
-// An instance built through an AS-IS constructor must only flow into the AS-IS bridge methods below —
-// its legacy `CanTargetCondition` (id-shape) member is set to a LOUD throw so accidental consumption by the
-// old declarative factories fails visibly instead of silently misbehaving.
-public sealed partial class SimplifiedSelectCardConditionClass
+// (RD-IDFLIP-01 batch 5) These are the AS-IS `SimplifiedSelectCardConditionClass` / `SelectCardConditionClass`
+// (CardSource-shape predicate + `SelectCardEffect.Mode` + per-card coroutine, IEnumerator→Task). The
+// mirror-invented HeadlessEntityId-predicate halves (which lived in CardPortingFramework.cs and forced the
+// AS-IS members to carry a `…Card` suffix + a LOUD-throw legacy `CanTargetCondition`) were retired; the AS-IS
+// names are free again, so the CardSource predicate reverts to the AS-IS name `CanTargetCondition`. AS-IS has
+// no `SelectedTo`/`ToSimplified` — those were part of the deleted id-half.
+public sealed class SimplifiedSelectCardConditionClass
 {
     // AS-IS ctor (RevealLibrary.cs:657): (canTargetCondition, message, mode, maxCount, selectCardCoroutine).
     public SimplifiedSelectCardConditionClass(
@@ -78,38 +78,30 @@ public sealed partial class SimplifiedSelectCardConditionClass
         int maxCount,
         Func<CardSource, Task> selectCardCoroutine)
     {
-        CanTargetConditionCard = canTargetCondition;
+        CanTargetCondition = canTargetCondition;
         Message = message ?? string.Empty;
         Mode = mode;
         MaxCount = maxCount;
         SelectCardCoroutine = selectCardCoroutine;
-        SelectedTo = ModeToDestination(mode);
-        CanTargetCondition = _ => throw new InvalidOperationException(
-            "This SimplifiedSelectCardConditionClass was built through the AS-IS constructor (bridge W3) and " +
-            "carries a CardSource-shape predicate (CanTargetConditionCard); the legacy id-shape surface is not " +
-            "populated. Route it through CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect / " +
-            "RevealDeckTopCardsAndProcessForAll, not the legacy declarative factories.");
     }
 
-    /// <summary>AS-IS <c>CanTargetCondition</c> (CardSource-shape; the legacy same-named id-shape property is a
-    /// different member).</summary>
-    public Func<CardSource, bool>? CanTargetConditionCard { get; }
+    /// <summary>AS-IS <c>CanTargetCondition</c> (CardSource-shape).</summary>
+    public Func<CardSource, bool>? CanTargetCondition { get; }
+
+    /// <summary>AS-IS <c>Message</c>.</summary>
+    public string Message { get; }
+
+    /// <summary>AS-IS <c>MaxCount</c>.</summary>
+    public int MaxCount { get; }
 
     /// <summary>AS-IS <c>Mode</c> (SelectCardEffect.Mode).</summary>
     public SelectCardEffect.Mode Mode { get; }
 
     /// <summary>AS-IS <c>SelectCardCoroutine</c> (Mode.Custom per-card follow-up), IEnumerator→Task.</summary>
     public Func<CardSource, Task>? SelectCardCoroutine { get; }
-
-    internal static RevealDestination ModeToDestination(SelectCardEffect.Mode mode) => mode switch
-    {
-        SelectCardEffect.Mode.AddHand => RevealDestination.Hand,
-        SelectCardEffect.Mode.Discard => RevealDestination.Trash,
-        _ => RevealDestination.Custom,
-    };
 }
 
-public sealed partial class SelectCardConditionClass
+public sealed class SelectCardConditionClass
 {
     // AS-IS ctor (RevealLibrary.cs:683): all nine parameters, AS-IS order (delegates IEnumerator→Task).
     public SelectCardConditionClass(
@@ -123,33 +115,40 @@ public sealed partial class SelectCardConditionClass
         bool canEndNotMax,
         SelectCardEffect.Mode mode)
     {
-        CanTargetConditionCard = canTargetCondition;
+        CanTargetCondition = canTargetCondition;
         CanTargetCondition_ByPreSelecetedList = canTargetCondition_ByPreSelecetedList;
-        CanEndSelectConditionCard = canEndSelectCondition;
+        CanEndSelectCondition = canEndSelectCondition;
         CanNoSelect = canNoSelect;
         SelectCardCoroutine = selectCardCoroutine;
         Message = message ?? string.Empty;
         MaxCount = maxCount;
         CanEndNotMax = canEndNotMax;
         Mode = mode;
-        SelectedTo = SimplifiedSelectCardConditionClass.ModeToDestination(mode);
-        CanTargetCondition = _ => throw new InvalidOperationException(
-            "This SelectCardConditionClass was built through the AS-IS constructor (bridge W3); use " +
-            "CanTargetConditionCard and route it through CardEffectCommons.RevealDeckTopCardsAndSelect.");
     }
 
     /// <summary>AS-IS <c>CanTargetCondition</c> (CardSource-shape).</summary>
-    public Func<CardSource, bool>? CanTargetConditionCard { get; }
+    public Func<CardSource, bool>? CanTargetCondition { get; }
 
-    /// <summary>AS-IS <c>CanTargetCondition_ByPreSelecetedList</c> (original spelling kept — the legacy part's
-    /// corrected-spelling id-shape property is a different member).</summary>
+    /// <summary>AS-IS <c>CanTargetCondition_ByPreSelecetedList</c> (original spelling kept).</summary>
     public Func<List<CardSource>, CardSource, bool>? CanTargetCondition_ByPreSelecetedList { get; }
 
     /// <summary>AS-IS <c>CanEndSelectCondition</c> (CardSource-shape).</summary>
-    public Func<List<CardSource>, bool>? CanEndSelectConditionCard { get; }
+    public Func<List<CardSource>, bool>? CanEndSelectCondition { get; }
+
+    /// <summary>AS-IS <c>CanNoSelect</c>.</summary>
+    public bool CanNoSelect { get; }
 
     /// <summary>AS-IS <c>SelectCardCoroutine</c>, IEnumerator→Task.</summary>
     public Func<CardSource, Task>? SelectCardCoroutine { get; }
+
+    /// <summary>AS-IS <c>Message</c>.</summary>
+    public string Message { get; }
+
+    /// <summary>AS-IS <c>MaxCount</c>.</summary>
+    public int MaxCount { get; }
+
+    /// <summary>AS-IS <c>CanEndNotMax</c>.</summary>
+    public bool CanEndNotMax { get; }
 
     /// <summary>AS-IS <c>Mode</c>.</summary>
     public SelectCardEffect.Mode Mode { get; }
@@ -197,7 +196,7 @@ public static partial class CardEffectCommons
             return;
         }
 
-        Func<CardSource, bool> canTarget = simplifiedSelectCardCondition.CanTargetConditionCard
+        Func<CardSource, bool> canTarget = simplifiedSelectCardCondition.CanTargetCondition
             ?? throw new InvalidOperationException(
                 "RevealDeckTopCardsAndProcessForAll (bridge W3) requires a condition built through the AS-IS " +
                 "constructor (CardSource-shape CanTargetCondition).");
@@ -297,7 +296,7 @@ public static partial class CardEffectCommons
         // AS-IS mapping (RevealLibrary.cs:204-216): per-condition core + the SHARED advanced params.
         SelectCardConditionClass[] selectCardConditions = simplifiedSelectCardConditions
             .Select(selectCardConditionTuple => new SelectCardConditionClass(
-                canTargetCondition: selectCardConditionTuple.CanTargetConditionCard
+                canTargetCondition: selectCardConditionTuple.CanTargetCondition
                     ?? throw new InvalidOperationException(
                         "SimplifiedRevealDeckTopCardsAndSelect (bridge W3) requires conditions built through " +
                         "the AS-IS constructor (CardSource-shape CanTargetCondition)."),
@@ -393,7 +392,7 @@ public static partial class CardEffectCommons
             bool firstSelection = true;
             foreach (SelectCardConditionClass selectCondition in selectCardConditions)
             {
-                Func<CardSource, bool> canTarget = selectCondition.CanTargetConditionCard
+                Func<CardSource, bool> canTarget = selectCondition.CanTargetCondition
                     ?? throw new InvalidOperationException(
                         "RevealDeckTopCardsAndSelect (bridge W3) requires conditions built through the AS-IS " +
                         "constructor (CardSource-shape CanTargetCondition).");
@@ -410,7 +409,7 @@ public static partial class CardEffectCommons
                           && chosenCards.Count == 1                 // the passes so far chose exactly 1,
                           && canTarget(chosenCards[0])              // that one also fulfils THIS condition,
                           && !revealedCards.Any(cs =>               // and no remaining card can fulfil the
-                                 selectCardConditions[0].CanTargetConditionCard!(cs)))   // FIRST condition.
+                                 selectCardConditions[0].CanTargetCondition!(cs)))   // FIRST condition.
                     {
                         canNoSelect = true;
                     }
@@ -418,7 +417,7 @@ public static partial class CardEffectCommons
                     List<CardSource> selected = await SelectCardsFromRevealPoolAsync(
                         context, selectPlayer, revealedCards, canTarget,
                         selectCondition.CanTargetCondition_ByPreSelecetedList,
-                        selectCondition.CanEndSelectConditionCard,
+                        selectCondition.CanEndSelectCondition,
                         maxCount, canNoSelect, selectCondition.CanEndNotMax,
                         string.IsNullOrEmpty(selectCondition.Message) ? "Select card(s)." : selectCondition.Message).ConfigureAwait(false);
 

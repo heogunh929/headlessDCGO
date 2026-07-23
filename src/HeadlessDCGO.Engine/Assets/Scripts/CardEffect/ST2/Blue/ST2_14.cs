@@ -13,8 +13,10 @@
 // arg); [Security] calls `SetIsSecurityEffect(true)`; [Main] uses `UntilOpponentTurnEnd`, [Security] uses
 // `UntilOwnerTurnEnd`.
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
-// idiom (already correct in the pre-existing file: IsOpponentBattleAreaDigimon/HasNoDigivolutionCards); AS-IS
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` kept on the canonical `Func<Permanent,bool>` shape
+// (id-flip 3b; IsOpponentBattleAreaDigimon converts to its Permanent-form sibling
+// IsPermanentExistsOnOpponentBattleAreaDigimon; HasNoDigivolutionCards has no Permanent-form sibling, so it is
+// called with `permanent.InstanceId`, commons signature unchanged); AS-IS
 // `CardEffectCommons.HasMatchConditionPermanent(cond)` / `MatchConditionPermanentCount(cond)` (global scan, no
 // CardSource arg in AS-IS) -> mirror's `(card, condition)` overloads.
 
@@ -47,10 +49,10 @@ public sealed class ST2_14 : CEntity_Effect
                 return "[Main] Choose 1 of your opponent's Digimon with no digivolution cards. That Digimon can't attack or block until the end of your opponent's next turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
-                    && CardEffectCommons.HasNoDigivolutionCards(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
+                    && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId);
             }
 
             bool CanUseCondition(Hashtable hashtable)
@@ -116,10 +118,10 @@ public sealed class ST2_14 : CEntity_Effect
                 return "[Security] Choose 1 of your opponent's Digimon with no digivolution cards. That Digimon can't attack or block until the end of your next turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
-                    && CardEffectCommons.HasNoDigivolutionCards(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
+                    && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId);
             }
 
             bool CanUseCondition(Hashtable hashtable)

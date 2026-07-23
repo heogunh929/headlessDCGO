@@ -6,8 +6,8 @@
 // AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
 // functions, SetIsInheritedEffect(true) (AS-IS BT1_003.cs:20). Substrate translations only: `card.Owner.
 // HasMatchConditionOpponentsPermanent`'s AS-IS `Func<Permanent,bool>` predicate -> the mirror
-// `HasMatchConditionOpponentsPermanent(card, Func<HeadlessEntityId,bool>)` overload (established idiom, same
-// predicate split as the previous pass's id-shape adapter: IsBattleAreaDigimon + HasNoDigivolutionCards);
+// `HasMatchConditionOpponentsPermanent(card, Func<Permanent,bool>)` (same predicate split, id-helpers fed via
+// permanent.InstanceId: IsBattleAreaDigimon + HasNoDigivolutionCards);
 // `new DrawClass(card.Owner, 1, activateClass).Draw()` -> the mirror ctor (EngineContext/HeadlessPlayerId/
 // HeadlessEntityId? cause), the established BT1_029/BT1_092 idiom.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
@@ -48,7 +48,7 @@ public sealed class BT1_003 : CEntity_Effect
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
                     if (CardEffectCommons.HasMatchConditionOpponentsPermanent(
-                        card, id => CardEffectCommons.IsBattleAreaDigimon(card, id) && CardEffectCommons.HasNoDigivolutionCards(card, id)))
+                        card, permanent => CardEffectCommons.IsBattleAreaDigimon(card, permanent.InstanceId) && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)))
                     {
                         return true;
                     }

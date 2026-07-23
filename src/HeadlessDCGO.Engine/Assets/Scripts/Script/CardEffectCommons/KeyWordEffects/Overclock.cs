@@ -112,7 +112,7 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: cardSource.Owner,
-                    canTargetCondition: (Headless.Services.HeadlessEntityId id) => CanSelectPermanentCondition(PermanentOf(cardSource, id)),
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,

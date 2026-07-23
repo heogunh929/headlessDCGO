@@ -9,9 +9,11 @@
 // ActivateCoroutine computes maxCount/selects WITHOUT re-checking HasMatchConditionPermanent first (unlike the
 // sibling ST2_06/09/14/16, which DO re-check — this AS-IS difference is preserved as-is).
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
-// idiom (already correct in the pre-existing file: IsOpponentBattleAreaDigimon/LevelOf/
-// HasTrashableDigivolutionCards/TopCardHasLevel); AS-IS `CardEffectCommons.HasMatchConditionPermanent(cond)` /
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` kept on the canonical `Func<Permanent,bool>` shape
+// (id-flip 3b); the id-native LevelOf/HasTrashableDigivolutionCards/TopCardHasLevel commons calls (no
+// Permanent-form sibling) are called with `permanent.InstanceId` (commons signature unchanged), while
+// IsOpponentBattleAreaDigimon converts to its Permanent-form sibling IsPermanentExistsOnOpponentBattleAreaDigimon.
+// AS-IS `CardEffectCommons.HasMatchConditionPermanent(cond)` /
 // `MatchConditionPermanentCount(cond)` (global scan, no CardSource arg in AS-IS) -> mirror's `(card, condition)`
 // overloads (same substrate adaptation already established, e.g. ST1_08.cs/BT1_017.cs).
 
@@ -44,12 +46,12 @@ public sealed class ST2_03 : CEntity_Effect
                 return "[When Attacking] Trash the digivolution card at the bottom of 1 of your opponent's Digimon with a level of 5 or less.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
-                    && CardEffectCommons.LevelOf(card, id) <= 5
-                    && CardEffectCommons.HasTrashableDigivolutionCards(card, id)
-                    && CardEffectCommons.TopCardHasLevel(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
+                    && CardEffectCommons.LevelOf(card, permanent.InstanceId) <= 5
+                    && CardEffectCommons.HasTrashableDigivolutionCards(card, permanent.InstanceId)
+                    && CardEffectCommons.TopCardHasLevel(card, permanent.InstanceId);
             }
 
             bool CanUseCondition(Hashtable hashtable)

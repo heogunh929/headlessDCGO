@@ -27,12 +27,19 @@ using HeadlessDCGO.Engine.Headless.Services;
 const int Base = 5;
 const int Reduced = 3; // base 5 with a -2 continuous reduction
 
+// (RD-IDFLIP-01 batch 5) AS-IS targetPermanentsCondition predicates (the invented CostReductionScope enum was
+// retired): Digivolve scope = a digivolution supplies >=1 non-null target permanent; Play scope = a plain
+// play/option supplies none; Both = the trivial predicate (protect either).
+Func<List<Permanent>, bool> DigivolveScope = tp => tp != null && tp.Exists(p => p != null);
+Func<List<Permanent>, bool> PlayScope = tp => tp == null || !tp.Exists(p => p != null);
+Func<List<Permanent>, bool> Both = _ => true;
+
 var tests = new (string Name, Func<bool> Body)[]
 {
     ("Control (no immunity): both play and digivolution cost are reduced", () => Play(null) == Reduced && Digivolve(null) == Reduced),
-    ("Digivolve immunity: play cost STILL reduced, digivolution cost NOT reduced", () => Play(CostReductionScope.Digivolve) == Reduced && Digivolve(CostReductionScope.Digivolve) == Base),
-    ("Play immunity: play cost NOT reduced, digivolution cost STILL reduced", () => Play(CostReductionScope.Play) == Base && Digivolve(CostReductionScope.Play) == Reduced),
-    ("Both immunity: neither cost is reduced", () => Play(CostReductionScope.Both) == Base && Digivolve(CostReductionScope.Both) == Base),
+    ("Digivolve immunity: play cost STILL reduced, digivolution cost NOT reduced", () => Play(DigivolveScope) == Reduced && Digivolve(DigivolveScope) == Base),
+    ("Play immunity: play cost NOT reduced, digivolution cost STILL reduced", () => Play(PlayScope) == Base && Digivolve(PlayScope) == Reduced),
+    ("Both immunity: neither cost is reduced", () => Play(Both) == Base && Digivolve(Both) == Base),
     ("Opponent-scoped Digivolve immunity (BT5_021 shape): OPPONENT's digivolve cost NOT reduced, OWN cost reduced", OpponentScope),
 };
 
@@ -71,8 +78,8 @@ bool OpponentScope()
     var oppCard = Mk(P2, "OPP");                    // opponent's Digimon
     var ownCard = new HeadlessEntityId("1:SRC");    // P1's own card
 
-    // "Your opponent can't reduce digivolution costs." (playerCondition = payer is P2, costKind Digivolve).
-    PlaceImmunity(ctx, P1, playerCondition: p => p is not null && p.PlayerId == P2, cardCondition: _ => true, CostReductionScope.Digivolve);
+    // "Your opponent can't reduce digivolution costs." (playerCondition = payer is P2, Digivolve scope).
+    PlaceImmunity(ctx, P1, playerCondition: p => p is not null && p.PlayerId == P2, cardCondition: _ => true, DigivolveScope);
 
     // Real "digivolving FROM" battle permanents (one per owner) so the digivolve reducer's PermanentsCondition
     // (IsPermanentExistsOnField) holds; the immunity's Digivolve scope only needs a non-null target permanent.
@@ -84,10 +91,10 @@ bool OpponentScope()
     return oppDigivolve == Base && ownDigivolve == Reduced;   // opponent immune (5), own still reduced (3)
 }
 
-int Play(CostReductionScope? immunity) => Resolve(immunity, digivolve: false);
-int Digivolve(CostReductionScope? immunity) => Resolve(immunity, digivolve: true);
+int Play(Func<List<Permanent>, bool>? immunity) => Resolve(immunity, digivolve: false);
+int Digivolve(Func<List<Permanent>, bool>? immunity) => Resolve(immunity, digivolve: true);
 
-int Resolve(CostReductionScope? immunity, bool digivolve)
+int Resolve(Func<List<Permanent>, bool>? immunity, bool digivolve)
 {
     HeadlessPlayerId P1 = new(1);
     EngineContext ctx = NewMatch(P1, new HeadlessPlayerId(2));
@@ -105,10 +112,10 @@ int Resolve(CostReductionScope? immunity, bool digivolve)
         isInheritedEffect: false, card: card, condition: null, setFixedCost: false);
     card.cEntity_EffectController.cEntity_Effect = new SelfCostEffects(playReducer, digivolveReducer);
 
-    if (immunity is CostReductionScope scope)
+    if (immunity is not null)
     {
         // Self-scoped immunity on THIS card (cardCondition = the played card, any payer), scope = the tested path.
-        PlaceImmunity(ctx, P1, playerCondition: _ => true, cardCondition: cs => cs is not null && cs.InstanceId == id, scope);
+        PlaceImmunity(ctx, P1, playerCondition: _ => true, cardCondition: cs => cs is not null && cs.InstanceId == id, immunity);
     }
 
     if (digivolve)
@@ -147,11 +154,11 @@ HeadlessEntityId PlaceEvolutionSource(EngineContext ctx, HeadlessPlayerId owner,
 
 // (R2-C ③) Place the AS-IS CannotReduceCostClass on a FIELD permanent owned by `owner` (the live scan walks
 // Players_ForTurnPlayer's field permanents' EffectList(None)); dispatched via the TfxCannotReduceCost fixture.
-void PlaceImmunity(EngineContext ctx, HeadlessPlayerId owner, Func<Player, bool> playerCondition, Func<CardSource, bool> cardCondition, CostReductionScope costKind)
+void PlaceImmunity(EngineContext ctx, HeadlessPlayerId owner, Func<Player, bool> playerCondition, Func<CardSource, bool> cardCondition, Func<List<Permanent>, bool> targetPermanentsCondition)
 {
     TfxCannotReduceCost.PlayerCondition = playerCondition;
     TfxCannotReduceCost.CardCondition = cardCondition;
-    TfxCannotReduceCost.CostKind = costKind;
+    TfxCannotReduceCost.TargetPermanentsCondition = targetPermanentsCondition;
 
     var cards = (CardDatabase)ctx.CardRepository;
     var def = new HeadlessEntityId("DEF:GRANT");

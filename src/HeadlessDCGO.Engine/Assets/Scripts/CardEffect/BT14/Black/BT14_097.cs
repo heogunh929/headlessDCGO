@@ -24,8 +24,8 @@
 // 치환(substrate translations only):
 //    * IEnumerator→async Task, StartCoroutine(X)→await X, lone `yield return null`→Task.CompletedTask (BT8_092 idiom).
 //    * `card.Owner.HandCards` → `new Player(card.Context, card.Owner).*` (미러 Player 접근 idiom).
-//    * SelectPermanentEffect.canTargetCondition는 id-형(Func<HeadlessEntityId,bool>) — AS-IS Permanent-술어는
-//      그대로 두고 PermanentOf(id) 어댑터를 덧댐(술어 뭉갬 금지; BT17_026 관례).
+//    * SelectPermanentEffect.canTargetCondition은 정본 Func<Permanent,bool> 오버로드 — 어댑터 없이 AS-IS
+//      Permanent-술어 직결(id-flip 3b).
 //    * AS-IS :117-126 `CardEffectCommons.DigivolveIntoHandOrTrashCard(...)` — 미러 bridge(payCost:false,
 //      fixedCostTuple:null, ignoreDigivolutionRequirementFixedCost:0, isHand:true, successProcess:null).
 //    * AS-IS :186-190 `ChangeBaseDigimonDP(targetPermanent, 3000, UntilOwnerTurnEnd, activateClass)` →
@@ -118,19 +118,6 @@ public sealed class BT14_097 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            // (BT17_026 관례) SelectPermanentEffect 브릿지의 canTargetCondition은 id-형이므로 AS-IS Permanent-술어는
-            // 그대로 두고 id 어댑터를 덧댄다(술어 뭉갬 금지).
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
                 if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
@@ -143,7 +130,7 @@ public sealed class BT14_097 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -207,17 +194,6 @@ public sealed class BT14_097 : CEntity_Effect
                 return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
                 if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
@@ -228,7 +204,7 @@ public sealed class BT14_097 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

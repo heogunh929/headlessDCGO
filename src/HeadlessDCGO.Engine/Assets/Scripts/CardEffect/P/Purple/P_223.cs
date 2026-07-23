@@ -88,7 +88,7 @@ public sealed class P_223 : CEntity_Effect
             bool CanActivateCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.IsExistOnHand(card)
-                    && CardEffectCommons.HasMatchConditionPermanent(card, (Func<HeadlessEntityId, bool>)(x => new Player(card.Context, card.Owner).SecurityCards.Count <= 3));
+                    && CardEffectCommons.HasMatchConditionPermanent(card, (Permanent permanent) => new Player(card.Context, card.Owner).SecurityCards.Count <= 3);
             }
 
             bool CardCondition(CardSource cardSource)

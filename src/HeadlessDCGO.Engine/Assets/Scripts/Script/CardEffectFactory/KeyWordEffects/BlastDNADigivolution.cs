@@ -1,9 +1,9 @@
 // Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/BlastDNADigivolution.cs
 // (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS BlastDNADigivolution.cs factory partial.
-// AS-IS declares a top-level `BlastDNACondition` (name + Permanents + CardSources holder). The MIRROR ALREADY HAS
-// a `BlastDNACondition` (record, namespace ...CardEffectCommons — CardPortingFramework.cs); (P6C1) that record
-// now carries the AS-IS shape ADDITIVELY (Name/Permanents/CardSources + the `(string name)` ctor), so the body
-// reads it verbatim.
+// AS-IS declares a top-level `BlastDNACondition` (name + Permanents + CardSources holder) immediately before the
+// `CardEffectFactory` partial (BlastDNADigivolution.cs:8-20). (flip campaign 2026-07-23) `BlastDNACondition` now
+// lives HERE, in the same file-relative position as AS-IS, instead of in the deleted CardPortingFramework.cs —
+// it carries the AS-IS shape (Name/Permanents/CardSources + the `(string name)` ctor); the body reads it verbatim.
 // ADAPTATION (substrate only; logic verbatim):
 //   * coroutine `IEnumerator ActivateCoroutine` (has yields) -> `async Task ActivateCoroutine`; nested
 //     `IEnumerator Select*Coroutine` -> `async Task Select*Coroutine`; `yield return
@@ -13,9 +13,8 @@
 //   * (P6C1) `card.Owner.HandCards` (a Player list PROPERTY on the bare mirror HeadlessPlayerId) rides the
 //     established `new Player(card.Context, card.Owner).HandCards` route; `card.Owner.GetBattleAreaPermanents()`
 //     rides the PlayerIdAsIsExtensions bridge (both = the BT2_023 idiom).
-//   * (P6C1) the W4 SelectPermanentEffect.SetUp canTargetCondition is the established
-//     Func<HeadlessEntityId,bool> id idiom — `CanSelectPermanentById` adapts the VERBATIM AS-IS
-//     Permanent predicate (the BT2_097 pattern).
+//   * (P6C1 → id-flip 3a) the SelectPermanentEffect.SetUp canTargetCondition takes the VERBATIM AS-IS
+//     Permanent predicate `CanSelectPermanent` directly (the canonical Func<Permanent,bool> surface).
 //   * (P6C1 — PORTED 2026-07-23) the jogress-frame play inside SelectPermanentCoroutine is now LIVE. All four
 //     original blockers closed: RD-P6C1-7 SelectHandEffect + RD-P6C1-2 CanPlayJogress (available), the field-
 //     frame WRITE (SetJogress + frameless zone-append CreateNewPermanent + PlayCardClass), and the jogress
@@ -38,6 +37,32 @@ using System.Linq;
 using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Services;
+
+/// <summary>(PRIM-W5 / RD-IDFLIP-01 batch 5) A material condition for a Blast-DNA digivolution — 1:1 with AS-IS
+/// <c>BlastDNACondition</c> (DCGO KeyWordEffects/BlastDNADigivolution.cs:8-20): a top-level class holding the
+/// material <c>Name</c> plus the mutable <c>Permanents</c>/<c>CardSources</c> working sets (re)filled by
+/// <c>HasValidDNATargets</c> on every evaluation, and a <c>(string name)</c> ctor. The invented record form +
+/// <c>Matches</c>/<c>Label</c>/<c>ByName</c> members were removed (no consumer used them — the name match is
+/// done AS-IS-style via <c>TopCard.EqualsCardName(Name)</c> in <c>BlastDNADigivolveEffect</c>).</summary>
+public sealed class BlastDNACondition
+{
+    /// <summary>AS-IS <c>BlastDNACondition.Name</c> — the material card name.</summary>
+    public string Name;
+
+    /// <summary>AS-IS <c>BlastDNACondition.Permanents</c> — the matching field permanents.</summary>
+    public List<Permanent> Permanents;
+
+    /// <summary>AS-IS <c>BlastDNACondition.CardSources</c> — the matching hand cards.</summary>
+    public List<CardSource> CardSources;
+
+    /// <summary>AS-IS <c>BlastDNACondition(string name)</c> ctor (BlastDNADigivolution.cs:14-19).</summary>
+    public BlastDNACondition(string name)
+    {
+        Name = name;
+        Permanents = new List<Permanent>();
+        CardSources = new List<CardSource>();
+    }
+}
 
 public partial class CardEffectFactory
 {
@@ -115,13 +140,6 @@ public partial class CardEffectFactory
             return false;
         }
 
-        // (P6C1) Id-shape adapter for the W4-bridged SetUp call site (canTargetCondition takes
-        // Func<HeadlessEntityId,bool>): resolve the mirror Permanent for the candidate id (the BT2_097 idiom)
-        // and evaluate the VERBATIM AS-IS predicate above.
-        bool CanSelectPermanentById(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-            && CanSelectPermanent(new Permanent(card.Context, id, rec.OwnerId));
-
         bool CanSelectHandSource(CardSource cardSource)
         {
             return handSources.Contains(cardSource);
@@ -170,7 +188,7 @@ public partial class CardEffectFactory
 
             selectPermanentEffect.SetUp(
                 selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanentById,
+                canTargetCondition: CanSelectPermanent,
                 canTargetCondition_ByPreSelecetedList: null,
                 canEndSelectCondition: null,
                 maxCount: maxCount,

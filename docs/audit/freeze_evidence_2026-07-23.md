@@ -68,3 +68,18 @@
 - **기준값(베이스라인)**: §2 확장 다이제스트 10시드 + behavior 5시드 · live STOP 4좌석(§7 재계수: live 3+dead 1) · 발명물 grep 0 · 전체 스위트 425/425(폴리시 시점) · 500판 strict 퍼징 PASS(§8)
 - **미채택**: 상환-후 전체 스위트 재인증 런(사용자 결정으로 미실행 — 이후 필요 시 1회 실행 가능, 잔여 변경분은 개별 게이트 green)
 - **다음 단계**: ⑦ 대량 포팅(Haiku 파일럿 재실측 선행 — ⑥ 정본 패스·4b OLD 삭제는 07-18/19 기완료) 및 substrate 성능 최적화 후보(§8 성능 노트)는 동결과 독립 진행
+
+## §10. 소프트 동결 후 수리-예외 실행 1호 — id-표면 flip 캠페인 (2026-07-23)
+
+**발단**: 대량-포팅 지침 최신화 중 카드층 id-술어 껍데기 238파일 발견(참조-코퍼스 전염, 당일 강모델 포팅 22장 포함) → census가 근본 원인을 미러 substrate 표면의 시그니처 변형으로 확정(DEVIATED 9·INVENTED 6·MIRROR-TRUE 다수).
+
+**실행** (배치 0~5 + P2 상환, 전부 게이트 동반):
+- DEVIATED 9종 전부 AS-IS 시그니처 복원(SelectPermanentEffect SetUp/필드 3종·SelectCardEffect·Commons 4종·RevealLibrary 2종)
+- INVENTED 표면 물리 삭제(id-오버로드들·발명 setter·CostReductionScope enum·InheritedEffectHelpers.cs·DeDigivolveDestroyHelpers·CardPortingFramework id-반쪽+poison-write), 발명-계약 테스트 1종 동반 은퇴(행동 커버리지 손실 0 판정)
+- 카드 ~171파일 id-껍데기 소멸, 엔진 어댑터 ~15개 제거
+- **계기판 지표 도달**: `Func<HeadlessEntityId` 비-주석 = 0
+- 부수 실결함 수리: G3.5 null-context 이관 결함, ST2_08/12 IsDigimon 가드 누락(구 축소-열거가 마스킹하던 잠복 버그), HasMatchConditionOpponentsPermanent 스캔 폭(Tamer 누락) 교정
+
+**게이트**: 전 배치 다이제스트 trio bit-identical(행동 무변경 실증) · 전체 스위트 429/429(총수 −1=발명-계약 테스트 은퇴) · 빌드 0에러
+**아크 적대리뷰**: 강화 프로토콜(무방향 렌즈 1기+반증-표적 1기, 잣대=AS-IS 원문) — **양 기체 GO**, P0/P1 = 0, P2 5건 전량 상환
+**재발 방지**: canonical §9.1 번역 등재제(미등재 번역=이탈)·계기판 지표를 대량-포팅 트랜치 게이트에 강제

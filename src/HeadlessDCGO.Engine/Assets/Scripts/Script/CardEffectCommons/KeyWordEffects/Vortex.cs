@@ -84,9 +84,9 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 
         /// <summary>(R2-A) AS-IS <c>CanActivateVortex</c> (KeyWordEffects/Vortex.cs:7, verbatim): on the battle
         /// area, this Digimon can make a Vortex attack, and either an opponent Digimon it can Vortex-attack
-        /// exists OR a <c>VortexCanAttackPlayers</c> effect lets it attack the player. ADAPTATION: AS-IS
-        /// <c>HasMatchConditionOpponentsPermanent(Func&lt;Permanent&gt;)</c> → the entity-id overload
-        /// (<c>PermanentOf</c> bridges each id back to a <see cref="Permanent"/>).</summary>
+        /// exists OR a <c>VortexCanAttackPlayers</c> effect lets it attack the player. AS-IS
+        /// <c>HasMatchConditionOpponentsPermanent(Func&lt;Permanent&gt;)</c> — the predicate reads the opponent
+        /// permanent directly.</summary>
         public static bool CanActivateVortex(CardSource cardSource, ICardEffect activateClass)
         {
             Permanent selfPermanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
@@ -94,12 +94,9 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
             return IsExistOnBattleArea(cardSource)
                 && selfPermanent != null
                 && selfPermanent.CanAttack(activateClass, isVortex: true)
-                && (HasMatchConditionOpponentsPermanent(cardSource, (Headless.Services.HeadlessEntityId id) =>
-                    {
-                        Permanent permanent = PermanentOf(cardSource, id);
-                        return permanent.IsDigimon
-                            && selfPermanent.CanAttackTargetDigimon(permanent, activateClass, isVortex: true);
-                    })
+                && (HasMatchConditionOpponentsPermanent(cardSource, permanent =>
+                        permanent.IsDigimon
+                        && selfPermanent.CanAttackTargetDigimon(permanent, activateClass, isVortex: true))
                     || PermanentHasVortexCanAttackPlayers(selfPermanent));
         }
 

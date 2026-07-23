@@ -84,7 +84,7 @@ public sealed class BT1_041 : CEntity_Effect
                     // AS-IS `HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon &&
                     // permanent.HasNoDigivolutionCards)` — id-shape idiom (see file header).
                     if (CardEffectCommons.HasMatchConditionOpponentsPermanent(
-                        card, id => CardEffectCommons.IsBattleAreaDigimon(card, id) && CardEffectCommons.HasNoDigivolutionCards(card, id)))
+                        card, permanent => CardEffectCommons.IsBattleAreaDigimon(card, permanent.InstanceId) && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)))
                     {
                         // UNRESOLVED (see file header): AS-IS `card.Owner.CanAddMemory(activateClass)`.
                         if (card.Owner.CanAddMemory(activateClass))

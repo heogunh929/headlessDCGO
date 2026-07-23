@@ -34,8 +34,8 @@
 //      DP/CanAttack 등 가변 Permanent 필요). AS-IS :283/288의 `...TopCard.PermanentOfThisCard()`(CardSource
 //      위 이중 호출)도 동형으로 `ICardEffect.ResolvePermanentOfThisCard(...)`.
 //    * `CardEffectCommons.HasMatchConditionPermanent(cond)`/`MatchConditionPermanentCount(cond)`(구식, card
-//      없음) → card 파라미터 추가; `HasMatchConditionPermanent`는 Permanent-술어 오버로드 존재로 어댑터 불필요,
-//      `MatchConditionPermanentCount`는 id-전용이라 id 어댑터 필요(symbol_map_guide §2.3, BT1_017 idiom).
+//      없음) → card 파라미터 추가; 둘 다 Permanent-술어 오버로드 존재(id-flip 3b — SelectPermanentEffect.SetUp의
+//      canTargetCondition도 동일 Permanent-술어 직접 전달, 이전 id 어댑터 전삭).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST22.Red;
 
 using System;
@@ -114,26 +114,15 @@ public sealed class ST22_08 : CEntity_Effect
         bool CanSelectPermanentCondition(Permanent permanent)
             => CardEffectCommons.IsMinDP(permanent, CardEffectCommons.OpponentOf(card));
 
-        Permanent? PermanentOfSecurity(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
-        bool CanSelectPermanentById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOfSecurity(id);
-            return permanent is not null && CanSelectPermanentCondition(permanent);
-        }
-
         async Task ActivateCoroutine(Hashtable _hashtable)
         {
-            int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+            int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
 
             SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
             selectPermanentEffect.SetUp(
                 selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanentById,
+                canTargetCondition: CanSelectPermanentCondition,
                 canTargetCondition_ByPreSelecetedList: null,
                 canEndSelectCondition: null,
                 maxCount: maxCount,
@@ -175,17 +164,6 @@ public sealed class ST22_08 : CEntity_Effect
                         card.CanLinkToTargetPermanent(permanent, false);
             }
 
-            Permanent? PermanentOfLink(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanLinkToPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOfLink(id);
-                return permanent is not null && CanLinkToPermanentCondition(permanent);
-            }
-
             if (CardEffectCommons.HasMatchConditionPermanent(card, CanLinkToPermanentCondition))
             {
                 Permanent? selectedPermanent = null;
@@ -193,7 +171,7 @@ public sealed class ST22_08 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanLinkToPermanentById,
+                    canTargetCondition: CanLinkToPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,
@@ -243,23 +221,6 @@ public sealed class ST22_08 : CEntity_Effect
                        permanent.DP <= selectedOwnerDigimon!.DP;
             }
 
-            Permanent? PermanentOfDelete(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectOwnerDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOfDelete(id);
-                return permanent is not null && CanSelectOwnerDigimon(permanent);
-            }
-
-            bool CanSelectOpponentDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOfDelete(id);
-                return permanent is not null && CanSelectOpponentDigimon(permanent);
-            }
-
             #endregion
 
             #region Select Digimon to Compare
@@ -271,7 +232,7 @@ public sealed class ST22_08 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectOwnerDigimonById,
+                    canTargetCondition: CanSelectOwnerDigimon,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,
@@ -303,7 +264,7 @@ public sealed class ST22_08 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectOpponentDigimonById,
+                    canTargetCondition: CanSelectOpponentDigimon,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,

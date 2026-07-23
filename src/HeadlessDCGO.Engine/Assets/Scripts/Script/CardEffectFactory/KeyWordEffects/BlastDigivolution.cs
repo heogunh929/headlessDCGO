@@ -23,8 +23,8 @@
 //     card-scoped overloads `HasMatchConditionPermanent(card, pred)` / `MatchConditionPermanentCount(card, pred)`
 //     (CardEffectCommons.cs:3912 / Save.cs:25 — same all-players+breeding scan; the predicate's own
 //     IsPermanentExistsOnOwnerBattleArea term makes the card-context arg scope-neutral).
-//   * SelectPermanentEffect.SetUp's id-based canTargetCondition (Func<HeadlessEntityId,bool>) -> `CanSelectPermanentById`
-//     adapting the VERBATIM AS-IS Permanent predicate (the ArtsDigivolve/BT2_097 idiom).
+//   * SelectPermanentEffect.SetUp's canTargetCondition takes the VERBATIM AS-IS Permanent predicate
+//     `CanSelectPermanentCondition` directly (id-flip 3a: the canonical Func<Permanent,bool> surface).
 //   * stripped `using UnityEngine;`. Replaces the monolith's invented BlastDigivolveEffect.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
@@ -69,20 +69,6 @@ public partial class CardEffectFactory
             return false;
         }
 
-        // (RD-P6C2-11) Id-shape adapter for the W4-bridged SetUp call site (canTargetCondition takes
-        // Func<HeadlessEntityId,bool>): resolve the mirror Permanent for the candidate id (the ArtsDigivolve/
-        // BT2_097 idiom) and evaluate the VERBATIM AS-IS predicate above.
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
-        bool CanSelectPermanentById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && CanSelectPermanentCondition(permanent);
-        }
-
         bool CanUseCondition(Hashtable hashtable)
         {
             if (CardEffectCommons.CanTriggerOnPermanentAttack(hashtable, permanent => CardEffectCommons.IsOpponentPermanent(permanent, card)))
@@ -125,7 +111,7 @@ public partial class CardEffectFactory
 
             selectPermanentEffect.SetUp(
                 selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanentById,
+                canTargetCondition: CanSelectPermanentCondition,
                 canTargetCondition_ByPreSelecetedList: null,
                 canEndSelectCondition: null,
                 maxCount: maxCount,

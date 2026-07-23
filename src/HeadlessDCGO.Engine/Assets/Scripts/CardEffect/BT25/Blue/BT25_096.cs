@@ -36,22 +36,11 @@ public sealed class BT25_096 : CEntity_Effect
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
         #region Reduce Play Cost
 
         bool SharedCanSelectTamerCondition(Permanent permanent)
             => CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaTamer(permanent, card)
                 && permanent.HasFaceDownDigivolutionCards;
-
-        bool SharedCanSelectTamerConditionById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && SharedCanSelectTamerCondition(permanent);
-        }
 
         if (timing == EffectTiming.BeforePayCost)
         {
@@ -85,7 +74,7 @@ public sealed class BT25_096 : CEntity_Effect
 
                         selectPermanentEffect.SetUp(
                             selectPlayer: card.Owner,
-                            canTargetCondition: SharedCanSelectTamerConditionById,
+                            canTargetCondition: SharedCanSelectTamerCondition,
                             canTargetCondition_ByPreSelecetedList: null,
                             canEndSelectCondition: null,
                             maxCount: 1,
@@ -225,12 +214,6 @@ public sealed class BT25_096 : CEntity_Effect
                     => CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
                         && permanent.TopCard.EqualsCardName("Gaomon");
 
-                bool IsGaomonById(HeadlessEntityId id)
-                {
-                    Permanent? permanent = PermanentOf(id);
-                    return permanent is not null && IsGaomon(permanent);
-                }
-
                 bool IsGaogamon(CardSource cardSource)
                     => cardSource.EqualsCardName("Gaogamon");
 
@@ -253,7 +236,7 @@ public sealed class BT25_096 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: IsGaomonById,
+                        canTargetCondition: IsGaomon,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

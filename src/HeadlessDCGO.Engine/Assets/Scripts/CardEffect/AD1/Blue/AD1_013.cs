@@ -11,10 +11,10 @@
 //   [None]   ESS ChangeSelfDPStaticEffect +1000 per distinct digivolution-card colour.
 //
 // Substrate translation only (established idioms): IEnumerator→async Task, `ContinuousController.instance.
-// StartCoroutine(X)`→`await X`; the AS-IS Func<Permanent,bool> IsMinDigivolutionCards target predicate → the
-// id-shaped SelectPermanentEffect/HasMatchConditionOpponentsPermanent adapter (AD1_025 idiom):
-// `IsMinDigivolutionCards(new Permanent(ctx, id, OpponentOf(card)), OpponentOf(card))` — `card.Owner.Enemy`
-// (Player) → `CardEffectCommons.OpponentOf(card)` (HeadlessPlayerId, the enemy that owns the target permanent);
+// StartCoroutine(X)`→`await X`; the AS-IS Func<Permanent,bool> IsMinDigivolutionCards target predicate is kept
+// verbatim on the canonical Func<Permanent,bool> shape, feeding both HasMatchConditionOpponentsPermanent and
+// SelectPermanentEffect.SetUp's canTargetCondition (id-flip 3b) — `card.Owner.Enemy` (Player) →
+// `CardEffectCommons.OpponentOf(card)` (HeadlessPlayerId, the enemy that owns the target permanent);
 // `Some`→`Any`; `CanTrigger*/IsLeavingForDigiXros(hashtable, …)` → the Hashtable overloads;
 // `card.PermanentOfThisCard()` (returns the lighter mirror PermanentView) → `ICardEffect.ResolvePermanentOfThisCard(
 // card)` (the full Permanent bridge, BT9_109 idiom); its `DigivolutionCards` (List) → the IReadOnlyList view
@@ -74,10 +74,10 @@ public sealed class AD1_013 : CEntity_Effect
         string SharedEffectDescription(string tag) => $"[{tag}] Delete 1 of your opponent's Digimon with the fewest digivolution cards.";
 
         // AS-IS :50 `IsMinDigivolutionCards(permanent) => CardEffectCommons.IsMinDigivolutionCards(permanent,
-        // card.Owner.Enemy)` — the mirror SelectPermanentEffect/HasMatchConditionOpponentsPermanent take the
-        // id-form (AD1_025 idiom); the opponent that owns the candidate permanent = OpponentOf(card).
-        bool IsMinDigivolutionCards(HeadlessEntityId id) =>
-            CardEffectCommons.IsMinDigivolutionCards(new Permanent(card.Context, id, CardEffectCommons.OpponentOf(card)), CardEffectCommons.OpponentOf(card));
+        // card.Owner.Enemy)` — the single Permanent-shape predicate feeds both HasMatchConditionOpponentsPermanent
+        // and SelectPermanentEffect.SetUp's canonical canTargetCondition (id-flip 3b).
+        bool IsMinDigivolutionCards(Permanent permanent) =>
+            CardEffectCommons.IsMinDigivolutionCards(permanent, CardEffectCommons.OpponentOf(card));
 
         bool SharedCanActivateCondition(Hashtable hashtable) => CardEffectCommons.IsExistOnBattleArea(card);
 

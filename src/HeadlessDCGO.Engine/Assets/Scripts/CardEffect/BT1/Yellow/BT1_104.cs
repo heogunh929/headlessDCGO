@@ -115,9 +115,9 @@ public sealed class BT1_104 : CEntity_Effect
                             activateClass1.SetEffectSourcePermanent(permanentOfCardSource1);
                         }
 
-                        bool CanSelectPermanentCondition(HeadlessEntityId id)
+                        bool CanSelectPermanentCondition(Permanent permanent)
                         {
-                            return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                            return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
                         }
 
                         string EffectDiscription1()
@@ -144,7 +144,7 @@ public sealed class BT1_104 : CEntity_Effect
                             if (CardEffectCommons.IsExistOnBattleArea(cardSource))
                             {
                                 if (new Player(cardSource.Context, cardSource.Owner).Enemy?.GetBattleAreaDigimons()
-                                    .Some(p => CanSelectPermanentCondition(p.InstanceId)) ?? false)
+                                    .Some(p => CanSelectPermanentCondition(p)) ?? false)
                                 {
                                     return true;
                                 }

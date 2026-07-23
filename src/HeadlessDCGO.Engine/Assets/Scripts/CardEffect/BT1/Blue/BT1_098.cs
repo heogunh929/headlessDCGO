@@ -10,9 +10,9 @@
 //     ActivateCoroutine: CardEffectCommons.AddThisCardToHand(card, activateClass).
 // AS-IS structure kept verbatim: inline `new ActivateClass()` (twice) + local functions. Substrate
 // translations only: IEnumerator->Task, StartCoroutine->await; the AS-IS `Func<Permanent,bool>
-// CanSelectPermanentCondition` is expressed as the established `Func<HeadlessEntityId,bool>` idiom (single
-// condition function serves both HasMatchConditionPermanent/MatchConditionPermanentCount call sites, same as
-// ST1_08/BT1_017); `GManager.instance.GetComponent<SelectPermanentEffect>()` -> bridge W4;
+// CanSelectPermanentCondition` is expressed verbatim on the canonical Func<Permanent,bool> shape (id-flip 3b),
+// serving both HasMatchConditionPermanent/MatchConditionPermanentCount call sites and SetUp's canTargetCondition;
+// `GManager.instance.GetComponent<SelectPermanentEffect>()` -> bridge W4;
 // `CardEffectCommons.AddThisCardToHand(card, activateClass)` -> mirror `(card, card)` (ST3_13/BT9_109
 // convention — sourceCard = the effect's source card).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
@@ -44,9 +44,9 @@ public sealed class BT1_098 : CEntity_Effect
                 return "[Main] 1 of your Digimon gains <Jamming> (This Digimon can't be deleted in battles against Security Digimon) for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

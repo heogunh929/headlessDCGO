@@ -21,8 +21,8 @@
 //    * AS-IS :73 `GManager.instance.GetComponent<Effects>().ShowCardEffect2(...)` = UI 연출 — 스트립(EX7_072/EX9_062 관례).
 //    * `card.Owner.Enemy.HandCards`(AS-IS Player) → `new Player(card.Context, card.Owner).Enemy!.HandCards`(EX7 idiom).
 //    * `card.Owner.Enemy`(SelectHandEffect selectPlayer) → `new Player(card.Context, card.Owner).Enemy!.PlayerId`.
-//    * SelectPermanentEffect / HasMatchConditionOpponentsPermanent canTargetCondition = id-형 → PermanentOf(id) 어댑터
-//      (미러 SelectPermanentEffect.cs:341 / CardEffectCommons.cs:4374 는 Func<HeadlessEntityId,bool>).
+//    * SelectPermanentEffect / HasMatchConditionOpponentsPermanent canTargetCondition = 정본 Func<Permanent,bool>
+//      → Permanent 술어 직결(id 어댑터 없음).
 //    * OptionMainEffect 은 미러에서 ActivateClass? 반환(OptionMainEffect.cs:15).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX8.Purple;
 
@@ -40,11 +40,6 @@ public sealed class EX8_072 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Trash Your Turn
         // AS-IS timing == OnEnterFieldAnyone + CanTriggerWhenPermanentDigivolving → 미러 EffectTiming.WhenDigivolving.
@@ -148,12 +143,6 @@ public sealed class EX8_072 : CEntity_Effect
                 return false;
             }
 
-            bool SelectOpponentsDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && SelectOpponentsDigimon(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
@@ -182,13 +171,13 @@ public sealed class EX8_072 : CEntity_Effect
                     await selectHandEffect.Activate();
                 }
 
-                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, SelectOpponentsDigimonById))
+                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, SelectOpponentsDigimon))
                 {
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: SelectOpponentsDigimonById,
+                        canTargetCondition: SelectOpponentsDigimon,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: 1,

@@ -10,9 +10,9 @@
 //     (BT9_043 idiom).
 //   * `card.Owner.HandCards.Contains(card)` -> `CardEffectCommons.IsExistOnHand(card)` (BT2_099 idiom).
 //   * AS-IS `HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon && permanent.DP >=
-//     10000)` — the mirror overload takes `Func<HeadlessEntityId,bool>`, so the VERBATIM Permanent predicate is
-//     wrapped by an id-resolving adapter (EX8_051 idiom); the predicate itself (evaluated, NOT flattened) is
-//     unchanged.
+//     10000)` — the mirror overload is the canonical AS-IS `Func<Permanent,bool>` shape, so the VERBATIM
+//     Permanent predicate (OpponentHighDp) is passed straight through; it is evaluated (NOT flattened) against
+//     each opponent battle-area permanent.
 //   * AS-IS `IsMaxDP(GManager.instance.attackProcess.DefendingPermanent, card.Owner.Enemy, null)` -> the mirror
 //     overload `IsMaxDP(Permanent?, HeadlessPlayerId, Func<Permanent,bool>?)`; `GManager.instance.attackProcess
 //     .DefendingPermanent` resolves 1:1 (BT2_012/ST4_04 idiom); `card.Owner.Enemy` -> `CardEffectCommons
@@ -42,18 +42,15 @@ public sealed class BT2_112 : CEntity_Effect
 
             cardEffects.Add(changeCostClass);
 
-            // Id-shape adapter for the W4-bridged HasMatchConditionOpponentsPermanent (takes Func<HeadlessEntityId,
-            // bool>): resolve the mirror Permanent for the candidate id (EX8_051 idiom) and evaluate the VERBATIM
-            // AS-IS Permanent predicate `permanent.IsDigimon && permanent.DP >= 10000`.
-            bool OpponentHighDpById(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                && new Permanent(card.Context, id, rec.OwnerId) is { IsDigimon: true } p && p.DP >= 10000;
+            // VERBATIM AS-IS Permanent predicate `permanent.IsDigimon && permanent.DP >= 10000`, evaluated (NOT
+            // flattened) by HasMatchConditionOpponentsPermanent for each opponent battle-area permanent.
+            bool OpponentHighDp(Permanent permanent) => permanent.IsDigimon && permanent.DP >= 10000;
 
             bool CanUseCondition(Hashtable hashtable)
             {
                 if (CardEffectCommons.IsExistOnHand(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, OpponentHighDpById))
+                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, OpponentHighDp))
                     {
                         return true;
                     }

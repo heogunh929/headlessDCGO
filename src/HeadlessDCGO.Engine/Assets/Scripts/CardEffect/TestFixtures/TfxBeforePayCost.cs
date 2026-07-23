@@ -64,17 +64,6 @@ public sealed class TfxBeforePayCost : CEntity_Effect
                        !permanent.IsSuspended && permanent.CanSuspend;
             }
 
-            Permanent PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanActivateCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition) >= 2;
@@ -95,7 +84,7 @@ public sealed class TfxBeforePayCost : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 2,

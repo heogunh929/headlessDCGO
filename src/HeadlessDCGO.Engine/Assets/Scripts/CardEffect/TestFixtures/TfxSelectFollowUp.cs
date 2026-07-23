@@ -40,7 +40,7 @@ public sealed class TfxSelectFollowUp : CEntity_Effect
             ? s
             : "seq";
 
-        bool IsOpponentDigimon(HeadlessEntityId id) => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+        bool IsOpponentDigimonPermanent(Permanent permanent) => CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
 
         bool CanUseCondition(Hashtable hashtable)
         {
@@ -59,15 +59,15 @@ public sealed class TfxSelectFollowUp : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, IsOpponentDigimon))
+                if (CardEffectCommons.HasMatchConditionPermanent(card, IsOpponentDigimonPermanent))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsOpponentDigimon));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsOpponentDigimonPermanent));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: IsOpponentDigimon,
+                        canTargetCondition: IsOpponentDigimonPermanent,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

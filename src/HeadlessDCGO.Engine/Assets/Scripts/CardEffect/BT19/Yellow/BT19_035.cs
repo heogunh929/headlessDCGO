@@ -8,8 +8,8 @@
 //   * [On Deletion] — 트래시/손패에서 [Xros Heart]/[Blue Flare] 카드 1장을 자기 테이머 밑으로.
 //   * [When Attacking][ESS 상속] — 이 디지몬이 [Xros Heart]면 상대 1체 DP -2000(이번 턴).
 //
-// 치환(substrate translations only): IEnumerator→async Task, StartCoroutine(X)→await X; id-adapter
-// (SelectPermanentEffect.canTargetCondition = Func<HeadlessEntityId,bool>); `selectedPermanent.
+// 치환(substrate translations only): IEnumerator→async Task, StartCoroutine(X)→await X;
+// SelectPermanentEffect.canTargetCondition = Permanent-형 술어 직접 전달; `selectedPermanent.
 // AddDigivolutionCardsBottom(list, cause)` → cause = `activateClass.EffectSourceCard?.InstanceId`(BT17_026 idiom);
 // ChangeDigimonDP/ChangeDigimonSAttack AS-IS-시그니처 브릿지(targetPermanent, changeValue, effectDuration,
 // activateClass) 그대로.
@@ -30,11 +30,6 @@ public sealed class BT19_035 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Alternate Digivolution
         if (timing == EffectTiming.None)
@@ -95,12 +90,6 @@ public sealed class BT19_035 : CEntity_Effect
             bool CanSelectPermanentCondition(Permanent permanent) =>
                 CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
 
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanActivateCondition(Hashtable hashtable) =>
                 CardEffectCommons.IsExistOnBattleAreaDigimon(card);
 
@@ -118,7 +107,7 @@ public sealed class BT19_035 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,
@@ -169,12 +158,6 @@ public sealed class BT19_035 : CEntity_Effect
 
             bool HasTraitCondition(CardSource cardSource) =>
                 cardSource.IsDigimon && (cardSource.EqualsTraits("Xros Heart") || cardSource.EqualsTraits("Blue Flare"));
-
-            bool IsOwnTamerById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && IsOwnTamerCondition(permanent);
-            }
 
             bool CanActivateCondition(Hashtable hashtable) =>
                 CardEffectCommons.CanActivateOnDeletion(hashtable, card) &&
@@ -287,7 +270,7 @@ public sealed class BT19_035 : CEntity_Effect
 
                         selectPermanentEffect.SetUp(
                             selectPlayer: card.Owner,
-                            canTargetCondition: IsOwnTamerById,
+                            canTargetCondition: IsOwnTamerCondition,
                             canTargetCondition_ByPreSelecetedList: null,
                             canEndSelectCondition: null,
                             maxCount: 1,
@@ -331,19 +314,13 @@ public sealed class BT19_035 : CEntity_Effect
             bool CanSelectPermanentCondition(Permanent permanent) =>
                 CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
 
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanActivateCondition(Hashtable hashtable) =>
                 CardEffectCommons.IsExistOnBattleAreaDigimon(card) &&
                 ICardEffect.ResolvePermanentOfThisCard(card).TopCard.EqualsTraits("Xros Heart");
 
             async Task ActivateCoroutine(Hashtable hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, CanSelectPermanentById))
+                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, CanSelectPermanentCondition))
                 {
                     Permanent? selectedPermanent = null;
 
@@ -357,7 +334,7 @@ public sealed class BT19_035 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: 1,

@@ -34,9 +34,9 @@ public sealed class BT1_099 : CEntity_Effect
                 return "[Main] Trash all digivolution cards under 1 of your opponent's Digimon.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
                     return true;
                 }

@@ -46,24 +46,13 @@ public partial class CardEffectFactory
                 && card.CanPlayCardTargetFrame(permanent.PermanentFrame, false, artsDigivolutionClass, SelectCardEffect.Root.Execution);
         }
 
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
-        bool CanSelectPermanentById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && CanSelectPermanentCondition(permanent);
-        }
-
         async Task ResolutionCoroutine(CardSource optionCard)
         {
             SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
             selectPermanentEffect.SetUp(
                 selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanentById,
+                canTargetCondition: CanSelectPermanentCondition,
                 canTargetCondition_ByPreSelecetedList: null,
                 canEndSelectCondition: null,
                 maxCount: 1,

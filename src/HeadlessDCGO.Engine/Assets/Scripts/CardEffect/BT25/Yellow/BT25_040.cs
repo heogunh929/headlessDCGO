@@ -33,7 +33,7 @@
 //    * `permanent.TopCard.HasTSTraits`(AS-IS CardSource.cs:3739 = EqualsTraits("TS")) → `EqualsTraits("TS")`.
 //    * `card.Owner`(AS-IS Player) → HeadlessPlayerId; Player 핸들은 `new Player(card.Context, card.Owner)`(BT2_023 idiom).
 //    * SelectHandEffect/SelectPermanentEffect = `GManager.instance.GetComponent<...>()`; SelectPermanentEffect의
-//      canTargetCondition는 id-형(Func<HeadlessEntityId,bool>) — Permanent-술어에 PermanentOf(id) 어댑터(BT19_091 idiom).
+//      canTargetCondition는 정본 Func<Permanent,bool> — Permanent 술어 직결(id 어댑터 없음).
 //    * card-less `HasMatchConditionPermanent(cond)` → `(card, cond)` 오버로드(BT9_109 관례).
 //    * `TrashSecurityAndProcessAccordingToResult(player: card.Owner, ...)` → player: `new Player(...)`.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT25.Yellow;
@@ -53,11 +53,6 @@ public sealed class BT25_040 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Static Effects
 
@@ -147,12 +142,6 @@ public sealed class BT25_040 : CEntity_Effect
 
         bool CanSelectPermanentCondition(Permanent permanent) => CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
 
-        bool CanSelectPermanentById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && CanSelectPermanentCondition(permanent);
-        }
-
         async Task SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
         {
             Player owner = new Player(card.Context, card.Owner);
@@ -202,7 +191,7 @@ public sealed class BT25_040 : CEntity_Effect
 
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: CanSelectPermanentById,
+                                canTargetCondition: CanSelectPermanentCondition,
                                 canTargetCondition_ByPreSelecetedList: null,
                                 canEndSelectCondition: null,
                                 maxCount: maxCount,
@@ -279,7 +268,7 @@ public sealed class BT25_040 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: 1,

@@ -305,17 +305,6 @@ public sealed class BT25_039 : CEntity_Effect
                     && permanent.IsSuspended;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool IsSuspendedDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && IsSuspendedDigimon(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 Permanent? selectedPermanent = null;
@@ -324,7 +313,7 @@ public sealed class BT25_039 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: IsSuspendedDigimonById,
+                    canTargetCondition: IsSuspendedDigimon,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,

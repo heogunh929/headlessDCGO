@@ -35,7 +35,7 @@
 //      (게임 상태) 동일 대입.
 //    * AS-IS :110-115 `brainStormObject.CloseBrainstrorm`/`ShowUseHandCard`/`ShrinkUpUseHandCard` = UI 연출 —
 //      미러 확립 관례상 스트립(앵커 병기).
-//    * SelectPermanentEffect.canTargetCondition는 id-형 — Permanent-술어에 PermanentOf(id) 어댑터 덧댐.
+//    * SelectPermanentEffect.canTargetCondition는 정본 Func<Permanent,bool> — Permanent-술어 직결(id 어댑터 없음).
 //    * `IsMaxCost(permanent, card.Owner.Enemy, true)` → `IsMaxCost(permanent, OpponentOf(card), true)` (미러 HeadlessPlayerId).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX5.Black;
 
@@ -196,17 +196,6 @@ public sealed class EX5_053 : CEntity_Effect
                 return false;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOnDeletion(hashtable, card);
@@ -235,7 +224,7 @@ public sealed class EX5_053 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

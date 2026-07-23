@@ -9,8 +9,8 @@
 //     permanent CardEffectCommons.GainBlocker(permanent, UntilOpponentTurnEnd, activateClass).
 //   [Security] (SecuritySkill, independent) ActivateClass(CanUseCondition = CanTriggerSecurityEffect,
 //     SetIsSecurityEffect(true)). ActivateCoroutine: DrawClass(owner, 1).Draw() THEN AddThisCardToHand(card).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` ->
-//   `Func<HeadlessEntityId,bool>` idiom (IsOwnerBattleAreaDigimon); DrawClass ctor -> mirror shape;
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` kept
+//   verbatim on the canonical shape (id-flip 3b); DrawClass ctor -> mirror shape;
 //   `AddThisCardToHand(card, activateClass)` -> mirror `(card, card)` (BT1_098 convention).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
@@ -41,9 +41,9 @@ public sealed class BT1_103 : CEntity_Effect
                 return "[Main] Until the end of your opponent's next turn, 1 of your Digimon gains <Blocker>. (When an opponent's Digimon attacks, you may suspend this Digimon to force the opponent to attack it instead.)";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

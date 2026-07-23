@@ -201,17 +201,6 @@ public sealed class BT23_081 : CEntity_Effect
                 return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool IsOpponentsDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && IsOpponentsDigimon(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 await new SuspendPermanentsClass(new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) },
@@ -222,11 +211,11 @@ public sealed class BT23_081 : CEntity_Effect
                     Permanent? selectedPermanent = null;
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsOpponentsDigimonById));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsOpponentsDigimon));
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: IsOpponentsDigimonById,
+                        canTargetCondition: IsOpponentsDigimon,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

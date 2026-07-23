@@ -34,9 +34,9 @@ public sealed class TfxMultiSelect : CEntity_Effect
                 return "[Main] Delete 1 of your opponent's Digimon. Then delete 1 more of your opponent's Digimon.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

@@ -153,17 +153,6 @@ public sealed class BT25_092 : CEntity_Effect
                         || CardEffectCommons.HasMatchConditionOwnersPermanent(card, PermanentCondition));
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanDigivolveDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanDigivolveDigimon(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 #region Pay costs
@@ -241,7 +230,7 @@ public sealed class BT25_092 : CEntity_Effect
 
                         selectPermanentEffect.SetUp(
                             selectPlayer: card.Owner,
-                            canTargetCondition: CanDigivolveDigimonById,
+                            canTargetCondition: CanDigivolveDigimon,
                             canTargetCondition_ByPreSelecetedList: null,
                             canEndSelectCondition: null,
                             maxCount: 1,

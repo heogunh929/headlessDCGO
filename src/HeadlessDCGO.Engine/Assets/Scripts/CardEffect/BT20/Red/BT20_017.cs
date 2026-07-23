@@ -35,9 +35,9 @@
 //      (RD-P6C1-1; BT19_091 미러 동일 근거). IsExistOnBattleAreaDigimon(card) 절반은 1:1 유지.
 //      PlayAthoRenePorToken 브릿지가 내부적으로 용량 검사를 수행한다.
 //    * `GManager.instance.GetComponent<SelectPermanentEffect>()`/`<SelectAttackEffect>()` — VERBATIM
-//      (GManager.cs:114/163 지원). SelectPermanentEffect.SetUp의 canTargetCondition은 미러에서
-//      Func<HeadlessEntityId,bool>: AS-IS Func<Permanent,bool> 술어는 1:1 유지 + id 어댑터
-//      (PermanentOf + CanSelect…ById) 덧댐(BT17_026 idiom; 술어 뭉갬 금지).
+//      (GManager.cs:114/163 지원). SelectPermanentEffect.SetUp의 canTargetCondition은
+//      Func<Permanent,bool> 술어(CanSelectDelete/AttackPermanentCondition)를 직접 받음
+//      (BT17_026 idiom; 술어 뭉갬 금지).
 //    * `card.Owner.MaxDP_DeleteEffect(8000, activateClass)` → `new Player(card.Context, card.Owner)
 //      .MaxDP_DeleteEffect(8000, activateClass)` (Player.cs:425).
 //    * `card.PermanentOfThisCard()` → `ICardEffect.ResolvePermanentOfThisCard(card)` (ICardEffect.cs:537).
@@ -208,25 +208,6 @@ public sealed class BT20_017 : CEntity_Effect
                 return false;
             }
 
-            // (미러 idiom — BT17_026) SelectPermanentEffect 브릿지의 canTargetCondition은 id-형이므로
-            // AS-IS Permanent-술어는 그대로 두고 id 어댑터를 덧댄다(술어 뭉갬 금지). 삭제/공격 두 술어 공통.
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectDeletePermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectDeletePermanentCondition(permanent);
-            }
-
-            bool CanSelectAttackPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectAttackPermanentCondition(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 List<Permanent> selectedPermanents = new List<Permanent>();
@@ -239,7 +220,7 @@ public sealed class BT20_017 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectDeletePermanentById,
+                        canTargetCondition: CanSelectDeletePermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -263,7 +244,7 @@ public sealed class BT20_017 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectAttackPermanentById,
+                        canTargetCondition: CanSelectAttackPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

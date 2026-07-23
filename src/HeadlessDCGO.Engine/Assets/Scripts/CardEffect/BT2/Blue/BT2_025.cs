@@ -5,11 +5,10 @@
 // invented helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` structure +
 // `GManager.instance.GetComponent<SelectPermanentEffect>()` select-and-follow-up pattern (bridge W4).
 // Substrate translations: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` -> the established entity-id predicate idiom
-// (`Func<HeadlessEntityId,bool>`, composed from `CardEffectCommons.IsOpponentBattleAreaDigimon`), matching the
-// shape `SelectPermanentEffect.SetUp`/`MatchConditionPermanentCount`/`HasMatchConditionPermanent`'s id-overload
-// require (documented at CardEffectCommons.cs's own MatchConditionPermanentCount doc comment as "the
-// established entity-id predicate idiom"); `card.Owner.GetBattleAreaDigimons().Contains(card.PermanentOfThisCard())`
+// AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` kept 1:1 (composed from
+// `CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon`), passed directly to
+// `SelectPermanentEffect.SetUp`/`MatchConditionPermanentCount`/`HasMatchConditionPermanent`;
+// `card.Owner.GetBattleAreaDigimons().Contains(card.PermanentOfThisCard())`
 // -> `new Player(card.Context, card.Owner).GetBattleAreaDigimons().Some(p => p.InstanceId ==
 // card.PermanentOfThisCard().TopInstanceId)` (Player reconstruction + the established Permanent-vs-PermanentView
 // identity idiom, see BT2_002.cs).
@@ -42,9 +41,10 @@ public sealed class BT2_025 : CEntity_Effect
                 return "[When Attacking] Trash the top digivolution card of 1 of your opponent's Digimon.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            // Permanent-form predicate (RULE A/D): feeds MatchConditionPermanentCount/HasMatchConditionPermanent and the SelectPermanentEffect.SetUp canTargetCondition consumer directly.
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

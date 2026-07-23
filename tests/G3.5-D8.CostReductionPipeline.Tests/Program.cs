@@ -136,7 +136,7 @@ void RegisterCostReductionImmunity(EngineContext context, HeadlessEntityId cardI
 {
     TfxCannotReduceCost.PlayerCondition = _ => true;
     TfxCannotReduceCost.CardCondition = cs => cs is not null && cs.InstanceId == cardId;
-    TfxCannotReduceCost.CostKind = CostReductionScope.Both;
+    TfxCannotReduceCost.TargetPermanentsCondition = _ => true;
 
     var cards = (CardDatabase)context.CardRepository;
     var def = new HeadlessEntityId("DEF:GRANT");

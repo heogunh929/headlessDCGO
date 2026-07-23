@@ -5,8 +5,8 @@
 //              CardEffectCommons.* bridge call (AS-IS name, AS-IS shape).
 // AS-IS structure kept verbatim for [Main]: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass +
 // local functions. CanUseCondition/CanActivateCondition resolve via the existing bridge; AS-IS
-// `CanSelectPermanentCondition` (opponent battle-area Digimon + HasBlocker) uses the same
-// Func&lt;HeadlessEntityId,bool&gt; + ContinuousKeywordGate idiom as BT1_023 (same predicate shape).
+// `CanSelectPermanentCondition` (opponent battle-area Digimon + HasBlocker) is expressed verbatim on the
+// canonical Func&lt;Permanent,bool&gt; shape (id-flip 3b), the same predicate shape as BT1_023.
 //
 // UNRESOLVED MEMBERS (kept verbatim, not simplified/faked; see docs/audit/rebuild_p5_cards_missing.md):
 //   - `card.BaseENGCardNameFromEntity` (AS-IS CardSource.cs:1359, `_cEntity_Base.CardName_ENG`) — the mirror
@@ -44,11 +44,11 @@ public sealed class BT1_094 : CEntity_Effect
                 return "[Main] Delete 1 of your opponent's Digimon with <Blocker>.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (new Permanent(card.Context, id).HasBlocker)
+                    if (permanent.HasBlocker)
                     {
                         return true;
                     }

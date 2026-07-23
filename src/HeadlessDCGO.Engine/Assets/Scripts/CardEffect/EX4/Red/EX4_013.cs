@@ -31,9 +31,8 @@
 //      `HasMatchConditionPermanent(card, cond)`; `MatchConditionPermanentCount(cond)` →
 //      `MatchConditionPermanentCount(card, cond)` (미러는 컨텍스트 획득 위해 card 파라미터 필수 — 스캔 범위
 //      양측 배틀에어리어로 AS-IS 동일).
-//    * SelectPermanentEffect.SetUp canTargetCondition 은 Func<HeadlessEntityId,bool> 만 받으므로 Permanent 술어
-//      (CanSelectPermanentCondition/...1)를 id 어댑터(PermanentOf/CanSelectPermanentById/...ById1)로 감쌈
-//      (술어 뭉갬 금지 — BT9_009/LM_054 idiom).
+//    * SelectPermanentEffect.SetUp canTargetCondition은 정본 Func<Permanent,bool> — Permanent 술어
+//      (CanSelectPermanentCondition/...1)를 직접 전달(id 어댑터 없음).
 //    * `card.PermanentOfThisCard()`(가변 필요) → `ICardEffect.ResolvePermanentOfThisCard(card)` (LM_054 관례).
 //    * `new HandBounceClaass(list, CardEffectCommons.CardEffectHashtable(activateClass1)).Bounce()` →
 //      `CardEffectCommons.BouncePeremanentAndProcessAccordingToResult(list, activateClass1, success:null,
@@ -192,23 +191,6 @@ public sealed class EX4_013 : CEntity_Effect
                 return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
-            bool CanSelectPermanentById1(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition1(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
@@ -244,7 +226,7 @@ public sealed class EX4_013 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -280,7 +262,7 @@ public sealed class EX4_013 : CEntity_Effect
 
                         selectPermanentEffect.SetUp(
                             selectPlayer: card.Owner,
-                            canTargetCondition: CanSelectPermanentById1,
+                            canTargetCondition: CanSelectPermanentCondition1,
                             canTargetCondition_ByPreSelecetedList: null,
                             canEndSelectCondition: null,
                             maxCount: maxCount,
@@ -338,23 +320,6 @@ public sealed class EX4_013 : CEntity_Effect
                 return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
-            bool CanSelectPermanentById1(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition1(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
@@ -390,7 +355,7 @@ public sealed class EX4_013 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -426,7 +391,7 @@ public sealed class EX4_013 : CEntity_Effect
 
                         selectPermanentEffect.SetUp(
                             selectPlayer: card.Owner,
-                            canTargetCondition: CanSelectPermanentById1,
+                            canTargetCondition: CanSelectPermanentCondition1,
                             canTargetCondition_ByPreSelecetedList: null,
                             canEndSelectCondition: null,
                             maxCount: maxCount,

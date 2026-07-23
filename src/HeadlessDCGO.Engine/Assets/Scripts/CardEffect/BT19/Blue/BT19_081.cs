@@ -25,8 +25,8 @@
 //      (Player 인스턴스 전용 리스트 — EX4_062 idiom); `card.Owner.AddMemory(...)` = PlayerId 확장 그대로(EX4_062).
 //    * `selectedPermanent.AddDigivolutionCardsBottom(selectedCards, activateClass)`(AS-IS ICardEffect 인자) →
 //      cause-id 인자 `activateClass.EffectSourceCard?.InstanceId`(BT18_065/AD1_006 idiom).
-//    * SelectPermanentEffect canTargetCondition = id-형(HeadlessEntityId→bool) → Permanent-형 술어 +
-//      PermanentOf(id) 어댑터(BT25_104/LM_054 idiom); selectPermanentCoroutine/selectCardCoroutine = Task-반환.
+//    * SelectPermanentEffect canTargetCondition = Permanent-형 술어 직접 전달;
+//      selectPermanentCoroutine/selectCardCoroutine = Task-반환.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT19.Blue;
 
 using System.Collections;
@@ -42,11 +42,6 @@ public sealed class BT19_081 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Start of Your Main Phase
 
@@ -73,12 +68,6 @@ public sealed class BT19_081 : CEntity_Effect
             {
                 return CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(permanent, card) &&
                        permanent.IsTamer;
-            }
-
-            bool IsOwnTamerById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && IsOwnTamerCondition(permanent);
             }
 
             bool HasBlueFlareXrosHeartTraitCondition(CardSource cardSource)
@@ -134,7 +123,7 @@ public sealed class BT19_081 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: IsOwnTamerById,
+                        canTargetCondition: IsOwnTamerCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: 1,

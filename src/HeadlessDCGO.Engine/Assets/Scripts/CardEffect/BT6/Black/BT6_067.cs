@@ -16,8 +16,8 @@
 //   * AS-IS card-less `HasMatchConditionPermanent(PermanentCondition)` -> the mirror `(card, cond)` overload
 //     (BT9_111 convention).
 //   * AS-IS `HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon && !permanent
-//     .IsSuspended)` — the mirror overload takes `Func<HeadlessEntityId,bool>`, so the VERBATIM Permanent
-//     predicate is wrapped by an id-resolving adapter (EX8_051 idiom); the predicate itself is unchanged.
+//     .IsSuspended)` — the mirror overload now takes `Func<Permanent,bool>`, so the VERBATIM Permanent
+//     predicate is passed directly; the predicate itself is unchanged.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT6.Black;
 
 using System.Collections;
@@ -91,20 +91,13 @@ public sealed class BT6_067 : CEntity_Effect
                 return permanent.IsDigimon && !permanent.IsSuspended;
             }
 
-            // Id-shape adapter for the W4-bridged HasMatchConditionOpponentsPermanent (takes Func<HeadlessEntityId,
-            // bool>): resolve the mirror Permanent for the candidate id (EX8_051 idiom) and evaluate the VERBATIM
-            // AS-IS Permanent predicate above.
-            bool PermanentConditionById(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                && PermanentCondition(new Permanent(card.Context, id, rec.OwnerId));
-
             bool Condition()
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, PermanentConditionById))
+                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, PermanentCondition))
                         {
                             return true;
                         }

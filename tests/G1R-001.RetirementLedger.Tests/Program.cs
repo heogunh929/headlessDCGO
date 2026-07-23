@@ -51,6 +51,18 @@ var ledger = new (string Symbol, int Baseline, string Batch)[]
     // factory helper constructed the body, only the G9-046 DeDigivolve white-box test consumed the helper). The
     // resolver-switch `case ActivatedSelectAndDeDigivolveEffect` collapsed with them. De-digivolve is covered live
     // by CardEffectCommons.DeDigivolvePermanent + the SelectDeDigivolve / MassDeDigivolve primitives.
+
+    // (RD-IDFLIP-01 / id-surface flip campaign batch 4) `SetAttackOptions` + `SetCanEndSelectCondition` rows
+    // RETIRED — both symbols were DELETED in their owning batch (batch 4): the invented id-form select-effect
+    // authoring surfaces (the 8-param `SetUp` overload, `SetAttackOptions(bool, Func<HeadlessEntityId,bool>)`,
+    // `SetCanEndSelectCondition(Func<IReadOnlyList<HeadlessEntityId>,bool>)` on SelectPermanentEffect) were
+    // physically removed once their sole consumer — the G3.5-CVA2 suite — was re-written onto the CANONICAL
+    // AS-IS route: the 11-param Func<Permanent,bool> `SetUp` (via GManager.instance.GetComponent under an
+    // AmbientMatchContext scope), the AS-IS `SetCanNotAttackPlayer()` + `SetDefenderCondition(Permanent)` pair
+    // (both former SetAttackOptions call-sites set canAttackPlayer:false, mapping 1:1 onto the AS-IS
+    // unidirectional flag-down), and the 11-param `canEndSelectCondition` param (consulted through the retained
+    // IsValidSelection). CVA2 stays 12/12 green with every behavioural assertion preserved. Retirement guard =
+    // the deleted symbols no longer exist. This removal takes the ledger to 0 ROWS.
 };
 
 string root = FindRepoRoot();

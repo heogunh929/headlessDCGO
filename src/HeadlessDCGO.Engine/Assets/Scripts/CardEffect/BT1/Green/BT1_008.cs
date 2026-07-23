@@ -24,9 +24,9 @@ public sealed class BT1_008 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.MatchConditionPermanentCount(card, id =>
-                            CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) &&
-                            CardEffectCommons.IsSuspended(card, id)) >= 2)
+                        if (CardEffectCommons.MatchConditionPermanentCount(card, permanent =>
+                            CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) &&
+                            permanent.IsSuspended) >= 2)
                         {
                             return true;
                         }

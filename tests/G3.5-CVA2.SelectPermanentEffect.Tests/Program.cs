@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -9,6 +10,13 @@ using HeadlessDCGO.Engine.Headless.Services;
 // board filtered by a target predicate, builds a Permanent ChoiceRequest honouring the original
 // max/canNoSelect/canEndNotMax count rules, and maps the selection Mode to per-target mutations
 // (Tap/UnTap/Destroy/Bounce/PutLibrary/PutSecurity) reusing the MatchStateMutationSink vocabulary.
+//
+// (RD-IDFLIP-01, id-surface flip batch 4) The instances are obtained via the CANONICAL AS-IS route
+// (GManager.instance.GetComponent<SelectPermanentEffect>() under an AmbientMatchContext scope, exactly as
+// the verbatim card corpus does) and configured with the CANONICAL 11-param SetUp on the AS-IS
+// Func<Permanent,bool> predicate shape — the invented id-form SetUp/SetAttackOptions/SetCanEndSelectCondition
+// authoring surfaces were physically retired. The combination gate rides the 11-param `canEndSelectCondition`
+// param; the Attack narrowing rides the AS-IS SetCanNotAttackPlayer() + SetDefenderCondition(Permanent) pair.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -53,10 +61,20 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 async Task ExactPick()
 {
     EngineContext context = await SetupBoard();
-    var sel = new SelectPermanentEffect();
+    SelectPermanentEffect sel = Component(context);
     // Target only the opponent's (P2) permanents, max 2, must pick exactly 2.
-    sel.SetUp(P1, id => id.Value.StartsWith("p2", StringComparison.Ordinal), maxCount: 2,
-        canNoSelect: false, canEndNotMax: false, SelectPermanentEffect.Mode.Destroy, new HeadlessEntityId("src"));
+    sel.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: p => p.InstanceId.Value.StartsWith("p2", StringComparison.Ordinal),
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 2,
+        canNoSelect: false,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Destroy,
+        cardEffect: null!);
 
     ChoiceRequest request = sel.BuildRequest(Zones(context), Both);
 
@@ -70,9 +88,19 @@ async Task ExactPick()
 async Task CanNoSelect()
 {
     EngineContext context = await SetupBoard();
-    var sel = new SelectPermanentEffect();
-    sel.SetUp(P1, _ => true, maxCount: 2, canNoSelect: true, canEndNotMax: false,
-        SelectPermanentEffect.Mode.Tap, new HeadlessEntityId("src"));
+    SelectPermanentEffect sel = Component(context);
+    sel.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: _ => true,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 2,
+        canNoSelect: true,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Tap,
+        cardEffect: null!);
 
     ChoiceRequest request = sel.BuildRequest(Zones(context), Both);
 
@@ -83,9 +111,19 @@ async Task CanNoSelect()
 async Task CanEndNotMax()
 {
     EngineContext context = await SetupBoard();
-    var sel = new SelectPermanentEffect();
-    sel.SetUp(P1, _ => true, maxCount: 3, canNoSelect: false, canEndNotMax: true,
-        SelectPermanentEffect.Mode.Tap, new HeadlessEntityId("src"));
+    SelectPermanentEffect sel = Component(context);
+    sel.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: _ => true,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 3,
+        canNoSelect: false,
+        canEndNotMax: true,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Tap,
+        cardEffect: null!);
 
     ChoiceRequest request = sel.BuildRequest(Zones(context), Both);
 
@@ -99,9 +137,19 @@ async Task DestroyEndToEnd()
 {
     EngineContext context = await SetupBoard();
     MatchStateMutationSink sink = Sink(context);
-    var sel = new SelectPermanentEffect();
-    sel.SetUp(P1, id => id.Value.StartsWith("p2", StringComparison.Ordinal), maxCount: 1,
-        canNoSelect: false, canEndNotMax: false, SelectPermanentEffect.Mode.Destroy, new HeadlessEntityId("src"));
+    SelectPermanentEffect sel = Component(context);
+    sel.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: p => p.InstanceId.Value.StartsWith("p2", StringComparison.Ordinal),
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 1,
+        canNoSelect: false,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Destroy,
+        cardEffect: null!);
 
     ChoiceRequest request = sel.BuildRequest(Zones(context), Both);
     var provider = new ScriptedChoiceProvider();
@@ -120,9 +168,19 @@ async Task TapApplies()
 {
     EngineContext context = await SetupBoard();
     MatchStateMutationSink sink = Sink(context);
-    var sel = new SelectPermanentEffect();
-    sel.SetUp(P1, _ => true, maxCount: 1, canNoSelect: false, canEndNotMax: false,
-        SelectPermanentEffect.Mode.Tap, new HeadlessEntityId("src"));
+    SelectPermanentEffect sel = Component(context);
+    sel.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: _ => true,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 1,
+        canNoSelect: false,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Tap,
+        cardEffect: null!);
 
     sel.Apply(sink, new[] { B1 });
     await sink.FlushAsync();
@@ -134,9 +192,19 @@ async Task BounceApplies()
 {
     EngineContext context = await SetupBoard();
     MatchStateMutationSink sink = Sink(context);
-    var sel = new SelectPermanentEffect();
-    sel.SetUp(P1, _ => true, maxCount: 1, canNoSelect: false, canEndNotMax: false,
-        SelectPermanentEffect.Mode.Bounce, new HeadlessEntityId("src"));
+    SelectPermanentEffect sel = Component(context);
+    sel.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: _ => true,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 1,
+        canNoSelect: false,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Bounce,
+        cardEffect: null!);
 
     sel.Apply(sink, new[] { B1 });
     await sink.FlushAsync();
@@ -145,8 +213,9 @@ async Task BounceApplies()
     AssertFalse(InZone(context, P2, ChoiceZone.BattleArea, B1), "B1 left the battle area");
 }
 
-Task ModeMapping()
+async Task ModeMapping()
 {
+    EngineContext context = await SetupBoard();
     var expectations = new (SelectPermanentEffect.Mode Mode, string Kind)[]
     {
         (SelectPermanentEffect.Mode.Tap, MatchStateMutationSink.SuspendKind),
@@ -161,8 +230,19 @@ Task ModeMapping()
 
     foreach ((SelectPermanentEffect.Mode mode, string kind) in expectations)
     {
-        var sel = new SelectPermanentEffect();
-        sel.SetUp(P1, _ => true, maxCount: 1, canNoSelect: false, canEndNotMax: false, mode, new HeadlessEntityId("src"));
+        SelectPermanentEffect sel = Component(context);
+        sel.SetUp(
+            selectPlayer: P1,
+            canTargetCondition: _ => true,
+            canTargetCondition_ByPreSelecetedList: null,
+            canEndSelectCondition: null,
+            maxCount: 1,
+            canNoSelect: false,
+            canEndNotMax: false,
+            selectPermanentCoroutine: null,
+            afterSelectPermanentCoroutine: null,
+            mode: mode,
+            cardEffect: null!);
         IReadOnlyList<EffectMutation> mutations = sel.BuildMutations(new[] { B1 });
         AssertEqual(1, mutations.Count, $"{mode} yields one mutation");
         AssertEqual(kind, mutations[0].Kind, $"{mode} → {kind}");
@@ -171,12 +251,21 @@ Task ModeMapping()
     // Attack / Custom yield no built-in mutation.
     foreach (SelectPermanentEffect.Mode mode in new[] { SelectPermanentEffect.Mode.Attack, SelectPermanentEffect.Mode.Custom })
     {
-        var sel = new SelectPermanentEffect();
-        sel.SetUp(P1, _ => true, maxCount: 1, canNoSelect: false, canEndNotMax: false, mode, new HeadlessEntityId("src"));
+        SelectPermanentEffect sel = Component(context);
+        sel.SetUp(
+            selectPlayer: P1,
+            canTargetCondition: _ => true,
+            canTargetCondition_ByPreSelecetedList: null,
+            canEndSelectCondition: null,
+            maxCount: 1,
+            canNoSelect: false,
+            canEndNotMax: false,
+            selectPermanentCoroutine: null,
+            afterSelectPermanentCoroutine: null,
+            mode: mode,
+            cardEffect: null!);
         AssertEqual(0, sel.BuildMutations(new[] { B1 }).Count, $"{mode} yields no mutation");
     }
-
-    return Task.CompletedTask;
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -190,9 +279,19 @@ async Task DegenerateApplies()
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(source, new HeadlessEntityId(source.Value), P2));
     SetSources(context, B1, source);
 
-    var sel = new SelectPermanentEffect();
-    sel.SetUp(P1, id => id == B1, maxCount: 1, canNoSelect: false, canEndNotMax: false,
-        SelectPermanentEffect.Mode.Degenerate, new HeadlessEntityId("src"));
+    SelectPermanentEffect sel = Component(context);
+    sel.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: p => p.InstanceId == B1,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 1,
+        canNoSelect: false,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Degenerate,
+        cardEffect: null!);
     sel.SetDegenerationCount(1);
 
     MatchStateMutationSink sink = Sink(context);
@@ -215,10 +314,23 @@ async Task AttackModeConditions()
         Suspend(context, id, id != A1);   // defenders suspended (normal attack targeting)
     }
 
-    var sel = new SelectPermanentEffect();
-    sel.SetUp(P1, id => id == A1, maxCount: 1, canNoSelect: false, canEndNotMax: false,
-        SelectPermanentEffect.Mode.Attack, new HeadlessEntityId("src"));
-    sel.SetAttackOptions(canAttackPlayer: false, defenderCondition: id => id == B1);
+    SelectPermanentEffect sel = Component(context);
+    sel.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: p => p.InstanceId == A1,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 1,
+        canNoSelect: false,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Attack,
+        cardEffect: null!);
+    // (AS-IS SetCanNotAttackPlayer + SetDefenderCondition) — the id-form SetAttackOptions was retired. Both
+    // former consumers set canAttackPlayer:false, so the AS-IS unidirectional flag-down maps exactly.
+    sel.SetCanNotAttackPlayer();
+    sel.SetDefenderCondition(p => p.InstanceId == B1);
 
     AssertTrue(sel.TryOpenAttack(context, new[] { A1 }), "the attack target choice opened for the selected attacker");
     var candidates = context.ChoiceController.PendingRequest!.Candidates;
@@ -231,12 +343,22 @@ async Task AttackModeConditions()
 async Task CombinationGate()
 {
     EngineContext context = await SetupBoard();
-    var sel = new SelectPermanentEffect();
-    sel.SetUp(P1, _ => true, maxCount: 2, canNoSelect: false, canEndNotMax: false,
-        SelectPermanentEffect.Mode.Tap, new HeadlessEntityId("src"));
-    // "the two picks must have different owners" (an AS-IS combination-style constraint).
-    sel.SetCanEndSelectCondition(selection =>
-        selection.Count == 2 && selection[0].Value[..2] != selection[1].Value[..2]);
+    SelectPermanentEffect sel = Component(context);
+    // "the two picks must have different owners" (an AS-IS combination-style constraint) — configured via the
+    // canonical 11-param `canEndSelectCondition` param (Permanent-list shape), consulted through IsValidSelection.
+    sel.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: _ => true,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: permanents =>
+            permanents.Count == 2 && permanents[0].InstanceId.Value[..2] != permanents[1].InstanceId.Value[..2],
+        maxCount: 2,
+        canNoSelect: false,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Tap,
+        cardEffect: null!);
 
     AssertTrue(sel.IsValidSelection(new[] { A1, B1 }), "a cross-owner pair passes the gate");
     AssertFalse(sel.IsValidSelection(new[] { B1, B2 }), "a same-owner pair fails the gate (AS-IS CanEndSelect)");
@@ -245,11 +367,20 @@ async Task CombinationGate()
 async Task CombinationGateRejectsAtResolve()
 {
     EngineContext context = await SetupBoard();
-    var sel = new SelectPermanentEffect();
-    sel.SetUp(P1, _ => true, maxCount: 2, canNoSelect: false, canEndNotMax: false,
-        SelectPermanentEffect.Mode.Tap, new HeadlessEntityId("src"));
-    sel.SetCanEndSelectCondition(selection =>
-        selection.Count == 2 && selection[0].Value[..2] != selection[1].Value[..2]);
+    SelectPermanentEffect sel = Component(context);
+    sel.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: _ => true,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: permanents =>
+            permanents.Count == 2 && permanents[0].InstanceId.Value[..2] != permanents[1].InstanceId.Value[..2],
+        maxCount: 2,
+        canNoSelect: false,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Tap,
+        cardEffect: null!);
 
     ChoiceRequest request = sel.BuildRequest(Zones(context), Both);
     context.ChoiceController.RequestChoice(request, new HeadlessEntityId("p2-test"));
@@ -276,16 +407,35 @@ async Task MultiAttackerQueue()
         Suspend(context, id, id == A1);   // the defender is suspended, the attackers are not
     }
 
-    var sel = new SelectPermanentEffect();
-    sel.SetUp(P2, id => id.Value.StartsWith("p2", StringComparison.Ordinal), maxCount: 2,
-        canNoSelect: false, canEndNotMax: false, SelectPermanentEffect.Mode.Attack, new HeadlessEntityId("src"));
-    sel.SetAttackOptions(canAttackPlayer: false);
+    SelectPermanentEffect sel = Component(context);
+    sel.SetUp(
+        selectPlayer: P2,
+        canTargetCondition: p => p.InstanceId.Value.StartsWith("p2", StringComparison.Ordinal),
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 2,
+        canNoSelect: false,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Attack,
+        cardEffect: null!);
+    sel.SetCanNotAttackPlayer();
 
     AssertTrue(sel.TryOpenAttack(context, new[] { B1, B2 }), "attacker #1's target choice opened");
     // Decline #1 -> the AS-IS sequential loop moves to attacker #2.
     AssertTrue(HeadlessDCGO.Engine.Headless.Runtime.EffectDrivenAttack.ResolveChoice(context, ChoiceResult.Skip()),
         "attacker #1 declined");
     AssertTrue(context.ChoiceController.Current.IsPending, "attacker #2's target choice opened automatically");
+}
+
+// The canonical AS-IS acquisition route (GManager.instance.GetComponent<SelectPermanentEffect>() under an
+// AmbientMatchContext scope) — GetComponent AttachContext()s the ambient match onto the fresh instance, so the
+// component carries the context for the whole test after the scope closes (the verbatim card corpus's route).
+SelectPermanentEffect Component(EngineContext context)
+{
+    using AmbientMatchContext.Scope scope = AmbientMatchContext.Enter(context);
+    return GManager.instance!.GetComponent<SelectPermanentEffect>();
 }
 
 void Suspend(EngineContext context, HeadlessEntityId id, bool suspended)

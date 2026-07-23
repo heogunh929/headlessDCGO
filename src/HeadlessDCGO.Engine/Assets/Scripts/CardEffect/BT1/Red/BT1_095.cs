@@ -8,8 +8,8 @@
 //     per selected permanent GainBlocker(permanent, UntilOpponentTurnEnd, activateClass).
 //   [Security] (SecuritySkill, independent) Same select (Mode.UnTap) but GainBlocker duration = UntilEachTurnEnd
 //     ("for the turn"); SetIsSecurityEffect(true), CanUseCondition = CanTriggerSecurityEffect.
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` ->
-//   `Func<HeadlessEntityId,bool>` idiom (IsOwnerBattleAreaDigimon); GManager.GetComponent -> bridge W4.
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` kept
+//   verbatim on the canonical shape (id-flip 3b); GManager.GetComponent -> bridge W4.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
 
 using System;
@@ -40,9 +40,9 @@ public sealed class BT1_095 : CEntity_Effect
                 return "[Main] Unsuspend 1 of your Digimon. Until the end of your opponent's next turn, that Digimon gains <Blocker>. (When an opponent's Digimon attacks, you may suspend this Digimon to force the opponent to attack it instead.)";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)
@@ -99,9 +99,9 @@ public sealed class BT1_095 : CEntity_Effect
                 return "[Security] Unsuspend 1 of your Digimon. That Digimon gains <Blocker> (When an opponent's Digimon attacks, you may suspend this Digimon to force the opponent to attack it instead) for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

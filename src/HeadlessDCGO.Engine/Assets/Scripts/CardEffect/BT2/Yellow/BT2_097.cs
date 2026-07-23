@@ -9,9 +9,8 @@
 // `await X`. The AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` is kept VERBATIM (all four AS-IS
 // conjuncts, incl. `permanent.TopCard.HasLevel` and `permanent.CanSelectBySkill(activateClass)` — the latter
 // via the mirror `Permanent.CanSelectBySkill` (batch-3, same RestrictionScan the select's internal gate uses,
-// preserving AS-IS's double evaluation)); the W4-bridged id-shape call sites (`MatchConditionPermanentCount`,
-// `SetUp` canTargetCondition) reach it through the id->mirror-Permanent adapter (BT22_003 idiom), while
-// `HasMatchConditionPermanent` uses the Permanent-shape AS-IS overload directly.
+// preserving AS-IS's double evaluation)); `MatchConditionPermanentCount`, `HasMatchConditionPermanent`, and
+// `SetUp` canTargetCondition all take the Permanent-shape predicate (Func<Permanent,bool>) directly.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Yellow;
 
 using System;
@@ -60,13 +59,6 @@ public sealed class BT2_097 : CEntity_Effect
                 return false;
             }
 
-            // Id-shape adapter for the W4-bridged call sites (SetUp canTargetCondition /
-            // MatchConditionPermanentCount take Func<HeadlessEntityId,bool>): resolve the mirror Permanent for
-            // the candidate id (BT22_003 idiom) and evaluate the VERBATIM AS-IS predicate above.
-            bool CanSelectPermanentConditionById(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                && CanSelectPermanentCondition(new Permanent(card.Context, id, rec.OwnerId));
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
@@ -76,13 +68,13 @@ public sealed class BT2_097 : CEntity_Effect
             {
                 if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(3, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentConditionById));
+                    int maxCount = Math.Min(3, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentConditionById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

@@ -40,8 +40,8 @@
 //      lone `yield return null`→`Task.CompletedTask`.
 //    * `card.Owner`(AS-IS Player) → HeadlessPlayerId; Player 조작(CanReduceCost/UntilCalculateFixedCostEffect)은
 //      `new Player(card.Context, card.Owner).*`.
-//    * SelectPermanentEffect canTargetCondition는 id-형 — AS-IS Permanent-술어를 PermanentOf(id) 어댑터로 전달
-//      (BT17_026/EX5_055 판례). Has/Count 스캔은 Permanent-술어 오버로드 직접 사용(+card 인자).
+//    * SelectPermanentEffect canTargetCondition는 AS-IS Permanent-술어를 직접 받음
+//      (BT17_026/EX5_055 판례). Has/Count 스캔도 Permanent-술어 오버로드 직접 사용(+card 인자).
 //    * `ContinuousController.instance.PlaySE(GManager.instance.GetComponent<Effects>().BuffSE)`(AS-IS :227/235) =
 //      UI/SE 연출 — 미러 확립 관례상 스트립(ST17_13 :191 판례).
 //    * `new DeckBottomBounceClass(List<Permanent>, hashtable).DeckBounce()`(AS-IS :543) → 미러 canonical
@@ -65,12 +65,6 @@ public sealed class BT21_030 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        // 미러 SelectPermanentEffect는 id-형 canTargetCondition — AS-IS Permanent-술어의 id 어댑터.
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Alternative Digivolution Condition
 
@@ -216,9 +210,6 @@ public sealed class BT21_030 : CEntity_Effect
                 return false;
             }
 
-            bool CanSelectPermanentById(HeadlessEntityId id) =>
-                PermanentOf(id) is Permanent p && CanSelectPermanentCondition(p);
-
             bool CardCondition(CardSource cardSource)
             {
                 return cardSource == card;
@@ -254,7 +245,7 @@ public sealed class BT21_030 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -392,9 +383,6 @@ public sealed class BT21_030 : CEntity_Effect
             return false;
         }
 
-        bool SharedCanSelectPermanentById(HeadlessEntityId id) =>
-            PermanentOf(id) is Permanent p && SharedCanSelectPermanent(p);
-
         async Task SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
         {
             if (CardEffectCommons.HasMatchConditionPermanent(card, SharedCanSelectPermanent))
@@ -406,7 +394,7 @@ public sealed class BT21_030 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: SharedCanSelectPermanentById,
+                    canTargetCondition: SharedCanSelectPermanent,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: maxCount,
@@ -569,9 +557,6 @@ public sealed class BT21_030 : CEntity_Effect
                 return false;
             }
 
-            bool CanSelectPermanentById(HeadlessEntityId id) =>
-                PermanentOf(id) is Permanent p && CanSelectPermanentCondition(p);
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
@@ -584,7 +569,7 @@ public sealed class BT21_030 : CEntity_Effect
                     // Mode.PutLibraryBottom(select+bounce 융합, EX5_055 판례). canNoSelect true(옵션 "may").
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

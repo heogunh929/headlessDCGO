@@ -9,8 +9,8 @@
 //   .SetUp(mode: Custom, canNoSelect:false, canEndNotMax:false, selectPermanentCoroutine); per selected permanent
 //   CardEffectCommons.ChangeBaseDigimonDP(permanent, 3000, UntilOpponentTurnEnd, activateClass).
 // Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>
-//   CanSelectPermanentCondition` -> the established `Func<HeadlessEntityId,bool>` idiom (IsOpponentBattleAreaDigimon,
-//   serves both MatchConditionPermanentCount and SelectPermanentEffect.canTargetCondition, ST1_08/BT1_098 pattern);
+//   CanSelectPermanentCondition` is expressed verbatim on the canonical Func<Permanent,bool> shape (id-flip 3b),
+//   serving both MatchConditionPermanentCount and SelectPermanentEffect.canTargetCondition;
 //   `GManager.instance.GetComponent<SelectPermanentEffect>()` -> bridge W4.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
@@ -42,9 +42,9 @@ public sealed class BT1_105 : CEntity_Effect
                 return "[Main] Change the original DP of 1 of your opponent's Digimon to 3000 until the end of your opponent's next turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
                     return true;
                 }

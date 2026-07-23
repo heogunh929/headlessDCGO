@@ -38,9 +38,8 @@
 // 치환(substrate translations only):
 //    * IEnumerator→async Task, `yield return ContinuousController.instance.StartCoroutine(X)`→`await X`,
 //      lone `yield return null`→`Task.CompletedTask`.
-//    * SelectPermanentEffect canTargetCondition는 미러가 Func<HeadlessEntityId,bool> — AS-IS Func<Permanent,bool>
-//      술어를 PermanentOf(id) 어댑터로 전달(술어 자체 1:1; BT17_026/LM_054 판례). Has/Count 스캔은
-//      Permanent-술어 오버로드 직접 사용.
+//    * SelectPermanentEffect canTargetCondition는 정본 Func<Permanent,bool> — AS-IS Permanent-술어를 그대로
+//      전달(id 어댑터 없음). Has/Count 스캔도 동일 Permanent-술어 오버로드 직접 사용.
 //    * `card.Owner`(AS-IS Player) → HeadlessPlayerId; Player 조작은 `new Player(card.Context, card.Owner)`.
 //    * `new DrawClass(card.Owner, 1, activateClass)` → 미러 `new DrawClass(card.Context, card.Owner, 1,
 //      cause, activateClass)`(CardController.cs:186 시그니처; cause=효과원 InstanceId).
@@ -62,12 +61,6 @@ public sealed class EX10_045 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        // 미러 SelectPermanentEffect는 id-형 canTargetCondition — AS-IS Permanent-술어의 id 어댑터.
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Alternate Digivolution Requirement
 
@@ -200,12 +193,6 @@ public sealed class EX10_045 : CEntity_Effect
                 && permanent.DigivolutionCards.Count > 0;
         }
 
-        bool CanSelectPermanentById(HeadlessEntityId id) =>
-            PermanentOf(id) is Permanent p && CanSelectPermanent(p);
-
-        bool CanSelectPermamentTrashDigivolutionById(HeadlessEntityId id) =>
-            PermanentOf(id) is Permanent p && CanSelectPermamentTrashDigivolution(p);
-
         async Task SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
         {
             if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermamentTrashDigivolution))
@@ -219,7 +206,7 @@ public sealed class EX10_045 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermamentTrashDigivolutionById,
+                    canTargetCondition: CanSelectPermamentTrashDigivolution,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: maxCount,
@@ -300,7 +287,7 @@ public sealed class EX10_045 : CEntity_Effect
 
                             selectPermanentEffect1.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: CanSelectPermanentById,
+                                canTargetCondition: CanSelectPermanent,
                                 canTargetCondition_ByPreSelecetedList: null,
                                 canEndSelectCondition: null,
                                 maxCount: maxCount1,

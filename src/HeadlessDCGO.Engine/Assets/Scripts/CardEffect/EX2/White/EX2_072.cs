@@ -201,28 +201,17 @@ public sealed class EX2_072 : CEntity_Effect
                                 return false;
                             }
 
-                            Permanent? PermanentOf(HeadlessEntityId id) =>
-                                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                                    ? new Permanent(card.Context, id, rec.OwnerId)
-                                    : null;
-
-                            bool CanSelectPermanentById(HeadlessEntityId id)
-                            {
-                                Permanent? permanent = PermanentOf(id);
-                                return permanent is not null && CanSelectPermanentCondition(permanent);
-                            }
-
                             if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
                             {
                                 Permanent selectedPermanent = null;
 
-                                maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+                                maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
 
                                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                                 selectPermanentEffect.SetUp(
                                     selectPlayer: card.Owner,
-                                    canTargetCondition: CanSelectPermanentById,
+                                    canTargetCondition: CanSelectPermanentCondition,
                                     canTargetCondition_ByPreSelecetedList: null,
                                     canEndSelectCondition: null,
                                     maxCount: maxCount,

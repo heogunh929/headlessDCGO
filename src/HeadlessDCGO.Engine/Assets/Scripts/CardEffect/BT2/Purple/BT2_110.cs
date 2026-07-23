@@ -37,11 +37,11 @@ public sealed class BT2_110 : CEntity_Effect
                 return "[Main] Delete 1 of your opponent's unsuspended Digimon.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, permanent.InstanceId))
                 {
-                    if (!CardEffectCommons.IsSuspended(card, id))
+                    if (!CardEffectCommons.IsSuspended(card, permanent.InstanceId))
                     {
                         return true;
                     }

@@ -4,8 +4,8 @@
 // AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
 // functions. CanUseCondition/CanActivateCondition resolve via the existing bridge; AS-IS
 // `CanSelectPermanentCondition(Permanent permanent)` = `IsPermanentExistsOnOpponentBattleAreaDigimon(permanent,
-// card) && permanent.HasBlocker` is expressed over the established `Func<HeadlessEntityId,bool>` idiom (mirror
-// (R1-c) rehoused: `permanent.HasBlocker` is now the AS-IS getter `new Permanent(context, id).HasBlocker`).
+// card) && permanent.HasBlocker` is expressed verbatim on the canonical Func<Permanent,bool> shape (id-flip 3b);
+// (R1-c) `permanent.HasBlocker` is the AS-IS getter read directly off the Permanent.
 //
 // UNRESOLVED MEMBERS (kept verbatim, not simplified/faked; see docs/audit/rebuild_p5_cards_missing.md): AS-IS
 // `GManager.instance.GetComponent<SelectPermanentEffect>()` / full AS-IS `SetUp(...)` / `.Activate()` — same gap
@@ -39,11 +39,11 @@ public sealed class BT1_023 : CEntity_Effect
                 return "[On Play] Delete 1 of your opponent's Digimon with <Blocker>.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (new Permanent(card.Context, id).HasBlocker)
+                    if (permanent.HasBlocker)
                     {
                         return true;
                     }

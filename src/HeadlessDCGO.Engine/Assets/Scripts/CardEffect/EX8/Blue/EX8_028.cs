@@ -211,17 +211,6 @@ public sealed class EX8_028 : CEntity_Effect
                 return false;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card) &&
@@ -250,7 +239,7 @@ public sealed class EX8_028 : CEntity_Effect
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
                     canTargetCondition_ByPreSelecetedList: null,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canEndSelectCondition: null,
                     maxCount: 1,
                     canNoSelect: false,
@@ -318,17 +307,6 @@ public sealed class EX8_028 : CEntity_Effect
                 return false;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOnAttack(hashtable, card) &&
@@ -357,7 +335,7 @@ public sealed class EX8_028 : CEntity_Effect
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
                     canTargetCondition_ByPreSelecetedList: null,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canEndSelectCondition: null,
                     maxCount: 1,
                     canNoSelect: false,

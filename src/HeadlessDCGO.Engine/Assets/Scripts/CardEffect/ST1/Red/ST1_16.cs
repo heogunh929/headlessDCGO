@@ -10,8 +10,8 @@
 // AS-IS structure kept verbatim: `SetUpActivateClass(null, ...)` (CanActivateCondition IS null),
 // `canNoSelect: false, canEndNotMax: false`, `canEndSelectCondition: null`.
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
-// idiom (see BT1_017.cs).
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` kept on the canonical `Func<Permanent,bool>` shape
+// (id-flip 3b).
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST1.Red;
 
@@ -41,9 +41,9 @@ public sealed class ST1_16 : CEntity_Effect
                 return "[Main] Delete 1 of your opponent's Digimon.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

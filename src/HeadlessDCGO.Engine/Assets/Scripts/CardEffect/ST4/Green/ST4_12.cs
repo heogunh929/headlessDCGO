@@ -13,8 +13,10 @@
 // .Contains(PermanentOfThisCard()) + HasMatchConditionPermanent) that duplicates CanActivateCondition — not
 // simplified/dropped, per the no-simplification rule.
 // Substrate translation only: IEnumerator->Task; `yield return ContinuousController.instance.StartCoroutine(X)`
-// -> `await X`; `Func<Permanent,bool> CanSelectPermanentCondition` -> the established
-// `Func<HeadlessEntityId,bool>` id-shape idiom (IsOpponentBattleAreaDigimon(card, id)); AS-IS
+// -> `await X`; the AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` is kept Permanent-shaped as the
+// local `PermanentCondition(Permanent)` fed directly to HasMatchConditionPermanent/MatchConditionPermanentCount
+// AND SelectPermanentEffect.SetUp's canTargetCondition (id-flip 3b canonical overload — no id-shape sibling
+// needed); AS-IS
 // `card.Owner.GetBattleAreaDigimons().Contains(card.PermanentOfThisCard())` -> `new Player(card.Context,
 // card.Owner).GetBattleAreaDigimons()` (the established bare-HeadlessPlayerId -> Player instantiation idiom,
 // see BT1_104.cs/BT1_110.cs) + `.Any(permanent => permanent.InstanceId == card.PermanentOfThisCard()
@@ -49,9 +51,9 @@ public sealed class ST4_12 : CEntity_Effect
                 return "[When Digivolving] 1 of your opponent's Digimon can't attack or block until the end of their next turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool PermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)
@@ -63,7 +65,7 @@ public sealed class ST4_12 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(card, PermanentCondition))
                     {
                         return true;
                     }
@@ -79,15 +81,15 @@ public sealed class ST4_12 : CEntity_Effect
                     if (new Player(card.Context, card.Owner).GetBattleAreaDigimons()
                         .Any(permanent => permanent.InstanceId == card.PermanentOfThisCard().TopInstanceId))
                     {
-                        if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                        if (CardEffectCommons.HasMatchConditionPermanent(card, PermanentCondition))
                         {
-                            int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                            int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, PermanentCondition));
 
                             SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: CanSelectPermanentCondition,
+                                canTargetCondition: PermanentCondition,
                                 canTargetCondition_ByPreSelecetedList: null,
                                 canEndSelectCondition: null,
                                 maxCount: maxCount,

@@ -81,7 +81,7 @@ public static partial class CardEffectCommons
             permanent1.InstanceId != attackProcess.DefendingPermanent?.InstanceId && !permanent1.IsSuspended;
 
         HeadlessPlayerId enemyId = new Player(card.Context, targetPermanent.TopCard!.Owner).Enemy!.PlayerId;
-        return HasMatchConditionPermanent(card, (HeadlessEntityId id) => IsMaxDP(PermanentOf(card, id), enemyId, PermanentCondition));
+        return HasMatchConditionPermanent(card, (Permanent permanent) => IsMaxDP(permanent, enemyId, PermanentCondition));
     }
 
     /// <summary>(P6 cluster2) AS-IS <c>RaidProcess</c> (KeyWordEffects/Raid.cs:40): owner chooses 1 of the
@@ -96,8 +96,8 @@ public static partial class CardEffectCommons
         }
 
         HeadlessPlayerId enemyId = new Player(card.Context, targetPermanent.TopCard!.Owner).Enemy!.PlayerId;
-        bool CanSelectPermanentCondition(HeadlessEntityId id) =>
-            IsMaxDP(PermanentOf(card, id), enemyId, permanent1 => !permanent1.IsSuspended);
+        bool CanSelectPermanentCondition(Permanent permanent) =>
+            IsMaxDP(permanent, enemyId, permanent1 => !permanent1.IsSuspended);
 
         if (!HasMatchConditionPermanent(card, CanSelectPermanentCondition))
         {
@@ -109,7 +109,7 @@ public static partial class CardEffectCommons
             "Select 1 Digimon that this Digimon attacks to.",
             minCount: 0, maxCount: 1, canSkip: true,
             EnumerateFieldPermanentViews(card, isContainBreedingArea: false)
-                .Where(p => CanSelectPermanentCondition(p.InstanceId))
+                .Where(p => CanSelectPermanentCondition(p))
                 .Select(p => EffectChoiceHelpers.Candidate(p.InstanceId, p.InstanceId.Value, Headless.Choices.ChoiceZone.BattleArea, isSelectable: true, p.OwnerId))
                 .ToList());
         Headless.Choices.ChoiceResult result = await card.Context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);

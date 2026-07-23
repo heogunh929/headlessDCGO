@@ -24,7 +24,7 @@ public sealed class BT1_004 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.MatchConditionPermanentCount(card, id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) && CardEffectCommons.HasNoDigivolutionCards(card, id)) >= 2)
+                        if (CardEffectCommons.MatchConditionPermanentCount(card, permanent => CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)) >= 2)
                         {
                             return true;
                         }

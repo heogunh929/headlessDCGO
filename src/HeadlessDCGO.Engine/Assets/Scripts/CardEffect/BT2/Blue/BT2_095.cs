@@ -7,8 +7,8 @@
 // `GManager.instance.GetComponent<SelectPermanentEffect>()` (Mode.Bounce) selection pattern (bridge W4).
 // Substrate translations: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
 // AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` (with `permanent.Level == 3` / `permanent.TopCard.
-// HasLevel`) -> the established entity-id predicate idiom (`CardEffectCommons.LevelOf(card, id)` / the id
-// carries the same top-card-level-gate the mirror `LevelOf` helper already applies internally).
+// HasLevel`) kept 1:1, passed directly to
+// `SelectPermanentEffect.SetUp`/`MatchConditionPermanentCount`/`HasMatchConditionPermanent`.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Blue;
 
 using System;
@@ -37,10 +37,21 @@ public sealed class BT2_095 : CEntity_Effect
                 return "[Main] Return up to 3 of your opponent's level 3 Digimon to their hand. (Trash all of the digivolution cards of those Digimon.)";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            // Permanent-form predicate (RULE A/D): feeds MatchConditionPermanentCount/HasMatchConditionPermanent and the SelectPermanentEffect.SetUp canTargetCondition consumer directly.
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
-                    && CardEffectCommons.LevelOf(card, id) == 3;
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                {
+                    if (permanent.Level == 3)
+                    {
+                        if (permanent.TopCard.HasLevel)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
             }
 
             bool CanUseCondition(Hashtable hashtable)

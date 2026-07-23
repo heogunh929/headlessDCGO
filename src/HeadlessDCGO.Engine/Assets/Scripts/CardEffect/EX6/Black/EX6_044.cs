@@ -33,8 +33,8 @@
 //      `new IDegeneration(permanent, 1, activateClass.EffectSourceCard?.InstanceId, cardEffect: activateClass)
 //      .Degeneration()` (symbol_map §2.5, CardController.cs:831 시그니처).
 //    * `Func<Permanent,bool>` 술어(IsLevel6OrHasLegendArmsTrait/IsYourDigimon)는 SelectPermanentEffect의
-//      canTargetCondition(id-형)에 id-어댑터를 덧댐(BT17_026 idiom); HasMatchConditionPermanent는 Permanent
-//      오버로드 그대로(§2.3 비대칭).
+//      canTargetCondition(정본 Func<Permanent,bool>)에 직접 전달(id 어댑터 없음); HasMatchConditionPermanent도
+//      동일 Permanent 오버로드(§2.3 비대칭).
 //    * `CardEffectCommons.IsOpponentEffect(cardEffect, card)`/`IsOwnerEffect(cardEffect, card)`(AS-IS
 //      1st arg=ICardEffect) → mirror 1st arg=CardSource?: `IsOpponentEffect(cardEffect.EffectSourceCard, card)`
 //      / `IsOwnerEffect(cardEffect.EffectSourceCard, card)`(GameContextDeterminarion.cs:788,808 시그니처 델타).
@@ -132,17 +132,6 @@ public sealed class EX6_044 : CEntity_Effect
                 return false;
             }
 
-            Permanent? PermanentOfHM(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool IsLevel6OrHasLegendArmsTraitById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOfHM(id);
-                return permanent is not null && IsLevel6OrHasLegendArmsTrait(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 if (CardEffectCommons.IsExistOnHand(card))
@@ -162,13 +151,13 @@ public sealed class EX6_044 : CEntity_Effect
 
                 if (CardEffectCommons.HasMatchConditionPermanent(card, IsLevel6OrHasLegendArmsTrait))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsLevel6OrHasLegendArmsTraitById));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsLevel6OrHasLegendArmsTrait));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: IsLevel6OrHasLegendArmsTraitById,
+                        canTargetCondition: IsLevel6OrHasLegendArmsTrait,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -229,17 +218,6 @@ public sealed class EX6_044 : CEntity_Effect
                 return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
-            Permanent? PermanentOfWD(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool IsYourDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOfWD(id);
-                return permanent is not null && IsYourDigimon(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
@@ -256,13 +234,13 @@ public sealed class EX6_044 : CEntity_Effect
 
                 if (CardEffectCommons.HasMatchConditionPermanent(card, IsYourDigimon))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsYourDigimonById));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsYourDigimon));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: IsYourDigimonById,
+                        canTargetCondition: IsYourDigimon,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

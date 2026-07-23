@@ -11,10 +11,11 @@
 // AS-IS structure kept verbatim: `SetUpActivateClass(null, ...)` (CanActivateCondition IS null), `canNoSelect:
 // false, canEndNotMax: true`, the `CanEndSelectCondition` local guarding against an empty selection list.
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
-// idiom (see BT1_017.cs); AS-IS `permanent.DP <= card.Owner.MaxDP_DeleteEffect(4000, activateClass)` (a
-// raise-able threshold) -> `CardEffectCommons.CurrentDp(card, id) <= CardEffectCommons.MaxDpDeleteThreshold(
-// card, baseThreshold: 4000)` (established mirror of the same raise-able-cap semantics, over the id idiom).
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` kept on the canonical `Func<Permanent,bool>` shape
+// (id-flip 3b); AS-IS `permanent.DP <= card.Owner.MaxDP_DeleteEffect(4000, activateClass)` (a raise-able
+// threshold) -> `CardEffectCommons.CurrentDp(card, permanent.InstanceId) <= new Player(...).MaxDP_DeleteEffect(
+// 4000, activateClass)` (same raise-able-cap semantics; CurrentDp has no Permanent-form overload, so it is
+// called with `permanent.InstanceId`, commons signature unchanged).
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST1.Red;
 
@@ -44,11 +45,11 @@ public sealed class ST1_15 : CEntity_Effect
                 return "[Main] Delete up to 2 of your opponent's Digimon with 4000 DP or less.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (CardEffectCommons.CurrentDp(card, id) <= new Player(card.Context, card.Owner).MaxDP_DeleteEffect(4000, activateClass))
+                    if (CardEffectCommons.CurrentDp(card, permanent.InstanceId) <= new Player(card.Context, card.Owner).MaxDP_DeleteEffect(4000, activateClass))
                     {
                         return true;
                     }

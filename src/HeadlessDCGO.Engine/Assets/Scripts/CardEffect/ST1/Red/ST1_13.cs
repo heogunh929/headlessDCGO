@@ -11,8 +11,8 @@
 // AS-IS structure kept verbatim: `SetUpActivateClass(null, ...)` (CanActivateCondition IS null in both AS-IS
 // blocks), `SetIsSecurityEffect(true)` on the Security block only.
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
-// idiom (see BT1_017.cs) for the [Main] select predicate (serves SetUp/HasMatchConditionPermanent/
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` kept on the canonical `Func<Permanent,bool>` shape
+// (id-flip 3b) for the [Main] select predicate (serves SetUp/HasMatchConditionPermanent/
 // MatchConditionPermanentCount alike); the [Security] `PermanentCondition(Permanent permanent)` keeps its
 // AS-IS `Func<Permanent,bool>` shape verbatim since `ChangeDigimonSAttackPlayerEffect`'s AS-IS-signature
 // overload takes that shape directly (no id-conversion needed there).
@@ -46,9 +46,9 @@ public sealed class ST1_13 : CEntity_Effect
                 return "[Main] 1 of your Digimon gets +3000 DP for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

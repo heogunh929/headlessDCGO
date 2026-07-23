@@ -25,10 +25,12 @@ public sealed class BT1_068 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        HeadlessEntityId topId = card.PermanentOfThisCard().TopInstanceId;
-                        if (CardEffectCommons.LevelOf(card, topId) >= 6)
+                        // AS-IS BT1_068: `card.PermanentOfThisCard().Level >= 6` then `.TopCard.HasLevel`
+                        // (Permanent/CardSource direct-read; PermanentOfThisCard() = the canonical Permanent view).
+                        Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(card);
+                        if (permanent.Level >= 6)
                         {
-                            if (CardEffectCommons.TopCardHasLevel(card, topId))
+                            if (permanent.TopCard.HasLevel)
                             {
                                 return true;
                             }

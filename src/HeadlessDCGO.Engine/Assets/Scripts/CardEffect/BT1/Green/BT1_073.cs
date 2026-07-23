@@ -17,9 +17,9 @@ public sealed class BT1_073 : CEntity_Effect
 
         if (timing == EffectTiming.None)
         {
-            int Count() => CardEffectCommons.MatchConditionPermanentCount(card, id =>
-                CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) &&
-                CardEffectCommons.IsSuspended(card, id));
+            int Count() => CardEffectCommons.MatchConditionPermanentCount(card, permanent =>
+                CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) &&
+                permanent.IsSuspended);
 
             bool Condition() => CardEffectCommons.IsOwnerTurn(card) && Count() >= 1;
 

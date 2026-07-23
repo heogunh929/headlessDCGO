@@ -18,8 +18,9 @@ public sealed class TfxCannotReduceCost : CEntity_Effect
     /// <summary>Which played card the restriction targets (AS-IS cardCondition). Set by the harness.</summary>
     public static Func<CardSource, bool> CardCondition = _ => true;
 
-    /// <summary>Which cost path the restriction protects (AS-IS targetPermanentsCondition). Set by the harness.</summary>
-    public static CostReductionScope CostKind = CostReductionScope.Both;
+    /// <summary>Which cost path the restriction protects (AS-IS targetPermanentsCondition). Set by the harness;
+    /// null = the trivial predicate (protect either cost).</summary>
+    public static Func<List<Permanent>, bool>? TargetPermanentsCondition = null;
 
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -32,7 +33,7 @@ public sealed class TfxCannotReduceCost : CEntity_Effect
                 isInheritedEffect: false,
                 card: card,
                 condition: null,
-                costKind: CostKind));
+                targetPermanentsCondition: TargetPermanentsCondition));
         }
         return effects;
     }

@@ -19,8 +19,8 @@
 //      CanReduceCost/GetBattleAreaPermanents/UntilCalculateFixedCostEffect)은 `new Player(card.Context, card.Owner).*`.
 //    * `GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer` → `new GameContext(card.Context).
 //      Players_ForTurnPlayer`(미러 확립 idiom; List<Player>).
-//    * `SelectPermanentEffect` canTargetCondition는 id-형 — AS-IS Permanent-술어를 PermanentOf(id) 어댑터로 전달
-//      (BT21_030 판례). Has/Count 스캔은 Permanent-술어 직접 사용.
+//    * `SelectPermanentEffect` canTargetCondition는 정본 Permanent-형(Func<Permanent,bool>) — AS-IS Permanent-술어를
+//      그대로 전달(id 어댑터 없음). Has/Count 스캔도 동일 Permanent-술어 직접 사용.
 //    * `card.PermanentOfThisCard()`(PermanentView) → `ICardEffect.ResolvePermanentOfThisCard(card)`(Permanent;
 //      ST1_09/BT2_081 판례).
 //    * `card.Owner.Enemy`(AS-IS live Player.Enemy) → `new Player(card.Context, card.Owner).Enemy?.PlayerId`
@@ -45,12 +45,6 @@ public sealed class BT3_056 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        // 미러 SelectPermanentEffect는 id-형 canTargetCondition — AS-IS Permanent-술어의 id 어댑터(BT21_030 판례).
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Digisorption -3 (BeforePayCost)
 
@@ -98,9 +92,6 @@ public sealed class BT3_056 : CEntity_Effect
 
                 return false;
             }
-
-            bool CanSelectPermanentById(HeadlessEntityId id) =>
-                PermanentOf(id) is Permanent p && CanSelectPermanentCondition(p);
 
             bool CanUseCondition(Hashtable hashtable)
             {
@@ -210,7 +201,7 @@ public sealed class BT3_056 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

@@ -1,12 +1,21 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // B-5 / F-2.2 / F-2.4: SelectCardEffect (the card-zone selection sibling of SelectPermanentEffect). It
 // enumerates a player's cards in a Root zone (Hand/Library/Trash/...) and maps the Mode to a mutation:
 // Discard = trash (hand discard, deck mill), AddHand = return to hand (trash recovery).
+//
+// (RD-IDFLIP-01 batch 5) The invented id-form 8-param SetUp (Func<HeadlessEntityId,bool>) was physically
+// retired; this test is re-driven on the CANONICAL AS-IS 16-param SetUp with the AS-IS Func<CardSource,bool>
+// predicate shape, reached the verbatim-card-corpus way (GManager.instance.GetComponent<SelectCardEffect>()
+// under an AmbientMatchContext scope, which AttachContext()s the match). The deterministic BuildRequest /
+// BuildMutations / Apply surface (the SelectPermanentEffect sibling) is unchanged; the predicate is now
+// materialised to a CardSource view at the eval point (D9). Assertions preserved.
 
 HeadlessPlayerId P1 = new(1);
 
@@ -49,7 +58,7 @@ Task RootMapping()
     ChoiceZone RootZoneOf(SelectCardEffect.Root root)
     {
         var sel = new SelectCardEffect();
-        sel.SetUp(P1, _ => true, 1, false, false, SelectCardEffect.Mode.Custom, root, new HeadlessEntityId("src"));
+        Configure(sel, _ => true, maxCount: 1, canNoSelect: false, canEndNotMax: false, SelectCardEffect.Mode.Custom, root);
         return sel.RootZone;
     }
 }
@@ -61,9 +70,9 @@ async Task BuildRequestFromHand()
     await Place(context, new HeadlessEntityId("h2"), ChoiceZone.Hand);
     await Place(context, new HeadlessEntityId("keep"), ChoiceZone.Hand);
 
-    var sel = new SelectCardEffect();
-    sel.SetUp(P1, id => id.Value.StartsWith("h", StringComparison.Ordinal), maxCount: 2,
-        canNoSelect: false, canEndNotMax: false, SelectCardEffect.Mode.Discard, SelectCardEffect.Root.Hand, new HeadlessEntityId("src"));
+    SelectCardEffect sel = Component(context);
+    Configure(sel, cs => cs.InstanceId.Value.StartsWith("h", StringComparison.Ordinal), maxCount: 2,
+        canNoSelect: false, canEndNotMax: false, SelectCardEffect.Mode.Discard, SelectCardEffect.Root.Hand);
 
     ChoiceRequest request = sel.BuildRequest(Zones(context));
     AssertEqual(2, request.Candidates.Count, "only h1/h2 match the predicate");
@@ -78,8 +87,8 @@ async Task DiscardFromHand()
     HeadlessEntityId card = new("h1");
     await Place(context, card, ChoiceZone.Hand);
 
-    var sel = new SelectCardEffect();
-    sel.SetUp(P1, _ => true, 1, false, false, SelectCardEffect.Mode.Discard, SelectCardEffect.Root.Hand, new HeadlessEntityId("src"));
+    SelectCardEffect sel = Component(context);
+    Configure(sel, _ => true, maxCount: 1, canNoSelect: false, canEndNotMax: false, SelectCardEffect.Mode.Discard, SelectCardEffect.Root.Hand);
     ChoiceRequest request = sel.BuildRequest(Zones(context));
     var provider = new ScriptedChoiceProvider();
     provider.Enqueue(ChoiceResult.Select(card));
@@ -99,8 +108,8 @@ async Task MillFromLibrary()
     HeadlessEntityId top = new("d1");
     await Place(context, top, ChoiceZone.Library);
 
-    var sel = new SelectCardEffect();
-    sel.SetUp(P1, _ => true, 1, false, false, SelectCardEffect.Mode.Discard, SelectCardEffect.Root.Library, new HeadlessEntityId("src"));
+    SelectCardEffect sel = Component(context);
+    Configure(sel, _ => true, maxCount: 1, canNoSelect: false, canEndNotMax: false, SelectCardEffect.Mode.Discard, SelectCardEffect.Root.Library);
     MatchStateMutationSink sink = Sink(context);
     sel.Apply(sink, new[] { top });
     await sink.FlushAsync();
@@ -114,8 +123,8 @@ async Task RecoverFromTrash()
     HeadlessEntityId card = new("t1");
     await Place(context, card, ChoiceZone.Trash);
 
-    var sel = new SelectCardEffect();
-    sel.SetUp(P1, _ => true, 1, false, false, SelectCardEffect.Mode.AddHand, SelectCardEffect.Root.Trash, new HeadlessEntityId("src"));
+    SelectCardEffect sel = Component(context);
+    Configure(sel, _ => true, maxCount: 1, canNoSelect: false, canEndNotMax: false, SelectCardEffect.Mode.AddHand, SelectCardEffect.Root.Trash);
     MatchStateMutationSink sink = Sink(context);
     sel.Apply(sink, new[] { card });
     await sink.FlushAsync();
@@ -130,8 +139,8 @@ async Task PlayForFreePlaysToField()
     HeadlessEntityId card = new("h1");
     await Place(context, card, ChoiceZone.Hand);
 
-    var sel = new SelectCardEffect();
-    sel.SetUp(P1, _ => true, 1, false, false, SelectCardEffect.Mode.PlayForFree, SelectCardEffect.Root.Hand, new HeadlessEntityId("src"));
+    SelectCardEffect sel = Component(context);
+    Configure(sel, _ => true, maxCount: 1, canNoSelect: false, canEndNotMax: false, SelectCardEffect.Mode.PlayForFree, SelectCardEffect.Root.Hand);
     MatchStateMutationSink sink = Sink(context);
     sel.Apply(sink, new[] { card });
     await sink.FlushAsync();
@@ -148,8 +157,8 @@ async Task PlayForCostPaysCost()
     await Place(context, card, ChoiceZone.Hand);
     context.MemoryController.Set(5);
 
-    var sel = new SelectCardEffect();
-    sel.SetUp(P1, _ => true, 1, false, false, SelectCardEffect.Mode.PlayForCost, SelectCardEffect.Root.Hand, new HeadlessEntityId("src"));
+    SelectCardEffect sel = Component(context);
+    Configure(sel, _ => true, maxCount: 1, canNoSelect: false, canEndNotMax: false, SelectCardEffect.Mode.PlayForCost, SelectCardEffect.Root.Hand);
     sel.SetPlayCost(2);
 
     var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController);
@@ -161,6 +170,37 @@ async Task PlayForCostPaysCost()
 }
 
 // --- Helpers -------------------------------------------------------------
+
+// The canonical AS-IS acquisition route (GManager.instance.GetComponent<SelectCardEffect>() under an
+// AmbientMatchContext scope) — GetComponent AttachContext()s the ambient match onto the fresh instance, so the
+// component carries the context (needed by BuildRequest's CardSource materialisation) for the whole test.
+SelectCardEffect Component(EngineContext context)
+{
+    using AmbientMatchContext.Scope scope = AmbientMatchContext.Enter(context);
+    return GManager.instance!.GetComponent<SelectCardEffect>();
+}
+
+// The CANONICAL AS-IS 16-param SetUp on the AS-IS Func<CardSource,bool> predicate shape (the invented id-form
+// SetUp was retired). canNoSelect is the AS-IS Func<bool>; cardEffect is null for the deterministic surface.
+void Configure(SelectCardEffect sel, Func<CardSource, bool> canTargetCondition, int maxCount, bool canNoSelect,
+    bool canEndNotMax, SelectCardEffect.Mode mode, SelectCardEffect.Root root) =>
+    sel.SetUp(
+        canTargetCondition: canTargetCondition,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        canNoSelect: canNoSelect ? () => true : null,
+        selectCardCoroutine: null,
+        afterSelectCardCoroutine: null,
+        message: "Select card(s).",
+        maxCount: maxCount,
+        canEndNotMax: canEndNotMax,
+        isShowOpponent: false,
+        mode: mode,
+        root: root,
+        customRootCardList: null,
+        canLookReverseCard: false,
+        selectPlayer: P1,
+        cardEffect: null!);
 
 MatchStateMutationSink Sink(EngineContext context) =>
     new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null);

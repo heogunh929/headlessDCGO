@@ -13,8 +13,8 @@
 //     상대 1체 — BT25_061/BT25_101/ST22_08/EX10_043 선례와 동형; linked-effect 소속 디스패치는 기존
 //     design item C2-01(latent, ActivatedEffectResolver.cs 원장)이며 이 카드가 새로 발생시키는 갭이 아님.
 //
-// 치환(substrate translations only): IEnumerator→async Task, StartCoroutine(X)→await X; id-adapter
-// (SelectPermanentEffect canTargetCondition); `permanent == card.PermanentOfThisCard()` →
+// 치환(substrate translations only): IEnumerator→async Task, StartCoroutine(X)→await X;
+// SelectPermanentEffect canTargetCondition는 Permanent-술어 직접 전달; `permanent == card.PermanentOfThisCard()` →
 // `permanent.InstanceId == ICardEffect.ResolvePermanentOfThisCard(card).InstanceId`; `new IDegeneration(permanent,
 // 1, activateClass)` → `new IDegeneration(permanent, 1, activateClass.EffectSourceCard?.InstanceId,
 // cardEffect: activateClass)`(symbol_map_guide §2.5 canonical example).
@@ -34,11 +34,6 @@ public sealed class BT21_059 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Alternative Digivolution Condition
         if (timing == EffectTiming.None)
@@ -90,12 +85,6 @@ public sealed class BT21_059 : CEntity_Effect
             bool IsOpponentsDigimon(Permanent permanent) =>
                 CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
 
-            bool IsOpponentsDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && IsOpponentsDigimon(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable) =>
                 CardEffectCommons.IsExistOnBattleAreaDigimon(card) &&
                 CardEffectCommons.IsOwnerTurn(card) &&
@@ -108,7 +97,7 @@ public sealed class BT21_059 : CEntity_Effect
             {
                 if (CardEffectCommons.HasMatchConditionPermanent(card, IsOpponentsDigimon))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsOpponentsDigimonById));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsOpponentsDigimon));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -122,7 +111,7 @@ public sealed class BT21_059 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: IsOpponentsDigimonById,
+                        canTargetCondition: IsOpponentsDigimon,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -160,24 +149,18 @@ public sealed class BT21_059 : CEntity_Effect
             bool IsOpponentsDigimon(Permanent permanent) =>
                 CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
 
-            bool IsOpponentsDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && IsOpponentsDigimon(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable) =>
                 CardEffectCommons.CanTriggerWhenLinking(hashtable, null, card);
 
             bool CanActivateCondition(Hashtable hashtable) =>
                 CardEffectCommons.IsExistOnBattleArea(card) &&
-                CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsOpponentsDigimonById);
+                CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsOpponentsDigimon);
 
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 if (CardEffectCommons.HasMatchConditionPermanent(card, IsOpponentsDigimon))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsOpponentsDigimonById));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, IsOpponentsDigimon));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -191,7 +174,7 @@ public sealed class BT21_059 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: IsOpponentsDigimonById,
+                        canTargetCondition: IsOpponentsDigimon,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

@@ -8,8 +8,9 @@
 // OnEnterFieldAnyone; see the DISPATCH REMAP note at the timing check below).
 // AS-IS structure kept verbatim: inline ActivateClass, nested select + local ActivateCoroutine.
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
-// idiom (see BT1_017.cs); AS-IS `CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition)` /
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` kept on the canonical `Func<Permanent,bool>` shape
+// (id-flip 3b — SelectPermanentEffect.SetUp's canTargetCondition takes the Permanent predicate directly);
+// AS-IS `CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition)` /
 // `MatchConditionPermanentCount(CanSelectPermanentCondition)` (global scan, no CardSource arg in AS-IS) ->
 // mirror's `(card, condition)` overloads (same substrate adaptation already established across the ported
 // corpus, e.g. BT1_017/BT1_104).
@@ -49,9 +50,9 @@ public sealed class ST1_08 : CEntity_Effect
                 return "[When Digivolving] 1 of your Digimon gets +3000 DP for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

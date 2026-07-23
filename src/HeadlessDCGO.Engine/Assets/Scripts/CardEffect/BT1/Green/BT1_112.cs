@@ -37,9 +37,9 @@ public sealed class BT1_112 : CEntity_Effect
                 return "[Main] 1 of your Digimon gains the following effect for the turn: When this Digimon deletes an opponent's Digimon in battle and survives, unsuspend it.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

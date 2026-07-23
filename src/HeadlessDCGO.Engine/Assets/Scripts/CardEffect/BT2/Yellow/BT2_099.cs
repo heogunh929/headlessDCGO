@@ -113,9 +113,9 @@ public sealed class BT2_099 : CEntity_Effect
                 return "[Main] 1 of your opponent's Digimon gets -12000 DP for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, permanent.InstanceId);
             }
 
             bool CanUseCondition(Hashtable hashtable)

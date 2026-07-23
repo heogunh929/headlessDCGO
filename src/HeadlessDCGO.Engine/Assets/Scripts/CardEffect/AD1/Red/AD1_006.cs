@@ -47,10 +47,9 @@
 //    * `permanent.DigivolutionCards`(customRootCardList용) → `.ToList()` (§2.5, IReadOnlyList→List; BT5_086:210
 //      idiom).
 //    * `DigivolutionCards.Some(...)` — 미러에 동일 확장 메서드 존재(IEnumerableExtension.cs:63) 그대로.
-//    * id-어댑터(§2.3 critical rule) — `HasMatchConditionOpponentsPermanent`(CardEffectCommons.cs:4772)와
-//      `SelectPermanentEffect.SetUp`의 `canTargetCondition`은 `Func&lt;HeadlessEntityId,bool&gt;` 전용
-//      (`HasMatchConditionOwnersPermanent`는 Permanent-술어 오버로드 유지, 어댑터 불필요) — IsWeakerEnemyDigimon/
-//      CanSelectSaveTamerPermanentCondition은 AS-IS 본문 그대로 두고 PermanentOf/…ById 어댑터를 덧댐(BT17_026 idiom).
+//    * `HasMatchConditionOpponentsPermanent`/`HasMatchConditionOwnersPermanent`/`SelectPermanentEffect.SetUp`의
+//      `canTargetCondition`은 모두 정본 `Func&lt;Permanent,bool&gt;` 오버로드(id-flip 3b) — IsWeakerEnemyDigimon/
+//      CanSelectSaveTamerPermanentCondition은 AS-IS 본문 그대로, id 어댑터 없이 세 호출부 전부에 직결.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.AD1.Red;
 
 using System;
@@ -89,18 +88,10 @@ public sealed class AD1_006 : CEntity_Effect
 
         string SharedEffectDescription(string tag) => $"[{tag}] [Once Per Turn] You may return 1 of your opponent's Digimon with as much or less DP as this Digimon to the bottom of the deck. Then, this Digimon may unsuspend.";
 
-        // id 어댑터(symbol_map_guide §2.3 critical rule) — HasMatchConditionOpponentsPermanent /
-        // SelectPermanentEffect.SetUp의 canTargetCondition은 Func<HeadlessEntityId,bool>만 받는다; AS-IS
-        // Permanent-술어는 그대로 두고 어댑터를 덧댄다(술어 뭉갬 금지).
-        Permanent? PermanentOfShared(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
         bool SharedCanActivateCondition(Hashtable hashtable)
         {
             return CardEffectCommons.IsExistOnBattleArea(card)
-                && (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsWeakerEnemyDigimonById)
+                && (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => IsWeakerEnemyDigimon(permanent))
                     || ICardEffect.ResolvePermanentOfThisCard(card).IsSuspended);
         }
 
@@ -111,21 +102,15 @@ public sealed class AD1_006 : CEntity_Effect
                 && permanent.DP <= ICardEffect.ResolvePermanentOfThisCard(card).DP;
         }
 
-        bool IsWeakerEnemyDigimonById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOfShared(id);
-            return permanent is not null && IsWeakerEnemyDigimon(permanent);
-        }
-
         async Task SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
         {
-            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsWeakerEnemyDigimonById))
+            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => IsWeakerEnemyDigimon(permanent)))
             {
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: IsWeakerEnemyDigimonById,
+                    canTargetCondition: IsWeakerEnemyDigimon,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,
@@ -258,17 +243,6 @@ public sealed class AD1_006 : CEntity_Effect
                        && permanent.IsTamer;
             }
 
-            Permanent? PermanentOfAllTurns(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectSaveTamerPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOfAllTurns(id);
-                return permanent is not null && CanSelectSaveTamerPermanentCondition(permanent);
-            }
-
             bool CanActivateCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
@@ -328,7 +302,7 @@ public sealed class AD1_006 : CEntity_Effect
 
                         selectPermanentEffect.SetUp(
                             selectPlayer: card.Owner,
-                            canTargetCondition: CanSelectSaveTamerPermanentById,
+                            canTargetCondition: CanSelectSaveTamerPermanentCondition,
                             canTargetCondition_ByPreSelecetedList: null,
                             canEndSelectCondition: null,
                             maxCount: 1,

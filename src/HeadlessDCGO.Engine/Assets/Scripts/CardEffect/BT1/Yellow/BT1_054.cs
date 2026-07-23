@@ -8,8 +8,8 @@
 //   ActivateCoroutine: maxCount = Min(1, MatchConditionPermanentCount); SelectPermanentEffect.SetUp(mode: Custom,
 //   canNoSelect:false, canEndNotMax:false, selectPermanentCoroutine); per selected permanent
 //   CardEffectCommons.ChangeDigimonDP(permanent, -2000, UntilEachTurnEnd, activateClass).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` ->
-//   `Func<HeadlessEntityId,bool>` idiom (IsOpponentBattleAreaDigimon); `card.Owner.MemoryForPlayer` ->
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` kept
+//   verbatim on the canonical shape (id-flip 3b); `card.Owner.MemoryForPlayer` ->
 //   `new Player(card.Context, card.Owner).MemoryForPlayer`; GManager.GetComponent -> bridge W4.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
@@ -40,9 +40,9 @@ public sealed class BT1_054 : CEntity_Effect
                 return "[When Attacking] If you have 3 or more memory, 1 of your opponent's Digimon gets -2000 DP for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

@@ -114,12 +114,12 @@ ChoiceRequest DeleteRequest(EngineContext context, HeadlessEntityId selfId)
     var probeActivate = new ActivateClass();
     int DeletionMaxDp() => new Player(context, P1).MaxDP_DeleteEffect(
         8000 + 3000 * CardEffectCommons.MatchConditionPermanentCount(card,
-            id => CardEffectCommons.IsBattleAreaDigimon(card, id)
-                && CardEffectCommons.IsSuspended(card, id)
-                && id != card.InstanceId),
+            permanent => CardEffectCommons.IsBattleAreaDigimon(card, permanent.InstanceId)
+                && CardEffectCommons.IsSuspended(card, permanent.InstanceId)
+                && permanent.InstanceId != card.InstanceId),
         probeActivate);
-    bool CanDelete(HeadlessEntityId id) =>
-        CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) && CardEffectCommons.CurrentDp(card, id) <= DeletionMaxDp();
+    bool CanDelete(Permanent permanent) =>
+        CardEffectCommons.IsOpponentBattleAreaDigimon(card, permanent.InstanceId) && CardEffectCommons.CurrentDp(card, permanent.InstanceId) <= DeletionMaxDp();
 
     // GManager.instance resolves from the AmbientMatchContext AsyncLocal scope (null outside one) — the
     // production ActivateCoroutine always runs inside ActivatedEffectResolver's own `AmbientMatchContext.Enter`

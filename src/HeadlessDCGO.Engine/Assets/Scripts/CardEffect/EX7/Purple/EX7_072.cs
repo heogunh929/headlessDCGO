@@ -29,7 +29,7 @@
 //    * `card.Owner.Enemy`(AS-IS Player) → `new Player(card.Context, card.Owner).Enemy` (BT2_023 idiom).
 //    * `cardSource.PermanentOfThisCard()`(PermanentView) → `ICardEffect.ResolvePermanentOfThisCard(cardSource)`
 //      (PermanentView→Permanent 브릿지; BT19_091 idiom).
-//    * SelectPermanentEffect canTargetCondition = id-형 → PermanentOf(id) 어댑터.
+//    * SelectPermanentEffect canTargetCondition = 정본 Func<Permanent,bool> → Permanent 술어 직결(id 어댑터 없음).
 //    * `CreateDebuffEffect`/`ShowCardEffect2` = UI 연출 — 스트립.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX7.Purple;
 
@@ -49,11 +49,6 @@ public sealed class EX7_072 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Trash Your Turn
         // AS-IS timing == OnEnterFieldAnyone + CanTriggerWhenPermanentDigivolving → 미러 EffectTiming.WhenDigivolving.
@@ -232,12 +227,6 @@ public sealed class EX7_072 : CEntity_Effect
                             return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, cardSource);
                         }
 
-                        bool CanSelectPermanentById(HeadlessEntityId id)
-                        {
-                            Permanent? permanent = PermanentOf(id);
-                            return permanent is not null && CanSelectPermanentCondition(permanent);
-                        }
-
                         bool CanUseCondition2(Hashtable hashtable)
                         {
                             if (CardEffectCommons.IsOwnerTurn(cardSource))
@@ -264,7 +253,7 @@ public sealed class EX7_072 : CEntity_Effect
 
                                 selectPermanentEffect.SetUp(
                                     selectPlayer: cardSource.Owner,
-                                    canTargetCondition: CanSelectPermanentById,
+                                    canTargetCondition: CanSelectPermanentCondition,
                                     canTargetCondition_ByPreSelecetedList: null,
                                     canEndSelectCondition: null,
                                     maxCount: maxCount,
@@ -313,12 +302,6 @@ public sealed class EX7_072 : CEntity_Effect
                 return false;
             }
 
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
@@ -334,7 +317,7 @@ public sealed class EX7_072 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

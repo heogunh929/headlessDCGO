@@ -36,11 +36,10 @@
 //      1:1 자연 번역). failureProcess: null 그대로.
 //    * `GManager.instance.GetComponent<SelectPermanentEffect>()` 그대로.
 //    * `card.PermanentOfThisCard()` → `ICardEffect.ResolvePermanentOfThisCard(card)` (ICardEffect.cs:537).
-//    * SelectPermanentEffect.SetUp의 canTargetCondition은 미러에서 Func<HeadlessEntityId,bool>이므로 —
-//      AS-IS Func<Permanent,bool> 술어(CanSelectPermanentCondition / 중첩 CanSelectPermanentCondition1)는
-//      그대로 두고 id 어댑터(PermanentOf + CanSelect…ById)를 덧댐(BT17_026 idiom; 술어 뭉갬 금지).
-//      HasMatchConditionPermanent는 미러에 Permanent-술어 오버로드(CardEffectCommons.cs:4079)가 있어
-//      AS-IS 술어를 직접 전달; MatchConditionPermanentCount는 id-형(:4333)뿐이라 id 어댑터 전달.
+//    * SelectPermanentEffect.SetUp의 canTargetCondition은 정본 Func<Permanent,bool> 오버로드(id-flip 3b) —
+//      AS-IS Func<Permanent,bool> 술어(CanSelectPermanentCondition / 중첩 CanSelectPermanentCondition1)를
+//      어댑터 없이 직결. HasMatchConditionPermanent/MatchConditionPermanentCount 모두 Permanent-술어
+//      오버로드(CardEffectCommons/KeyWordEffects/Save.cs:25)라 동일 술어 재사용.
 //    * 두 번째 SetUp(Mode.Bounce)은 AS-IS와 동일하게 같은 selectPermanentEffect 인스턴스 재사용.
 //    * `bounceTargetPermanent.LevelJustBeforeRemoveField` — 미러 Permanent.LevelJustBeforeRemoveField
 //      (Permanent.cs:1689, default -1, >0 게이트) 그대로.
@@ -122,13 +121,13 @@ public sealed class BT14_030 : CEntity_Effect
                 {
                     Permanent bounceTargetPermanent = null;
 
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -148,19 +147,6 @@ public sealed class BT14_030 : CEntity_Effect
                         bounceTargetPermanent = permanent;
 
                         return Task.CompletedTask;
-                    }
-
-                    // (미러 idiom — BT17_026) SelectPermanentEffect 브릿지의 canTargetCondition은 id-형이므로
-                    // AS-IS Permanent-술어(CanSelectPermanentCondition)는 그대로 두고 id 어댑터를 덧댄다.
-                    Permanent? PermanentOf(HeadlessEntityId id) =>
-                        card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                            ? new Permanent(card.Context, id, rec.OwnerId)
-                            : null;
-
-                    bool CanSelectPermanentById(HeadlessEntityId id)
-                    {
-                        Permanent? permanent = PermanentOf(id);
-                        return permanent is not null && CanSelectPermanentCondition(permanent);
                     }
 
                     if (bounceTargetPermanent != null)
@@ -192,19 +178,13 @@ public sealed class BT14_030 : CEntity_Effect
                                 return false;
                             }
 
-                            bool CanSelectPermanentById1(HeadlessEntityId id)
-                            {
-                                Permanent? permanent = PermanentOf(id);
-                                return permanent is not null && CanSelectPermanentCondition1(permanent);
-                            }
-
                             if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition1))
                             {
-                                maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById1));
+                                maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition1));
 
                                 selectPermanentEffect.SetUp(
                                     selectPlayer: card.Owner,
-                                    canTargetCondition: CanSelectPermanentById1,
+                                    canTargetCondition: CanSelectPermanentCondition1,
                                     canTargetCondition_ByPreSelecetedList: null,
                                     canEndSelectCondition: null,
                                     maxCount: maxCount,
@@ -287,13 +267,13 @@ public sealed class BT14_030 : CEntity_Effect
                 {
                     Permanent bounceTargetPermanent = null;
 
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -313,18 +293,6 @@ public sealed class BT14_030 : CEntity_Effect
                         bounceTargetPermanent = permanent;
 
                         return Task.CompletedTask;
-                    }
-
-                    // (미러 idiom — BT17_026) canTargetCondition id-형 어댑터.
-                    Permanent? PermanentOf(HeadlessEntityId id) =>
-                        card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                            ? new Permanent(card.Context, id, rec.OwnerId)
-                            : null;
-
-                    bool CanSelectPermanentById(HeadlessEntityId id)
-                    {
-                        Permanent? permanent = PermanentOf(id);
-                        return permanent is not null && CanSelectPermanentCondition(permanent);
                     }
 
                     if (bounceTargetPermanent != null)
@@ -356,19 +324,13 @@ public sealed class BT14_030 : CEntity_Effect
                                 return false;
                             }
 
-                            bool CanSelectPermanentById1(HeadlessEntityId id)
-                            {
-                                Permanent? permanent = PermanentOf(id);
-                                return permanent is not null && CanSelectPermanentCondition1(permanent);
-                            }
-
                             if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition1))
                             {
-                                maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById1));
+                                maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition1));
 
                                 selectPermanentEffect.SetUp(
                                     selectPlayer: card.Owner,
-                                    canTargetCondition: CanSelectPermanentById1,
+                                    canTargetCondition: CanSelectPermanentCondition1,
                                     canTargetCondition_ByPreSelecetedList: null,
                                     canEndSelectCondition: null,
                                     maxCount: maxCount,

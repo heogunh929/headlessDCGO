@@ -41,11 +41,11 @@ public sealed class BT1_082 : CEntity_Effect
                 return "[Opponent's Turn] When an opponent's Digimon attacks a player, if this Digimon is suspended, spend 1 of your opponent's Digimon.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (!new Permanent(card.Context, id).HasBlocker)
+                    if (!permanent.HasBlocker)
                     {
                         return true;
                     }

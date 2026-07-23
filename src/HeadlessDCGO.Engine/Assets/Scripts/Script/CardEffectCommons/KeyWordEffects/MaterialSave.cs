@@ -46,7 +46,7 @@ public static partial class CardEffectCommons
         Permanent? selectedPermanent = null;
         selectPermanentEffect.SetUp(
             selectPlayer: card.Owner,
-            canTargetCondition: (Headless.Services.HeadlessEntityId id) => canSelectPermanentCondition(PermanentOf(card, id)),
+            canTargetCondition: canSelectPermanentCondition,
             canTargetCondition_ByPreSelecetedList: null,
             canEndSelectCondition: null,
             maxCount: maxPermanentCount,

@@ -4,9 +4,8 @@
 //   [When Attacking] Suspend 1 of your opponent's Digimon with 3000 DP or less.
 // AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
 // functions, SetIsInheritedEffect(true) (AS-IS BT1_066.cs:19). Substrate translations only: IEnumerator->Task,
-// StartCoroutine->await; the AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` is expressed as the
-// established `Func<HeadlessEntityId,bool>` idiom (the bridge W4 SetUp overload's shape, ST1_08/BT1_017
-// convention); `permanent.DP` -> `CardEffectCommons.CurrentDp(card, id)`; `GManager.instance.
+// StartCoroutine->await; the AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` is expressed verbatim
+// on the canonical Func<Permanent,bool> shape (id-flip 3b), `permanent.DP` read directly; `GManager.instance.
 // GetComponent<SelectPermanentEffect>()` -> bridge W4.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
@@ -37,11 +36,11 @@ public sealed class BT1_066 : CEntity_Effect
                 return "[When Attacking] Suspend 1 of your opponent's Digimon with 3000 DP or less.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (CardEffectCommons.CurrentDp(card, id) <= 3000)
+                    if (permanent.DP <= 3000)
                     {
                         return true;
                     }

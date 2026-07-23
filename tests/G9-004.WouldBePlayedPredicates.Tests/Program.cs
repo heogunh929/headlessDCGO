@@ -73,7 +73,7 @@ async Task CountsBothPlayers()
     await PlaceDigimon(context, P2, "C", suspended: false);
     var card = new CardSource(context, new HeadlessEntityId("1:battle:A"), P1);
 
-    int count = CardEffectCommons.MatchConditionPermanentCount(card, (HeadlessEntityId _) => true);
+    int count = CardEffectCommons.MatchConditionPermanentCount(card, (Permanent _) => true);
     AssertEqual(3, count, "counts all 3 battle-area cards across both players");
 }
 
@@ -86,8 +86,8 @@ async Task SuspendableCountGate()
     await PlaceDigimon(context, P1, "S1", suspended: true);
     var card = new CardSource(context, new HeadlessEntityId("1:battle:U1"), P1);
 
-    bool Suspendable(HeadlessEntityId id) =>
-        CardEffectCommons.IsOwnerBattleAreaDigimon(card, id) && !CardEffectCommons.IsSuspended(card, id);
+    bool Suspendable(Permanent permanent) =>
+        CardEffectCommons.IsOwnerBattleAreaDigimon(card, permanent.InstanceId) && !CardEffectCommons.IsSuspended(card, permanent.InstanceId);
 
     int suspendable = CardEffectCommons.MatchConditionPermanentCount(card, Suspendable);
     AssertEqual(2, suspendable, "exactly 2 owner Digimon are suspendable (EX8_074 '>= 2' is met)");
@@ -98,9 +98,9 @@ async Task HasIsCountGEOne()
 {
     EngineContext context = Context();
     var card = new CardSource(context, new HeadlessEntityId("1:battle:NONE"), P1);
-    AssertTrue(!CardEffectCommons.HasMatchConditionPermanent(card, (HeadlessEntityId _) => true), "no permanents -> Has is false");
+    AssertTrue(!CardEffectCommons.HasMatchConditionPermanent(card, (Permanent _) => true), "no permanents -> Has is false");
     await PlaceDigimon(context, P1, "ONE", suspended: false);
-    AssertTrue(CardEffectCommons.HasMatchConditionPermanent(card, (HeadlessEntityId _) => true), "one permanent -> Has is true");
+    AssertTrue(CardEffectCommons.HasMatchConditionPermanent(card, (Permanent _) => true), "one permanent -> Has is true");
 }
 
 // --- Helpers -------------------------------------------------------------

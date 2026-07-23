@@ -13,7 +13,8 @@
 // Substrate translations only: IEnumerator->Task, StartCoroutine->await;
 // `GManager.instance.GetComponent<SelectPermanentEffect>()` + full AS-IS SetUp (bridge W4); `new IDegeneration(pick,
 // 1, activateClass)` -> the mirror carrier ctor with `activateClass.EffectSourceCard?.InstanceId`; AS-IS
-// `Func<Permanent,bool> CanSelectOpponentsDigimon` wrapped to the id predicate via `PermanentOf(id)`.
+// `Func<Permanent,bool> CanSelectOpponentsDigimon` passed directly to SetUp's canonical Func<Permanent,bool>
+// overload (no id adapter).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX8.Black;
 
 using System;
@@ -75,17 +76,6 @@ public sealed class EX8_051 : CEntity_Effect
                 return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectOpponentsDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectOpponentsDigimon(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 Permanent trashedPermanent = CardEffectCommons.GetPermanentFromHashtable(hashtable);
@@ -97,7 +87,7 @@ public sealed class EX8_051 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnTrash(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, CanSelectOpponentsDigimonById))
+                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, CanSelectOpponentsDigimon))
                     {
                         return true;
                     }
@@ -112,7 +102,7 @@ public sealed class EX8_051 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectOpponentsDigimonById,
+                    canTargetCondition: CanSelectOpponentsDigimon,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,

@@ -26,7 +26,7 @@ public sealed class BT2_031 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => CardEffectCommons.IsBattleAreaDigimon(card, id) && CardEffectCommons.HasNoDigivolutionCards(card, id)))
+                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => CardEffectCommons.IsBattleAreaDigimon(card, permanent.InstanceId) && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)))
                         {
                             return true;
                         }
@@ -47,7 +47,7 @@ public sealed class BT2_031 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => CardEffectCommons.IsBattleAreaDigimon(card, id) && CardEffectCommons.HasNoDigivolutionCards(card, id)))
+                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => CardEffectCommons.IsBattleAreaDigimon(card, permanent.InstanceId) && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)))
                         {
                             return true;
                         }

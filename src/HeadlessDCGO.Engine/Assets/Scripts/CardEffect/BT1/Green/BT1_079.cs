@@ -4,10 +4,9 @@
 //   [When Attacking] Suspend 1 of your opponent's Digimon without <Blocker>.
 // AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
 // functions, SetIsInheritedEffect(true) (AS-IS BT1_079.cs:19). Substrate translations only: IEnumerator->Task,
-// StartCoroutine->await; the AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` is expressed as the
-// established `Func<HeadlessEntityId,bool>` idiom; AS-IS `permanent.HasBlocker` -> (R1-c) the rehoused
-// getter `new Permanent(card.Context, id).HasBlocker`, negated for
-// "without <Blocker>"; `GManager.instance.GetComponent<SelectPermanentEffect>()` -> bridge W4.
+// StartCoroutine->await; the AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` is expressed verbatim
+// on the canonical Func<Permanent,bool> shape (id-flip 3b); AS-IS `permanent.HasBlocker` -> (R1-c) the rehoused
+// getter, negated for "without <Blocker>"; `GManager.instance.GetComponent<SelectPermanentEffect>()` -> bridge W4.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
 using System;
@@ -38,11 +37,11 @@ public sealed class BT1_079 : CEntity_Effect
                 return "[When Attacking] Suspend 1 of your opponent's Digimon without <Blocker>.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (!new Permanent(card.Context, id).HasBlocker)
+                    if (!permanent.HasBlocker)
                     {
                         return true;
                     }

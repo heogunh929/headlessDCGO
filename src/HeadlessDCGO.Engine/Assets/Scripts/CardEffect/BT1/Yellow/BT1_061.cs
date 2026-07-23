@@ -8,8 +8,8 @@
 //   Min(2, MatchConditionPermanentCount); SelectPermanentEffect.SetUp(mode: Custom, canNoSelect:false,
 //   canEndNotMax:false, selectPermanentCoroutine); per selected permanent CardEffectCommons.ChangeDigimonDP(
 //   permanent, -3000, UntilEachTurnEnd, activateClass).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` ->
-//   `Func<HeadlessEntityId,bool>` idiom (IsOpponentBattleAreaDigimon); `GManager.instance.GetComponent<
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` kept
+//   verbatim on the canonical shape (id-flip 3b); `GManager.instance.GetComponent<
 //   SelectPermanentEffect>()` -> bridge W4.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
@@ -40,9 +40,9 @@ public sealed class BT1_061 : CEntity_Effect
                 return "[On Play] 2 of your opponent's Digimon get -3000 DP for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

@@ -346,14 +346,16 @@ public static partial class CardEffectFactory
     /// <c>Player.CanReduceCost</c> (reached by the cost pipeline CardSource.GetPayingCostWithBaseCost — both its
     /// legacy-fold canReduce knob and ChangeCostClass.GetCost's own veto). This retires the parallel registry
     /// CostReduction/Immune representation (ReplacementHelpers.ImmuneFrom*CostReductionKey + the removed
-    /// ContinuousModifierGate.CostReductionImmune). <paramref name="costKind"/> is the AS-IS
-    /// <c>targetPermanentsCondition</c>: <see cref="CostReductionScope.Digivolve"/> (AS-IS count&gt;=1, e.g. BT5_021
-    /// "opponent can't reduce DIGIVOLUTION costs") protects ONLY the digivolution cost (the cost pipeline passes a
-    /// non-null target permanent for a digivolve); <see cref="CostReductionScope.Play"/> the reverse (play passes
-    /// null / no target); <see cref="CostReductionScope.Both"/> (default) protects either.</summary>
+    /// ContinuousModifierGate.CostReductionImmune). <paramref name="targetPermanentsCondition"/> is the AS-IS
+    /// <c>targetPermanentsCondition</c> predicate threaded straight into the kind-class (BT5_021 "opponent can't
+    /// reduce DIGIVOLUTION costs" passes count&gt;=1; BT8_071 "can't reduce PLAY costs" passes count==0; a null
+    /// argument protects either — the trivial predicate). The cost pipeline threads exactly this permanents
+    /// list, so a digivolution (≥1 non-null target permanent) vs a plain play/option (none) is distinguished
+    /// AS-IS-verbatim.</summary>
     public static ICardEffect CanNotReduceCostStaticEffect(
         Func<Player, bool> playerCondition, Func<CardSource, bool> cardCondition,
-        bool isInheritedEffect, CardSource card, Func<bool>? condition, CostReductionScope costKind = CostReductionScope.Both)
+        bool isInheritedEffect, CardSource card, Func<bool>? condition,
+        Func<List<Permanent>, bool>? targetPermanentsCondition = null)
     {
         ArgumentNullException.ThrowIfNull(playerCondition);
         ArgumentNullException.ThrowIfNull(cardCondition);
@@ -362,7 +364,7 @@ public static partial class CardEffectFactory
         effect.SetUpICardEffect("Can't reduce cost", CanUseCondition, card);
         effect.SetUpCannotReduceCostClass(
             playerCondition: PlayerCondition,
-            targetPermanentsCondition: TargetPermanentsCondition,
+            targetPermanentsCondition: targetPermanentsCondition ?? (_ => true),
             cardCondition: cardCondition);
         effect.SetNotShowUI(true);
         if (isInheritedEffect)
@@ -374,14 +376,6 @@ public static partial class CardEffectFactory
 
         bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
         bool PlayerCondition(Player player) => player != null && playerCondition(player);
-        // AS-IS targetPermanentsCondition (BT5_021 :50-61): a digivolution supplies >= 1 non-null target
-        // permanent; a plain play / option supplies none. The cost pipeline threads exactly this list.
-        bool TargetPermanentsCondition(List<Permanent> targetPermanents) => costKind switch
-        {
-            CostReductionScope.Digivolve => targetPermanents != null && targetPermanents.Exists(p => p != null),
-            CostReductionScope.Play => targetPermanents == null || !targetPermanents.Exists(p => p != null),
-            _ => true,
-        };
     }
 
     /// <summary>(PRIM-P0 B.O.6; R3-W3c-4c B3 flip) <c>CannotAddSecurityClass</c> — <paramref name="scopePlayer"/>

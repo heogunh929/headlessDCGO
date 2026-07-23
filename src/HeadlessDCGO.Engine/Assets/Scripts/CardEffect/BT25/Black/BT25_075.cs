@@ -193,17 +193,13 @@ public sealed class BT25_075 : CEntity_Effect
                                 && cardSources.All(cardSource => cardSource.CanLinkToTargetPermanent(permanent, false));
                         }
 
-                        bool CanLinkPermanentConditionById(HeadlessEntityId id) =>
-                            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                            && CanLinkPermanentCondition(new Permanent(card.Context, id, rec.OwnerId));
-
                         if (CardEffectCommons.HasMatchConditionPermanent(card, CanLinkPermanentCondition))
                         {
                             SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: CanLinkPermanentConditionById,
+                                canTargetCondition: CanLinkPermanentCondition,
                                 canTargetCondition_ByPreSelecetedList: null,
                                 canEndSelectCondition: null,
                                 maxCount: 1,

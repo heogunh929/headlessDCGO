@@ -12,7 +12,7 @@
 //     이중-키 등록 금지 — AD1_006/BT17_026 idiom). [On Play]는 OnEnterFieldAnyone+CanTriggerOnPlay 그대로.
 // 치환(substrate translations only):
 //    * IEnumerator→async Task, `yield return StartCoroutine(X)`→`await X`.
-//    * SelectPermanentEffect.canTargetCondition id-형 → AS-IS Permanent-술어에 id 어댑터(BT17_026 idiom).
+//    * SelectPermanentEffect.canTargetCondition은 정본 Func<Permanent,bool> — AS-IS Permanent-술어 직결(id 어댑터 없음).
 //    * `new IDegeneration(perm, 1, activateClass).Degeneration()` → `new IDegeneration(perm, 1,
 //      activateClass.EffectSourceCard?.InstanceId).Degeneration()` (미러 ctor).
 //    * `card.Owner.MemoryForPlayer` → `new Player(card.Context, card.Owner).MemoryForPlayer`.
@@ -74,23 +74,6 @@ public sealed class EX8_026 : CEntity_Effect
                        permanent.TopCard.HasPlayCost && permanent.TopCard.GetCostItself <= 7;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool OpponentsDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && OpponentsDigimon(permanent);
-            }
-
-            bool OpponentsDigimonToReturnById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && OpponentsDigimonToReturn(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
@@ -110,7 +93,7 @@ public sealed class EX8_026 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: OpponentsDigimonById,
+                    canTargetCondition: OpponentsDigimon,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,
@@ -139,7 +122,7 @@ public sealed class EX8_026 : CEntity_Effect
 
                     selectReturnEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: OpponentsDigimonToReturnById,
+                    canTargetCondition: OpponentsDigimonToReturn,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,
@@ -182,23 +165,6 @@ public sealed class EX8_026 : CEntity_Effect
                        permanent.TopCard.HasPlayCost && permanent.TopCard.GetCostItself <= 7;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool OpponentsDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && OpponentsDigimon(permanent);
-            }
-
-            bool OpponentsDigimonToReturnById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && OpponentsDigimonToReturn(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card) &&
@@ -219,7 +185,7 @@ public sealed class EX8_026 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: OpponentsDigimonById,
+                    canTargetCondition: OpponentsDigimon,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,
@@ -248,7 +214,7 @@ public sealed class EX8_026 : CEntity_Effect
 
                     selectReturnEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: OpponentsDigimonToReturnById,
+                    canTargetCondition: OpponentsDigimonToReturn,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,

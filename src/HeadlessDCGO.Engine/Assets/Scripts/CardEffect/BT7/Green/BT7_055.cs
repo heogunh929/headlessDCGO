@@ -11,7 +11,8 @@
 // 및 bare `StartCoroutine(X)`→`await X`; `card.Owner.Enemy.GetBattleAreaDigimons()` → 확장 메서드
 // `card.Owner.GetBattleAreaDigimons()`은 소유자 직결(§2.2 예외)이나 상대는 `new Player(...).Enemy!.PlayerId.
 // GetBattleAreaDigimons()`; `cardSource.Owner.GetBattleAreaDigimons()`도 동형; `cardSource.PermanentOfThisCard()`
-// → `ICardEffect.ResolvePermanentOfThisCard(cardSource)`; id-adapter(SelectPermanentEffect canTargetCondition).
+// → `ICardEffect.ResolvePermanentOfThisCard(cardSource)`; SelectPermanentEffect.canTargetCondition은 정본
+// Func<Permanent,bool> — Permanent 술어 직결(id 어댑터 없음).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT7.Green;
 
 using System;
@@ -31,11 +32,6 @@ public sealed class BT7_055 : CEntity_Effect
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
         #region [When Digivolving] Suspend 1 Digimon and gain Memory
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
@@ -49,12 +45,6 @@ public sealed class BT7_055 : CEntity_Effect
 
             bool CanSelectPermanentCondition(Permanent permanent) =>
                 CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
 
             bool CanUseCondition(Hashtable hashtable) =>
                 CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
@@ -86,13 +76,13 @@ public sealed class BT7_055 : CEntity_Effect
             {
                 if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

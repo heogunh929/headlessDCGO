@@ -14,8 +14,8 @@
 //     =OnAllyAttack (각각 CanTriggerOnAttack / CanTriggerOnPermanentAttack) 그대로.
 // 치환(substrate translations only):
 //    * IEnumerator→async Task, `yield return ContinuousController.instance.StartCoroutine(X)`→`await X`.
-//    * SelectPermanentEffect.canTargetCondition id-형 → AS-IS Permanent-술어에 id 어댑터(BT17_026 idiom).
-//    * `HasMatchConditionOpponentsPermanent(card, cond)`는 id-form 유일(CardEffectCommons.cs:4374)이라 id 어댑터 사용.
+//    * SelectPermanentEffect.canTargetCondition은 정본 Func<Permanent,bool> 오버로드 — id 어댑터 없이 Permanent-술어 직결.
+//    * `HasMatchConditionOpponentsPermanent(card, cond)`도 Func<Permanent,bool> — 동일 술어 그대로 재사용.
 //    * `card.Owner.Enemy`(IsMinLevel 인자) → `CardEffectCommons.OpponentOf(card)` (HeadlessPlayerId).
 //    * `card.PermanentOfThisCard()` → `ICardEffect.ResolvePermanentOfThisCard(card)`.
 //    * `new IUnsuspendPermanents(list, activateClass).Unsuspend()` → 미러 1:1(ICardEffect cardEffect).
@@ -36,11 +36,6 @@ public sealed class AD1_012 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Alternative Digivolution Condition
         if (timing == EffectTiming.None)
@@ -87,12 +82,6 @@ public sealed class AD1_012 : CEntity_Effect
 
         bool IsOpponentsLowestLevel(Permanent permanent) => CardEffectCommons.IsMinLevel(permanent, CardEffectCommons.OpponentOf(card));
 
-        bool IsOpponentsLowestLevelById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && IsOpponentsLowestLevel(permanent);
-        }
-
         bool IsOwnGreymon(Permanent permanent)
         {
             return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
@@ -100,20 +89,14 @@ public sealed class AD1_012 : CEntity_Effect
                 && permanent.IsSuspended;
         }
 
-        bool IsOwnGreymonById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && IsOwnGreymon(permanent);
-        }
-
         async Task SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
         {
-            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsOpponentsLowestLevelById))
+            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => IsOpponentsLowestLevel(permanent)))
             {
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: IsOpponentsLowestLevelById,
+                    canTargetCondition: IsOpponentsLowestLevel,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,
@@ -154,7 +137,7 @@ public sealed class AD1_012 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: IsOwnGreymonById,
+                        canTargetCondition: IsOwnGreymon,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: 1,
@@ -264,12 +247,6 @@ public sealed class AD1_012 : CEntity_Effect
 
             bool IsOwnDigimon(Permanent permanent) => CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
 
-            bool IsOwnDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && IsOwnDigimon(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 #region DNA digivolve
@@ -288,7 +265,7 @@ public sealed class AD1_012 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: IsOwnDigimonById,
+                    canTargetCondition: IsOwnDigimon,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,

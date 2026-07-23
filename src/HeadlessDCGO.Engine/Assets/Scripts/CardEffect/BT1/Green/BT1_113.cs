@@ -35,9 +35,9 @@ public sealed class BT1_113 : CEntity_Effect
                 return "[Main] Until the end of your opponent's next turn�1 of your opponent's Digimon can't attack or block.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

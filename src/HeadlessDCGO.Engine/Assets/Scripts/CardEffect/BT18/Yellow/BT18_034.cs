@@ -348,17 +348,6 @@ public sealed class BT18_034 : CEntity_Effect
                 return false;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool IsPermanentLevel6ConditionById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && IsPermanentLevel6Condition(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 if (CardEffectCommons.IsExistOnBattleAreaDigimon(card))
@@ -392,14 +381,14 @@ public sealed class BT18_034 : CEntity_Effect
                     Permanent? selectedPermanent = null;
 
                     int maxCount = Math.Min(1,
-                        CardEffectCommons.MatchConditionPermanentCount(card, IsPermanentLevel6ConditionById));
+                        CardEffectCommons.MatchConditionPermanentCount(card, IsPermanentLevel6Condition));
 
                     SelectPermanentEffect selectPermanentEffect =
                         GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: IsPermanentLevel6ConditionById,
+                        canTargetCondition: IsPermanentLevel6Condition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

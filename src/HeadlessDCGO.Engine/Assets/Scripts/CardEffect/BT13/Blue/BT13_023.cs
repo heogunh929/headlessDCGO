@@ -9,7 +9,7 @@
 //     Min(1,count)) -> TrashDigivolutionCardsFromTopOrBottom(pick, 1, isFromTop:false).
 // Substrate translations only: IEnumerator->Task, StartCoroutine->await;
 // `GManager.instance.GetComponent<SelectPermanentEffect>()` + full AS-IS SetUp (bridge W4, BT9_062 idiom); AS-IS
-// `Func<Permanent,bool> CanSelectPermanentCondition` wrapped to the entity-id predicate via `PermanentOf(id)`.
+// `Func<Permanent,bool> CanSelectPermanentCondition` kept verbatim on the canonical shape (id-flip 3b).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT13.Blue;
 
 using System;
@@ -54,17 +54,6 @@ public sealed class BT13_023 : CEntity_Effect
                 return false;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
@@ -85,13 +74,13 @@ public sealed class BT13_023 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
 
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: maxCount,

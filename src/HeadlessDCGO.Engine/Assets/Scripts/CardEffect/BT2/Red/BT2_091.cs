@@ -38,11 +38,11 @@ public sealed class BT2_091 : CEntity_Effect
                 return "[Main] Delete 1 of your opponent's Digimon with 4000 DP or less.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, permanent.InstanceId))
                 {
-                    if (CardEffectCommons.CurrentDp(card, id) <= new Player(card.Context, card.Owner).MaxDP_DeleteEffect(4000, activateClass))
+                    if (CardEffectCommons.CurrentDp(card, permanent.InstanceId) <= new Player(card.Context, card.Owner).MaxDP_DeleteEffect(4000, activateClass))
                     {
                         return true;
                     }

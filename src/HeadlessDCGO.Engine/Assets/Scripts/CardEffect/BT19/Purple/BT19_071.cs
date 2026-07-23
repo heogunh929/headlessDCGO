@@ -9,7 +9,7 @@
 //   maxCount Min(1,count)).
 // Substrate translations only: IEnumerator->Task, StartCoroutine->await;
 // `GManager.instance.GetComponent<SelectPermanentEffect>()` + full AS-IS SetUp (bridge W4, BT9_062 idiom); AS-IS
-// `Func<Permanent,bool> CanSelectPermanentCondition` wrapped to the entity-id predicate via `PermanentOf(id)`.
+// `Func<Permanent,bool> CanSelectPermanentCondition` passed directly to canTargetCondition.
 //
 // The AS-IS [On Play] and [When Digivolving] blocks (trash top 2 of deck, then gain <Blocker>) remain deliberately
 // OMITTED — this witness exercises only the OnDiscardLibrary bridge (same scoping as the prior pass).
@@ -68,17 +68,6 @@ public sealed class BT19_071 : CEntity_Effect
                 return false;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanActivateCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.IsExistOnBattleAreaDigimon(card) && CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition);
@@ -86,13 +75,13 @@ public sealed class BT19_071 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
 
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: maxCount,

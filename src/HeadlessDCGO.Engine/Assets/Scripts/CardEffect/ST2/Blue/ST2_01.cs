@@ -26,9 +26,16 @@ public sealed class ST2_01 : CEntity_Effect
                 }
 
                 HeadlessEntityId enemy = CardEffectCommons.CurrentBattleOpponent(card);
-                return !enemy.IsEmpty
-                    && CardEffectCommons.IsOpponentOwnedDigimon(card, enemy)
-                    && CardEffectCommons.HasNoDigivolutionCards(card, enemy);
+                if (enemy.IsEmpty)
+                {
+                    return false;
+                }
+
+                // AS-IS ST2_01: `enemy.TopCard.Owner == card.Owner.Enemy && enemy.HasNoDigivolutionCards`
+                // (Permanent/CardSource direct-read; the battle opponent materialised from its entity id).
+                Permanent enemyPermanent = new Permanent(card.Context, enemy);
+                return enemyPermanent.TopCard.Owner == CardEffectCommons.OpponentOf(card)
+                    && enemyPermanent.HasNoDigivolutionCards;
             }
 
             cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(changeValue: 1000, isInheritedEffect: true, card: card, condition: Condition));

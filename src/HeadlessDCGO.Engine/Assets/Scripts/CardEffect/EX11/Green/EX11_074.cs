@@ -33,8 +33,8 @@
 //    * AS-IS :132 `GManager.instance.GetComponent<Effects>().CreateBuffEffect(...)` = UI 연출 — 스트립.
 //    * AS-IS :138-144 `ChangeDigimonDP(thisPermanent, 6000, UntilOpponentTurnEnd, activateClass)` — 미러
 //      AS-IS-시그니처 async bridge(GiveEffectToPermanent/ChangeDP.cs) 동일 호출.
-//    * SelectPermanentEffect.canTargetCondition는 id-형 — IsPermanentExistsOnBattleAreaDigimon(Permanent-술어)에
-//      PermanentOf(id) 어댑터 덧댐(술어 뭉갬 금지).
+//    * SelectPermanentEffect.canTargetCondition는 정본 Func<Permanent,bool> — IsPermanentExistsOnBattleAreaDigimon
+//      등 Permanent-술어를 직접 전달(id 어댑터 없음).
 //    * userSelectionManager Set/Wait/SelectedBoolValue — 미러 UserSelectionManager 1:1 표면(P_223 idiom).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX11.Green;
 
@@ -117,18 +117,6 @@ public sealed class EX11_074 : CEntity_Effect
             return CardEffectCommons.IsExistOnBattleAreaDigimon(card);
         }
 
-        // (BT17_026 관례) SelectPermanentEffect canTargetCondition는 id-형 — Permanent-술어에 id 어댑터를 덧댐.
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
-        bool IsPermanentExistsOnBattleAreaDigimonById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(permanent);
-        }
-
         async Task SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
         {
             Permanent selectedPermanent = null;
@@ -138,7 +126,7 @@ public sealed class EX11_074 : CEntity_Effect
 
             selectPermanentEffect.SetUp(
                 selectPlayer: card.Owner,
-                canTargetCondition: IsPermanentExistsOnBattleAreaDigimonById,
+                canTargetCondition: CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon,
                 canTargetCondition_ByPreSelecetedList: null,
                 canEndSelectCondition: null,
                 maxCount: 1,
@@ -253,12 +241,6 @@ public sealed class EX11_074 : CEntity_Effect
 
             bool CanSelectPermanentCondition(Permanent permanent) => CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
 
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 if (ICardEffect.ResolvePermanentOfThisCard(card).IsSuspended && ICardEffect.ResolvePermanentOfThisCard(card).CanUnsuspend)
@@ -290,7 +272,7 @@ public sealed class EX11_074 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,

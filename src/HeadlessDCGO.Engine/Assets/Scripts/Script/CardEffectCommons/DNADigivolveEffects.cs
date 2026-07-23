@@ -267,7 +267,7 @@ public static partial class CardEffectCommons
 
         selectPermanentEffect.SetUp(
             selectPlayer: owner.PlayerId,
-            canTargetCondition: id => PermanentFulfillsRequirement(owner, new Permanent(owner.Context, id, owner.PlayerId), jogressTarget, firstCondition, isWithHand, permanentCondition, digivolutionCardCondition),
+            canTargetCondition: (Permanent permanent) => PermanentFulfillsRequirement(owner, permanent, jogressTarget, firstCondition, isWithHand, permanentCondition, digivolutionCardCondition),
             canTargetCondition_ByPreSelecetedList: null,
             canEndSelectCondition: null,
             maxCount: 1,

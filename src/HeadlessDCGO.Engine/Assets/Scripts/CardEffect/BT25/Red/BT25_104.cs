@@ -48,7 +48,7 @@
 //    * `permanent.TopCard.Owner`(AS-IS Player) → HeadlessPlayerId; `.GetBattleAreaPermanents()`는 HeadlessPlayerId
 //      확장(Player.cs:768) 직접; `.GetFieldPermanents()`는 Player 인스턴스 전용 → `new Player(...).GetFieldPermanents()`.
 //    * `card.Owner.UntilEachTurnEndEffects` → `new Player(card.Context, card.Owner).UntilEachTurnEndEffects`.
-//    * SelectPermanentEffect canTargetCondition = id-형 → PermanentOf(id) 어댑터(BT19_091 idiom).
+//    * SelectPermanentEffect canTargetCondition = 정본 Func<Permanent,bool> → Permanent 술어 직결(id 어댑터 없음).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT25.Red;
 
 using System;
@@ -66,11 +66,6 @@ public sealed class BT25_104 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Digimon Effects
 
@@ -347,12 +342,6 @@ public sealed class BT25_104 : CEntity_Effect
             bool CanSelectDPMinusPermanentCondition(Permanent permanent)
                 => CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
 
-            bool CanSelectDPMinusPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectDPMinusPermanentCondition(permanent);
-            }
-
             bool CanSelectTamerCondition(CardSource cardSource)
             {
                 return cardSource.IsTamer
@@ -361,13 +350,13 @@ public sealed class BT25_104 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, CanSelectDPMinusPermanentById))
+                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, CanSelectDPMinusPermanentCondition))
                 {
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectDPMinusPermanentById,
+                        canTargetCondition: CanSelectDPMinusPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: 1,

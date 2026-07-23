@@ -38,11 +38,11 @@
 //      (BT8_092 idiom). 중첩 `IEnumerator SelectPermanentCoroutine(Permanent)` 몸통 → `async Task`;
 //      lone `yield return null` 몸통 → `Task ...{ ...; return Task.CompletedTask; }`.
 //    * `GManager.instance.GetComponent<SelectPermanentEffect>()` — VERBATIM 유지.
-//    * `SelectPermanentEffect.SetUp`의 canTargetCondition은 미러에서 `Func<HeadlessEntityId,bool>` —
-//      AS-IS `Func<Permanent,bool>` 술어는 그대로 두고 id 어댑터(PermanentOf + CanSelect…ById)를 덧댐
-//      (BT17_026 idiom; 술어 뭉갬 금지). HasMatchConditionPermanent/MatchConditionPermanentCount는
-//      Permanent-술어 오버로드가 존재(CardEffectCommons.cs:4079 / Save.cs:25)하므로 AS-IS 술어 직접 전달,
-//      단 미러 시그니처가 `card` 선행 → `(card, 술어)`로 배선.
+//    * `SelectPermanentEffect.SetUp`의 canTargetCondition은 이제 AS-IS `Func<Permanent,bool>` 술어를
+//      직접 받는다(id-flip 3b 캐노니컬 오버로드 — 이전 id 어댑터 PermanentOf + CanSelect…ById 전삭).
+//      HasMatchConditionPermanent/MatchConditionPermanentCount는 Permanent-술어 오버로드가 존재
+//      (CardEffectCommons.cs:4079 / Save.cs:25)하므로 AS-IS 술어 직접 전달, 단 미러 시그니처가
+//      `card` 선행 → `(card, 술어)`로 배선.
 //    * `new IDegeneration(selectedPermanent, 1, activateClass).Degeneration()` (AS-IS :104) → 미러 ctor
 //      (CardController.cs:831)는 3번째가 `HeadlessEntityId? causeEffectSourceId`이므로
 //      `new IDegeneration(selectedPermanent, 1, activateClass.EffectSourceCard?.InstanceId, cardEffect: activateClass)`
@@ -146,22 +146,9 @@ public sealed class ST17_13 : CEntity_Effect
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
-                    // (미러 idiom — BT17_026) SelectPermanentEffect.SetUp의 canTargetCondition은 id-형이므로
-                    // AS-IS Permanent-술어는 그대로 두고 id 어댑터를 덧댄다(술어 뭉갬 금지).
-                    Permanent? PermanentOf(HeadlessEntityId id) =>
-                        card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                            ? new Permanent(card.Context, id, rec.OwnerId)
-                            : null;
-
-                    bool CanSelectPermanentById(HeadlessEntityId id)
-                    {
-                        Permanent? permanent = PermanentOf(id);
-                        return permanent is not null && CanSelectPermanentCondition(permanent);
-                    }
-
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -238,20 +225,9 @@ public sealed class ST17_13 : CEntity_Effect
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
-                    Permanent? PermanentOf(HeadlessEntityId id) =>
-                        card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                            ? new Permanent(card.Context, id, rec.OwnerId)
-                            : null;
-
-                    bool CanSelectPermanentByIdAfterBattle(HeadlessEntityId id)
-                    {
-                        Permanent? permanent = PermanentOf(id);
-                        return permanent is not null && CanSelectPermanentConditionAfterBattle(permanent);
-                    }
-
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentByIdAfterBattle,
+                        canTargetCondition: CanSelectPermanentConditionAfterBattle,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -357,20 +333,9 @@ public sealed class ST17_13 : CEntity_Effect
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
-                    Permanent? PermanentOf(HeadlessEntityId id) =>
-                        card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                            ? new Permanent(card.Context, id, rec.OwnerId)
-                            : null;
-
-                    bool CanSelectPermanentById(HeadlessEntityId id)
-                    {
-                        Permanent? permanent = PermanentOf(id);
-                        return permanent is not null && CanSelectPermanentCondition(permanent);
-                    }
-
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -405,20 +370,9 @@ public sealed class ST17_13 : CEntity_Effect
 
                     SelectPermanentEffect selectPermanentEffect1 = GManager.instance.GetComponent<SelectPermanentEffect>();
 
-                    Permanent? PermanentOf(HeadlessEntityId id) =>
-                        card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                            ? new Permanent(card.Context, id, rec.OwnerId)
-                            : null;
-
-                    bool CanSelectPermanentById1(HeadlessEntityId id)
-                    {
-                        Permanent? permanent = PermanentOf(id);
-                        return permanent is not null && CanSelectPermanentCondition1(permanent);
-                    }
-
                     selectPermanentEffect1.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById1,
+                        canTargetCondition: CanSelectPermanentCondition1,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount1,

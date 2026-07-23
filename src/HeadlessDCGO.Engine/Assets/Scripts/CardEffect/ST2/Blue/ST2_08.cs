@@ -19,7 +19,7 @@ public sealed class ST2_08 : CEntity_Effect
             {
                 return CardEffectCommons.IsExistOnBattleArea(card)
                     && CardEffectCommons.IsOwnerTurn(card)
-                    && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => CardEffectCommons.HasNoDigivolutionCards(card, id));
+                    && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => permanent.IsDigimon && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId));
             }
 
             cardEffects.Add(CardEffectFactory.ChangeSelfSAttackStaticEffect(changeValue: 1, isInheritedEffect: true, card: card, condition: Condition));

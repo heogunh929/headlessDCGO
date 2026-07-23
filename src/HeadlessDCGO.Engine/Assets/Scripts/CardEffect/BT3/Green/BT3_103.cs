@@ -23,8 +23,8 @@
 //    * `CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition)`(AS-IS 1-인자, :98) →
 //      mirror는 leading card 파라미터 필수(§2.3 비대칭 — card-less 오버로드 삭제됨):
 //      `HasMatchConditionPermanent(card, CanSelectPermanentCondition)`.
-//    * `SelectPermanentEffect.canTargetCondition`은 id-형 — AS-IS `Func<Permanent,bool>` 술어는 그대로 두고
-//      id 어댑터를 덧댐(BT17_026 idiom).
+//    * `SelectPermanentEffect.canTargetCondition`은 정본 `Func<Permanent,bool>` — AS-IS 술어를 그대로 전달
+//      (id 어댑터 없음).
 //    * (RD-S4-BT3_103-note, 정보성 — STOP 아님) AS-IS :42,49 `CardEffectCommons.AddEffectToPlayer(...,
 //      cardEffect: null, ..., getCardEffect: getCardEffect)` — mirror AddEffectToPlayer가
 //      `ArgumentNullException.ThrowIfNull(cardEffect)`를 추가(AS-IS 원본엔 이 가드가 없음 — mirror가 AS-IS보다
@@ -120,17 +120,6 @@ public sealed class BT3_103 : CEntity_Effect
                     return false;
                 }
 
-                Permanent? PermanentOf(HeadlessEntityId id) =>
-                    card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                        ? new Permanent(card.Context, id, rec.OwnerId)
-                        : null;
-
-                bool CanSelectPermanentById(HeadlessEntityId id)
-                {
-                    Permanent? permanent = PermanentOf(id);
-                    return permanent is not null && CanSelectPermanentCondition(permanent);
-                }
-
                 bool CanUseCondition1(Hashtable hashtable)
                 {
                     if (CardEffectCommons.CanTriggerWhenPermanentWouldDigivolve(
@@ -162,7 +151,7 @@ public sealed class BT3_103 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

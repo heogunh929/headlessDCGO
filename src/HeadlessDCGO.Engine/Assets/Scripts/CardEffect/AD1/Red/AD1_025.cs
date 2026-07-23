@@ -16,9 +16,9 @@
 //     CanActivateCondition = IsExistOnBattleArea; ActivateCoroutine = (guarded by HasMatchConditionOpponentsPermanent)
 //     GManager SelectPermanentEffect(Mode.Destroy, maxCount 1) over enemy Options THEN IDestroySecurity(fromTop) on
 //     the opponent's security. Substrate: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>`
-//     IsEnemyOptionPermanent (`IsPermanentExistsOnOpponentBattleArea && IsOption`) -> the entity-id predicate
-//     `CardEffectCommons.IsOpponentBattleAreaOption(card, id)` (used for both HasMatchConditionOpponentsPermanent
-//     and the SelectPermanentEffect canTargetCondition); `new IDestroySecurity(player: card.Owner.Enemy, 1,
+//     IsEnemyOptionPermanent (`IsPermanentExistsOnOpponentBattleArea && IsOption`) kept verbatim on the canonical
+//     Func<Permanent,bool> shape (id-flip 3b), used for both HasMatchConditionOpponentsPermanent and the
+//     SelectPermanentEffect canTargetCondition); `new IDestroySecurity(player: card.Owner.Enemy, 1,
 //     activateClass, fromTop:true)` -> the MIG3-3a mirror carrier `(EngineContext, HeadlessPlayerId, int,
 //     HeadlessEntityId? cause, bool fromTop)` (player = `CardEffectCommons.OpponentOf(card)`, cause =
 //     `activateClass.EffectSourceCard?.InstanceId`). OnLeaveFieldAnyone is an EventBroadcast bridge timing; the
@@ -118,10 +118,6 @@ public sealed class AD1_025 : CEntity_Effect
             CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
             && permanent.DigivolutionCards.Count <= card.PermanentOfThisCard().DigivolutionCards.Count;
 
-        // AS-IS :103 canTargetCondition IsOpponentsDigimon — mirror SelectPermanentEffect is id-form (AT arm /
-        // BT21_030 precedent); the id-form of IsPermanentExistsOnOpponentBattleAreaDigimon is IsOpponentBattleAreaDigimon.
-        bool IsOpponentsDigimonById(HeadlessEntityId id) => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
-
         // AS-IS :91-116 SharedActivateCoroutine.
         async Task SharedActivateCoroutine(Hashtable _hashtable, ActivateClass activateClass)
         {
@@ -157,13 +153,13 @@ public sealed class AD1_025 : CEntity_Effect
             }
 
             // AS-IS :97-115 — if the opponent still has a Digimon (post-bounce), delete 1.
-            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsOpponentsDigimonById))
+            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsOpponentsDigimon))
             {
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: IsOpponentsDigimonById,
+                    canTargetCondition: IsOpponentsDigimon,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,
@@ -233,9 +229,10 @@ public sealed class AD1_025 : CEntity_Effect
                     && CardEffectCommons.CanTriggerOnPermanentLeave(hashtable, IsOpponentsDigimon);
             }
 
-            bool IsEnemyOptionPermanent(HeadlessEntityId id)
+            bool IsEnemyOptionPermanent(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaOption(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleArea(permanent, card)
+                    && permanent.IsOption;
             }
 
             bool CanActivateCondition(Hashtable hashtable)

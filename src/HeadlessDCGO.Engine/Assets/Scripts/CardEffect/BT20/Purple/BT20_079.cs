@@ -37,8 +37,8 @@
 //    * `card.Owner.Enemy` → `CardEffectCommons.OpponentOf(card)` (IsMinLevel이 HeadlessPlayerId 요구;
 //      symbol_map_guide §2.2, EX7_014 idiom).
 //    * `CardEffectCommons.HasMatchConditionPermanent(cond)`(구식, card 없음) → card 파라미터 추가(Permanent-술어
-//      오버로드 존재로 어댑터 불필요). `SelectPermanentEffect.SetUp`의 `canTargetCondition`은 id-전용이라
-//      CanSelectPermanentConditionShared에 id 어댑터를 덧댐(§2.3, BT17_026 idiom).
+//      오버로드 존재로 어댑터 불필요). `SelectPermanentEffect.SetUp`의 `canTargetCondition`은 Permanent-술어
+//      (CanSelectPermanentConditionShared)를 직접 받음(§2.3, BT17_026 idiom).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT20.Purple;
 
 using System.Collections;
@@ -81,17 +81,6 @@ public sealed class BT20_079 : CEntity_Effect
             return CardEffectCommons.IsMinLevel(permanent, CardEffectCommons.OpponentOf(card));
         }
 
-        Permanent? PermanentOfShared(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
-        bool CanSelectPermanentConditionSharedById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOfShared(id);
-            return permanent is not null && CanSelectPermanentConditionShared(permanent);
-        }
-
         bool CanActivateConditionShared(Hashtable hashtable)
         {
             return CardEffectCommons.IsExistOnBattleAreaDigimon(card) &&
@@ -125,7 +114,7 @@ public sealed class BT20_079 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentConditionSharedById,
+                    canTargetCondition: CanSelectPermanentConditionShared,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,
@@ -168,7 +157,7 @@ public sealed class BT20_079 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentConditionSharedById,
+                    canTargetCondition: CanSelectPermanentConditionShared,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,

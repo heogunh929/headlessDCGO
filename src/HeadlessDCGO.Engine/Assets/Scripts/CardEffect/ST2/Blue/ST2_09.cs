@@ -10,9 +10,11 @@
 // AS-IS structure kept verbatim: inline ActivateClass, no SetIsInheritedEffect, no SetHashString; the
 // ActivateCoroutine re-checks HasMatchConditionPermanent before selecting.
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
-// idiom (already correct in the pre-existing file: IsOpponentBattleAreaDigimon/HasTrashableDigivolutionCards);
-// AS-IS `CardEffectCommons.HasMatchConditionPermanent(cond)` / `MatchConditionPermanentCount(cond)` (global
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` kept on the canonical `Func<Permanent,bool>` shape
+// (id-flip 3b; IsOpponentBattleAreaDigimon converts to its Permanent-form sibling
+// IsPermanentExistsOnOpponentBattleAreaDigimon; HasTrashableDigivolutionCards has no Permanent-form sibling,
+// so it is called with `permanent.InstanceId`, commons signature unchanged); AS-IS
+// `CardEffectCommons.HasMatchConditionPermanent(cond)` / `MatchConditionPermanentCount(cond)` (global
 // scan, no CardSource arg in AS-IS) -> mirror's `(card, condition)` overloads.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
@@ -49,10 +51,10 @@ public sealed class ST2_09 : CEntity_Effect
                 return "[When Digivolving] Trash 2 digivolution cards at the bottom of 1 of your opponent's Digimon.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
-                    && CardEffectCommons.HasTrashableDigivolutionCards(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
+                    && CardEffectCommons.HasTrashableDigivolutionCards(card, permanent.InstanceId);
             }
 
             bool CanUseCondition(Hashtable hashtable)

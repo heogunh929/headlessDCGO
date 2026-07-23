@@ -2,9 +2,8 @@
 // TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_036 (BT1/Blue).
 //   [On Play] Unsuspend 1 of your Digimon.
 // AS-IS structure kept verbatim: inline ActivateClass + SelectPermanentEffect(Mode.UnTap). CanSelectPermanentCondition
-// (AS-IS Permanent-shape) expressed over the established id idiom (matches BT1_017/BT1_043's approach — the only
-// overload MatchConditionPermanentCount exposes), used for both HasMatchConditionPermanent/MatchConditionPermanentCount
-// and SelectPermanentEffect.SetUp's canTargetCondition (also id-shape per the W4 bridge).
+// is the AS-IS Permanent-shape predicate verbatim, shared by HasMatchConditionPermanent/MatchConditionPermanentCount
+// and SelectPermanentEffect.SetUp's canonical Func<Permanent,bool> canTargetCondition (id-flip 3b).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
 
 using System;
@@ -33,9 +32,9 @@ public sealed class BT1_036 : CEntity_Effect
                 return "[On Play] Unsuspend 1 of your Digimon.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, permanent.InstanceId);
             }
 
             bool CanUseCondition(Hashtable hashtable)

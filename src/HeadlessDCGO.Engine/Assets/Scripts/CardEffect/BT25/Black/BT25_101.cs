@@ -236,19 +236,6 @@ public sealed class BT25_101 : CEntity_Effect
                                         && selectedCardToLink.CanLinkToTargetPermanent(permanent, false, true);
                                     }
 
-                                    // (미러 idiom — BT17_026) SelectPermanentEffect.SetUp의 canTargetCondition은
-                                    // id-형이므로 AS-IS Permanent-술어는 그대로 두고 id 어댑터를 덧댄다.
-                                    Permanent? PermanentOfChosen(HeadlessEntityId id) =>
-                                        card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                                            ? new Permanent(card.Context, id, rec.OwnerId)
-                                            : null;
-
-                                    bool CanLinkChosenCardConditionById(HeadlessEntityId id)
-                                    {
-                                        Permanent? permanent = PermanentOfChosen(id);
-                                        return permanent is not null && CanLinkChosenCardCondition(permanent);
-                                    }
-
                                     #region Select Digimon that will gain selected card as link
                                     if (selectedCardToLink != null)
                                     {
@@ -258,7 +245,7 @@ public sealed class BT25_101 : CEntity_Effect
 
                                             selectPermanentEffect.SetUp(
                                                 selectPlayer: card.Owner,
-                                                canTargetCondition: CanLinkChosenCardConditionById,
+                                                canTargetCondition: CanLinkChosenCardCondition,
                                                 canTargetCondition_ByPreSelecetedList: null,
                                                 canEndSelectCondition: null,
                                                 maxCount: 1,

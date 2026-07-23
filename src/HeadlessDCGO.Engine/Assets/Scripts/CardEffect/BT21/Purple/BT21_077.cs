@@ -19,7 +19,7 @@
 // 치환(substrate translations only):
 //    * `card.Owner.HandCards` → `new Player(card.Context, card.Owner).HandCards`.
 //    * `HasMatchConditionPermanent(cond)` → `HasMatchConditionPermanent(card, cond)` (미러 card-스레딩).
-//    * SelectPermanentEffect.SetUp canTargetCondition = id-형 어댑터 CanTargetPermanentById (BT9_109 확립).
+//    * SelectPermanentEffect.SetUp canTargetCondition = Permanent-술어 CanTargetPermanent 직접 전달 (BT9_109 확립).
 //    * IEnumerator→async Task; `yield return (Continuous/Start)Coroutine(X)`→`await X`; `yield return null`→`await Task.CompletedTask`.
 //    * `PlayPermanentCards(activateClass:..., root: SelectCardEffect.Root.Trash, ...)` — AS-IS 시그니처 브릿지
 //      오버로드 (PlayCardsBridge.cs:37; BT9_081 확립).
@@ -61,10 +61,6 @@ public sealed class BT21_077 : CEntity_Effect
         {
             return permanent.IsDigimon && CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
         }
-
-        bool CanTargetPermanentById(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-            && CanTargetPermanent(new Permanent(card.Context, id, rec.OwnerId));
 
         bool CanActivateConditionShared(Hashtable hashtable)
         {
@@ -143,7 +139,7 @@ public sealed class BT21_077 : CEntity_Effect
 
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: CanTargetPermanentById,
+                                canTargetCondition: CanTargetPermanent,
                                 canTargetCondition_ByPreSelecetedList: null,
                                 canEndSelectCondition: null,
                                 maxCount: 1,
@@ -248,7 +244,7 @@ public sealed class BT21_077 : CEntity_Effect
 
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: CanTargetPermanentById,
+                                canTargetCondition: CanTargetPermanent,
                                 canTargetCondition_ByPreSelecetedList: null,
                                 canEndSelectCondition: null,
                                 maxCount: 1,

@@ -657,10 +657,6 @@ public class SelectDigiXrosClass
             new Player(ContextOf(card), permanent.TopCard.Owner).GetBattleAreaPermanents().Contains(permanent)
             && CanSelectDigiXros(element, permanent.TopCard, card);
 
-        bool CanSelectPermanentById(HeadlessEntityId id) =>
-            ICardEffect.ResolvePermanentOfThisCard(new CardSource(ContextOf(card), id, card.Owner)) is Permanent p
-            && CanSelectPermanentCondition(p);
-
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect("", null, card);
 
@@ -672,7 +668,7 @@ public class SelectDigiXrosClass
 
             selectPermanentEffect.SetUp(
                 selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanentById,
+                canTargetCondition: CanSelectPermanentCondition,
                 canTargetCondition_ByPreSelecetedList: null,
                 canEndSelectCondition: null,
                 maxCount: maxCount,
@@ -725,10 +721,6 @@ public class SelectDigiXrosClass
         bool CanSelectPermanentCondition(Permanent permanent) =>
             permanent.TopCard.Owner == card.Owner && permanent.IsTamer && permanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1;
 
-        bool CanSelectPermanentById(HeadlessEntityId id) =>
-            ICardEffect.ResolvePermanentOfThisCard(new CardSource(context, id, card.Owner)) is Permanent p
-            && CanSelectPermanentCondition(p);
-
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect("", null, card);
 
@@ -742,7 +734,7 @@ public class SelectDigiXrosClass
 
             selectPermanentEffect.SetUp(
                 selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanentById,
+                canTargetCondition: CanSelectPermanentCondition,
                 canTargetCondition_ByPreSelecetedList: null,
                 canEndSelectCondition: null,
                 maxCount: maxCount,

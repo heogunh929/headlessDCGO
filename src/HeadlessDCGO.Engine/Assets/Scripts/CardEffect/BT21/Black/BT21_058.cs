@@ -22,8 +22,8 @@
 // 치환(substrate translations only):
 //    * IEnumerator→async Task, `yield return ContinuousController.instance.StartCoroutine(X)` → `await X`.
 //    * `card.Owner.GetBattleAreaDigimons()` → HeadlessPlayerId 확장(§2.2 예외) 그대로.
-//    * SelectPermanentEffect.SetUp의 canTargetCondition은 id-형이므로 HasDigimonOnOwnerBattleArea에 id
-//      어댑터를 덧댄다(§2.3, BT17_026 판례).
+//    * SelectPermanentEffect.SetUp의 canTargetCondition은 Permanent-술어(HasDigimonOnOwnerBattleArea /
+//      CanSelectPermanentCondition)를 직접 받는다(§2.3, BT17_026 판례).
 //    * `permanent.TopCard.HasPlayCost && permanent.TopCard.GetCostItself <= 4` — 둘 다 미러 실존(CardSource.cs)
 //      그대로.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT21.Black;
@@ -60,17 +60,6 @@ public sealed class BT21_058 : CEntity_Effect
         bool HasDigimonOnOwnerBattleArea(Permanent permanent)
         {
             return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
-        }
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
-        bool HasDigimonOnOwnerBattleAreaById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && HasDigimonOnOwnerBattleArea(permanent);
         }
 
         bool SharedCanActivateCondition(Hashtable hashtable)
@@ -141,7 +130,7 @@ public sealed class BT21_058 : CEntity_Effect
 
                         selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: HasDigimonOnOwnerBattleAreaById,
+                                canTargetCondition: HasDigimonOnOwnerBattleArea,
                                 canTargetCondition_ByPreSelecetedList: null,
                                 canEndSelectCondition: null,
                                 maxCount: 1,
@@ -229,17 +218,6 @@ public sealed class BT21_058 : CEntity_Effect
                 return false;
             }
 
-            Permanent? PermanentOfDelete(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOfDelete(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOnReturnToLibraryBottomDigivolutionCard(hashtable, cardSource => cardSource.EqualsCardName("Vemmon"), card);
@@ -252,13 +230,13 @@ public sealed class BT21_058 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
 
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: maxCount,

@@ -47,7 +47,7 @@ async Task ReductionBlocked()
 {
     EngineContext context = Context();
     RegisterCostModifier(context, ModifierHelpers.PlayCostDeltaKey, -2);
-    GrantCannotReduceCost(context, CostReductionScope.Both);
+    GrantCannotReduceCost(context);
     AssertEqual(5, ContinuousModifierGate.ResolvePlayCost(context, Card, basePlayCost: 5), "reduction blocked by the grant");
     await Task.CompletedTask;
 }
@@ -56,7 +56,7 @@ async Task IncreaseStillApplies()
 {
     EngineContext context = Context();
     RegisterCostModifier(context, ModifierHelpers.PlayCostDeltaKey, 1);
-    GrantCannotReduceCost(context, CostReductionScope.Both);
+    GrantCannotReduceCost(context);
     AssertEqual(6, ContinuousModifierGate.ResolvePlayCost(context, Card, basePlayCost: 5), "increase still applies");
     await Task.CompletedTask;
 }
@@ -65,7 +65,7 @@ async Task DigivolutionReductionBlocked()
 {
     EngineContext context = Context();
     RegisterCostModifier(context, ModifierHelpers.DigivolutionCostDeltaKey, -1);
-    GrantCannotReduceCost(context, CostReductionScope.Both);
+    GrantCannotReduceCost(context);
     AssertEqual(4, ContinuousModifierGate.ResolveDigivolutionCost(context, Card, baseDigivolutionCost: 4), "digivolution reduction blocked");
     await Task.CompletedTask;
 }
@@ -108,11 +108,11 @@ void RegisterCostModifier(EngineContext context, string deltaKey, int delta)
 // (R2-C ③) Grant the AS-IS kind-class CannotReduceCostClass on a P1 FIELD permanent (the live scan walks
 // Players_ForTurnPlayer's field permanents' EffectList(None)); dispatched via the TfxCannotReduceCost fixture,
 // scoped to the played card (cardCondition) and the given cost path (costKind), any payer (playerCondition).
-void GrantCannotReduceCost(EngineContext context, CostReductionScope costKind)
+void GrantCannotReduceCost(EngineContext context, Func<List<Permanent>, bool>? targetPermanentsCondition = null)
 {
     TfxCannotReduceCost.PlayerCondition = _ => true;
     TfxCannotReduceCost.CardCondition = cs => cs is not null && cs.InstanceId == Card;
-    TfxCannotReduceCost.CostKind = costKind;
+    TfxCannotReduceCost.TargetPermanentsCondition = targetPermanentsCondition;
 
     var cards = (CardDatabase)context.CardRepository;
     var def = new HeadlessEntityId("DEF:GRANT");

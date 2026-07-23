@@ -21,8 +21,8 @@
 //   * `card.PermanentOfThisCard()` → `ICardEffect.ResolvePermanentOfThisCard(card)` (PermanentView→Permanent
 //     bridge, LM_054/EX9_062 precedent).
 //   * SelectPermanentEffect / CardEffectCommons permanent-scan predicates: AS-IS `Func<Permanent,bool>` supplied
-//     as the entity-id predicate via a `PermanentOf(id)` reconstruction (BT9_062 idiom); the `HasMatchCondition
-//     Permanent(card, Func<Permanent,bool>)` overload is used directly where AS-IS passes a Permanent predicate.
+//     directly to the canonical Func<Permanent,bool> SetUp overload (no id adapter) and to the `HasMatchCondition
+//     Permanent(card, Func<Permanent,bool>)` overload where AS-IS passes a Permanent predicate.
 //   * colour model: AS-IS `CardColors` is `List<CardColor>`; the mirror CardSource surface is `IReadOnlyList
 //     <string>`, folded to the AS-IS enum via `CardSource.ToCardColorList` (P6C3 reconciliation). `.Filter`
 //     (List/array extension) over the IReadOnlyList `DigivolutionCards` → LINQ `.Where`.
@@ -184,11 +184,6 @@ public sealed class EX9_074 : CEntity_Effect
                 return true;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
@@ -237,14 +232,14 @@ public sealed class EX9_074 : CEntity_Effect
                             .Distinct()
                             .ToList();
 
-                if (colours.Count <= 5 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours)))
+                if (colours.Count <= 5 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => CanSelectPermanentCondition(permanent, colours)))
                 {
-                    int maxCount1 = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours)));
+                    int maxCount1 = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, permanent => CanSelectPermanentCondition(permanent, colours)));
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours),
+                        canTargetCondition: p => CanSelectPermanentCondition(p, colours),
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount1,
@@ -258,7 +253,7 @@ public sealed class EX9_074 : CEntity_Effect
                     await selectPermanentEffect.Activate();
                 }
 
-                if (colours.Count >= 6 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => PermanentOf(id) is { } p && CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(p, card)))
+                if (colours.Count >= 6 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)))
                 {
                     List<Permanent> permanentToDelete = new List<Permanent>();
                     List<CardColor> selectableColors = new List<CardColor>();
@@ -296,7 +291,7 @@ public sealed class EX9_074 : CEntity_Effect
 
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: id => PermanentOf(id) is { } p && CanSelectOpponentDigimon(p),
+                                canTargetCondition: CanSelectOpponentDigimon,
                                 canTargetCondition_ByPreSelecetedList: CanTargetCondition_ByPreSelecetedList,
                                 canEndSelectCondition: CanEndSelectCondition,
                                 maxCount: 1,
@@ -379,11 +374,6 @@ public sealed class EX9_074 : CEntity_Effect
                 return true;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
                 if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
@@ -432,14 +422,14 @@ public sealed class EX9_074 : CEntity_Effect
                             .Distinct()
                             .ToList();
 
-                if (colours.Count <= 5 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours)))
+                if (colours.Count <= 5 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => CanSelectPermanentCondition(permanent, colours)))
                 {
-                    int maxCount1 = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours)));
+                    int maxCount1 = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, permanent => CanSelectPermanentCondition(permanent, colours)));
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: id => PermanentOf(id) is { } p && CanSelectPermanentCondition(p, colours),
+                        canTargetCondition: p => CanSelectPermanentCondition(p, colours),
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount1,
@@ -453,7 +443,7 @@ public sealed class EX9_074 : CEntity_Effect
                     await selectPermanentEffect.Activate();
                 }
 
-                if (colours.Count >= 6 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => PermanentOf(id) is { } p && CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(p, card)))
+                if (colours.Count >= 6 && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)))
                 {
                     List<Permanent> permanentToDelete = new List<Permanent>();
                     List<CardColor> selectableColors = new List<CardColor>();
@@ -491,7 +481,7 @@ public sealed class EX9_074 : CEntity_Effect
 
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
-                                canTargetCondition: id => PermanentOf(id) is { } p && CanSelectOpponentDigimon(p),
+                                canTargetCondition: CanSelectOpponentDigimon,
                                 canTargetCondition_ByPreSelecetedList: CanTargetCondition_ByPreSelecetedList,
                                 canEndSelectCondition: CanEndSelectCondition,
                                 maxCount: 1,

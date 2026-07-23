@@ -39,10 +39,10 @@ public sealed class BT2_102 : CEntity_Effect
                 return "[Main] Return 1 of your opponent's suspended Digimon to the bottom of their deck. (Trash all of the digivolution cards of that Digimon.)";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
-                    && CardEffectCommons.IsSuspended(card, id);
+                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, permanent.InstanceId)
+                    && CardEffectCommons.IsSuspended(card, permanent.InstanceId);
             }
 
             bool CanUseCondition(Hashtable hashtable)

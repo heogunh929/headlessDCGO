@@ -10,9 +10,9 @@
 // Substrate translations only: IEnumerator->Task, StartCoroutine->await; select flow via bridge W4
 // (`GManager.instance.GetComponent<SelectPermanentEffect/SelectCardEffect>()`, BT9_109/BT1_044 idiom); AS-IS
 // `Func<Permanent,bool> CanSelectPermanentCondition = IsPermanentExistsOnOwnerBattleAreaDigimon(permanent,card)
-// && permanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1` -> the existing id gate
-// `IsOwnerBattleAreaDigimon(card, id)` (safe repository-based ownership) then the reconstructed owner Permanent
-// for the verbatim DigivolutionCards count; `Permanent.DigivolutionCards` -> `.ToList()` for the
+// && permanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1` kept verbatim on the canonical
+// `Func<Permanent,bool>` shape (id-flip 3b — SelectPermanentEffect.SetUp takes it directly, no id round-trip
+// needed); `Permanent.DigivolutionCards` -> `.ToList()` for the
 // `List<CardSource>? customRootCardList` param; `Mathf`->`Math`; SelectCardEffect Root/Mode enum members kept
 // verbatim; `CardEffectCommons.PlayPermanentCards(...)` = the AS-IS-signature bridge overload (BT1_044 idiom).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
@@ -45,12 +45,10 @@ public sealed class ST2_15 : CEntity_Effect
                 return "[Main] Choose a Digimon digivolution card placed under 1 of your Digimon and play it as another Digimon without paying its memory cost.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOwnerBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))
                 {
-                    Permanent permanent = new Permanent(card.Context, id, card.Owner);
-
                     if (permanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1)
                     {
                         return true;

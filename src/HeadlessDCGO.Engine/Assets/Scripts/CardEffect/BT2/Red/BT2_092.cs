@@ -40,9 +40,9 @@ public sealed class BT2_092 : CEntity_Effect
                 return "[Main] Up to 2 of your Digimon gain <Security Attack +1> (This Digimon checks 1 additional security card) for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, permanent.InstanceId);
             }
 
             bool CanUseCondition(Hashtable hashtable)

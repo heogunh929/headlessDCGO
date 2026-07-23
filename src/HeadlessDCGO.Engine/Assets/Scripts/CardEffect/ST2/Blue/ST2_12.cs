@@ -55,7 +55,7 @@ public sealed class ST2_12 : CEntity_Effect
             {
                 if (isExistOnField(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => CardEffectCommons.HasNoDigivolutionCards(card, id)))
+                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => permanent.IsDigimon && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)))
                     {
                         if (card.Owner.CanAddMemory(activateClass))
                         {

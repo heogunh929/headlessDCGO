@@ -31,16 +31,16 @@ public sealed class BT1_111 : CEntity_Effect
             activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
             cardEffects.Add(activateClass);
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
-            bool CanSelectPermanentCondition1(HeadlessEntityId id)
+            bool CanSelectPermanentCondition1(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (CardEffectCommons.CurrentDp(card, id) <= 5000)
+                    if (permanent.DP <= 5000)
                     {
                         return true;
                     }

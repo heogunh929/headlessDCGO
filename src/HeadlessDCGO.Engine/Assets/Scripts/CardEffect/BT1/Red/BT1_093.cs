@@ -8,8 +8,8 @@
 //     applies BOTH to the SAME picked permanent: ChangeDigimonDP(permanent, 2000, UntilEachTurnEnd) THEN
 //     ChangeDigimonSAttack(permanent, 1, UntilEachTurnEnd).
 //   [Security] (SecuritySkill, independent) SetIsSecurityEffect(true); ActivateCoroutine: AddThisCardToHand(card).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` ->
-//   `Func<HeadlessEntityId,bool>` idiom (IsOwnerBattleAreaDigimon); GManager.GetComponent -> bridge W4;
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` kept
+//   verbatim on the canonical shape (id-flip 3b); GManager.GetComponent -> bridge W4;
 //   `AddThisCardToHand(card, activateClass)` -> mirror `(card, card)` (BT1_098 convention).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
 
@@ -40,9 +40,9 @@ public sealed class BT1_093 : CEntity_Effect
                 return "[Main] 1 of your Digimon gets +2000 DP and <Security Attack +1> (This Digimon checks 1 additional security card) for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

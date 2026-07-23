@@ -56,8 +56,8 @@
 //    * `card.Owner.GetBattleAreaPermanents()` → HeadlessPlayerId 확장 그대로 사용(§2.2 예외).
 //    * `card.PermanentOfThisCard()` → `ICardEffect.ResolvePermanentOfThisCard(card)` (BT17_026 idiom).
 //    * `CardEffectCommons.HasMatchConditionPermanent(cond)`(구식, card 없음) → card 파라미터 추가(Permanent-술어
-//      오버로드 존재로 어댑터 불필요). `SelectPermanentEffect.SetUp`의 `canTargetCondition`은 id-전용이라
-//      SharedCanSelectPermanentCondition에 id 어댑터를 덧댐(§2.3, BT17_026 idiom).
+//      오버로드 존재로 어댑터 불필요). `SelectPermanentEffect.SetUp`의 `canTargetCondition`은 Permanent-술어
+//      (SharedCanSelectPermanentCondition)를 직접 받음(§2.3, BT17_026 idiom).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT23.Black;
 
 using System.Collections;
@@ -423,17 +423,6 @@ public sealed class BT23_057 : CEntity_Effect
             return false;
         }
 
-        Permanent? PermanentOfShared(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
-        bool SharedCanSelectPermanentById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOfShared(id);
-            return permanent is not null && SharedCanSelectPermanentCondition(permanent);
-        }
-
         async Task SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
         {
             await CardEffectCommons.PlayHinukamuyToken(activateClass);
@@ -444,7 +433,7 @@ public sealed class BT23_057 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: SharedCanSelectPermanentById,
+                    canTargetCondition: SharedCanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,

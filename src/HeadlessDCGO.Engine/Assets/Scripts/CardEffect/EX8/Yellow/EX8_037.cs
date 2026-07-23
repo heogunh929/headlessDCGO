@@ -189,17 +189,6 @@ public sealed class EX8_037 : CEntity_Effect
                        permanent.IsDigimon && permanent.IsSuspended;
             }
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectYourSuspendedDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectYourSuspendedDigimon(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
                 if (new Player(card.Context, card.Owner).HandCards.Count(CanSelectOptionCard) >= 1)
@@ -261,7 +250,7 @@ public sealed class EX8_037 : CEntity_Effect
                             selectPermanentEffect.SetUp(
                                 selectPlayer: card.Owner,
                                 canTargetCondition_ByPreSelecetedList: null,
-                                canTargetCondition: CanSelectYourSuspendedDigimonById,
+                                canTargetCondition: CanSelectYourSuspendedDigimon,
                                 canEndSelectCondition: null,
                                 maxCount: 1,
                                 canNoSelect: false,

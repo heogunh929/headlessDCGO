@@ -428,11 +428,9 @@ public sealed class BT17_095 : CEntity_Effect
 
                         SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
-                        // AS-IS canTargetCondition is Func<Permanent,bool>; mirror SetUp is the id-form — the
-                        // established (bridge W4) Func<HeadlessEntityId,bool> adapter over the Permanent predicate.
                         selectPermanentEffect.SetUp(
                             selectPlayer: card.Owner,
-                            canTargetCondition: id => PermanentDNASelection(new Permanent(card.Context, id, card.Owner)),
+                            canTargetCondition: PermanentDNASelection,
                             canTargetCondition_ByPreSelecetedList: null,
                             canEndSelectCondition: null,
                             maxCount: maxCount,

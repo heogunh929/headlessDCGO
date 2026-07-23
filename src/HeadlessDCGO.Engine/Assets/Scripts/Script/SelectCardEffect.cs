@@ -57,9 +57,7 @@ public sealed class SelectCardEffect
     }
 
     private HeadlessPlayerId _selectPlayer;
-    private Func<HeadlessEntityId, bool> _canTargetCondition = static _ => true;
     private int _maxCount = 1;
-    private bool _canNoSelect;
     private bool _canEndNotMax;
     private Mode _mode = Mode.Custom;
     private Root _root = Root.Hand;
@@ -71,32 +69,6 @@ public sealed class SelectCardEffect
     /// (cost-pipeline-reduced) cost via <c>ContinuousModifierGate</c> and sets it here before Apply;
     /// 0 = play for free.</summary>
     public void SetPlayCost(int memoryCost) => _playCost = memoryCost < 0 ? 0 : memoryCost;
-
-    public void SetUp(
-        HeadlessPlayerId selectPlayer,
-        Func<HeadlessEntityId, bool> canTargetCondition,
-        int maxCount,
-        bool canNoSelect,
-        bool canEndNotMax,
-        Mode mode,
-        Root root,
-        HeadlessEntityId sourceEntityId)
-    {
-        ArgumentNullException.ThrowIfNull(canTargetCondition);
-        if (maxCount < 1)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maxCount), "Max count must be at least 1.");
-        }
-
-        _selectPlayer = selectPlayer;
-        _canTargetCondition = canTargetCondition;
-        _maxCount = maxCount;
-        _canNoSelect = canNoSelect;
-        _canEndNotMax = canEndNotMax;
-        _mode = mode;
-        _root = root;
-        _sourceEntityId = sourceEntityId.IsEmpty ? new HeadlessEntityId("select") : sourceEntityId;
-    }
 
     public void SetUpCustomMessage(string message)
     {
@@ -121,17 +93,22 @@ public sealed class SelectCardEffect
         {
             foreach (HeadlessEntityId id in zones.GetCards(_selectPlayer, zone))
             {
-                if (_canTargetCondition(id))
+                // (D9 id-flip batch 5) AS-IS Func<CardSource,bool> predicate — materialise the candidate to a
+                // CardSource view and evaluate, mirroring SelectPermanentEffect.BuildRequest's Permanent
+                // materialisation (AS-IS SelectCardEffect.cs:145 _canTargetcondition shape).
+                if (_canTargetCondition is null
+                    || _canTargetCondition(new CardSource(RequireContext(), id, _selectPlayer, _selectPlayer)))
                 {
                     candidates.Add(EffectChoiceHelpers.Candidate(id, id.Value, zone, isSelectable: true, _selectPlayer));
                 }
             }
         }
 
+        bool canNoSelect = _canNoSelect_Func?.Invoke() ?? false;
         int available = candidates.Count;
         int maxCount = Math.Min(_maxCount, available);
-        int minCount = _canNoSelect ? 0 : (_canEndNotMax ? Math.Min(1, maxCount) : maxCount);
-        bool canSkip = _canNoSelect;
+        int minCount = canNoSelect ? 0 : (_canEndNotMax ? Math.Min(1, maxCount) : maxCount);
+        bool canSkip = canNoSelect;
 
         return EffectChoiceHelpers.CreateCardRequest(_selectPlayer, _message, minCount, maxCount, canSkip, zone, candidates);
     }
@@ -232,7 +209,10 @@ public sealed class SelectCardEffect
 
     // AS-IS private fields (SelectCardEffect.cs:145-227). AS-IS names kept where free; where the name is
     // taken by a legacy mirror member of a different shape, the W3 …Card suffix convention applies.
-    private Func<CardSource, bool>? _canTargetConditionCard;                              // AS-IS _canTargetCondition
+    // (D9 id-flip batch 5) The invented id-form _canTargetCondition (HeadlessEntityId-predicate) was retired,
+    // so the AS-IS name is free — the CardSource-shape predicate reverts to the AS-IS name _canTargetCondition
+    // (one field, mirroring SelectPermanentEffect's consolidated _canTargetCondition).
+    private Func<CardSource, bool>? _canTargetCondition;                                  // AS-IS _canTargetCondition
     private Func<List<CardSource>, CardSource, bool>? _canTargetCondition_ByPreSelecetedList;
     private Func<List<CardSource>, bool>? _canEndSelectConditionCard;                     // AS-IS _canEndSelectCondition
     private Func<bool>? _canNoSelect_Func;                                                // AS-IS _canNoSelect (Func<bool>)
@@ -288,7 +268,7 @@ public sealed class SelectCardEffect
         HeadlessPlayerId selectPlayer,
         ICardEffect cardEffect)
     {
-        _canTargetConditionCard = canTargetCondition;
+        _canTargetCondition = canTargetCondition;
         _canTargetCondition_ByPreSelecetedList = canTargetCondition_ByPreSelecetedList;
         _canEndSelectConditionCard = canEndSelectCondition;
         _canNoSelect_Func = canNoSelect;
@@ -453,9 +433,9 @@ public sealed class SelectCardEffect
                 return false;
         }
 
-        if (_canTargetConditionCard != null)
+        if (_canTargetCondition != null)
         {
-            if (_canTargetConditionCard(cardSource))
+            if (_canTargetCondition(cardSource))
             {
                 if (!_allowFaceDown)
                 {

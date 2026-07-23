@@ -74,8 +74,22 @@ IReadOnlyList<ChoiceCandidate> Candidates(RestrictKind restrict, int skillOwner 
     // The selecting skill's source instance (owned by skillOwner).
     var skillId = new HeadlessEntityId(skillOwner == 1 ? "p1:A" : "p2:B");
 
-    var select = new SelectPermanentEffect();
-    select.SetUp(P1, _ => true, maxCount: 2, canNoSelect: true, canEndNotMax: true, SelectPermanentEffect.Mode.Custom, skillId, ctx);
+    // (RD-IDFLIP-01 batch 4) canonical AS-IS route: GManager.GetComponent (AttachContext under the ambient scope
+    // opened above) + the 11-param Func<Permanent,bool> SetUp. The selecting skill is a bare cause resolving
+    // skillId to its owner — exactly what the retired id-form SetUp built internally for the untargetability scan.
+    var select = GManager.instance!.GetComponent<SelectPermanentEffect>();
+    select.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: _ => true,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 2,
+        canNoSelect: true,
+        canEndNotMax: true,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Custom,
+        cardEffect: BareCauseEffect.For(ctx, skillId));
     ChoiceRequest request = select.BuildRequest((IZoneStateReader)ctx.ZoneMover, new[] { P1, P2 });
     return request.Candidates;
 }

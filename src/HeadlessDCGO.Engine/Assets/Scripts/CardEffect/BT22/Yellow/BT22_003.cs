@@ -10,8 +10,8 @@
 // Substrate translations only: IEnumerator->Task, StartCoroutine->await; `permanent == card.PermanentOfThisCard()`
 // -> `permanent.InstanceId == card.PermanentOfThisCard().TopInstanceId` (an inherited source resolves its host via
 // TopInstanceId); `GManager.instance.GetComponent<SelectPermanentEffect>()` + full AS-IS SetUp (bridge W4); AS-IS
-// `Func<Permanent,bool> OpponentCondition` supplied both as the Permanent predicate (MatchCount) and the id predicate
-// (HasMatch / SetUp) via `PermanentOf(id)`. The DP change targets the selected Permanent (which carries its own
+// `Func<Permanent,bool> OpponentCondition` supplied directly as the Permanent predicate to both the scans
+// (HasMatch / MatchCount) and SetUp. The DP change targets the selected Permanent (which carries its own
 // OwnerId), so the opponent-stat target is registered against the correct owner.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT22.Yellow;
 
@@ -53,25 +53,14 @@ public sealed class BT22_003 : CEntity_Effect
             {
                 return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
                     && CardEffectCommons.IsOwnerTurn(card)
-                    && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, OpponentConditionById);
+                    && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, OpponentCondition);
             }
 
             bool OpponentCondition(Permanent permanent) => CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
 
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool OpponentConditionById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && OpponentCondition(permanent);
-            }
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, OpponentConditionById))
+                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, OpponentCondition))
                 {
                     Permanent targetPermanent = null;
                     int maxCount = Math.Min(1, CardEffectCommons.MatchConditionOpponentsPermanentCount(card, OpponentCondition));
@@ -79,7 +68,7 @@ public sealed class BT22_003 : CEntity_Effect
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: OpponentConditionById,
+                        canTargetCondition: OpponentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

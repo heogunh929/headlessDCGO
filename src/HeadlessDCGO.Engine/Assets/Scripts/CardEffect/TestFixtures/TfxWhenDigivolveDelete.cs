@@ -44,7 +44,7 @@ public sealed class TfxWhenDigivolveDelete : CEntity_Effect
         if (timing == EffectTiming.WhenDigivolving)
         {
             // ① You may suspend 1 Digimon (any owner).
-            bool CanSuspend(HeadlessEntityId id) => CardEffectCommons.IsBattleAreaDigimon(card, id);
+            bool CanSuspend(Permanent permanent) => CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(permanent);
 
             ActivateClass suspendActivateClass = new ActivateClass();
             suspendActivateClass.SetUpICardEffect("Suspend 1 Digimon.", CanUseConditionTrue, card);
@@ -75,12 +75,13 @@ public sealed class TfxWhenDigivolveDelete : CEntity_Effect
             // ② You may delete 1 of your opponent's Digimon with DP <= the dynamic threshold.
             int DeletionMaxDp() => new Player(card.Context, card.Owner).MaxDP_DeleteEffect(
                 8000 + 3000 * CardEffectCommons.MatchConditionPermanentCount(card,
-                    id => CardEffectCommons.IsBattleAreaDigimon(card, id)
-                        && CardEffectCommons.IsSuspended(card, id)
-                        && id != card.InstanceId),
+                    (Permanent permanent) => CardEffectCommons.IsBattleAreaDigimon(card, permanent.InstanceId)
+                        && CardEffectCommons.IsSuspended(card, permanent.InstanceId)
+                        && permanent.InstanceId != card.InstanceId),
                 deleteActivateClass);
-            bool CanDelete(HeadlessEntityId id) =>
-                CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) && CardEffectCommons.CurrentDp(card, id) <= DeletionMaxDp();
+            bool CanDelete(Permanent permanent) =>
+                CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
+                && CardEffectCommons.CurrentDp(card, permanent.InstanceId) <= DeletionMaxDp();
 
             deleteActivateClass.SetUpICardEffect(
                 "Delete 1 of your opponent's Digimon (DP threshold scales with suspended Digimon).",

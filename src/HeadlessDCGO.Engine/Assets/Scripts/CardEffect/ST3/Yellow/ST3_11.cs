@@ -5,8 +5,8 @@
 // helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` structure — same shape
 // as ST3_08 (a larger debuff), but AS-IS notably does NOT call SetIsInheritedEffect here (kept verbatim).
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// the AS-IS `Func<Permanent,bool>` CanSelectPermanentCondition is expressed as the established
-// `Func<HeadlessEntityId,bool>` idiom (see ST3_08 header for the full rationale).
+// the AS-IS `Func<Permanent,bool>` CanSelectPermanentCondition is kept on the canonical `Func<Permanent,bool>`
+// shape (id-flip 3b — see ST3_08 header for the full rationale).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST3.Yellow;
 
 using System;
@@ -36,9 +36,9 @@ public sealed class ST3_11 : CEntity_Effect
                 return "[When Attacking] 1 of your opponent's Digimon gets -4000 DP for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

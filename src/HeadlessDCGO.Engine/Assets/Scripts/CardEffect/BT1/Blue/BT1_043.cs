@@ -4,7 +4,8 @@
 // AS-IS structure kept verbatim: inline ActivateClass + SelectPermanentEffect(Mode.Custom), per-target
 // coroutine calling CardEffectCommons.TrashDigivolutionCardsFromTopOrBottom (bridged, verified). AS-IS
 // `permanent.DigivolutionCards.Count((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(activateClass))
-// >= 1` -> the established `HasTrashableDigivolutionCards(card, id)` helper (same predicate, id idiom).
+// >= 1` -> the established `HasTrashableDigivolutionCards(card, id)` helper, fed `permanent.InstanceId` from the
+// canonical Func<Permanent,bool> canTargetCondition (id-flip 3b).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
 
 using System;
@@ -33,11 +34,11 @@ public sealed class BT1_043 : CEntity_Effect
                 return "[When Digivolving] Trash 4 digivolution cards under 1 of your opponent's Digimon.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, permanent.InstanceId))
                 {
-                    if (CardEffectCommons.HasTrashableDigivolutionCards(card, id))
+                    if (CardEffectCommons.HasTrashableDigivolutionCards(card, permanent.InstanceId))
                     {
                         return true;
                     }

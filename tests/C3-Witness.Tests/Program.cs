@@ -213,9 +213,21 @@ async Task CaseBounceIgnoresProtection()
     await DigivolutionStackHelpers.TrashSourcesAsync(
         context.CardInstanceRepository, context.ZoneMover, host,
         int.MaxValue, fromBottom: true, CancellationToken.None, gameEventQueue: null, honorProtection: false);
+    // (RD-IDFLIP-01 batch 4) canonical 11-param Func<Permanent,bool> SetUp; the retired id-form overload's
+    // sourceEntityId is supplied as the bare cause (causer.InstanceId), preserving the mutation's AS-IS cause.
     var bounce = new SelectPermanentEffect();
-    bounce.SetUp(causer.Owner, id => id == host, maxCount: 1, canNoSelect: false, canEndNotMax: false,
-        SelectPermanentEffect.Mode.Bounce, causer.InstanceId, context);
+    bounce.SetUp(
+        selectPlayer: causer.Owner,
+        canTargetCondition: p => p.InstanceId == host,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 1,
+        canNoSelect: false,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Bounce,
+        cardEffect: BareCauseEffect.For(context, causer.InstanceId));
     bounce.Apply(sink, new[] { host });
     await sink.FlushAsync();
 

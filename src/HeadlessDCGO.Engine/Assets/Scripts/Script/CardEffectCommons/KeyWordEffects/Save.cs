@@ -16,28 +16,13 @@ using HeadlessDCGO.Engine.Headless.Services;
 public static partial class CardEffectCommons
 {
     /// <summary>(P6 cluster2, general helper — see file header) AS-IS <c>MatchConditionPermanentCount</c>
-    /// (Func&lt;Permanent,bool&gt; overload, CardEffectCommons.cs:641-ish, global scan): the count of
+    /// (Func&lt;Permanent,bool&gt; overload, GameContextDeterminarion.cs:600, global scan): the count of
     /// battle-area (+ breeding, optionally) permanents across BOTH players matching <paramref name="condition"/>.
-    /// Only the <c>Func&lt;HeadlessEntityId,bool&gt;</c> overload of this name exists on the mirror
-    /// (CardEffectCommons.cs:4337); this is the sibling <c>Func&lt;Permanent,bool&gt;</c> overload the
+    /// This is the sole mirror overload of this name — the <c>Func&lt;Permanent,bool&gt;</c> shape the
     /// KeyWordEffects consumers (Save/Alliance/MaterialSave/…) need, defined once here (any file of this
     /// partial class may call it unqualified).</summary>
     public static int MatchConditionPermanentCount(CardSource card, Func<Permanent, bool> condition, bool isContainBreedingArea = false) =>
         EnumerateFieldPermanentViews(card, isContainBreedingArea).Count(condition);
-
-    /// <summary>(P6 cluster2, general helper) A live <see cref="Permanent"/> view over <paramref name="id"/>,
-    /// owner resolved from the card-instance repository (falling back to <paramref name="card"/>'s own owner
-    /// if the id is unknown — never hit by a real scan result). The established mirror idiom threads
-    /// <c>HeadlessEntityId</c> through predicates (see <c>HasMatchConditionPermanent</c>'s id overload /
-    /// <c>SelectPermanentEffect.SetUp</c>'s <c>canTargetCondition</c>); this bridges back to a
-    /// <see cref="Permanent"/> for AS-IS bodies that read Permanent-level state (DP/IsSuspended/TopCard).</summary>
-    public static Permanent PermanentOf(CardSource card, HeadlessEntityId id)
-    {
-        HeadlessPlayerId owner = card.Context.CardInstanceRepository.TryGetInstance(id, out var record) && record is not null
-            ? record.OwnerId
-            : card.Owner;
-        return new Permanent(card.Context, id, owner);
-    }
 
     /// <summary>AS-IS <c>CanActivateSave</c> (KeyWordEffects/Save.cs:10, verbatim modulo the added
     /// <paramref name="card"/> scan-scope parameter — see file header).</summary>
@@ -58,7 +43,7 @@ public static partial class CardEffectCommons
         Permanent? selected = null;
         selectPermanentEffect.SetUp(
             selectPlayer: card.Owner,
-            canTargetCondition: (HeadlessEntityId id) => canSelectPermanentCondition(PermanentOf(card, id)),
+            canTargetCondition: canSelectPermanentCondition,
             canTargetCondition_ByPreSelecetedList: null,
             canEndSelectCondition: null,
             maxCount: maxCount,

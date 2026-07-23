@@ -3913,27 +3913,6 @@ public static partial class CardEffectCommons
             && instance.Metadata.TryGetValue("isSuspended", out object? raw) && raw is true;
     }
 
-    /// <summary>(EX8_074 Stage 1) Mirror of the original <c>MatchConditionPermanentCount(predicate,
-    /// isContainBreedingArea)</c>: the number of battle-area (optionally + breeding) permanents, across BOTH
-    /// players, that satisfy <paramref name="condition"/>. The original takes a <c>Func&lt;Permanent,bool&gt;</c>;
-    /// the headless uses the established entity-id predicate idiom (see <see cref="IsOpponentBattleAreaDigimon"/>),
-    /// so card-side predicates compose CardEffectCommons helpers (IsSuspended, …) on the id.</summary>
-    public static int MatchConditionPermanentCount(CardSource card, Func<HeadlessEntityId, bool> condition, bool isContainBreedingArea = false)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(condition);
-        int count = 0;
-        foreach (HeadlessEntityId id in AllFieldPermanents(card, isContainBreedingArea))
-        {
-            if (condition(id))
-            {
-                count++;
-            }
-        }
-
-        return count;
-    }
-
     /// <summary>AS-IS <c>Player.MemoryForPlayer</c>: the shared memory gauge read from <paramref name="card"/>'s
     /// OWNER's perspective. The headless gauge (<c>MemoryController.Current.Current</c>) is single-signed and
     /// turn-player-relative (positive = the turn player, per AceOverflowGate), so it is negated when the owner is
@@ -3944,27 +3923,6 @@ public static partial class CardEffectCommons
         ArgumentNullException.ThrowIfNull(card);
         int memory = card.Context.MemoryController.Current.Current;
         return card.Context.TurnController.Current.TurnPlayerId == card.Owner ? memory : -memory;
-    }
-
-    /// <summary>The field permanents matching <paramref name="condition"/> as a materialised id list — the
-    /// enumeration mirror of <see cref="MatchConditionPermanentCount"/>. Used by the no-select "apply a mutation
-    /// to EVERY matching permanent" bodies (the AS-IS <c>foreach (… GetBattleAreaDigimons().Filter(…))</c> loop),
-    /// evaluated live at activation-resolve time.</summary>
-    public static IReadOnlyList<HeadlessEntityId> MatchConditionPermanentIds(
-        CardSource card, Func<HeadlessEntityId, bool> condition, bool isContainBreedingArea = false)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(condition);
-        var ids = new List<HeadlessEntityId>();
-        foreach (HeadlessEntityId id in AllFieldPermanents(card, isContainBreedingArea))
-        {
-            if (condition(id))
-            {
-                ids.Add(id);
-            }
-        }
-
-        return ids;
     }
 
     /// <summary>Stage a delete (AS-IS <c>DestroyPermanentsClass(target).Destroy()</c>) on <paramref name="target"/>
@@ -4066,33 +4024,6 @@ public static partial class CardEffectCommons
                 [MatchStateMutationSink.TargetEntityIdKey] = host.Value,
                 [MatchStateMutationSink.CountKey] = count,
             }));
-    }
-
-    /// <summary>(EX8_074 Stage 1) Mirror of the original <c>HasMatchConditionPermanent</c>: at least one
-    /// matching permanent exists (count &gt;= 1).</summary>
-    public static bool HasMatchConditionPermanent(CardSource card, Func<HeadlessEntityId, bool> condition, bool isContainBreedingArea = false) =>
-        MatchConditionPermanentCount(card, condition, isContainBreedingArea) >= 1;
-
-    /// <summary>Both players' battle-area cards (optionally + breeding-area), in turn order. Enumerates raw
-    /// instance ids; the caller's predicate decides Digimon-ness / ownership / suspendability.</summary>
-    private static IEnumerable<HeadlessEntityId> AllFieldPermanents(CardSource card, bool isContainBreedingArea)
-    {
-        var zones = (IZoneStateReader)card.Context.ZoneMover;
-        foreach (HeadlessPlayerId player in card.Context.TurnController.Current.PlayerOrder)
-        {
-            foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea))
-            {
-                yield return id;
-            }
-
-            if (isContainBreedingArea)
-            {
-                foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BreedingArea))
-                {
-                    yield return id;
-                }
-            }
-        }
     }
 
     // (W6-P) the earlier owner-only simplifications of IsPermanentExistsOn(Owner|Opponent)BattleAreaDigimon
@@ -4350,21 +4281,20 @@ public static partial class CardEffectCommons
         return level < 0 ? 0 : level;
     }
 
-    /// <summary>Mirror of the original <c>HasMatchConditionOpponentsPermanent</c> (entity-id predicate form):
-    /// the opponent has at least one battle-area Digimon matching <paramref name="condition"/>.</summary>
-    public static bool HasMatchConditionOpponentsPermanent(CardSource card, Func<HeadlessEntityId, bool> condition)
+    /// <summary>AS-IS <c>HasMatchConditionOpponentsPermanent</c>
+    /// (DCGO/Assets/Scripts/Script/CardEffectCommons/GameContextDeterminarion.cs:714): the opponent has at least
+    /// one battle-area permanent (ANY card type — Digimon, Tamer, or Option) matching
+    /// <paramref name="CanSelectPermanentCondition"/>. AS-IS scans BOTH players' full battle-area permanents
+    /// (<c>Players.Map(GetBattleAreaPermanents).Flat()</c>) and keeps the opponent-owned ones
+    /// (<see cref="IsOpponentPermanent"/>) that satisfy the predicate — no Digimon narrowing (each caller's
+    /// predicate does its own type reduction). Mirrored here via <see cref="EnumerateFieldPermanentViews"/>
+    /// exactly as the <see cref="HasMatchConditionOwnersPermanent"/> sibling does.</summary>
+    public static bool HasMatchConditionOpponentsPermanent(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)
     {
         ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(condition);
-        foreach (HeadlessEntityId id in OpponentBattleAreaDigimon(card))
-        {
-            if (condition(id))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        ArgumentNullException.ThrowIfNull(CanSelectPermanentCondition);
+        return EnumerateFieldPermanentViews(card, isContainBreedingArea: false)
+            .Any(p => IsOpponentPermanent(p, card) && CanSelectPermanentCondition(p));
     }
 
     /// <summary>Mirror of the original <c>card.Owner.SecurityCards.Count</c>: the number of cards in the
@@ -4399,16 +4329,6 @@ public static partial class CardEffectCommons
         return card.Context.CardInstanceRepository.TryGetInstance(deleted, out CardInstanceRecord? instance)
             && instance is not null
             && instance.Metadata.TryGetValue(DpZeroDeletionHelpers.DpZeroKey, out object? raw) && raw is true;
-    }
-
-    /// <summary>Mirror of the original <c>CanTriggerOnPermanentDeleted(hashtable, permanentCondition)</c>: a
-    /// permanent was just deleted (the trigger subject) and it satisfies <paramref name="permanentCondition"/>.</summary>
-    public static bool CanTriggerOnPermanentDeleted(CardSource card, CardEffectResolveContext context, Func<HeadlessEntityId, bool> permanentCondition)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(permanentCondition);
-        return context.Request.Context.TriggerEntityId is { } deleted && !deleted.IsEmpty && permanentCondition(deleted);
     }
 
     /// <summary>The deleted-subject ownership/type predicate: <paramref name="id"/> is (was) an opponent's
@@ -4473,27 +4393,6 @@ public static partial class CardEffectCommons
         }
 
         return default;
-    }
-
-    /// <summary>The opponent's battle-area Digimon top cards (entity ids).</summary>
-    private static IEnumerable<HeadlessEntityId> OpponentBattleAreaDigimon(CardSource card)
-    {
-        var zones = (IZoneStateReader)card.Context.ZoneMover;
-        foreach (HeadlessPlayerId player in card.Context.TurnController.Current.PlayerOrder)
-        {
-            if (player == card.Owner)
-            {
-                continue;
-            }
-
-            foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea))
-            {
-                if (IsOpponentBattleAreaDigimon(card, id))
-                {
-                    yield return id;
-                }
-            }
-        }
     }
 }
 

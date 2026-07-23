@@ -18,9 +18,8 @@
 //      list, activateClass, isBlock:false).Tap()` (BT8_092/EX4_062 idiom).
 //    * `card.Owner.HandCards`(AS-IS live Player) → `new Player(card.Context, card.Owner).HandCards` (BT25_089 판례).
 //    * `hand.appFusionCondition` / `selectedCard.appFusionCondition` → `.AppFusionConditionOf()` (BT25_089 판례).
-//    * `SelectPermanentEffect` canTargetCondition는 id-형 — AS-IS Permanent-술어를 PermanentOf(id) 어댑터로 전달
-//      (BT25_089/BT3_056 판례). Has/Count 스캔(Owners*)은 Permanent-술어 직접, HasMatchConditionOpponentsPermanent만
-//      id-형 오버로드 → id 어댑터(Vortex 판례).
+//    * `SelectPermanentEffect` canTargetCondition는 AS-IS Permanent-술어를 직접 받음
+//      (BT25_089/BT3_056 판례). Has/Count 스캔(Owners*/Opponents*)도 Permanent-술어를 직접 받음(Vortex 판례).
 //    * `selectedPermanent.PermanentFrame.FrameID` → `selectedPermanent.PermanentFrame!.FrameID` (BT25_089 판례).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT22.Yellow;
 
@@ -58,12 +57,6 @@ public sealed class BT22_087 : CEntity_Effect
             activateClass.SetUpICardEffect("-2K DP, then you may app fuse", CanUseCondition, card);
             activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
             cardEffects.Add(activateClass);
-
-            // 미러 SelectPermanentEffect는 id-형 canTargetCondition — AS-IS Permanent-술어의 id 어댑터(BT25_089 판례).
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
 
             string EffectDiscription()
             {
@@ -126,7 +119,7 @@ public sealed class BT22_087 : CEntity_Effect
             {
                 await new SuspendPermanentsClass(new List<Permanent> { ICardEffect.ResolvePermanentOfThisCard(card) }, activateClass, isBlock: false).Tap();
 
-                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, (HeadlessEntityId id) => PermanentOf(id) is Permanent op && IsOpponentDigimon(op)))
+                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => IsOpponentDigimon(permanent)))
                 {
                     Permanent selectedPermament = null;
 
@@ -137,7 +130,7 @@ public sealed class BT22_087 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: id => PermanentOf(id) is Permanent op && IsOpponentDigimon(op),
+                        canTargetCondition: IsOpponentDigimon,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -178,7 +171,7 @@ public sealed class BT22_087 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: id => PermanentOf(id) is Permanent p && CanSelectPermanent(p),
+                        canTargetCondition: CanSelectPermanent,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

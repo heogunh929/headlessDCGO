@@ -23,7 +23,7 @@
 //    * `TopCard.CardNames.Contains(name)` → `TopCard.EqualsCardName(name)`(두 표기 변형 유지 — BT17_026 idiom).
 //    * `TopCard.Owner.GetFieldPermanents()` → `new Player(card.Context, TopCard.Owner).GetFieldPermanents()`.
 //    * `card.Owner.CanAddMemory/AddMemory(...)` → HeadlessPlayerId.CanAddMemory/AddMemory 확장(BT2_010 idiom).
-//    * SelectPermanentEffect canTargetCondition = id-형 → PermanentOf(id) 어댑터(BT17_026 idiom; 술어 뭉갬 금지).
+//    * SelectPermanentEffect canTargetCondition은 정본 Func<Permanent,bool> 오버로드 — 어댑터 없이 술어 직결(id-flip 3b).
 //    * `card.Owner.Enemy.HandCards = RandomUtility.ShuffledDeckCards(...)` → `IZoneMover.ShuffleHandAsync(enemyId)`
 //      (신규 hand-shuffle op — 시드된 RandomUtility 미러로 손패 존 in-place 셔플; Player.HandCards는 live view라
 //      존 재정렬이 곧 AS-IS in-place 재대입). 셔플 후 HandCards를 재-read하여 블라인드-픽의 customRootCardList로 전달.
@@ -51,11 +51,6 @@ public sealed class BT13_033 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Burst Digivolution
         if (timing == EffectTiming.None)
@@ -129,12 +124,6 @@ public sealed class BT13_033 : CEntity_Effect
                 return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             int count()
             {
                 return new Player(card.Context, card.Owner).Enemy!.HandCards.Count / 4;
@@ -176,7 +165,7 @@ public sealed class BT13_033 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

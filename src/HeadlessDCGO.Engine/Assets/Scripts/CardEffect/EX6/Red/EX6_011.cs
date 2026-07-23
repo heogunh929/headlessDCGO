@@ -25,10 +25,9 @@
 //   * IEnumerator ActivateCoroutine -> async Task; `yield return StartCoroutine(X)` -> `await X`.
 //   * `IsOpponentEffect(cardEffect, card)` -> `IsOpponentEffect(cardEffect.EffectSourceCard, card)` (mirror
 //     signature takes the source card — EX10_010 idiom).
-//   * `HasMatchConditionPermanent(pred)` / `MatchConditionPermanentCount(pred)` -> the (card, pred) overloads;
-//     `HasMatchConditionOpponentsPermanent(card, pred)` is id-form only -> the id adapter IsEnemyPermanentSharedById.
-//   * SelectPermanentEffect canTargetCondition is id-typed -> the Permanent predicate IsEnemyPermanentShared gets
-//     the id adapter IsEnemyPermanentSharedById (AD1_025 / ST13_06 idiom; predicate NOT tunnelled).
+//   * `HasMatchConditionPermanent(pred)` / `MatchConditionPermanentCount(pred)` -> the (card, pred) overloads.
+//   * SelectPermanentEffect canTargetCondition is the canonical Permanent-typed overload -> the Permanent
+//     predicate IsEnemyPermanentShared is passed directly (no id adapter).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX6.Red;
 
 using System;
@@ -224,13 +223,6 @@ public sealed class EX6_011 : CEntity_Effect
             return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
         }
 
-        // SelectPermanentEffect / HasMatchConditionOpponentsPermanent are id-typed — the VERBATIM Permanent
-        // predicate above in id form is IsOpponentBattleAreaDigimon (AD1_025 idiom).
-        bool IsEnemyPermanentSharedById(HeadlessEntityId id)
-        {
-            return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
-        }
-
         #endregion
 
         #region On Play
@@ -297,7 +289,7 @@ public sealed class EX6_011 : CEntity_Effect
 
                         selectEnemyEffect.SetUp(
                             selectPlayer: card.Owner,
-                            canTargetCondition: IsEnemyPermanentSharedById,
+                            canTargetCondition: IsEnemyPermanentShared,
                             canTargetCondition_ByPreSelecetedList: null,
                             canEndSelectCondition: null,
                             maxCount: enemyCount,
@@ -370,13 +362,13 @@ public sealed class EX6_011 : CEntity_Effect
                     }
 
                     // Delete 1 Opponent's Digimon
-                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsEnemyPermanentSharedById))
+                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsEnemyPermanentShared))
                     {
                         SelectPermanentEffect selectEnemyEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                         selectEnemyEffect.SetUp(
                             selectPlayer: card.Owner,
-                            canTargetCondition: IsEnemyPermanentSharedById,
+                            canTargetCondition: IsEnemyPermanentShared,
                             canTargetCondition_ByPreSelecetedList: null,
                             canEndSelectCondition: null,
                             maxCount: 1,

@@ -21,9 +21,9 @@
 //    * `.DigivolutionCards` (미러 IReadOnlyList<CardSource>) → `.ToList()` where a List<CardSource> is needed
 //      (customRootCardList / Filter extension).
 //    * `HasAppmonTraits` → `EqualsTraits("Appmon")` (BT22_035/BT25_061 확립 inline idiom).
-//    * SelectPermanentEffect canTargetCondition = id-형 `Func<HeadlessEntityId, bool>` — PermanentOf(id) adapter
-//      (BT25_089 idiom). `HasMatchConditionOpponentsPermanent(card, PermanentPred)` 는 id-오버로드만 존재 →
-//      `id => PermanentOf(id) is { } p && PermanentPred(p)`.
+//    * SelectPermanentEffect canTargetCondition은 이제 AS-IS Permanent-술어를 직접 받는다(id-flip 3b 캐노니컬
+//      오버로드 — 이전 PermanentOf(id) 어댑터 전삭). `HasMatchConditionOpponentsPermanent(card, PermanentPred)`
+//      는 Permanent-술어 오버로드로 그대로 전달.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST22.Red;
 
 using System;
@@ -290,22 +290,15 @@ public sealed class ST22_12 : CEntity_Effect
                        permanent.DP <= 5000;
             }
 
-            // (G-Link) SelectPermanentEffect canTargetCondition / HasMatchConditionOpponentsPermanent 는
-            // id-형 오버로드만 존재 → PermanentOf(id) 어댑터 (BT25_089 idiom).
-            Permanent? PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
             async Task ActivateCoroutine(Hashtable hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => PermanentOf(id) is { } p && PermanentCondition(p)))
+                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => PermanentCondition(permanent)))
                 {
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: id => PermanentOf(id) is { } p && PermanentCondition(p),
+                        canTargetCondition: PermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: 1,

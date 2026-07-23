@@ -8,7 +8,7 @@
 //
 // Fix: WindowResolverWiring.ScanZones now also yields each battle-area permanent's ACTIVE inherited sources (AS-IS
 // Permanent.EffectList_ForCard membership: non-flipped sources of a Digimon permanent — reusing the C-3 continuous
-// scan's DigivolutionStackReader + InheritedEffectHelpers.ActiveInheritedSources), tagged Inherited=true. The
+// scan's DigivolutionStackReader active-inherited-source membership), tagged Inherited=true. The
 // resolver (HasActivatedEffectsAt / CanCollectAt / CanActivateAt / ResolveAsync) applies the AS-IS membership split:
 // a SOURCE scan runs ONLY the card's IsInheritedEffect activated effects; a TOP scan only the non-inherited ones.
 //

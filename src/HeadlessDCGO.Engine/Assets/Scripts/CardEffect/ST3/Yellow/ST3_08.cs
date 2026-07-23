@@ -6,9 +6,9 @@
 // the established `SelectPermanentEffect` selection pattern (BT1_017/023/092/094 pattern).
 // AS-IS structure kept verbatim: inline ActivateClass, SetIsInheritedEffect(true).
 // Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// the AS-IS `Func<Permanent,bool>` CanSelectPermanentCondition is expressed as the established
-// `Func<HeadlessEntityId,bool>` idiom (the id-shape `HasMatchConditionPermanent`/`MatchConditionPermanentCount`
-// overloads, and `SelectPermanentEffect.SetUp`'s `canTargetCondition`, all take this shape).
+// the AS-IS `Func<Permanent,bool>` CanSelectPermanentCondition is kept on the canonical `Func<Permanent,bool>`
+// shape (id-flip 3b — `HasMatchConditionPermanent`/`MatchConditionPermanentCount`, and
+// `SelectPermanentEffect.SetUp`'s `canTargetCondition`, all take this shape directly).
 // AS-IS `GManager.instance.GetComponent<SelectPermanentEffect>()` + full `SetUp(...)` + `.Activate()` resolves
 // via the bridge-W4 GManager.GetComponent<T>()/SelectPermanentEffect support.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST3.Yellow;
@@ -41,9 +41,9 @@ public sealed class ST3_08 : CEntity_Effect
                 return "[When Attacking] 1 of your opponent's Digimon gets -1000 DP for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

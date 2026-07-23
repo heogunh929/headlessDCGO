@@ -5,10 +5,9 @@
 // AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
 // functions. CanUseCondition/CanActivateCondition (CanTriggerOnPlay / IsExistOnBattleArea /
 // HasMatchConditionPermanent) resolve via the existing bridge; the AS-IS `Func<Permanent,bool>`
-// CanSelectPermanentCondition is expressed as the established `Func<HeadlessEntityId,bool>` idiom (the ONLY
-// overload `MatchConditionPermanentCount` exposes; `HasMatchConditionPermanent` has both, used here for the
-// same predicate so a single condition function serves both AS-IS call sites), matching the pattern already
-// used across the ported corpus (BT1_098, BT13_023, BT24_018, …) for AS-IS's Permanent-taking global scan.
+// CanSelectPermanentCondition is expressed verbatim on the canonical Func<Permanent,bool> shape (id-flip 3b) —
+// a single condition function serves both AS-IS call sites (HasMatchConditionPermanent/MatchConditionPermanentCount
+// and SelectPermanentEffect.SetUp's canTargetCondition).
 //
 // UNRESOLVED MEMBERS (kept verbatim, not simplified/faked; see docs/audit/rebuild_p5_cards_missing.md): AS-IS
 // `GManager.instance.GetComponent<SelectPermanentEffect>()` — the mirror `GManager` exposes no `GetComponent<T>()`
@@ -50,9 +49,9 @@ public sealed class BT1_017 : CEntity_Effect
             // AS-IS `CanSelectPermanentCondition(Permanent permanent)` =
             // `IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)` — expressed over the id idiom (see
             // file header).
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

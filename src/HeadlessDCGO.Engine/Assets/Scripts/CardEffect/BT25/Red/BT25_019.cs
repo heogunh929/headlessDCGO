@@ -9,8 +9,8 @@
 //     (thisPermanent.UntilOpponentTurnEndEffects.Add(...PermanentEffectFactory.DigimonEffectImmunity/
 //     OptionEffectImmunity...) — 둘 다 AS-IS 상등 임계값이라 5일 때 둘 다 발동, AS-IS 원문 그대로 보존).
 //
-// 치환(substrate translations only): IEnumerator→async Task, StartCoroutine(X)→await X; id-adapter
-// (SelectPermanentEffect.canTargetCondition = Func<HeadlessEntityId,bool>, BT25_040 idiom); `card.Owner.Enemy`
+// 치환(substrate translations only): IEnumerator→async Task, StartCoroutine(X)→await X; SelectPermanentEffect.
+// canTargetCondition은 정본 Func<Permanent,bool> — Permanent 술어 직결(id 어댑터 없음); `card.Owner.Enemy`
 // → `new Player(card.Context, card.Owner).Enemy!`(non-null, 2인 게임); `card.PermanentOfThisCard()` →
 // `ICardEffect.ResolvePermanentOfThisCard(card)`; `GManager.instance.GetComponent<Effects>().CreateBuffEffect(...)`
 // = UI (stripped, 가드 프레디케이트 없음이라 보존할 것 없음).
@@ -30,11 +30,6 @@ public sealed class BT25_019 : CEntity_Effect
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
 
         #region Static Effects
 
@@ -71,22 +66,16 @@ public sealed class BT25_019 : CEntity_Effect
         bool CanSelectPermamentCondition(Permanent permanent) =>
             CardEffectCommons.IsMaxDP(permanent, CardEffectCommons.OpponentOf(card), null);
 
-        bool CanSelectPermanentById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && CanSelectPermamentCondition(permanent);
-        }
-
         async Task SharedActivateCoroutine(Hashtable _hashtable, ActivateClass activateClass)
         {
-            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, CanSelectPermanentById))
+            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, CanSelectPermamentCondition))
             {
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
                 int maxCount = Math.Min(1, CardEffectCommons.MatchConditionOpponentsPermanentCount(card, CanSelectPermamentCondition));
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermamentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: maxCount,

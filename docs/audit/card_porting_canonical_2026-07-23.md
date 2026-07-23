@@ -464,6 +464,23 @@ public static class PermanentEffectFactory
 
 > 상세 심볼 번역은 `docs/porting/symbol_map_guide.md` + `symbol_map.csv`(§2 규칙: Player-is-PlayerId, value-equality→Resolve 등).
 
+### 9.1 번역 등재제 (2026-07-23 id-표면 flip 캠페인에서 확정)
+
+**위 표(+아래 등재 목록)에 없는 substrate 번역은 이탈로 판정한다.** 새 번역이 필요하면 "왜 AS-IS shape이 headless에서 불가능한지" 사유와 함께 이 표에 등재하는 것이 선행 조건이다 — 등재 없는 편의 번역이 id-술어 껍데기 238파일 전염의 근본 원인이었다(관할-갭 복기 참조).
+
+**등재된 id-핸들 어휘** (flip 캠페인 census에서 검증 — 이것만 허용):
+| 어휘 | 등재 사유 |
+|---|---|
+| `zones.GetCards(...)` → `IReadOnlyList<HeadlessEntityId>` | zone reader 반환형 — AS-IS `List<Card>`의 headless 핸들 미러 |
+| `MatchStateMutationSink`/`ReturnToDeckBottom` 등 sink API의 id 인자·스테이징 `List<HeadlessEntityId>` | mutation sink 어휘 — 술어 평가는 반드시 Permanent 위에서 하고 id는 운반만 |
+| `permanent.TopInstanceId`·`permanent.InstanceId`·cause-id ctor 파라미터(`HeadlessEntityId?`) | Permanent/효과 원인 식별자 — AS-IS `Card` 참조-동일성의 headless 번역 |
+| `CurrentBattleOpponent(card)` 등 commons 핸들 조회 후 `new Permanent(context, id)` 구체화 | 핸들→도메인 구체화 idiom (2-arg ctor가 owner를 리포지토리 해석) |
+| 테스트 픽스처의 `new HeadlessEntityId(...)`·`result.SelectedIds` | choice-result/픽스처 배관 (AS-IS 대응 없음 — 테스트 전용) |
+
+**금지 재확인**: 카드 파일 내 `Func<HeadlessEntityId,bool>` 술어·`PermanentOf` 해소 껍데기·`...ById` 어댑터 = **0 유지** (2026-07-23 flip 캠페인이 표면 자체를 삭제했으므로 이런 코드는 컴파일되지 않는다 — 보이면 stale 참조를 베낀 것).
+
+**계기판 지표(강제)**: `grep -rn "Func<HeadlessEntityId" src/HeadlessDCGO.Engine/Assets/Scripts --include=*.cs | grep -v ":[0-9]*: *//"` = **0**. 대량 포팅 트랜치마다 게이트에 포함할 것.
+
 ---
 
 ## 10. 테스트 관례 (행동 witness — 대량 포팅 가드레일)
@@ -512,8 +529,10 @@ public static class PermanentEffectFactory
 | `CardPortingFramework` (**타입**) | **타입 없음**. `CardEffectFactory.<Name>` / `CardEffectCommons.<Name>` 직접 호출 |
 | `ContinuousKeywordGate`/`ContinuousDpGate` 등을 **카드가 직접 등록/질의** | 카드는 안 건드림; substrate 스캔이 처리 |
 
-> ⚠️ **`CardPortingFramework` 함정**: 파일 `…/CardEffectCommons/CardPortingFramework.cs`는 **아직 존재**하지만,
-> 그 안엔 `SimplifiedSelectCardConditionClass` partial만 있고 **`CardPortingFramework`라는 타입은 없다**. 옛 매핑 문서의
+> ⚠️ **`CardPortingFramework` 함정 (해소됨)**: 파일 `…/CardEffectCommons/CardPortingFramework.cs`는 **물리 삭제
+> 완료**(flip 캠페인 마지막 조각, 2026-07-23) — 마지막 남은 거주자였던 `BlastDNACondition`을 AS-IS 정위치 미러 파일
+> `…/CardEffectFactory/KeyWordEffects/BlastDNADigivolution.cs`로 이주(AS-IS와 동일 파일-내 위치: `CardEffectFactory`
+> 파셜 선언 직전)한 뒤 빈 파일을 삭제했다. **`CardPortingFramework`라는 타입은 애초에 없었다**. 옛 매핑 문서의
 > "CPF:5786" 같은 주소는 **역사적 별칭(스테일)** 이다 — 그 메서드들은 지금 `CardEffectFactory.cs`/`CardEffectCommons.cs`(및
 > 분해된 partial 파일)에 산다. 코드에 `CardPortingFramework.무엇` 이라고 절대 쓰지 말 것.
 >

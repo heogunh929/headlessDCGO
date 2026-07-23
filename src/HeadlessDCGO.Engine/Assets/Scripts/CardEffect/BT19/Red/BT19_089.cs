@@ -23,7 +23,7 @@
 //    * `permanent.TopCard.CardColors.Contains(CardColor.White)` → `permanent.TopCard.HasCardColor("White")`
 //      (색 enum→string, BT18_098:117 idiom).
 //    * `HasMatchConditionOpponentsPermanent(card, Func<Permanent,bool>)` / `MatchConditionPermanentCount` /
-//      `SelectPermanentEffect.canTargetCondition` → id-adapter `Func<HeadlessEntityId,bool>` (BT18_098/BT7_055 idiom).
+//      `SelectPermanentEffect.canTargetCondition` = Permanent-형 술어 직접 전달 (BT18_098/BT7_055 idiom).
 //    * `cardEffect.EffectSourceCard.Owner == card.Owner.Enemy` → `== CardEffectCommons.OpponentOf(card)` (AD1_013 idiom).
 //    * `AddThisCardToHand(card, activateClass)` → `AddThisCardToHand(card, card)` (CardSource-형 substrate overload, BT9_109:100 idiom).
 //
@@ -54,11 +54,6 @@ public sealed class BT19_089 : CEntity_Effect
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
         #region Ignore Color Requirements
         if (timing == EffectTiming.None)
         {
@@ -73,11 +68,9 @@ public sealed class BT19_089 : CEntity_Effect
                 return CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsWhiteDigimonOrTamer);
             }
 
-            bool IsWhiteDigimonOrTamer(HeadlessEntityId id)
+            bool IsWhiteDigimonOrTamer(Permanent permanent)
             {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null
-                    && (permanent.IsDigimon || permanent.IsTamer)
+                return (permanent.IsDigimon || permanent.IsTamer)
                     && permanent.TopCard.HasCardColor("White");
             }
 
@@ -106,12 +99,6 @@ public sealed class BT19_089 : CEntity_Effect
                 return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
-            bool CanSelectDigimonById(HeadlessEntityId id)
-            {
-                Permanent? permanent = PermanentOf(id);
-                return permanent is not null && CanSelectDigimonCondition(permanent);
-            }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
@@ -123,13 +110,13 @@ public sealed class BT19_089 : CEntity_Effect
 
                 if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectDigimonCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectDigimonById));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectDigimonCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectDigimonById,
+                        canTargetCondition: CanSelectDigimonCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,

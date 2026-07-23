@@ -44,9 +44,9 @@ public sealed class BT1_092 : CEntity_Effect
                 return "[Main] Trigger <Draw 2> (Draw 2 cards from your deck). Then 1 of your Digimon gets +2000 DP for the turn.";
             }
 
-            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
 
             bool CanUseCondition(Hashtable hashtable)

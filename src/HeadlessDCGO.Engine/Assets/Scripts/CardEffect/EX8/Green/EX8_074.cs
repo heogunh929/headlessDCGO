@@ -35,9 +35,9 @@
 //     lone `yield return null` -> Task.CompletedTask.
 //   * `card.Owner.<Player member>` -> `new Player(card.Context, card.Owner).<member>` (mirror CardSource.Owner
 //     is the HeadlessPlayerId).
-//   * AS-IS `Func<Permanent,bool>` SetUp target predicates -> the entity-id adapter (`PermanentOf(id)`
-//     reconstruction, BT9_021 idiom); AS-IS Unity truthiness `cardFromHashtable` / `permanent.TopCard`
-//     -> `!= null`.
+//   * AS-IS `Func<Permanent,bool>` SetUp target predicates -> passed directly to the canonical
+//     Func<Permanent,bool> SetUp overload (no id adapter); AS-IS Unity truthiness `cardFromHashtable` /
+//     `permanent.TopCard` -> `!= null`.
 //   * `new SuspendPermanentsClass(list, CardEffectCommons.CardEffectHashtable(activateClass)).Tap()` (AS-IS
 //     hashtable ctor) -> `new SuspendPermanentsClass(list, activateClass, isBlock: false).Tap()` (EX4_062 idiom).
 //   * `permanent != card.PermanentOfThisCard()` -> `permanent.InstanceId !=
@@ -101,17 +101,6 @@ public sealed class EX8_074 : CEntity_Effect
                        !permanent.IsSuspended && permanent.CanSuspend;
             }
 
-            Permanent PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectPermanentById(HeadlessEntityId id)
-            {
-                Permanent permanent = PermanentOf(id);
-                return permanent is not null && CanSelectPermanentCondition(permanent);
-            }
-
             bool CanActivateCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition) >= 2;
@@ -132,7 +121,7 @@ public sealed class EX8_074 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 2,
@@ -339,23 +328,6 @@ public sealed class EX8_074 : CEntity_Effect
                        permanent.DP <= new Player(card.Context, card.Owner).MaxDP_DeleteEffect(DeletionMaxDP(), activateClass);
             }
 
-            Permanent PermanentOf(HeadlessEntityId id) =>
-                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord rec) && rec is not null
-                    ? new Permanent(card.Context, id, rec.OwnerId)
-                    : null;
-
-            bool CanSelectSuspendPermanentById(HeadlessEntityId id)
-            {
-                Permanent permanent = PermanentOf(id);
-                return permanent is not null && CanSelectSuspendPermanentCondition(permanent);
-            }
-
-            bool CanSelectDeletePermanentById(HeadlessEntityId id)
-            {
-                Permanent permanent = PermanentOf(id);
-                return permanent is not null && CanSelectDeletePermanentCondition(permanent);
-            }
-
             bool CanActivateCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.IsExistOnBattleAreaDigimon(card);
@@ -369,7 +341,7 @@ public sealed class EX8_074 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectSuspendPermanentById,
+                        canTargetCondition: CanSelectSuspendPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: 1,
@@ -393,7 +365,7 @@ public sealed class EX8_074 : CEntity_Effect
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectDeletePermanentById,
+                        canTargetCondition: CanSelectDeletePermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: 1,

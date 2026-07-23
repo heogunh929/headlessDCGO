@@ -36,9 +36,8 @@
 //    * `card.PermanentOfThisCard()` → `ICardEffect.ResolvePermanentOfThisCard(card)` (ICardEffect.cs:537).
 //    * `CardEffectCommons.HasMatchConditionPermanent(pred)` 1-arg — 미러엔 1-arg 오버로드가 없고 card 선행 인자
 //      필수. Permanent-술어 오버로드(CardEffectCommons.cs:4079)로 `HasMatchConditionPermanent(card, pred)` 치환.
-//    * SelectPermanentEffect.SetUp의 canTargetCondition은 미러에서 `Func<HeadlessEntityId,bool>`(SetUp :341).
-//      AS-IS `Func<Permanent,bool> CanSelectPermanentCondition`는 그대로 두고 id 어댑터(PermanentOf +
-//      CanSelectPermanentById)를 덧댐(BT17_026 idiom; 술어 뭉갬 금지). Mode.Destroy 존재(:34,:589).
+//    * SelectPermanentEffect.SetUp의 canTargetCondition은 정본 `Func<Permanent,bool>`(SetUp :364) — AS-IS
+//      `Func<Permanent,bool> CanSelectPermanentCondition`를 그대로 전달(id 어댑터 없음). Mode.Destroy 존재(:34,:589).
 //    * `CardEffectCommons.IsOpponentEffect(cardEffect, card)` — 미러 시그니처는 `IsOpponentEffect(CardSource?,
 //      CardSource)`(CardEffectCommons.cs:4162)이므로 `cardEffect.EffectSourceCard`를 넘김(Progress.cs:79 확립).
 //    * `thisPermanent.AddBoost(new Permanent.DPBoost("AT_EX10-010", 3000, null))` /
@@ -101,19 +100,6 @@ public sealed class EX10_010 : CEntity_Effect
                    && permanent.TopCard.HasPlayCost && permanent.TopCard.GetCostItself <= 7;
         }
 
-        // (미러 idiom — BT17_026) SelectPermanentEffect 브릿지의 canTargetCondition은 id-형이므로
-        // AS-IS Permanent-술어는 그대로 두고 id 어댑터를 덧댄다(술어 뭉갬 금지).
-        Permanent? PermanentOf(HeadlessEntityId id) =>
-            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
-                ? new Permanent(card.Context, id, rec.OwnerId)
-                : null;
-
-        bool CanSelectPermanentById(HeadlessEntityId id)
-        {
-            Permanent? permanent = PermanentOf(id);
-            return permanent is not null && CanSelectPermanentCondition(permanent);
-        }
-
         bool CanActivateSharedCondition(Hashtable hashtable)
         {
             return CardEffectCommons.IsExistOnBattleArea(card) &&
@@ -128,7 +114,7 @@ public sealed class EX10_010 : CEntity_Effect
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: 1,

@@ -219,17 +219,13 @@ public class SelectBurstDigivolutionEffect
                 return false;
             }
 
-            // AS-IS Permanent-predicate → mirror id-form canTargetCondition adapter.
-            bool CanSelectPermanentConditionById(HeadlessEntityId id) =>
-                CanSelectPermanentCondition(new Permanent(context, id));
-
             int maxCount = Math.Min(1, new Player(context, _card.Owner).GetBattleAreaPermanents().Count(CanSelectPermanentCondition));
 
             if (maxCount >= 1)
             {
                 selectPermanentEffect.SetUp(
                     selectPlayer: _card.Owner,
-                    canTargetCondition: CanSelectPermanentConditionById,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: maxCount,
