@@ -27,6 +27,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT16_052 W1: [When Digivolving] 직접 발화 → [KoHagurumon] 토큰이 자기 배틀에어리어에 착지", BT16052_WhenDigivolvingPlaysToken),
     ("ST20_15 W1: [Security] 직접 발화 → 손패 테이머 1장이 코스트 없이 배틀에어리어에 착지", ST2015_SecurityPlaysTamerFree),
     ("ST20_15 W2: [Main] 직접 발화 → 최상단 시큐리티 1장 손패로 + ST20_15 자신이 최상단 시큐리티(앞면) 배치 (RD-P6C3-B1 UN-STOP)", ST2015_MainReplacesTopSecurityWithSelf),
+    ("ST20_15 W3 (P1-1 face-gate): Ignore Color Requirement 게이트 — 자신이 face-down 시큐리티면 TRUE, face-up이면 FALSE(SecurityFaceState, [Island of Adventure] 자기한정)", ST2015_IgnoreColorGateReadsSecurityFaceState),
     ("BT12_044 W1: [When Digivolving] 직접 발화 → 상대 약체 디지몬이 Security Attack -2 부여받음(HasSecurityAttackChanges)", BT12044_WhenDigivolvingGrantsSAttackDebuff),
     ("BT10_084 W1: [On Play] 직접 발화 → 트래시 [BagraArmy] Lv4 이하 디지몬 최대 2장 무상 플레이 + Blocker 부여", BT10084_OnPlayPlaysTrashDigimonAndGrantsBlocker),
     ("BT23_081 W1: [On Play] 직접 발화 → 손패 [Hudie] 플레이코스트5 이하 디지몬 1장 무상 플레이", BT23081_OnPlayPlaysHudieDigimonFree),
@@ -202,6 +203,30 @@ async Task ST2015_MainReplacesTopSecurityWithSelf()
     AssertEqual(st2015.Value, secAfter.First().InstanceId.Value, "ST20_15 is the new TOP (first) security card");
     AssertEqual(bottomId.Value, secAfter.Last().InstanceId.Value, "the original bottom security card is still on the bottom");
     AssertTrue(SecurityFaceState.IsFaceUpInSecurity(ctx, st2015), "ST20_15 was placed FACE UP as the top security card");
+}
+
+// ST20_15 W3 (P1-1 REPAIR) — the "Ignore Color Requirement" gate (AS-IS `!SecurityCards.Any(sc =>
+// sc.EqualsCardName("Island of Adventure") && !sc.IsFlipped)`) reads face state via SecurityFaceState (never
+// the raw field-ACE IsFlipped flag — the mirror never stamps that for a security card; Permanent.cs
+// FoldLinkedMax precedent, commit 40d1eaee). ST20_15's own printed name IS "Island of Adventure" (cards.json),
+// so the gate is self-referential: TRUE while ST20_15 itself sits face-down in security, FALSE once face-up.
+// Faithful black-box surface: CardSource.IgnoreColorConditionActive() — the production consumer
+// (CardSource.cs:2546-2548).
+async Task ST2015_IgnoreColorGateReadsSecurityFaceState()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewPilotMatchAsync(seed: 9403, MonoDecks("BT1_028", "BT1_028"));
+    EngineContext ctx = match.Context;
+    await ReachMainWaitAsync(match);
+    HeadlessEntityId st2015 = Stage(match, P1, "ST20_15", ChoiceZone.Security, "1:sec:ST2015gate", register: true);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(ctx);
+    var card = new Cec.CardSource(ctx, st2015, P1);
+    AssertTrue(card.IgnoreColorConditionActive(),
+        "ST20_15 face-down in security (AS-IS default): the Ignore Color Requirement gate is TRUE");
+
+    SecurityFaceState.Stamp(ctx.CardInstanceRepository, st2015, faceUp: true);
+    AssertTrue(!card.IgnoreColorConditionActive(),
+        "ST20_15 face-up in security: the Ignore Color Requirement gate is FALSE");
 }
 
 // ═══════════════════════════════════ BT12_044 ═══════════════════════════════════

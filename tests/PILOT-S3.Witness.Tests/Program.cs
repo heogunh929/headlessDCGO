@@ -26,6 +26,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT25_004 W1 (G-Link P2-④): 링크 시도 → WhenWouldLink 창 발화(OptionalEffect) → GrantedReduceLinkCostClass(-1) → 재산정(기저1→0, 결제0)", BT25004_WhenWouldLinkReducesCost),
     ("BT25_061 W1: [Start of Your Main Phase] 발화 → Appmon 트레잇 손패 트래시 → Draw 1 + 메모리 +1", BT25061_StartOfMainDiscardDrawsAndGainsMemory),
     ("BT25_102 W1: [Blocker]/[Link+1] 술어 — 흑/적+[TS] 배틀에어리어 디지몬에 TRUE, 비-[TS]에 FALSE(부정 단언)", BT25102_BlockerAndLinkMaxPredicates),
+    ("BT25_102 W2 (P1-1 face-gate): Ignore Color Requirement 게이트 — 시큐리티 전부 face-down이면 TRUE, 1장 face-up이면 FALSE(SecurityFaceState)", BT25102_IgnoreColorGateReadsSecurityFaceState),
     ("BT25_101 W1: [Link Condition] AddLinkConditionClass.GetLinkCondition — cost=3 + [Vulcanusmon]명 digimonCondition 술어 평가", BT25101_LinkConditionPredicateAndCost),
     ("EX7_058 W1: [On Play] 발화 → 상대 디지몬 선택 → UntilOwnerTurnEndEffects에 [End of Attack] 삭제 그랜트 등재", EX7058_OnPlayGrantsEndOfAttackDelete),
     ("EX7_010 W1: [When Digivolving] 발화 → 진화원의 Option 카드 1장 트래시", EX7010_WhenDigivolvingTrashesOption),
@@ -170,6 +171,29 @@ async Task BT25102_BlockerAndLinkMaxPredicates()
     AssertTrue(linkMax.PermanentCondition(matchingPerm), "ChangeLinkMax predicate TRUE for the same matching permanent");
     AssertEqual(6, linkMax.GetLinkMax(5, matchingPerm, invertValue: 0), "GetLinkMax(+1) folds base 5 -> 6 for a matching permanent");
     AssertTrue(!linkMax.PermanentCondition(nonMatchingPerm), "negative: ChangeLinkMax predicate FALSE for a non-[TS] permanent");
+}
+
+// BT25_102 W2 (P1-1 REPAIR) — the "Ignore Color Requirement" gate (AS-IS `SecurityCards.Count(cs =>
+// !cs.IsFlipped) == 0`) reads face state via SecurityFaceState (never the raw field-ACE IsFlipped flag — the
+// mirror never stamps that for a security card; Permanent.cs FoldLinkedMax precedent, commit 40d1eaee).
+// Faithful black-box surface: CardSource.IgnoreColorConditionActive() (AS-IS CardSource.MatchColorRequirement's
+// ignore-colour scan) — the production consumer (CardSource.cs:2546-2548).
+async Task BT25102_IgnoreColorGateReadsSecurityFaceState()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewPilotMatchAsync(seed: 8302, MonoDecks("BT1_028", "BT1_028"));
+    EngineContext ctx = match.Context;
+    await ReachMainWaitAsync(match);
+    HeadlessEntityId bt25102 = Stage(match, P1, "BT25_102", ChoiceZone.Security, "1:sec:BT25102gate", register: true);
+    HeadlessEntityId other = StageSynthetic(match, P1, "EXT3-SECGATE", dp: 1000, level: 3, "1:sec:gateother", zone: ChoiceZone.Security);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(ctx);
+    var card = new Cec.CardSource(ctx, bt25102, P1);
+    AssertTrue(card.IgnoreColorConditionActive(),
+        "all-face-down security (AS-IS default): the Ignore Color Requirement gate is TRUE");
+
+    SecurityFaceState.Stamp(ctx.CardInstanceRepository, other, faceUp: true);
+    AssertTrue(!card.IgnoreColorConditionActive(),
+        "one face-up security card: the Ignore Color Requirement gate is FALSE");
 }
 
 // ═══════════════════════════════════ BT25_101 ═══════════════════════════════════

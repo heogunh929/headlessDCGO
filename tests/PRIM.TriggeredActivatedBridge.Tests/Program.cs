@@ -1,6 +1,7 @@
 // PRIM: triggered-activated resolution bridge — a card's ACTIVATED effect ([When Attacking] draw 1) at a general
 // trigger timing (OnAllyAttack) is now resolved by GameFlowProcessor auto-processing (previously dropped — only
 // IHeadlessCardEffect mutation triggers resolved). Fixture: TfxWhenAttackDraw.
+using System.Linq;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -55,6 +56,11 @@ async Task DrawsOnAttack()
 
 async Task DrawsOnDeclaration()
 {
+    // (P1-2 REPAIR) Retargeted off the retired SkillWindowSupply OnDeclaration converter case (the AS-IS
+    // `StackSkillInfos(null, OnDeclaration)` citation it stood on was false — DCGO never broadcasts OnDeclaration;
+    // it is resolved declaratively per-permanent). The real live lane is MainSkillActivateAction
+    // (Headless.Runtime), which offers a usable OnDeclaration ActivateICardEffect as an ActivateMain legal move
+    // and resolves it through ActivatedEffectResolver — drive it exactly that way (B2-MainSkillDeclare.Tests idiom).
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 5);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
     ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
@@ -69,10 +75,16 @@ async Task DrawsOnDeclaration()
         ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(lib, new HeadlessEntityId("TfxWhenDeclareDraw"), P1, Metadata: new Dictionary<string, object?>()));
         await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, lib, ChoiceZone.None, ChoiceZone.Library));
     }
+
+    var mainSkill = new MainSkillActivateAction();
+    LegalAction? declare = mainSkill.GetLegalActions(ctx, P1)
+        .FirstOrDefault(a => a.Parameters.TryGetValue(HeadlessActionParameterKeys.CardId, out object? v) && Equals(v, attacker));
+    AssertTrue(declare is not null, "the attacker's OnDeclaration [Main] skill is offered as an ActivateMain legal move");
+
     int before = HandCount(ctx, P1);
-    TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnDeclaration, actor: P1, subject: attacker);
-    await new GameFlowProcessor().RunToStableAsync(ctx);
-    AssertEqual(before + 1, HandCount(ctx, P1), "the attacker's OnDeclaration draw 1 resolved via the bridge");
+    ActionProcessResult result = await mainSkill.ProcessAsync(declare!, ctx);
+    AssertTrue(result.IsSuccess, $"declaring the [Main] skill succeeds ({result.Message})");
+    AssertEqual(before + 1, HandCount(ctx, P1), "the attacker's OnDeclaration draw 1 resolved via the real MainSkillActivateAction lane");
 }
 
 async Task ScopedToSubject()
@@ -111,6 +123,11 @@ async Task EndTurnDraw()
 
 async Task UnsuspendOncePerTurn()
 {
+    // (P1-2 REPAIR) Retargeted off the retired SkillWindowSupply OnUnTappedAnyone converter case (wrong geometry:
+    // a single-element synthetic payload, not the AS-IS batch { "Permanents", … } list). The faithful live opener
+    // is IUnsuspendPermanents.Unsuspend (Assets/Scripts/Script/CardController.cs) — drive it directly, exactly as
+    // production callers do (e.g. TurnStateMachine.cs:241), suspending the target first so each Unsuspend() call
+    // has a real unsuspend-target to fire the window over.
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 4);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
     ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
@@ -122,12 +139,27 @@ async Task UnsuspendOncePerTurn()
     for (int i = 1; i <= 6; i++) { var lib=new HeadlessEntityId($"1:lib:{i}"); cards.Upsert(new CardRecord(new HeadlessEntityId($"DEF:U{i}"),$"U{i}",$"U{i}",new Dictionary<string,object?>(StringComparer.Ordinal),CardType:"Digimon")); ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(lib,new HeadlessEntityId($"DEF:U{i}"),P1,Metadata:new Dictionary<string,object?>())); await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1,lib,ChoiceZone.None,ChoiceZone.Library)); }
 
     int before = HandCount(ctx, P1);
-    // first unsuspend
-    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnUnTappedAnyone", actor: P1, subject: sub);
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        var subPerm = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, sub, P1);
+        // Suspend, then unsuspend (first fire).
+        await new HeadlessDCGO.Engine.Assets.Scripts.Script.SuspendPermanentsClass(
+            new List<HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent> { subPerm }, cardEffect: null, isBlock: false).Tap();
+        await new HeadlessDCGO.Engine.Assets.Scripts.Script.IUnsuspendPermanents(
+            new List<HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent> { subPerm }, cardEffect: null).Unsuspend();
+    }
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before + 1, HandCount(ctx, P1), "first unsuspend drew 1");
-    // second unsuspend SAME turn -> capped, no re-draw
-    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnUnTappedAnyone", actor: P1, subject: sub);
+
+    // Suspend + unsuspend AGAIN, same turn -> the fixture's once-per-turn cap must reject the second fire.
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        var subPerm = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, sub, P1);
+        await new HeadlessDCGO.Engine.Assets.Scripts.Script.SuspendPermanentsClass(
+            new List<HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent> { subPerm }, cardEffect: null, isBlock: false).Tap();
+        await new HeadlessDCGO.Engine.Assets.Scripts.Script.IUnsuspendPermanents(
+            new List<HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent> { subPerm }, cardEffect: null).Unsuspend();
+    }
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before + 1, HandCount(ctx, P1), "second unsuspend same turn did NOT re-fire (once-per-turn cap)");
 }
@@ -278,8 +310,17 @@ async Task BroadcastOppSuspendFires()
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(oppDigi, new HeadlessEntityId("DEF:OPPD"), P2, Metadata: new Dictionary<string, object?>()));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, oppDigi, ChoiceZone.None, ChoiceZone.BattleArea));
 
+    // (P1-2 REPAIR) Retargeted off the retired SkillWindowSupply OnTappedAnyone converter case (wrong geometry: a
+    // single-element synthetic payload with IsBlock hardcoded false, not the AS-IS batch { "Permanents", … } list
+    // with a real IsBlock). The faithful live opener is SuspendPermanentsClass.Tap (Assets/Scripts/Script/
+    // CardController.cs) — drive it directly, exactly as production card effects do (e.g. BT8_092/EX4_062 idiom).
     int beforeMem = ctx.MemoryController.Current.Current;
-    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnTappedAnyone", actor: P2, subject: oppDigi);
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        var oppPerm = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, oppDigi, P2);
+        await new HeadlessDCGO.Engine.Assets.Scripts.Script.SuspendPermanentsClass(
+            new List<HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent> { oppPerm }, cardEffect: null, isBlock: false).Tap();
+    }
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(beforeMem + 1, ctx.MemoryController.Current.Current, "opponent's Digimon suspended -> the non-subject P1 card gained 1 memory via the broadcast bridge");
 }
@@ -305,3 +346,4 @@ async Task<EngineContext> Setup()
 }
 int HandCount(EngineContext ctx, HeadlessPlayerId p) => ((IZoneStateReader)ctx.ZoneMover).GetCards(p, ChoiceZone.Hand).Count;
 static void AssertEqual<T>(T e, T a, string l) { if (!EqualityComparer<T>.Default.Equals(e,a)) throw new InvalidOperationException($"{l}: expected '{e}', actual '{a}'."); }
+static void AssertTrue(bool condition, string l) { if (!condition) throw new InvalidOperationException(l); }

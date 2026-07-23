@@ -56,7 +56,10 @@ public sealed class BT25_102 : CEntity_Effect
 
             bool CanUseCondition(Hashtable hashtable)
             {
-                return new Player(card.Context, card.Owner).SecurityCards.Count(cardSource => !cardSource.IsFlipped) == 0;
+                // (SEC-FaceUpSecuritySource) AS-IS `!cardSource.IsFlipped` face gate — the mirror stamps security
+                // face state via SecurityFaceState (never the raw field-ACE flag; Permanent.cs FoldLinkedMax
+                // precedent, commit 40d1eaee). Gate TRUE when zero face-UP security cards.
+                return new Player(card.Context, card.Owner).SecurityCards.Count(cardSource => Headless.Runtime.SecurityFaceState.IsFaceUpInSecurity(card.Context, cardSource.InstanceId)) == 0;
             }
 
             bool CardCondition(CardSource cardSource)

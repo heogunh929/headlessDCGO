@@ -135,12 +135,14 @@ async Task SecurityBattleDeletionStampsBatch()
     AssertTrue(move.Metadata.TryGetValue(MatchStateMutationSink.DeletionBatchIdKey, out object? raw) && raw is long id && id != 0,
         "security-battle deletion move stamped with a non-zero delete-batch id");
 
-    // (RD-R4B6-P1-2 CLEARED) The security-battle finisher now feeds RunToStable's OnLeaveFieldAnyone collection
-    // at parity with the sink/field-battle finishers: SecurityResolver.FinalizeSecurityBattleDeletionAsync opens
-    // the collect-BEFORE-removal OnDestroyedAnyone / OnLeaveFieldAnyone window while the losing attacker is STILL
-    // on the battle area (the same StackSkillInfos(OnLeaveFieldAnyone) the field-battle finalize runs). With the
-    // game underway (phase past setup, above) the uncapped anyone-scoped leave reactor is collected and drains
-    // here, so the two-part loss (batch-id stamp + leave reactor) is now fully mirrored.
+    // (RD-R4B6-P1-2 CLEARED — landed PRE-range, commit 2a69cf38) The security-battle finisher feeds RunToStable's
+    // OnLeaveFieldAnyone collection at parity with the sink/field-battle finishers: SecurityResolver's leave-window
+    // open (collect-BEFORE-removal OnDestroyedAnyone / OnLeaveFieldAnyone while the losing attacker is STILL on the
+    // battle area, same StackSkillInfos(OnLeaveFieldAnyone) the field-battle finalize runs) was ported in 2a69cf38
+    // ("보안 finisher(RD-R4B6-P1-2): ... 실증된 갭(reactor 0×)→수리 후 정확 1×"), BEFORE this file's SetPhase(Main)
+    // line above was added. THIS range's only change here is harness-only: the uncapped leave reactor's
+    // ICardEffect.CanTrigger gates on DoneStartGame, so without the phase advance the already-fixed engine path
+    // could not be OBSERVED by this direct-driven test — no new engine parity work landed in this range.
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(-1, ctx.MemoryController.Current.Current, "leave reactor fired once for the security-battle deletion");
     _ = reactor;

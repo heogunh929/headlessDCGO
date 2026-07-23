@@ -387,28 +387,30 @@ public static class SkillWindowSupply
             //      IReduceSecurity/IDiscard/IAddCardsToHand granularity. OnAddSecurity is AS-IS PER-CARD
             //      (IAddSecurity loops one StackSkillInfos per added card, CardController.cs:5481) so it is NOT
             //      collapsed. The payload subject = the moved card (the event Subject).
+            // (P1-2 REPAIR) OnTappedAnyone / OnUnTappedAnyone converter case REMOVED — wrong geometry: this
+            // converter builds a SINGLE-element per-event payload via ActivatedHashtableBridge with IsBlock
+            // hardcoded false (ActivatedHashtableBridge.cs:148-153/165-…), but the AS-IS window is a
+            // BATCH-collapsed { "Permanents", suspendTargetPermanents } list with a REAL IsBlock/CardEffect
+            // read off the causing hashtable (CardController.cs:5636-5648/:5746-5754). The faithful live openers
+            // already exist and call the mirror StackSkillInfos directly with the correct batch payload:
+            // SuspendPermanentsClass.Tap / IUnsuspendPermanents (this file's CardController.cs, "Suspend
+            // permanents" / "Unsuspend permanents" regions). Wiring THOSE inline sites into the live seam (not
+            // this starved converter) is design item RD9-87.
             case EffectTiming.OnLoseSecurity:
             case EffectTiming.OnAddHand:
             case EffectTiming.OnAddSecurity:
             case EffectTiming.OnDiscardHand:
             case EffectTiming.OnDiscardSecurity:
             case EffectTiming.OnDiscardLibrary:
-            // (L1 PRIM) suspend/unsuspend "Anyone" broadcast — a cross-card reactor fires when a (possibly
-            // opponent's) Digimon is suspended/unsuspended. AS-IS CardController.cs:5636-5648/:5746-5754 emit ONE
-            // StackSkillInfos per suspend/unsuspend; the mirror has no inline opener that ALSO emits these timings
-            // (0 live TriggerTimingKey emits — only an explicit emit at the suspend/unsuspend seat produces them), so
-            // converting the event here is the sole opener with no double-fire.
-            case EffectTiming.OnTappedAnyone:
-            case EffectTiming.OnUnTappedAnyone:
             // (G2 PRIM) OnUseOption "when an Option is used" broadcast — AS-IS opens the window INLINE at the
             // option-use seat (UseOptionClass.UseOption, CardController.cs:1765; the mirror PlayCardsBridge:172 /
             // CardController:4314 do the same via StackSkillInfos). But the OPTION-ACTIVATE action path emits the
             // OnUseOption event WITHOUT an inline opener (OptionActivateAction.cs:95, subject = the used option,
             // + "cost" metadata), relying on this converter to open the reactor window — and that emit is the SOLE
             // OnUseOption TriggerEventEmitter.Emit in the engine (the inline openers stack directly, never emit),
-            // so converting it here is the sole opener with no double-fire (identical geometry to OnTappedAnyone /
-            // OnDeclaration). Payload = ActivatedHashtableBridge's OptionMainCheckHashtable {Card} (Root/Cost are
-            // the documented P6A-HT-USEOPTION residual; no reactor gate reads them).
+            // so converting it here is the sole opener with no double-fire. Payload = ActivatedHashtableBridge's
+            // OptionMainCheckHashtable {Card} (Root/Cost are the documented P6A-HT-USEOPTION residual; no reactor
+            // gate reads them).
             case EffectTiming.OnUseOption:
                 return TryBuildEventBroadcast(context, gameEvent, timing, out hashtable);
 
@@ -416,12 +418,11 @@ public static class SkillWindowSupply
             // StackSkillInfos insert the SOLE opener and removed the OnAllyAttack emit (W2-SkillWindowSupply contract).
             // A raw-emit witness (PRIM DrawsOnAttack) therefore cannot ride this converter; it is STOPped.
 
-            // (L1 PRIM) OnDeclaration (attack-declaration) is an AS-IS null-payload window (StackSkillInfos(null,
-            // OnDeclaration)); the reactor is the declaring attacker. No live TriggerTimingKey emit produces it, so
-            // an explicit emit here opens the sole Anyone scan with the AS-IS null payload.
-            case EffectTiming.OnDeclaration:
-                hashtable = null;
-                return true;
+            // (P1-2 REPAIR) OnDeclaration converter case REMOVED — the claimed AS-IS citation was FALSE: DCGO
+            // has no `StackSkillInfos(null, OnDeclaration)` call anywhere (grepped; OnDeclaration is resolved
+            // declaratively per-permanent via TurnStateMachine's skill-index selection, never broadcast to an
+            // Anyone reactor). The live lane is Headless.Runtime.MainSkillActivateAction, which resolves
+            // OnDeclaration directly through ActivatedEffectResolver — not this converter.
 
             // ---- (C1d RDW-07) turn/phase boundaries: AS-IS StackSkillInfos(null, timing) (TurnStateMachine.cs:564/
             //      905, AutoProcessing.cs:699) — a payload-FREE window. HANDLED with a null hashtable. The port's

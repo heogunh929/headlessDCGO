@@ -51,7 +51,10 @@ public sealed class ST20_15 : CEntity_Effect
 
             bool CanUseCondition(Hashtable hashtable)
             {
-                return !new Player(card.Context, card.Owner).SecurityCards.Any(securityCard => securityCard.EqualsCardName("Island of Adventure") && !securityCard.IsFlipped);
+                // (SEC-FaceUpSecuritySource) AS-IS `!securityCard.IsFlipped` face gate — the mirror stamps security
+                // face state via SecurityFaceState (never the raw field-ACE flag; Permanent.cs FoldLinkedMax
+                // precedent, commit 40d1eaee). Gate TRUE when no face-UP [Island of Adventure] security card.
+                return !new Player(card.Context, card.Owner).SecurityCards.Any(securityCard => securityCard.EqualsCardName("Island of Adventure") && Headless.Runtime.SecurityFaceState.IsFaceUpInSecurity(card.Context, securityCard.InstanceId));
             }
 
             bool CardCondition(CardSource cardSource)

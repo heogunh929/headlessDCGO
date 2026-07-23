@@ -4,7 +4,7 @@
 
 ## 1. 계기판 (실측)
 - **발명물 grep(비-주석)**: EffectRegistry/ToBinding/EffectBinding-type/IActivatedCardEffect/LegacyBindingBridge = **0**
-- **live NotSupportedException**: **7좌석 전수 원장-매핑** (도달-가능 live 경로 0) — RD-W4-3·리뷰3P2-②(방어가드 2)·MIG4-DETACH·RD-SKEL-01(AS-IS-한계)·BlastDNA:299(스테일—P2)·RD-S3 1-arg(사문)·RD-3A-02(latent)
+- **live NotSupportedException**: **4좌석 전수 원장-매핑**(REPAIR 배치 재검증, 2026-07-23 — final-polish 배치 후 BlastDNA STOP PORTED·잔여 3건 은퇴로 7→4 수렴; §2 UPDATE 라인과 동기화) — `CardController.cs:4242`(리뷰3 P2-② 코퍼스 중복-키 방어가드)·`GManager.cs:198`(RD-W4-3, 브릿지 W4 미지원 컴포넌트 타입)·`TrashLinkedCards.cs:72`(RD-SKEL-01, AS-IS 비대칭 루프 불성립)·`Permanent.cs:4549`(MIG4-DETACH-LIVE-TOP, 직접-라이브-탑 가드). 적대리뷰 근거 강도: 3건 solid(CardController/TrashLinkedCards/Permanent — 도달 불가 아키텍처 근거) + `GManager.cs:198`=contingent(새 컴포넌트 타입 요청 시 좌석化 가능한 "미포팅" 가드일 뿐, 심층 불가능 근거 아님).
 - **커버리지 재감사(도구 수정판)**: ported 339·clean 338·greedy 0라운드·카드-backed 미커버 0 (AD1_025 표기=도구 하드코딩 팬텀 확증)
 
 ## 2. 게이트
@@ -31,4 +31,4 @@
 ## 5. 동결 계약 조항 초안 (발효=사용자 서명 시)
 - **코어 동결**: Assets/Scripts 미러+Headless substrate — 수정은 수리-예외 경로만(신규 witness가 적발한 결함 or 원장 항목 해소, 적대리뷰+다이제스트 재검증 동반)
 - **additive-only**: 신규 작업=카드 포팅+witness 스위트만; 신규 룰층 프리미티브/게이트 금지(계기판 grep=CI 가드화 가능)
-- **기준값**: 본 문서 §2의 다이제스트 10시드 + red_ledger 33 + STOP 7좌석 목록
+- **기준값**: 본 문서 §2의 다이제스트 10시드 + red_ledger 33 + STOP 4좌석 목록(§1)

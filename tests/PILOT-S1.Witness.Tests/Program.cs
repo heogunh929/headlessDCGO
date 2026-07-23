@@ -29,6 +29,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("EX8_028 W1: 등록-검증 — Iceclad/Barrier/대체진화 3효과가 실제 구성 타입으로 등재", EX8028_RegistersIcecladBarrierAltDigivolve),
     ("EX8_068 W1: [Security] 발화 → [DS] Lv.5 이하 디지몬 무료 플레이", EX8068_SecurityPlaysDsDigimonFree),
     ("EX8_068 W2: [Main] 발화 → 바닥 시큐리티 1장 손패로 + EX8_068 자신이 바닥 시큐리티(앞면) 배치 (RD-P6C3-B1 UN-STOP)", EX8068_MainReplacesBottomSecurityWithSelf),
+    ("EX8_068 W3 (P1-1 face-gate): Ignore Color Requirement 게이트 — 시큐리티 전부 face-down이면 TRUE, 1장 face-up이면 FALSE(SecurityFaceState)", EX8068_IgnoreColorGateReadsSecurityFaceState),
     ("BT18_034 W1: [Start of Your Main Phase] 손패 1장 트래시→\"Discard\" 선택 → 상대 시큐리티 1장 트래시", BT18034_StartOfMainDiscardThenDestroySecurity),
     ("BT18_098 W1: [Main] 발화 → 자기 시큐리티 1장 트래시 + 상대 디지몬 DP-6000 + 시큐리티≤2면 바닥 배치", BT18098_MainTrashSecurityChangeDpAndReplace),
 };
@@ -322,6 +323,33 @@ async Task EX8068_MainReplacesBottomSecurityWithSelf()
             "the original top security card is still on top");
         AssertTrue(SecurityFaceState.IsFaceUpInSecurity(ctx, ex8068),
             "EX8_068 was placed FACE UP as the bottom security card");
+    }
+}
+
+// EX8_068 W3 (P1-1 REPAIR) — the "Ignore Color Requirement" gate (AS-IS :25 `SecurityCards.Count(cs =>
+// !cs.IsFlipped) == 0`) reads face state via SecurityFaceState (never the raw field-ACE IsFlipped flag — the
+// mirror never stamps that for a security card; Permanent.cs FoldLinkedMax precedent, commit 40d1eaee).
+// Faithful black-box surface: CardSource.IgnoreColorConditionActive() (AS-IS CardSource.MatchColorRequirement's
+// ignore-colour scan), which CanUse(null)-gates + IgnoreColorCondition(this)-filters every registered
+// IIgnoreColorConditionEffect — exactly the production consumer (CardSource.cs:2546-2548).
+async Task EX8068_IgnoreColorGateReadsSecurityFaceState()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewPilotMatchAsync(seed: 2803, MonoDecks("BT1_028", "BT1_028"));
+    EngineContext ctx = match.Context;
+    await ReachMainWaitAsync(match);
+    await ClearZoneAsync(match, P1, ChoiceZone.Security, ChoiceZone.Library);
+    HeadlessEntityId ex8068 = Stage(match, P1, "EX8_068", ChoiceZone.Security, "1:sec:EX8068gate", register: true);
+    HeadlessEntityId other = StageSynthetic(match, P1, "EXT1-SECGATE", dp: 1000, level: 3, "1:sec:gateother", zone: ChoiceZone.Security);
+
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(ctx))
+    {
+        var card = new Cec.CardSource(ctx, ex8068, P1);
+        AssertTrue(card.IgnoreColorConditionActive(),
+            "all-face-down security (AS-IS default): the Ignore Color Requirement gate is TRUE");
+
+        SecurityFaceState.Stamp(ctx.CardInstanceRepository, other, faceUp: true);
+        AssertTrue(!card.IgnoreColorConditionActive(),
+            "one face-up security card: the Ignore Color Requirement gate is FALSE");
     }
 }
 

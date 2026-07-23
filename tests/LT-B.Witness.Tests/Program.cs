@@ -48,6 +48,7 @@ var tests = new (string Name, Func<Task> Body)[]
     // ── BT25_094 — Cosmic Area (Red Option; ReplaceBottomSecurityWithFaceUpOption) ────────────────
     ("BT25_094 W1 등록: None=IgnoreColor+Rush(static)·OnAllyAttack=Alliance(static)·OptionSkill=Main·SecuritySkill 실착지", BT25094_ArmsRegistered),
     ("BT25_094 W2 [Main] flip: ReplaceBottomSecurityWithFaceUpOption — 바텀 시큐리티→손패, self가 face-up 바텀 시큐리티로 착지", BT25094_ReplaceBottomSecurityFlip),
+    ("BT25_094 W3 (P1-1 face-gate): Ignore Color Requirement 게이트 — 시큐리티 전부 face-down이면 TRUE, 1장 face-up이면 FALSE(SecurityFaceState)", BT25094_IgnoreColorGateReadsSecurityFaceState),
 
     // ── EX4_020 — DigiXros/MaterialSave/Rush (Blue Digimon) ───────────────────────────────────────
     ("EX4_020 W1 등록: None=AddDigiXrosConditionClass·OnEnterFieldAnyone(OnPlay)·WhenPermanentWouldBeDeleted(MaterialSave)·OnAllyAttack(ESS) 실착지", EX4020_ArmsRegistered),
@@ -352,6 +353,29 @@ async Task BT25094_ReplaceBottomSecurityFlip()
     AssertTrue(ZoneCards(match, P1, ChoiceZone.Security).Contains(bt),
         "ReplaceBottomSecurityWithFaceUpOption: BT25_094 is now placed as a security card (face up, bottom)");
     _ = handBefore;
+}
+
+// BT25_094 W3 (P1-1 REPAIR) — the "Ignore Color Requirement" gate (AS-IS `SecurityCards.Count(cs =>
+// !cs.IsFlipped) == 0`) reads face state via SecurityFaceState (never the raw field-ACE IsFlipped flag — the
+// mirror never stamps that for a security card; Permanent.cs FoldLinkedMax precedent, commit 40d1eaee).
+// Faithful black-box surface: CardSource.IgnoreColorConditionActive() (AS-IS CardSource.MatchColorRequirement's
+// ignore-colour scan) — the production consumer (CardSource.cs:2546-2548).
+async Task BT25094_IgnoreColorGateReadsSecurityFaceState()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 4503, MonoDecks("BT1_028", "BT1_028"));
+    EngineContext ctx = match.Context;
+    await ReachMainWaitAsync(match);
+    HeadlessEntityId bt = Stage(match, P1, "BT25_094", ChoiceZone.Security, "1:sec:bt25gate", register: true);
+    HeadlessEntityId other = StageSynthetic(match, P1, "LTB-SECGATE", dp: 1000, level: 3, "1:sec:gateother", zone: ChoiceZone.Security);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(ctx);
+    var card = new Cec.CardSource(ctx, bt, P1);
+    AssertTrue(card.IgnoreColorConditionActive(),
+        "all-face-down security (AS-IS default): the Ignore Color Requirement gate is TRUE");
+
+    SecurityFaceState.Stamp(ctx.CardInstanceRepository, other, faceUp: true);
+    AssertTrue(!card.IgnoreColorConditionActive(),
+        "one face-up security card: the Ignore Color Requirement gate is FALSE");
 }
 
 // ═══════════════════════════════════ EX4_020 ═══════════════════════════════════

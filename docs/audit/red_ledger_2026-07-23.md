@@ -27,7 +27,7 @@ state (3 re-homed to live-state reads) or its stale synthetic fixture retired. A
 | 2 | `G9-043.ViewLayer` | GREEN — re-homed: predicate reads re-driven off the live `CardSource`/`Permanent` view members; structural pin dropped. |
 | 3 | `G9-061.A3ViewLayerFolds` | GREEN — re-homed: the five folds re-asserted via the live getters (`CardSource.Level` / `Permanent.Level` / `CardColors` / `CardTraits`); skeleton-adapter pin retired. |
 | 4 | `G9-065.Assembly` | GREEN — retired the stale synthetic fixture cases; assembly is exercised through the Runtime `MainPhaseAction`. |
-| 5 | `G9-070.W6LinkCondition` | GREEN — re-driven link declaration+consumption through the live `Link` action / `LinkHelpers.ResolveLinkCost`; structural pin dropped. |
+| 5 | `G9-070.W6LinkCondition` | suite deleted outright (pins sat on undrivable latent declaration surface) — verified: `tests/G9-070.W6LinkCondition.Tests` carries no tracked source (commit 254a7756 removed `Program.cs`+`.csproj`, no `G9-070r` replacement was cut, unlike G9-003r/G9-043r/G9-073r). |
 | 6 | `G9-071.W6AppFusion` | GREEN — re-driven App-Fusion through the live evolution path; `AddAppfuseMethodByName` structural pin retired. |
 | 7 | `G9-073.W6ProcessCommons` | GREEN — each process re-asserted through its live coroutine (`ChangeDigimonDP/SAttack`, `PlayPermanentCards`, `AddEffectTo…`); verbatim-mirror pin dropped. |
 
@@ -99,3 +99,27 @@ Each design item the suite pinned went live; the suite was re-driven through the
 - Prior latent-STOP: RD-3A-02 retired, BT7_058/EX8_059 live, BlastDNA ported.
 - **Remaining red: 0** (full suite 425/425 green).
 - **Remaining STOP seats: 4** (all permanent-justified; no tracking pins).
+
+---
+
+## Open ledger lines (not closure-blocking — flagged by REPAIR-batch adversarial review, 2026-07-23)
+
+Two witness-adequacy gaps the "0 red" count does not surface (both suites are GREEN today; the gap is in what
+they prove, not in a failing assertion):
+
+- **P2-8 — BlastDNA witness-pin-on-first-caller.** `DNATEMP-Witness.Tests` Test 7
+  (`BlastDNAConstructionSmoke`) only proves `CardEffectFactory.BlastDNADigivolveEffect(...)` constructs an
+  `ActivateClass` without throwing (guards pass, wiring compiles) — per its own in-test comment, "the factory
+  has no live card caller" today (grepped: no ported `CardEffects()` body calls `BlastDNADigivolveEffect`; the
+  `AD1_025` card staged in the test uses the unrelated `GetJogressConditionClass` DNA path for its own
+  digivolution, purely a hand-card fixture here). Full activation-body fidelity (the `SelectHandEffect` →
+  `CreateNewPermanent` → `SetJogress` → `DiscardEvoRoots`/`AddHandCard` collapse) is therefore UNWITNESSED
+  end-to-end. Close when the first real card wiring `BlastDNADigivolveEffect` is ported — upgrade or supersede
+  this smoke test with that card's witness.
+- **P2-9 — DigiXros translated-recipe MemoryCost verification.** `RD-BATCH7B.Witness.Tests` `W1_EnumerationOffers`
+  asserts the PlayCard lane's cost-PROJECTION for a DigiXros-eligible card (`BT18_065`) is `0`
+  (`HeadlessActionParameterKeys.MemoryCost` on the offered `LegalAction`), but does not independently verify the
+  underlying DigiXros recipe fold that PRODUCES that `0` is itself a faithful AS-IS translation (vs. a
+  fixture that happens to net to zero) — no assertion drives an actual PAYMENT through the reduced cost and
+  checks the resulting memory delta. Open: add a payment-time (not projection-only) assertion for a DigiXros
+  play, or cite the suite that already covers it if one exists.
