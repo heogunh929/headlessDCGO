@@ -25,7 +25,11 @@ var phase3Goals = new Phase3Goal[]
     // (TOBE_ONLY C0) G3D-001 physically retired with the MinMaxRequirementHelpers invented-framework deletion
     // (canonical min/max mirror lives in MinMax_DP_Cost_Level/*.cs; the record framework had 0 production consumers).
     new("G3D-001", "Requirements", "G3D-001_minmax_dp_cost_level_unit_test_results.md", null),
-    new("G3D-002", "Requirements", "G3D-002_name_color_trait_requirements_unit_test_results.md", "G3D-002.Name.color.trait.requirement.Tests"),
+    // (C5-0) G3D-002 physically retired with the CardRequirementHelpers invented-framework deletion (0 production
+    // consumers after the C0 TargetFilterHelpers removal; the AS-IS name/color/trait predicates live inline in
+    // CardSource.cs — ContainsTraits/EqualsCardName/HasCardColor). Result document kept as history; project-existence
+    // assertion excluded (TestProjectDirectory=null) per the G3D-001 / G3F / G3K-002 reconciliation convention.
+    new("G3D-002", "Requirements", "G3D-002_name_color_trait_requirements_unit_test_results.md", null),
     new("G3E-001", "Costs", "G3E-001_play_cost_helper_unit_test_results.md", "G3E-001.Play.cost.helper.Tests"),
     new("G3E-002", "Costs", "G3E-002_digivolution_cost_helper_unit_test_results.md", "G3E-002.Digivolution.cost.helper.Tests"),
     // (TOBE_ONLY C0) G3F-001/G3F-002 physically retired with the TargetFilterHelpers/ZoneQueryHelpers invented-
@@ -38,10 +42,17 @@ var phase3Goals = new Phase3Goal[]
     // project-existence assertion (TestProjectDirectory=null) per the G3B-001 / G3J reconciliation convention.
     new("G3G-001", "Keywords", "G3G-001_keyword_base_batch1_unit_test_results.md", null),
     new("G3G-002", "Keywords", "G3G-002_keyword_base_batch2_unit_test_results.md", null),
-    new("G3H-001", "Modifiers", "G3H-001_modifier_helpers_unit_test_results.md", "G3H-001.DP.cost.security.attack.modifier.helper.Tests"),
+    // (C5-1) G3H-001.DP.cost.security.attack.modifier.helper.Tests physically retired with the ModifierHelpers
+    // NumericModifier pipeline deletion (empty-union evaluator; producer 0 — the invented delta-fold substrate,
+    // AS-IS home = Permanent.DP / ChangeSAttackClass). Result document kept as history; project-existence
+    // assertion excluded (TestProjectDirectory=null) per the G3D-002 reconciliation convention.
+    new("G3H-001", "Modifiers", "G3H-001_modifier_helpers_unit_test_results.md", null),
     new("G3H-002", "Restrictions", "G3H-002_cannot_restriction_helpers_unit_test_results.md", "G3H-002.Cannot.restriction.helper.Tests"),
     new("G3I-001", "Replacement", "G3I-001_replacement_prevention_helpers_unit_test_results.md", "G3I-001.Replacement.prevention.helper.Tests"),
-    new("G3I-002", "Continuous", "G3I-002_continuous_effect_evaluator_unit_test_results.md", "G3I-002.Continuous.effect.evaluator.Tests"),
+    // (C5-1) G3I-002.Continuous.effect.evaluator.Tests physically retired with the ContinuousEffectEvaluator
+    // deletion (empty-union evaluator; producer 0 — invented substrate with no AS-IS correspondence). Result
+    // document kept as history; project-existence assertion excluded (TestProjectDirectory=null) per convention.
+    new("G3I-002", "Continuous", "G3I-002_continuous_effect_evaluator_unit_test_results.md", null),
     // (R3-W3b) G3J-001 (CardEffectFactory binding) dropped: the invented CardEffectFactoryBinding registry-rule
     // model it gated was physically deleted (0 src consumers — same teardown as G3J-002's
     // PermanentEffectFactoryBinding below). Phase-3 gate goals: 22 -> 21.

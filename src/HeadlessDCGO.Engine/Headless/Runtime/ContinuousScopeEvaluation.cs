@@ -33,22 +33,14 @@ public static class ContinuousScopeEvaluation
     /// <summary>The metric delta key a resolved <see cref="DynamicValueKey"/> should be written under.</summary>
     public const string DynamicMetricKey = "continuous.dynamicMetric";
 
-    public static ContinuousEvaluationResult EvaluateForCard(
-        EngineContext context,
-        string scope,
-        HeadlessEntityId cardId,
-        HeadlessEntityId digivolveTargetPermanentId = default)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
-
-        var queryContext = new EffectQueryContext(scope, targetEntityId: cardId);
-        ResolveCard(context, cardId, out _, out CardRecord? card, out CardInstanceRecord? instance);
-        EffectRequest[] combined = ApplicableEffects(context, scope, cardId, digivolveTargetPermanentId);
-
-        return ContinuousEffectEvaluator.Evaluate(
-            new ContinuousEvaluationRequest(queryContext, combined, card, instance, state: null));
-    }
+    // (C5-1) EvaluateForCard + ResolveCard were DELETED with the empty-union evaluator: EvaluateForCard fed the
+    // ApplicableEffects producer-0 set (permanently empty) into the now-deleted ContinuousEffectEvaluator, whose
+    // NumericModifier / restriction / replacement output was always empty. All four live callers (LinkHelpers /
+    // MatchStateMutationSink / BattleDeletionGate / ContinuousRestrictionGate.Evaluate) were re-based onto the
+    // AS-IS live scans (NewModelContinuousScan / Permanent.CanSuspend / Permanent.CanBeDestroyed). What survives
+    // here is the still-empty ApplicableEffects query stub (consumed by DigivolveAction's added-requirement /
+    // ignore-flag loops, harmless empty unions with their new-model scans) and the continuous-scope const keys
+    // (InheritedEffectKey / ConditionKey) still read by ContinuousFieldMembership / CardSource / DigivolveAction.
 
     /// <summary>(FR-P3) The continuous effects that APPLY to <paramref name="cardId"/> under <paramref name="scope"/>
     /// — card-targeted + inherited + player-scope (owner + condition + arbitrary permanentCondition predicate,
@@ -69,29 +61,5 @@ public static class ContinuousScopeEvaluation
         _ = cardId;
         _ = digivolveTargetPermanentId;
         return Array.Empty<EffectRequest>();
-    }
-
-    private static void ResolveCard(
-        EngineContext context,
-        HeadlessEntityId cardId,
-        out HeadlessPlayerId owner,
-        out CardRecord? card,
-        out CardInstanceRecord? instance)
-    {
-        owner = default;
-        card = null;
-        instance = null;
-
-        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null)
-        {
-            return;
-        }
-
-        instance = record;
-        owner = record.OwnerId;
-        if (context.CardRepository.TryGetCard(record.DefinitionId, out CardRecord? definition))
-        {
-            card = definition;
-        }
     }
 }

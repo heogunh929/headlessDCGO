@@ -68,15 +68,16 @@ public static class LinkHelpers
             ? ReadLinkedMax(host.Metadata)
             : DefaultLinkedMax;
 
-        Assets.Scripts.Script.CardEffectCommons.ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, ContinuousRestrictionGate.Scope, hostId);
-        int legacyResolved = Assets.Scripts.Script.CardEffectCommons.ModifierHelpers.Evaluate(
-            new Assets.Scripts.Script.CardEffectCommons.NumericModifierRequest(
-                Assets.Scripts.Script.CardEffectCommons.NumericModifierMetric.LinkedMax, baseMax, result.Modifiers, hostId)).FinalValue;
-
-        // (RD-P6B-16) UNION the new-model IChangeLinkMaxEffect scan (AS-IS Permanent.LinkedMax): a
-        // ChangeLinkMaxClass registers no binding, so the legacy modifier fold above never sees it. The two
-        // representations are interface-disjoint — fold the new-model interface scan onto the legacy result.
-        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldLinkedMax(context, hostId, legacyResolved);
+        // (RD-P6B-16 RETIRED — C5-1, 2026-07-24) The legacy linkedMaxDelta pre-fold that used to run here
+        // (ContinuousScopeEvaluation.EvaluateForCard + ModifierHelpers.Evaluate over NumericModifierMetric.LinkedMax)
+        // was an AS-IS-ABSENT union scaffold with ZERO producers: the "linkedMaxDelta" key
+        // (ModifierHelpers.LinkedMaxDeltaKey) is READ by ReadSimpleModifiers but WRITTEN by nothing
+        // (ChangeLinkMaxClass registers no binding — it is new-model IChangeLinkMaxEffect only), and the
+        // EvaluateForCard result set is itself permanently empty (ApplicableEffects producer 0). With no producer
+        // the pre-fold returned baseMax unchanged, so this retirement is BIT-IDENTICAL (legacyResolved == baseMax).
+        // Restored to AS-IS 1:1: the sole path is the new-model FoldLinkedMax (AS-IS Permanent.LinkedMax). Same
+        // precedent as ResolveLinkCost below (RD-P6B-16 / G-Link P2-③).
+        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldLinkedMax(context, hostId, baseMax);
     }
 
     /// <summary>(M-4) The EFFECTIVE link cost: <paramref name="baseCost"/> folded with continuous

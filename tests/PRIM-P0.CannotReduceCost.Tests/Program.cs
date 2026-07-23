@@ -38,7 +38,7 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 async Task ReductionApplies()
 {
     EngineContext context = Context();
-    RegisterCostModifier(context, ModifierHelpers.PlayCostDeltaKey, -2);
+    RegisterCostModifier(context, "playCostDelta", -2);
     AssertEqual(3, ContinuousModifierGate.ResolvePlayCost(context, Card, basePlayCost: 5), "-2 applies");
     await Task.CompletedTask;
 }
@@ -46,7 +46,7 @@ async Task ReductionApplies()
 async Task ReductionBlocked()
 {
     EngineContext context = Context();
-    RegisterCostModifier(context, ModifierHelpers.PlayCostDeltaKey, -2);
+    RegisterCostModifier(context, "playCostDelta", -2);
     GrantCannotReduceCost(context);
     AssertEqual(5, ContinuousModifierGate.ResolvePlayCost(context, Card, basePlayCost: 5), "reduction blocked by the grant");
     await Task.CompletedTask;
@@ -55,7 +55,7 @@ async Task ReductionBlocked()
 async Task IncreaseStillApplies()
 {
     EngineContext context = Context();
-    RegisterCostModifier(context, ModifierHelpers.PlayCostDeltaKey, 1);
+    RegisterCostModifier(context, "playCostDelta", 1);
     GrantCannotReduceCost(context);
     AssertEqual(6, ContinuousModifierGate.ResolvePlayCost(context, Card, basePlayCost: 5), "increase still applies");
     await Task.CompletedTask;
@@ -64,7 +64,7 @@ async Task IncreaseStillApplies()
 async Task DigivolutionReductionBlocked()
 {
     EngineContext context = Context();
-    RegisterCostModifier(context, ModifierHelpers.DigivolutionCostDeltaKey, -1);
+    RegisterCostModifier(context, "digivolutionCostDelta", -1);
     GrantCannotReduceCost(context);
     AssertEqual(4, ContinuousModifierGate.ResolveDigivolutionCost(context, Card, baseDigivolutionCost: 4), "digivolution reduction blocked");
     await Task.CompletedTask;

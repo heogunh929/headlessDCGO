@@ -1,14 +1,17 @@
-using System.Collections;
 using System.Text;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
+
+// (C5-0) The invented choice-resolution engine (EffectChoiceResolution / ApplyResult / ResolveAsync /
+// EffectChoiceHelperFactory + value-key consts) was deleted from EffectChoiceHelpers.cs (zero live consumers,
+// no AS-IS analogue). The assertions that exercised it were invention-contract assertions and are co-retired.
+// The remaining tests cover only the four surviving live substrate request-builders:
+// Candidate / CreateCardRequest / CreatePermanentRequest / CreateCountRequest.
 
 var root = FindRepositoryRoot();
 HeadlessPlayerId PlayerOne = new(1);
 HeadlessPlayerId PlayerTwo = new(2);
-HeadlessEntityId SourceId = new("source-effect");
 
 var tests = new (string Name, Func<Task> Body)[]
 {
@@ -16,12 +19,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("AS-IS selection effect references are recorded", AsIsSelectionEffectReferencesAreRecorded),
     ("Card choice request preserves effect selection contract", CardChoiceRequestPreservesContract),
     ("Permanent choice request uses battle area selectable candidates", PermanentChoiceUsesBattleArea),
-    ("Count choice resolves through scripted provider into effect context", CountChoiceResolvesIntoContext),
-    ("Selected card ids are written into a new effect context", SelectedIdsAreWrittenIntoContext),
-    ("Allowed skip is recorded without selected ids", AllowedSkipIsRecorded),
-    ("Illegal skip fails without mutating effect context", IllegalSkipFailsWithoutContextMutation),
-    ("Provider validation failure returns explicit effect choice failure", ProviderValidationFailureReturnsExplicitFailure),
-    ("Assets facade delegates and source files stay inside G3K scope", AssetsFacadeAndSourceScope),
+    ("Count choice request builds range candidates", CountChoiceRequestBuildsRangeCandidates),
+    ("Source files stay inside G3K scope", SourceScopeStaysInsideG3K),
 };
 
 var failures = new List<string>();
@@ -121,10 +120,11 @@ Task PermanentChoiceUsesBattleArea()
         minCount: 0,
         maxCount: 1,
         canSkip: true,
-        EffectChoiceHelpers.CandidatesFromIds(
-            new[] { new HeadlessEntityId("perm-a"), new HeadlessEntityId("perm-b") },
-            ChoiceZone.BattleArea,
-            PlayerTwo));
+        new[]
+        {
+            EffectChoiceHelpers.Candidate(new HeadlessEntityId("perm-a"), "perm-a", ChoiceZone.BattleArea, ownerId: PlayerTwo),
+            EffectChoiceHelpers.Candidate(new HeadlessEntityId("perm-b"), "perm-b", ChoiceZone.BattleArea, ownerId: PlayerTwo),
+        });
 
     AssertEqual(ChoiceType.Permanent, request.Type, "permanent type");
     AssertEqual(ChoiceZone.BattleArea, request.SourceZone, "permanent source zone");
@@ -133,7 +133,7 @@ Task PermanentChoiceUsesBattleArea()
     return Task.CompletedTask;
 }
 
-async Task CountChoiceResolvesIntoContext()
+Task CountChoiceRequestBuildsRangeCandidates()
 {
     ChoiceRequest request = EffectChoiceHelpers.CreateCountRequest(
         PlayerOne,
@@ -141,162 +141,27 @@ async Task CountChoiceResolvesIntoContext()
         minCount: 0,
         maxCount: 3,
         canSkip: false);
-    EffectContext context = CreateContext();
-    var provider = new ScriptedChoiceProvider(new[] { ChoiceResult.SelectCount(2) });
 
-    EffectChoiceResolution resolution = await EffectChoiceHelpers.ResolveAsync(context, request, provider);
-
-    AssertTrue(resolution.IsSuccess, "count resolution");
-    AssertEqual(2, resolution.Context.GetRequiredValue<int?>(EffectChoiceKey(EffectChoiceHelpers.SelectedCountKey)), "selected count");
-    AssertEqual("Count", resolution.Context.GetRequiredValue<string>(EffectChoiceKey(EffectChoiceHelpers.TypeKey)), "choice type value");
-    AssertSequence(new[] { "count:0", "count:1", "count:2", "count:3" }, Strings(resolution.Context.Values[EffectChoiceKey(EffectChoiceHelpers.CandidateIdsKey)]), "count candidates");
-}
-
-Task SelectedIdsAreWrittenIntoContext()
-{
-    ChoiceRequest request = EffectChoiceHelpers.CreateCardRequest(
-        PlayerOne,
-        "Choose cards",
-        minCount: 1,
-        maxCount: 2,
-        canSkip: false,
-        ChoiceZone.Hand,
-        EffectChoiceHelpers.CandidatesFromIds(
-            new[] { new HeadlessEntityId("hand-a"), new HeadlessEntityId("hand-b") },
-            ChoiceZone.Hand,
-            PlayerOne));
-    EffectContext context = CreateContext();
-
-    EffectChoiceResolution resolution = EffectChoiceHelpers.ApplyResult(
-        context,
-        request,
-        ChoiceResult.Select(new HeadlessEntityId("hand-b")));
-
-    AssertTrue(resolution.IsSuccess, "selected id result");
-    AssertFalse(ReferenceEquals(context, resolution.Context), "new context instance");
-    AssertEqual("kept", resolution.Context.GetRequiredValue<string>("existing"), "existing value retained");
-    AssertSequence(new[] { "hand-b" }, Strings(resolution.Context.Values[EffectChoiceKey(EffectChoiceHelpers.SelectedIdsKey)]), "selected ids");
-    AssertEqual(false, resolution.Context.Values[EffectChoiceKey(EffectChoiceHelpers.IsSkippedKey)], "skip value");
+    AssertEqual(ChoiceType.Count, request.Type, "count type");
+    AssertEqual(PlayerOne, request.PlayerId, "count player");
+    AssertEqual(ChoiceZone.Custom, request.SourceZone, "count source zone");
+    AssertSequence(
+        new[] { "count:0", "count:1", "count:2", "count:3" },
+        request.Candidates.Select(candidate => candidate.Id.Value).ToArray(),
+        "count candidates");
     return Task.CompletedTask;
 }
 
-Task AllowedSkipIsRecorded()
+Task SourceScopeStaysInsideG3K()
 {
-    ChoiceRequest request = EffectChoiceHelpers.CreatePermanentRequest(
-        PlayerOne,
-        "Optional target",
-        minCount: 0,
-        maxCount: 1,
-        canSkip: true,
-        EffectChoiceHelpers.CandidatesFromIds(new[] { new HeadlessEntityId("perm-a") }, ChoiceZone.BattleArea));
-
-    EffectChoiceResolution resolution = EffectChoiceHelpers.ApplyResult(CreateContext(), request, ChoiceResult.Skip(), "effectChoice");
-
-    AssertTrue(resolution.IsSuccess, "skip result");
-    AssertEqual(true, resolution.Context.Values["effectChoice.isSkipped"], "skip value");
-    AssertSequence(Array.Empty<string>(), Strings(resolution.Context.Values["effectChoice.selectedIds"]), "skip selected ids");
-    return Task.CompletedTask;
-}
-
-Task IllegalSkipFailsWithoutContextMutation()
-{
-    ChoiceRequest request = EffectChoiceHelpers.CreatePermanentRequest(
-        PlayerOne,
-        "Mandatory target",
-        minCount: 1,
-        maxCount: 1,
-        canSkip: false,
-        EffectChoiceHelpers.CandidatesFromIds(new[] { new HeadlessEntityId("perm-a") }, ChoiceZone.BattleArea));
-    EffectContext context = CreateContext();
-
-    EffectChoiceResolution resolution = EffectChoiceHelpers.ApplyResult(context, request, ChoiceResult.Skip());
-
-    AssertFalse(resolution.IsSuccess, "illegal skip success");
-    AssertEqual("invalid_effect_choice_result", resolution.ErrorCode, "error code");
-    AssertFalse(resolution.Context.HasValue(EffectChoiceKey(EffectChoiceHelpers.IsSkippedKey)), "context not mutated");
-    AssertSequence(new[] { "Choice result skipped a request that does not allow skipping." }, Strings(resolution.Values[EffectChoiceKey(EffectChoiceHelpers.ValidationFailuresKey)]), "validation failure");
-    return Task.CompletedTask;
-}
-
-async Task ProviderValidationFailureReturnsExplicitFailure()
-{
-    ChoiceRequest request = EffectChoiceHelpers.CreateCardRequest(
-        PlayerOne,
-        "Choose one",
-        minCount: 1,
-        maxCount: 1,
-        canSkip: false,
-        ChoiceZone.Hand,
-        EffectChoiceHelpers.CandidatesFromIds(new[] { new HeadlessEntityId("hand-a") }, ChoiceZone.Hand));
-    var provider = new ScriptedChoiceProvider(new[] { ChoiceResult.Skip() });
-
-    EffectChoiceResolution resolution = await EffectChoiceHelpers.ResolveAsync(CreateContext(), request, provider);
-
-    AssertFalse(resolution.IsSuccess, "provider failure");
-    AssertEqual("effect_choice_provider_failed", resolution.ErrorCode, "provider error code");
-    AssertContains(resolution.Message ?? string.Empty, "does not allow skipping", "provider failure message");
-    AssertSequence(new[] { "hand-a" }, Strings(resolution.Values[EffectChoiceKey(EffectChoiceHelpers.CandidateIdsKey)]), "request values preserved");
-}
-
-Task AssetsFacadeAndSourceScope()
-{
-    ChoiceRequest request = EffectChoiceHelperFactory.CreateCountRequest(PlayerOne, "Facade count", 1, 2, canSkip: false);
-    EffectChoiceResolution resolution = EffectChoiceHelperFactory.ApplyResult(
-        CreateContext(),
-        request,
-        ChoiceResult.SelectCount(1));
-
-    AssertTrue(resolution.IsSuccess, "facade resolution");
-    AssertEqual(1, resolution.Context.GetRequiredValue<int?>(EffectChoiceKey(EffectChoiceHelpers.SelectedCountKey)), "facade selected count");
-
     string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "EffectChoiceHelpers.cs");
-    string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "EffectChoiceHelpers.cs");
     string testPath = Path.Combine(root, "tests", "G3K-001.Effect.selection.helper.Tests", "Program.cs");
 
     AssertTrue(File.Exists(headlessPath), "headless helper exists");
-    AssertTrue(File.Exists(facadePath), "facade helper exists");
     AssertTrue(File.Exists(testPath), "test file exists");
     AssertDoesNotContain(File.ReadAllText(headlessPath), "UnityEngine", "headless Unity dependency");
-    AssertDoesNotContain(File.ReadAllText(facadePath), "UnityEngine", "facade Unity dependency");
     AssertDoesNotContain(File.ReadAllText(headlessPath), "TODO", "headless TODO");
-    AssertDoesNotContain(File.ReadAllText(facadePath), "TODO", "facade TODO");
     return Task.CompletedTask;
-}
-
-EffectContext CreateContext()
-{
-    return new EffectContext(
-        PlayerOne,
-        PlayerOne,
-        SourceId,
-        triggerEntityId: null,
-        targetEntityIds: Array.Empty<HeadlessEntityId>(),
-        values: new Dictionary<string, object?> { ["existing"] = "kept" });
-}
-
-string EffectChoiceKey(string suffix)
-{
-    return $"{EffectChoiceHelpers.DefaultKeyPrefix}.{suffix}";
-}
-
-string[] Strings(object? value)
-{
-    if (value is null)
-    {
-        return Array.Empty<string>();
-    }
-
-    if (value is string text)
-    {
-        return new[] { text };
-    }
-
-    if (value is IEnumerable enumerable)
-    {
-        return enumerable.Cast<object?>().Select(item => item?.ToString() ?? string.Empty).ToArray();
-    }
-
-    return new[] { value.ToString() ?? string.Empty };
 }
 
 string ReadAsIs(string relativePath)

@@ -1,0 +1,12 @@
+relpath,verdict,deviations,notes
+Script/CardEffectCommons/KeyWordEffects/Progress.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectFactory/CanNotDigivolve.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/KeyWordEffects/MaterialSave.cs,MATCH-TRANSLATED,,가드-역전=행동등가
+Script/CardEffectCommons/CanUseEffects/WhenDeleteOpponentDigimonByBattle.cs,MATCH-TRANSLATED,,body byte-identical
+Script/CardEffectCommons/KeyWordEffects/MindLink.cs,MATCH-TRANSLATED,"IsFlipped narrowing 드롭(flip 미모델)·self-tuck 가드 추가(무해)",headless choice-model
+Script/NextPhaseButton.cs,BLOCKED,,스텁 — pass/hatch 디스패치는 TurnStateMachine/TurnFlowDriver/PassAction 재하우징 확인(갭 아님)
+Script/CardEffectFactory/CanNotAttack.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/KeyWordEffects/Fortitude.cs,MATCH-TRANSLATED,,AS-IS Evade-quirk verbatim 보존
+Script/IEnumerableExtension.cs,MATCH-TRANSLATED,,verbatim helpers
+Script/CardEffectFactory/AddAppfusionMethod.cs,MATCH-TRANSLATED,,Unity-truthy→!=null
+Script/CardEffectCommons/KeyWordEffects/Blocker.cs,MATCH-TRANSLATED,,substrate only

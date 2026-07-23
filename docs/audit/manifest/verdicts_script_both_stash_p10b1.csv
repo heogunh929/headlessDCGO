@@ -1,0 +1,12 @@
+relpath,verdict,deviations,notes
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/ChangeSAttack.cs,DEVIATION,"GAP@AS-IS:124 InverteDigimonSAttack·:176 InvertDigimonSAttack — TO-BE 전역 무대응(grep 확인)",ChangeDigimonSAttack 2오버로드는 충실 브릿지
+Script/StreamingAssetsUtility.cs,BLOCKED,,스텁 vs Unity 이미지/IO 인프라(룰층 아님)
+Script/CardEffectCommons/KeyWordEffects/Raid.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectFactory/KeyWordEffects/Blitz.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectFactory/AddDigivolutionRequirement.cs,MATCH-TRANSLATED,,경계값 전 보존
+Script/CardEffectCommons/KeyWordEffects/Pierce.cs,MATCH-TRANSLATED,,substrate only
+Script/OptionalSkill.cs,MATCH-TRANSLATED,,ChoiceProvider seam
+Script/CardEffectCommons/TrashDigivolutionCards.cs,MATCH-TRANSLATED,,재하우징 확인(CardEffectCommons.cs:2126)
+Script/CardEffectFactory/CanNotBlock.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/ChangeLinkMax.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/GiveEffect/GiveEffectToPermanentOrPlayer.cs,MATCH-TRANSLATED,,+무해 null-가드(강화)

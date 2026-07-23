@@ -606,16 +606,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case SuspendKind:
                 // (PRIM-W4 CantSuspendStaticEffect) a continuous "cannot suspend" restriction blocks it.
-                // (R2-D) the new-model interface scan is now read through its AS-IS home — the mirror
+                // (R2-D) the new-model interface scan is read through its AS-IS home — the mirror
                 // Permanent.CanSuspend getter (AS-IS Permanent.CanSuspend, the ICanNotSuspendEffect scan over all
                 // players' field permanents + players). This replaces the former NewModelContinuousScan.CanNotSuspend
                 // helper call (byte-identical scan) with the getter, matching the established R1-d consumers
-                // (CardController / CardEffectCommons read `permanent.CanSuspend` directly). The legacy registry arm
-                // (HasSelfRestriction, via ScopedResult) stays UNIONed unchanged — a ported CantSuspendStaticEffect
-                // registers no legacy binding, so the getter catches what the registry misses (and vice-versa),
-                // symmetric with the deletion path below (BattleDeletionGate keeps the same two-arm union).
-                if (HasSelfRestriction(targetId, CannotRestrictionKind.Suspend)
-                    || (_context is not null && !new Assets.Scripts.Script.CardEffectCommons.Permanent(_context, targetId).CanSuspend))
+                // (CardController / CardEffectCommons read `permanent.CanSuspend` directly). (C5-1) The former legacy
+                // registry arm (HasSelfRestriction, via the empty-union ScopedResult) was dropped — ScopedResult
+                // reached producer 0 (permanently empty) so it never restricted; the getter is the sole live path.
+                if (_context is not null && !new Assets.Scripts.Script.CardEffectCommons.Permanent(_context, targetId).CanSuspend)
                 {
                     _skipped.Add(mutation);
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
@@ -1917,36 +1915,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         return false;
     }
 
-    // (FR-P3) The PARSED continuous restriction/replacement result for a card — player-scope + arbitrary
-    // predicate aware when an EngineContext is wired, else the exact registry-only (self) reading. Preserves
-    // the full replacement parsing (all Delete/Prevent sources, not just one flag) the sink relied on before.
-    private ContinuousEvaluationResult ScopedResult(HeadlessEntityId cardId)
-    {
-        if (_context is not null)
-        {
-            return ContinuousScopeEvaluation.EvaluateForCard(_context, ContinuousRestrictionGate.Scope, cardId);
-        }
-
-        // (④) The registry-only fallback is retired (EffectRegistry deleted; producer 0). A context-less sink
-        // yields the empty result (production always carries a context).
-        var queryContext = new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId);
-        return new ContinuousEvaluationResult(queryContext, Array.Empty<EffectRequest>(), Array.Empty<NumericModifier>(), Array.Empty<CannotRestriction>(), Array.Empty<ReplacementEffect>(), new Dictionary<string, object?>(StringComparer.Ordinal));
-    }
-
-    // (PRIM-W4/FR-P3) restriction probe honouring self AND player-scope-with-predicate. Used by the suspend /
-    // return sink paths (CantSuspend / CannotReturnToHand / CannotReturnToDeck).
-    private bool HasSelfRestriction(HeadlessEntityId cardId, CannotRestrictionKind kind)
-    {
-        foreach (CannotRestriction restriction in ScopedResult(cardId).Restrictions)
-        {
-            if (restriction.Kind == kind)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    // (C5-1) ScopedResult (the empty-union ContinuousScopeEvaluation.EvaluateForCard wrapper) and its sole
+    // restriction consumer HasSelfRestriction were DELETED — EvaluateForCard reached producer 0 (permanently
+    // empty result), so both the restriction and replacement arms it fed were production-inert. The live
+    // suspend / deletion restriction paths are the mirror Permanent.CanSuspend / Permanent.CanBeDestroyed()
+    // getters (AS-IS interface scans) that already ran UNIONed alongside; they are the sole live path now.
 
     // (PRIM-W4 AceOverflow) when an un-flipped ACE Digimon leaves the field (battle / breeding area), its
     // owner loses memory equal to its printed Overflow value. Called at the field-leave mutations; the
@@ -1982,19 +1955,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
     private bool IsDeletionPreventedByContinuous(HeadlessEntityId cardId, HeadlessEntityId causingSourceId)
     {
-        // (FR-P3) honour self AND player-scope-with-predicate, via the fully PARSED result (every Delete/Prevent
-        // replacement source, not just one flag). ApplyDelete is the effect-sourced delete path (battle deletion
-        // runs through BattleDeletionGate).
-        ContinuousEvaluationResult result = ScopedResult(cardId);
-        foreach (ReplacementEffect replacement in result.Replacements)
-        {
-            // General CanNotBeDestroyed (Delete/Prevent replacement) = unconditional immunity, no causing predicate.
-            if (replacement.EventKind == ReplacementEventKind.Delete && replacement.ActionKind == ReplacementActionKind.Prevent)
-            {
-                return true;
-            }
-        }
-
+        // (C5-1) The former empty-union ScopedResult.Replacements Delete/Prevent scan was dropped — it reached
+        // producer 0 (permanently empty). ApplyDelete is the effect-sourced delete path (battle deletion runs
+        // through BattleDeletionGate); the live immunity is the mirror Permanent.CanBeDestroyed() getter below.
         // (R2-D) the new-model general "cannot be destroyed" scan is now read through its AS-IS home — the mirror
         // Permanent.CanBeDestroyed() getter (AS-IS Permanent.CanBeDestroyed, the ICanNotBeDestroyedEffect scan over
         // all players' field permanents + players), replacing the former NewModelContinuousScan.HasCanNotBeDestroyed

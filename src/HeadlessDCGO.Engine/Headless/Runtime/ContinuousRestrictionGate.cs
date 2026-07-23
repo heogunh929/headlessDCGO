@@ -6,8 +6,10 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
-/// (X-04) Bridges <see cref="ContinuousEffectEvaluator"/> restriction output into legal-action
-/// generation. Mirrors Unity AS-IS <c>ContinuousController</c>'s constant re-evaluation: before a
+/// (X-04, C5-1) Continuous restriction gate feeding legal-action generation. (C5-1) The former empty-union
+/// ContinuousEffectEvaluator path was retired (producer 0; the type is now deleted); the live restrictions are the joint
+/// NewModelContinuousScan scans (EvaluateAttack/Block/Digivolve/…) below.
+/// Mirrors Unity AS-IS <c>ContinuousController</c>'s constant re-evaluation: before a
 /// candidate (attack / block) is offered, the registry is queried for continuous effects targeting
 /// the entity and the resulting <see cref="CannotRestriction"/> set is checked. This complements the
 /// existing static <c>CardInstanceRecord</c>/<c>CardRecord</c> metadata checks — those stay in place;
@@ -37,20 +39,10 @@ public static class ContinuousRestrictionGate
     /// <summary>Query scope used for continuous re-evaluation (matches the evaluator unit tests).</summary>
     public const string Scope = "ContinuousRecalculation";
 
-    public static IReadOnlyList<CannotRestriction> Evaluate(EngineContext context, HeadlessEntityId entityId)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        if (entityId.IsEmpty)
-        {
-            return Array.Empty<CannotRestriction>();
-        }
-
-        // F-5: fold in player-scope continuous restrictions (e.g. "your opponent's Digimon cannot
-        // block") alongside the card-targeted ones.
-        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, entityId);
-
-        return result.Restrictions;
-    }
+    // (C5-1) The registry Evaluate(context, entityId) method was DELETED — it had ZERO consumers
+    // (`grep "ContinuousRestrictionGate.Evaluate(" → 0`) and returned the empty-union
+    // ContinuousScopeEvaluation.EvaluateForCard result set. The live restriction path is the joint
+    // NewModelContinuousScan scan below (EvaluateAttack/Block/Digivolve/…).
 
     public static CannotRestrictionResult EvaluateAttack(
         EngineContext context,

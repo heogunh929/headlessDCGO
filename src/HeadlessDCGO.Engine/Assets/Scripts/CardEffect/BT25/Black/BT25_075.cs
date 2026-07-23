@@ -9,7 +9,7 @@
 //
 // ② 프리미티브 매핑: P:AddSelfDigivolutionRequirementStaticEffect, P:MandatorySelfPlayCostReduction,
 //    P:ActivateClassesForSharedEffects, P:ILinkCard, P:IMassDegeneration, P:RushStaticEffect,
-//    **P:ChangeLinkMaxStaticEffect (ChangeLinkMaxClass; read-side = Permanent.LinkedMax / ModifierHelpers link fold)**,
+//    **P:ChangeLinkMaxStaticEffect (ChangeLinkMaxClass; read-side = Permanent.LinkedMax link fold)**,
 //    T:WhenLinked (SelectAttackEffect).
 //
 // ③ 배선 관례: Alt-digivolve/Reduce-cost/All-turns → None. Shared → ActivateClassesForSharedEffects(onPlay:true,

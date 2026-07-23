@@ -1613,8 +1613,8 @@ public static partial class CardEffectCommons
     // TreatAsDigimonStaticEffect in the None bucket, AS-IS 1:1.
 
     // (R3-W3c-3) The DP/SAttack-delta grants no longer register a ContinuousModifierGate binding into the
-    // registry — that consumer (ContinuousEffectEvaluator.ResolveDp) is dead (0 live callers), so the delta
-    // never fired. They are restored to AS-IS 1:1: build the factory kind-class (ChangeDPClass /
+    // registry — that consumer (ContinuousEffectEvaluator.ResolveDp) has since been deleted (it was dead — 0
+    // live callers — so the delta never fired). They are restored to AS-IS 1:1: build the factory kind-class (ChangeDPClass /
     // ChangeSAttackClass, an IChangeDPEffect / IChangeSAttackEffect) and store it into the target permanent's
     // EffectTiming.None duration bucket via AddEffectToPermanent — which Permanent.DP / Permanent.SAttack scan
     // LIVE (Permanent.cs:348 / :2500). ADAPTATION: the AS-IS ICardEffect activateClass is collapsed to its

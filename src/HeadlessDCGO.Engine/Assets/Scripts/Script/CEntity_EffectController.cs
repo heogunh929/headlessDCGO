@@ -760,3 +760,4 @@ public static class CardEffectDispatch
         return TryCreate(def.CardNumber, out effect);
     }
 }
+

@@ -1,0 +1,13 @@
+relpath,verdict,deviations,notes
+Script/CardEffectFactory/KeyWordEffects/Decoy.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffects/ChangeCostClass.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectFactory/AddLinkRequirement.cs,MATCH-1:1,,byte-identical
+Script/CardEffectCommons/KeyWordEffects/Barrier.cs,MATCH-TRANSLATED,,substrate only
+Script/CardEffectCommons/KeyWordEffects/Rush.cs,MATCH-TRANSLATED,,+CanResolveRush scaffolding
+Script/SelectDNACondition.cs,MATCH-TRANSLATED,,dead branch preserved
+Script/CardEffectFactory/VortexCanAttackPlayers.cs,MATCH-TRANSLATED,,verbatim
+Script/CardEffectCommons/CanUseEffects/WhenWinBattle.cs,MATCH-1:1,,byte-identical
+Script/Combinations.cs,BLOCKED,"GAP@whole: TO-BE 스텁 vs AS-IS 실로직(GetUniqueName/ColorCardCount·GetCombinations) 미포팅·미재하우징",로직-축 GAP — 소비자 지도 후속
+Script/CardEffectFactory/ChangeOriginDP.cs,MATCH-1:1,,byte-identical
+Script/CardEffectCommons/CustomMessage.cs,MATCH-1:1,,verbatim
+Script/TurnStateMachine.cs,MATCH-TRANSLATED,,"심층: 전 phase 본체 1:1(quirk·오타 보존)·재하우징 지도 완결(GameContext/TurnFlowPump/AutoProcessing)·GAP 0·발명 0; cross-file note: TurnFlowPump 종료-가드 2개 추가=outcome-neutral(문서화)"

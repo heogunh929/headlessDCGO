@@ -175,20 +175,12 @@ async Task W3_LinkCostFold()
     AssertEqual(0, warpmonCard.GetChangedLinkCost(hostPerm, Script.SelectCardEffect.Root.Hand),
         "with a -2 ChangeLinkCost producer the folded cost is 0 (2 - 2, Math.Max(0, ...) clamp)");
 
-    // (G-Link P2 risk-3 regression / RD-P6B-16) GrantedReduceLinkCostClass is a NEW-model IChangeLinkCostEffect
-    // ONLY — it registers no AS-IS-absent legacy "linkCostDelta" modifier. With the producer PRESENT, evaluating
-    // the legacy modifier fold in ISOLATION (the ModifierHelpers half of LinkHelpers.ResolveLinkCost, BEFORE the
-    // new-model FoldLinkCost union) must leave the base 2 intact — the -2 comes solely from the new-model scan.
-    // GetChangedLinkCost's Math.Max(0,..) clamp would MASK a double-registration (2-2-2 clamps back to 0), so this
-    // isolates the legacy path to catch a future double-count.
-    Cec.ContinuousEvaluationResult legacyOnly = ContinuousScopeEvaluation.EvaluateForCard(
-        match.Context, ContinuousRestrictionGate.Scope, warpmon);
-    int legacyResolved = Cec.ModifierHelpers.Evaluate(
-        new Cec.NumericModifierRequest(Cec.NumericModifierMetric.LinkCost, 2, legacyOnly.Modifiers, warpmon)).FinalValue;
-    AssertEqual(2, legacyResolved,
-        "RISK-3 NEGATIVE: GrantedReduceLinkCostClass registers NO legacy linkCostDelta — the legacy modifier fold " +
-        "leaves base 2 intact (the -2 is purely the new-model IChangeLinkCostEffect scan)");
-
+    // (C5-1) The RISK-3 NEGATIVE isolation assertion (evaluating the legacy ModifierHelpers linkCostDelta fold on
+    // its own and asserting it leaves base 2 intact) was REMOVED with the empty-union pipeline: the legacy
+    // modifier fold (ContinuousScopeEvaluation.EvaluateForCard + ModifierHelpers.Evaluate) no longer exists, so a
+    // future legacy double-count is structurally impossible. The live behavior — the new-model
+    // IChangeLinkCostEffect scan folds -2 (asserted above) and its removal restores base 2 (asserted below) —
+    // is unchanged.
     owner.UntilCalculateFixedCostEffect.Remove(GetCardEffect);
     AssertEqual(2, warpmonCard.GetChangedLinkCost(hostPerm, Script.SelectCardEffect.Root.Hand),
         "removing the producer restores the base cost 2");

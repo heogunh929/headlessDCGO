@@ -291,7 +291,7 @@ public sealed class BT25_104 : CEntity_Effect
             // — `Player.TurnStartTime` and `CardSource.ChangedLocationTime` have no mirror (no per-turn/per-card
             // DateTime clock ported). ActivatedTime governs the DP-"set" fold order (Permanent.cs:314
             // OrderBy(ActivatedTime)); leaving it at the default DateTime.MinValue is the mirror's documented
-            // order-0 analog (ModifierHelpers.cs:118). Narrow activation-order fidelity gap — design item
+            // order-0 analog (formerly ModifierHelpers.cs:118, now retired). Narrow activation-order fidelity gap — design item
             // RD-EXT3-04 (the DP change itself applies; only its tie-break timestamp is unstamped).
 
             cardEffects.Add(changeBaseDPClass);

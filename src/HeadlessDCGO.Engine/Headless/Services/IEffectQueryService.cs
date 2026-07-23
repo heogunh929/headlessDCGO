@@ -5,7 +5,7 @@ using HeadlessDCGO.Engine.Headless.Effects;
 // (④) interface IEffectQueryService + [Flags] enum EffectQueryRole DELETED — the invented EffectRegistry
 // query surface (GetContinuousEffects/GetReplacement/GetModifier/GetRestrictionEffects + the role flags) had
 // producer 0 and no surviving consumer. EffectQueryContext survives (the continuous-scope query key still used
-// by ContinuousScopeEvaluation + ContinuousEffectEvaluator.BuildValues).
+// by ContinuousScopeEvaluation; the former ContinuousEffectEvaluator.BuildValues consumer is now deleted).
 
 public sealed record EffectQueryContext
 {

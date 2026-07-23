@@ -12,8 +12,9 @@
 //                       Permanent ChoiceRequest honouring max/canNoSelect/canEndNotMax (CV-A2 / F-2).
 //   (2) BuildMutations — map the selection Mode to MatchStateMutation(s) per selected target,
 //                       reusing the existing mutation vocabulary (CV-A2 / F-2.3 / F-2.5).
-// Resolution itself reuses EffectChoiceHelpers.ResolveAsync / DeferredChoiceProvider; this class
-// only owns candidate enumeration and the Mode→mutation mapping.
+// Resolution itself runs through the DeferredChoiceProvider; the request is built via
+// EffectChoiceHelpers.CreatePermanentRequest / Candidate. This class only owns candidate
+// enumeration and the Mode→mutation mapping.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 

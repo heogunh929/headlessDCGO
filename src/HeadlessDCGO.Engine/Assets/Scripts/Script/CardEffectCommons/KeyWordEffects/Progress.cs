@@ -1,34 +1,3 @@
-// Source: Assets/Scripts/Script/CardEffectCommons/KeyWordEffects/Progress.cs
-// AS-IS mirror: per-keyword partial of KeywordBaseBatch2Effect (Progress). Shared scaffolding lives in
-// KeywordBaseBatch2.cs; this file holds only Progress's resolution branch (1:1 with the original
-// CardEffectCommons.CanActivateProgress). The LIVE "while attacking, not affected by opponent effects"
-// path is engine plumbing: (R3-W3c-2) ProgressImmunity appends the AS-IS UntilEndAttack CanNotAffectedClass to the
-// attacker's UntilEndAttackEffects bucket (1:1 with ProgressProcess below), read back live by
-// CardSource.CanNotBeAffected and expired by AttackProcess.Cleanup. Progress is a PASSIVE static effect (no agent
-// choice). This branch is the grant/mirror layer (resolving emits GrantProgress -> hasProgress).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects
-{
-    using HeadlessDCGO.Engine.Headless.Effects;
-    using HeadlessDCGO.Engine.Headless.State;
-
-    public sealed partial class KeywordBaseBatch2Effect
-    {
-        private CardEffectCanResolveResult CanResolveProgress(
-            CardEffectResolveContext context,
-            CardInstanceState target)
-        {
-            // AS-IS CanActivateProgress: this Digimon is on the battle area (dispatch enforces) and is the
-            // attacker. The immunity itself is applied live by ProgressImmunity at attack declaration.
-            if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.IsAttacking, out bool isAttacking)
-                || !isAttacking)
-            {
-                return Failure("Progress requires this Digimon to be attacking.", "isAttacking", context, target.InstanceId);
-            }
-
-            return CardEffectCanResolveResult.Success("Progress grants opponent-effect immunity while attacking.", BaseValues(context, target));
-        }
-    }
-}
 
 // (P6 cluster2, purely additive — see file header) old-model CardEffectCommons sibling (KeyWordEffects/Progress.cs)
 // — a different namespace/type than the KeywordBaseBatch2Effect resolver above.
