@@ -1,0 +1,32 @@
+tobe_path,분류,근거
+src/HeadlessDCGO.Engine/Headless/Bridge/ActivatedHashtableBridge.cs,other,미러 GameEvent를 이펙트 타이밍별 AS-IS Hashtable 페이로드로 재구성하며 어떤 필드(공격자/수비자/보안 앞면상태/링크카드/원인이펙트 등)가 어느 게임 타이밍에 실리는지를 substrate가 직접 결정·구성함; 이 트리거 페이로드 구성 규칙은 미러 CardEffectCommons/HashtableSetting.cs 영역이 보유해야 할 규칙임
+src/HeadlessDCGO.Engine/Headless/Bridge/AmbientMatchContext.cs,Unity대체,Unity 전역 싱글톤 GManager.instance를 AsyncLocal 기반 매치-스코프 컨텍스트 홀더로 대체; 순수 저장/조회만 수행
+src/HeadlessDCGO.Engine/Headless/Bridge/BareCauseEffect.cs,Unity대체,AS-IS가 실제 ICardEffect 객체 참조로 스레딩하던 원인 이펙트를 소스카드 참조만 담는 최소 홀더 객체로 대체; id를 CardSource로 해석하는 변환만 하고 판정 로직 없음
+src/HeadlessDCGO.Engine/Headless/Bridge/ContinuousContext.cs,RL api,랜덤시드/결정론적선택/AI시뮬레이션 플래그 등 RL 학습·재현을 위한 headless 매치 설정 컨테이너(원본 게임에 없는 개념); 메모리 범위 등은 입력값 유효성 검증일 뿐 게임 규칙 계산이 아님
+src/HeadlessDCGO.Engine/Headless/Bridge/EngineContext.cs,Unity대체,Unity GManager.instance가 보유하던 턴/공격/메모리 등 전 컨트롤러 참조와 서비스 레지스트리·매치 상태를 담는 홀더; 배치id 카운터들은 단조증가 발급만 하고 그룹핑 판정은 다른 곳에서 수행
+src/HeadlessDCGO.Engine/Headless/Bridge/GManagerBridge.cs,Unity대체,EngineContext를 감싸는 GManager.instance 대체 파사드로 프로퍼티 위임만 수행
+src/HeadlessDCGO.Engine/Headless/Bridge/PayCostRoot.cs,Unity대체,현재 비용지불 중인 액션 종류(Play/Digivolve/Option)를 나타내는 상태 플래그 enum; 계산·판정 없음
+src/HeadlessDCGO.Engine/Headless/Bridge/UnityNullObjectPolicy.cs,Unity대체,포팅 과정에서 Unity 전용 API 접근(렌더링/씬수명주기/애니메이션/오디오/카메라/네트워크클라이언트/전역싱글톤 등)을 제외·대체·거부로 분류하는 포팅 메타 정책
+src/HeadlessDCGO.Engine/Headless/Choices/ChoiceCandidate.cs,Photon대체,선택 입력(플레이어 UI) 후보 항목을 표현하는 데이터 배관 레코드
+src/HeadlessDCGO.Engine/Headless/Choices/ChoiceCompletability.cs,Photon대체,강제 선택 요청이 완성 가능한 조합이 존재하는지 사전 판단하는 결정론적 조합탐색; 선택 입력 배관의 교착 방지 로직(AS-IS AI측 랜덤 재시도 탐색을 결정론 이식)이며 검증자 자체(구체 카드 규칙)는 호출측이 주입
+src/HeadlessDCGO.Engine/Headless/Choices/ChoiceOption.cs,Photon대체,선택지 표시용 데이터 배관 레코드
+src/HeadlessDCGO.Engine/Headless/Choices/ChoiceRequest.cs,Photon대체,플레이어 선택 입력 요청 스펙(최소/최대개수·후보·검증자 훅)을 표현하는 입력 배관 레코드
+src/HeadlessDCGO.Engine/Headless/Choices/ChoiceResult.cs,Photon대체,플레이어 선택 입력 결과 및 그 결과가 요청 스펙의 개수·중복·선택가능성 범위를 만족하는지 검사하는 입력 배관 검증
+src/HeadlessDCGO.Engine/Headless/Choices/ChoiceType.cs,Photon대체,선택 입력 종류를 나열하는 열거형
+src/HeadlessDCGO.Engine/Headless/Choices/ChoiceZone.cs,Photon대체,선택 후보가 속한 구역을 나열하는 열거형(입력 배관 메타데이터)
+src/HeadlessDCGO.Engine/Headless/Choices/IChoiceProvider.cs,Photon대체,선택 입력 공급자 인터페이스
+src/HeadlessDCGO.Engine/Headless/Choices/PolicyChoiceProvider.cs,Photon대체,정책 함수 기반 자동 선택 입력 공급자(플레이어 입력 UI 대체)
+src/HeadlessDCGO.Engine/Headless/Choices/ScriptedChoiceProvider.cs,Photon대체,사전 스크립트되거나 폴백 규칙으로 자동 응답하는 선택 입력 공급자(테스트·결정론 입력 배관)
+src/HeadlessDCGO.Engine/Headless/Coroutines/CoroutineAdapter.cs,Unity대체,Unity IEnumerator 코루틴을 headless IEngineTask로 어댑팅
+src/HeadlessDCGO.Engine/Headless/Coroutines/EngineTaskRunner.cs,Unity대체,Unity 코루틴 스케줄러(StartCoroutine 루프)를 대체하는 태스크 큐 실행기
+src/HeadlessDCGO.Engine/Headless/Coroutines/EngineWaitCondition.cs,Unity대체,Unity yield/WaitForSeconds 등 코루틴 대기조건을 대체하는 타입
+src/HeadlessDCGO.Engine/Headless/Coroutines/IEngineTask.cs,Unity대체,Unity 코루틴 태스크(IEnumerator 기반 실행단위)를 대체하는 인터페이스
+src/HeadlessDCGO.Engine/Headless/DataLoading/BanlistLoader.cs,Unity대체,밴리스트 텍스트 파일을 파싱해 카드id→제한수 맵으로 적재하는 자산 로딩(판정은 소비측 DeckValidator가 수행)
+src/HeadlessDCGO.Engine/Headless/DataLoading/CardAssetJsonLoader.cs,Unity대체,카드 JSON 자산 파일을 파싱해 CardRecord로 적재하는 자산 로딩
+src/HeadlessDCGO.Engine/Headless/DataLoading/CardBaseEntityLoader.cs,Unity대체,내장 리소스(cards.json)에서 카드 스탯 데이터를 로드해 CardDatabase에 적재; Unity Resources.Load류 자산 로딩의 대체
+src/HeadlessDCGO.Engine/Headless/DataLoading/CardDatabase.cs,Unity대체,카드 레코드 인메모리 저장소 홀더(조회/삽입만 위임)
+src/HeadlessDCGO.Engine/Headless/DataLoading/DeckListLoader.cs,Unity대체,덱리스트 텍스트를 파싱해 DeckList 레코드로 적재하는 자산 로딩
+src/HeadlessDCGO.Engine/Headless/DataLoading/DeckValidationSmoke.cs,other,DeckValidator(덱 합법성 판정기)를 하드코딩 픽스처 데이터로 실행하는 스모크 테스트 하네스; 파일 자체 주석도 테스트 인프라로의 이관 대상임을 명시하며 Unity/Photon/RL 어느 정당 사유에도 속하지 않는 테스트 스캐폴딩
+src/HeadlessDCGO.Engine/Headless/DataLoading/DeckValidator.cs,other,덱 최소/최대 매수·밴리스트 카드당 매수 제한 초과·미등록 카드 여부 등 덱 합법성을 계산·판정하는 게임 규칙 로직
+src/HeadlessDCGO.Engine/Headless/DataLoading/StarterDecks.cs,Unity대체,ST1/ST2/ST3 공식 스타터덱 카드 구성을 담은 정적 데이터 테이블 홀더; 계산 없이 수량만큼 전개
+src/HeadlessDCGO.Engine/Headless/Diagnostics/EngineTrace.cs,RL api,매치 이벤트 기록과 SHA256 지문(재현성 검증)을 제공하는 결정론/재현 infra

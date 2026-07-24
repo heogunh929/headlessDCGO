@@ -1,0 +1,31 @@
+tobe_path,분류,근거
+src/HeadlessDCGO.Engine/Headless/Diagnostics/ITraceSink.cs,RL api,매치 이벤트 트레이스 싱크 인터페이스; RL 학습 로그/재현 infra의 소비 인터페이스이며 규칙 계산 없음
+src/HeadlessDCGO.Engine/Headless/Diagnostics/MatchEventLog.cs,RL api,RL L4 매치 사건 JSONL 로거(설계서 rl_l4_match_log_design.md 명시); 스텝 경계 드레인·타입별 레벨 분류만 수행하고 규칙 판정은 없음
+src/HeadlessDCGO.Engine/Headless/Diagnostics/MatchLogLevel.cs,RL api,매치 로그 레벨 enum(OFF~TRACE); RL 학습/재현 로깅 등급 정의(FR-7.1)
+src/HeadlessDCGO.Engine/Headless/Diagnostics/NullTraceSink.cs,RL api,ITraceSink no-op 구현; RL 로깅 인프라의 널 오브젝트 패턴
+src/HeadlessDCGO.Engine/Headless/Diagnostics/TraceEvent.cs,RL api,트레이스 이벤트 레코드+핑거프린트 직렬화; 결정론/재현 로깅 infra이며 게임 규칙 계산 없음
+src/HeadlessDCGO.Engine/Headless/Diagnostics/TraceOptions.cs,RL api,트레이스 옵션 레코드(Enabled/MaxEvents); 로깅 infra 설정값 보유
+src/HeadlessDCGO.Engine/Headless/Effects/ActivatedEffectResolver.cs,other,ACTIVATED 효과의 CanActivate/CanCollect/CanDeclare 게이트 판정과 스택 실행 전 과정을 substrate가 직접 계산·실행(카드 규칙 로직 자체)
+src/HeadlessDCGO.Engine/Headless/Effects/AutoProcessingTriggerCollector.cs,other,트리거 타이밍/카운터패스/딜레이드원샷 등 규칙 파이프라인 이벤트-메타데이터 키 상수 보유; Unity/Photon/RL과 무관한 미러 규칙층 소속 키
+src/HeadlessDCGO.Engine/Headless/Effects/CardEffectSchedulerResolver.cs,other,큐-이펙트 해석 브릿지(이펙트 바디 조회·해석 결과 산출); 이펙트 해석 파이프라인 오케스트레이션의 일부
+src/HeadlessDCGO.Engine/Headless/Effects/DigivolutionCostHelpers.cs,other,EvolutionCondition 토큰 파싱·요구조건 매칭·최종 진화비용 계산(순수 카드 규칙 계산 로직)
+src/HeadlessDCGO.Engine/Headless/Effects/EffectContext.cs,other,효과 컨텍스트(소스/오너/타깃/값) 도메인 레코드; 이펙트 규칙 파이프라인의 데이터모델
+src/HeadlessDCGO.Engine/Headless/Effects/EffectContextAdapter.cs,other,레거시 별칭 키 정규화 및 EffectContext 생성 검증 로직; 이펙트 규칙 데이터 조립
+src/HeadlessDCGO.Engine/Headless/Effects/EffectDuration.cs,other,AS-IS EffectDuration enum 미러(지속효과 만료 시점 규칙 분류)
+src/HeadlessDCGO.Engine/Headless/Effects/EffectDurationExpiry.cs,other,고정비용계산 버킷 만료 규칙을 실행하는 상태변이(AS-IS CardController.cs:961 규칙의 substrate 실행)
+src/HeadlessDCGO.Engine/Headless/Effects/EffectRequest.cs,other,이펙트 요청 레코드(효과ID/컨트롤러/타이밍/컨텍스트); 이펙트 파이프라인 데이터모델
+src/HeadlessDCGO.Engine/Headless/Effects/EffectResolutionMode.cs,other,이펙트 해석 모드 enum(MainStack/CutIn/Background/RuleProcess); 규칙 파이프라인 분류값
+src/HeadlessDCGO.Engine/Headless/Effects/EffectResolutionQueue.cs,other,PendingEffect 큐 자료구조; 이펙트 해석 파이프라인 스케줄러의 큐 저장소
+src/HeadlessDCGO.Engine/Headless/Effects/EffectResult.cs,other,이펙트 해석 결과(Resolved/Skipped/Unbound/Suspended) 상태 모델; 규칙 해석 상태기계
+src/HeadlessDCGO.Engine/Headless/Effects/EffectScheduler.cs,other,이펙트 큐 드레인과 해석 오케스트레이션(재시도/실패/Skip 처리); 규칙 해석 파이프라인 실행기
+src/HeadlessDCGO.Engine/Headless/Effects/EventCollectionMetadata.cs,other,이벤트 컬렉션 페이로드 플래튼/파싱 규약; 규칙 게이트가 읽는 판정 입력 변환 로직
+src/HeadlessDCGO.Engine/Headless/Effects/HeadlessCardEffectContract.cs,other,카드이펙트 정의/해석컨텍스트/CanResolve 결과 계약 타입; 이펙트 규칙 계약 모델
+src/HeadlessDCGO.Engine/Headless/Effects/MatchStateMutationSink.cs,other,삭제/면역/제한/보안/디지볼브 등 방대한 게임 규칙 판정과 상태변이를 substrate가 직접 실행(면역게이트·삭제배치·리스트릭션 스캔 등 핵심 규칙 로직 보유)
+src/HeadlessDCGO.Engine/Headless/Effects/OptionalPromptQueue.cs,other,선택적 효과 프롬프트 큐잉·해석(옵션 효과 선택 규칙 처리); 규칙 파이프라인의 일부
+src/HeadlessDCGO.Engine/Headless/Effects/PendingEffect.cs,other,대기 이펙트 레코드(Request+Mode); 이펙트 큐 데이터모델
+src/HeadlessDCGO.Engine/Headless/Effects/PlayCostHelpers.cs,other,플레이 비용 계산(수정자 적용·스테이지별 합산·가용성 판정)—순수 카드 규칙 계산
+src/HeadlessDCGO.Engine/Headless/Effects/PlayerScopeContinuousHelpers.cs,other,플레이어-스코프 지속효과 조건 매칭(ConditionMatches 등)—연속효과 규칙 판정 로직
+src/HeadlessDCGO.Engine/Headless/Effects/SkillInfo.cs,other,스킬 정보 레코드(Definition+Request+Mode) 및 정의 필드 일치 검증; 규칙 파이프라인 데이터모델
+src/HeadlessDCGO.Engine/Headless/Effects/SkillWindowContinuation.cs,other,AS-IS MultipleSkills 창 루프의 커서/답변재생 상태(SkillWindowPhase·주문선택 포트); 트리거 창 규칙 오케스트레이션
+src/HeadlessDCGO.Engine/Headless/Effects/SkillWindowSupply.cs,other,GameEvent를 AS-IS Hashtable 페이로드로 변환(타이밍별 규칙 페이로드 재구성·배치 접기)—창 규칙 파이프라인의 핵심 변환기
+src/HeadlessDCGO.Engine/Headless/Effects/TriggerEventEmitter.cs,other,타이밍 윈도우 게임이벤트 발행(트리거 타이밍 키 스탬핑·주체 스코핑)—규칙 트리거 파이프라인의 발행부

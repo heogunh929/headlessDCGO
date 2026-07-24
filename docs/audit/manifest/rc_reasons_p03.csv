@@ -1,0 +1,30 @@
+tobe_path,분류,근거
+src/HeadlessDCGO.Engine/Headless/Runtime/DeferredChoiceProvider.cs,Unity대체,AS-IS 코루틴 WaitUntil 패턴을 대체하는 선택지 요청/응답 브리지·리플레이 프레임 북키핑; unsatisfiable-forced 디모션은 요청 형태 기반 completability 판정으로 카드 규칙 계산이 아님
+src/HeadlessDCGO.Engine/Headless/Runtime/DeletionOutcomeWatcher.cs,Unity대체,삭제 대상 정착(destroyed/spared) 대기 콜백 파킹(코루틴 WaitUntil 대체); Classify는 이미 확정된 zone/flag 상태 판독일 뿐 새 규칙 계산이 아님
+src/HeadlessDCGO.Engine/Headless/Runtime/DeletionReplacementCandidateConditions.cs,other,카드별 삭제-대체 후보 predicate 확장 인터페이스(현재 프로듀서 0으로 미사용); Unity/Photon/RL 사유가 아닌 게임 규칙 확장점(미러 오배치)
+src/HeadlessDCGO.Engine/Headless/Runtime/DeletionReplacementGate.cs,other,Evade/Barrier/Scapegoat 등 삭제-대체 키워드 판정 상수·SacrificeAsync(카드를 실제로 trash로 이동)·SourceCountAtDeletion 계산 등 게임 규칙을 직접 보유·실행
+src/HeadlessDCGO.Engine/Headless/Runtime/DeletionReplacementTiming.cs,other,PRE/POST 삭제-대체 선택 윈도우 오픈·옵션 계산·해석·적용(ApplyNoTarget 등) — 게임 규칙 윈도우 오케스트레이션 실행
+src/HeadlessDCGO.Engine/Headless/Runtime/DeletionSourceTrash.cs,other,삭제시 진화소스/링크카드 언컨디셔널 trash·ACE Overflow 메모리 페널티 계산·적용 — 게임 규칙 실행(AS-IS DiscardEvoRoots 미러)
+src/HeadlessDCGO.Engine/Headless/Runtime/DigivolutionStackHelpers.cs,other,진화 스택에 소스 추가/제거/트래시·보호효과 스캔·OnAddDigivolutionCards 트리거 발사 등 게임 규칙을 직접 실행
+src/HeadlessDCGO.Engine/Headless/Runtime/DigivolveAction.cs,other,진화 합법 액션 열거·App-Fusion 조건·진화비용 계산(EvoCosts 파이프라인)·무시조건/추가조건 판정 등 핵심 카드 규칙 로직
+src/HeadlessDCGO.Engine/Headless/Runtime/DigivolveCommons.cs,other,진화 완료시 턴카운터 증가+1장 드로우(AS-IS CardController.cs:1526-1529 공유 규칙 스텝) 실행
+src/HeadlessDCGO.Engine/Headless/Runtime/DpBoostHelpers.cs,other,카드별 DP 부스트 추가/제거/합산 — DP 계산 규칙(AS-IS Permanent.Boosts 미러) 실행
+src/HeadlessDCGO.Engine/Headless/Runtime/DpZeroDeletionHelpers.cs,other,DP-zero 삭제 마킹용 메타데이터 키 상수(로직 자체는 GameFlowProcessor에 있으나 규칙 개념 전용 어휘이며 Unity/Photon/RL 대체 사유 없음)
+src/HeadlessDCGO.Engine/Headless/Runtime/EffectDrivenAttack.cs,other,효과기반 공격 대상 열거·다중공격자 큐·공격 선언(Initiate) 등 공격 규칙을 직접 계산·실행
+src/HeadlessDCGO.Engine/Headless/Runtime/FreeDigivolveHelpers.cs,other,Blast/Arts 무료 단일진화 규칙(서밍시크니스 상속 등) 실행
+src/HeadlessDCGO.Engine/Headless/Runtime/FusionDigivolveHelpers.cs,other,DNA진화/Jogress/DigiXros 소재 합체·소스 스택 병합·서밍시크니스 면제 등 게임 규칙 실행
+src/HeadlessDCGO.Engine/Headless/Runtime/GameEvent.cs,Unity대체,순수 이벤트 데이터 레코드(상태홀더); 규칙 계산·판정 없음
+src/HeadlessDCGO.Engine/Headless/Runtime/GameEventQueue.cs,Unity대체,AS-IS AutoProcessing.StackSkillInfos 트리거 수집용 드레인 큐(코루틴 상태변화 감지 대체 substrate); Publish/SyncFrom/Drain뿐 규칙 판정 없음
+src/HeadlessDCGO.Engine/Headless/Runtime/GameEventType.cs,Unity대체,이벤트 타입 enum; 로직 없는 순수 분류값
+src/HeadlessDCGO.Engine/Headless/Runtime/GameFlowProcessor.cs,other,AS-IS TurnStateMachine 공통루프 전체(상태기반 삭제 스윕·배치 OnDeletion 윈도우·DP-zero 판정·삭제-대체 결정 홀드 등) 게임 규칙 실행의 핵심 오케스트레이터
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessAction.cs,RL api,에이전트가 제출/수신하는 액션 표현 레코드 — 원본 Unity게임에 없는 에이전트 액션 표면
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessActionFactory.cs,RL api,액션 객체 빌더(PlayCard/Digivolve/DeclareAttack 등 팩토리 메서드) — 에이전트 액션 스키마 생성뿐 규칙 판정 없음
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessActionParameterKeys.cs,RL api,액션 파라미터 키 문자열 상수 — 에이전트 액션 스키마 어휘(로직 없음)
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessActionPayloads.cs,RL api,액션 파라미터 직렬화/역직렬화 레코드+리더 — 에이전트 액션 인코딩/디코딩뿐 규칙 판정 없음
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessActionQueue.cs,RL api,액션 재생(replay) 큐 + JSON 직렬화/역직렬화(ReplayActionRecord) — 결정론/재현 infra
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessActionTypes.cs,RL api,액션 타입 문자열 상수(정규화 포함) — 에이전트 액션 어휘(로직 없음)
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessAttackState.cs,Unity대체,순수 공격 상태 레코드(홀더); 로직·판정 없음
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessChoiceState.cs,Unity대체,순수 선택지 상태 레코드(홀더); 로직·판정 없음
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessEffectState.cs,Unity대체,순수 이펙트 스케줄러 카운터 상태 레코드; 로직 없음
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessEndTurnCleanupFlow.cs,other,턴종료시 지속효과 버킷/버스트마커/자기삭제마커 정리(AS-IS TurnStateMachine EndPhase 규칙) — 카드·플레이어 메타데이터를 직접 변이시키는 게임 규칙 실행
+src/HeadlessDCGO.Engine/Headless/Runtime/HeadlessGameLoop.cs,RL api,액션 처리→GameFlowProcessor 진행→Observation/ActionMask 빌드(perspective 기반 정보 은닉 포함)하는 에이전트 스텝 루프; 규칙 계산 자체는 GameFlowProcessor/RuleQueryService에 위임

@@ -1,0 +1,31 @@
+tobe_path,분류,근거
+src/HeadlessDCGO.Engine/Headless/Services/IStateFingerprintService.cs,RL api,MatchState 정본 스냅샷 문자열화·해시 지문 인터페이스; RL 결정론 검증/재현 infra(순수 규칙 계산 없음)
+src/HeadlessDCGO.Engine/Headless/Services/ITerminalOutcomeSink.cs,RL api,승자/무승부/사유 페이로드 sink; PlayerRuleAdapter 판정 결과를 DcgoMatch 공개 결과로 전달하는 RL 매치-결과 표면(자체 판정 없음)
+src/HeadlessDCGO.Engine/Headless/Services/ITerminalStateController.cs,RL api,종료 플래그 세터 인터페이스(SetTerminal); InMemoryRuleQueryService의 RL 에이전트 표면 일부, 판정 로직 없음
+src/HeadlessDCGO.Engine/Headless/Services/IZoneMover.cs,Unity대체,존 이동 실행 인터페이스(핸드/트래시/시큐리티/드로우/셔플 등); 호출자가 지시한 이동을 실행만 하고 합법성/규칙 판단 없음
+src/HeadlessDCGO.Engine/Headless/Services/IZoneStateReader.cs,Unity대체,플레이어별 존 카드 목록 읽기 전용 인터페이스; 순수 상태 조회
+src/HeadlessDCGO.Engine/Headless/Services/IllegalAction.cs,RL api,거부된 액션 레코드(ActionType/Reason/Metadata); RL 에이전트 액션-표면의 불법 액션 응답 포맷
+src/HeadlessDCGO.Engine/Headless/Services/InMemoryCardInstanceRepository.cs,Unity대체,CardInstanceRecord Dictionary 저장소(Upsert/TryGet/Snapshot/Clear); 순수 저장, 규칙 계산 없음
+src/HeadlessDCGO.Engine/Headless/Services/InMemoryCardRepository.cs,Unity대체,CardRecord Dictionary 저장소; Query는 호출자 제공 predicate(CardQuery.Matches)를 그대로 위임 적용할 뿐 자체 판정 없음
+src/HeadlessDCGO.Engine/Headless/Services/InMemoryLogSink.cs,Unity대체,로그 엔트리 리스트 저장(Info/Warn/Error 기록); Unity Debug.Log류 런타임 로깅 대체 infra
+src/HeadlessDCGO.Engine/Headless/Services/InMemoryRuleQueryService.cs,RL api,합법 액션 리스트·종료 플래그 CRUD 저장소; RL 에이전트가 소비하는 legal-action/terminal 표면(TODO 주석: 실규칙 미이식 자리표시자)
+src/HeadlessDCGO.Engine/Headless/Services/InMemoryZoneMover.cs,Unity대체,존별 카드 리스트 컨테이너+이동 메커니즘 구현(삽입 top/bottom·PermanentBookkeeping 리셋 배선); 호출자가 지시한 이동을 실행할 뿐 합법성/승패 판정 없음
+src/HeadlessDCGO.Engine/Headless/Services/LegalAction.cs,RL api,합법 액션 레코드(Id/PlayerId/ActionType/Parameters)+HeadlessAction 변환; RL 에이전트 액션-표면 데이터 포맷
+src/HeadlessDCGO.Engine/Headless/Services/NullLogSink.cs,Unity대체,ILogSink no-op 구현; 로깅 infra 대체
+src/HeadlessDCGO.Engine/Headless/Services/StateFingerprintService.cs,RL api,MatchState canonical snapshot 직렬화+SHA256 해시 산출; RL 결정론/재현 검증 infra 구현체(게임 규칙 계산 아님)
+src/HeadlessDCGO.Engine/Headless/Services/ZoneMoveRequest.cs,Unity대체,존 이동 요청 데이터 레코드+인수 검증(빈 id/Custom존/from=to 등 구조적 무결성만); 규칙 판정 없음
+src/HeadlessDCGO.Engine/Headless/Services/ZoneMoveResult.cs,Unity대체,존 이동 결과 데이터 레코드(요청+이벤트+전후 카드 목록); 순수 데이터 홀더
+src/HeadlessDCGO.Engine/Headless/State/CardIdentityAdapter.cs,Unity대체,카드 인스턴스 바인딩/생성/배치/이동/공개-비공개/소스부착 상태 조작 어댑터; 소유자 불일치 등 구조적 무결성 검증만 하고 게임 규칙 판정 없음
+src/HeadlessDCGO.Engine/Headless/State/CardInstanceState.cs,Unity대체,카드 인스턴스 상태 레코드(정지/공개/소스/모디파이어/플래그)+불변식 검증; 순수 상태 컨테이너
+src/HeadlessDCGO.Engine/Headless/State/DigivolutionStack.cs,Unity대체,디지볼루션 스택 순서/역할 데이터 레코드+구조 불변식 검증(중복/Top 위치); DP/레벨 계산 없이 저장만
+src/HeadlessDCGO.Engine/Headless/State/DigivolutionStackReader.cs,Unity대체,저장된 sourceIds 메타데이터를 DigivolutionStack 타입 뷰로 투영하는 순수 리더(+캐시); 레벨/DP는 저장된 값을 파싱해 읽기만 하고 계산하지 않음
+src/HeadlessDCGO.Engine/Headless/State/DpCalculator.cs,other,베이스DP에 Relative/Absolute DpModifier를 순서대로 폴드해 유효 DP를 계산(0 클램프 포함); 게임 규칙 계산 로직
+src/HeadlessDCGO.Engine/Headless/State/DpModifier.cs,Unity대체,DP 모디파이어 데이터 레코드(Value/Kind/ActivatedOrder/Source)+타입 판별 프로퍼티; DpCalculator가 소비하는 순수 데이터 홀더, 계산은 없음
+src/HeadlessDCGO.Engine/Headless/State/GameContextStateAccessor.cs,Unity대체,턴/페이즈/메모리/ActiveCardIds 등 GameContext 필드 컨테이너+Read/Write 접근자; SwitchTurnPlayer도 상대 플레이어 선택만 하는 기계적 전환
+src/HeadlessDCGO.Engine/Headless/State/MatchState.cs,Unity대체,플레이어/카드인스턴스/이벤트 불변 상태 컨테이너+MoveCard 등 상태 전이 메커니즘; 합법성/승패 판정 없음
+src/HeadlessDCGO.Engine/Headless/State/PermanentBookkeepingStore.cs,Unity대체,AS-IS Permanent 객체의 PlayingEffect/LevelJustAfterPlayed 등 필드를 담는 match-scoped 컨테이너(Get/Reset/ReKey); 순수 저장·수명 관리
+src/HeadlessDCGO.Engine/Headless/State/PlayerRuleAdapter.cs,other,덱아웃/시큐리티직격/lose플래그 등 승패-종료 조건을 판정해 PlayerTerminalCheck 평정을 산출; 게임 규칙(종료 판정) 로직
+src/HeadlessDCGO.Engine/Headless/State/PlayerState.cs,Unity대체,플레이어 존/메모리/플래그 불변 상태 레코드+CRUD; ToView는 ZoneState.ToView에 위임하는 얇은 투영일 뿐 자체 판정 없음
+src/HeadlessDCGO.Engine/Headless/State/PlayerZoneAdapter.cs,other,WouldDeckOutOnDraw로 덱아웃(드로우 불가) 종료조건을 직접 판정(PlayerRuleAdapter.EvaluateDeckLossOnDraw와 동일 규칙 중복 실행); 존 읽기 어댑터에 규칙 판정이 혼재
+src/HeadlessDCGO.Engine/Headless/State/VisibilityView.cs,other,플레이어별 가시성(존 공개/비공개, IsCardVisibleToPlayer) 규칙을 판정해 뷰를 산출; 가시성 규칙 로직
+src/HeadlessDCGO.Engine/Headless/State/ZoneState.cs,other,DefaultVisibility/IsSecretFromOwner로 존별 가시성 규칙 테이블을 보유하고 ToView에서 뷰어 기준 은닉 여부를 직접 판정; 저장을 넘어선 가시성 규칙 실행
