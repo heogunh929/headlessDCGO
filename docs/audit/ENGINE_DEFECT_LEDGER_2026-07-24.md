@@ -123,14 +123,14 @@
 
 | ID | 파일 | 상태 |
 |---|---|---|
-| [WIP] DEF-S14 | `Headless/Runtime/RevealAndSelect.cs` (602줄) | RevealLibrary 전체 재구현, 호출자 0(빅뱅 컷오버 시 선언효과 삭제), 미러에 충실 브릿지 별존. [Obsolete] 없음 |
-| [WIP] DEF-S15 | `Headless/Runtime/DigivolutionSourceStackPort.cs` | 라이브와 병렬 disconnected 모델, 프로덕션 호출 0, AS-IS 인용 0의 게임규칙 |
-| [WIP] DEF-S16 | `Headless/Effects/PlayCostHelpers.cs` | 발명 코스트-모디파이어 엔진이 미기록 메타키 읽어 pass-through 퇴화. 라이브 호출되나 inert. cost-fold 은퇴 잔재 |
-| [WIP] DEF-S17 | `Headless/Services/InMemoryRuleQueryService.cs` | `CanPayCost=>cost>=0` 무조건-통과 스텁, 호출 0 |
-| [WIP] DEF-S18 | `Headless/Effects/MandatoryEffectOrdering.cs` | 프로덕션 dead(창 컷오버로 대체), 테스트-핀 |
-| [WIP] DEF-S19 | `Headless/Effects/DpZeroDeletionHelpers.cs:22` | `SweepAsync` 호출 0, 재배선 시 CanBeDestroyed 게이트 없어 보호 0-DP 선택 위험 |
-| [WIP] DEF-S20 | `Headless/Runtime/BattleResolver.cs` ResolveKnockOutWindow | 발명 latent no-op(OnKnockOut AS-IS 대응 없음), 반응자 0 |
-| [WIP] DEF-S21 | C5 잔재 고아 5종 | `ContinuousFieldMembership.GranterMembershipHolds`·`MatchStateMutationSink.HasSelfFlag`·`CardSource.EffectConditionPasses`·`EffectQueryContext(.Matches)`·`ContinuousScopeEvaluation.DynamicValue/Metric/InheritedEffectKey` — 라이터/호출 0, 오도 주석. 정리(삭제 or [Obsolete]) |
+| [RECLASS] DEF-S14 | `Headless/Runtime/RevealAndSelect.cs` (602줄) | **census 오판 정정: 죽은코드 아님** — MetadataActionProcessor:679가 RevealSelect 해결 경로로 라이브 호출. 조치대상 제외(정상 substrate) |
+| [FIXED] DEF-S15 | `Headless/Runtime/DigivolutionSourceStackPort.cs` | 라이브와 병렬 disconnected 모델, 프로덕션 호출 0, AS-IS 인용 0의 게임규칙 |
+| [OPEN] DEF-S16 | `Headless/Effects/PlayCostHelpers.cs` | **정정: pass-through 아님·load-bearing**(DigivolutionCostHelpers:257이 modifier-fold+clamp+costPipeline 통과). 순수삭제 불가 — 발명 여부 재판정 후 AS-IS 코스트경로 재배선(신중) |
+| [FIXED] DEF-S17 | `Headless/Services/InMemoryRuleQueryService.cs` | `CanPayCost=>cost>=0` 무조건-통과 스텁, 호출 0 |
+| [FIXED] DEF-S18 | `Headless/Effects/MandatoryEffectOrdering.cs` | 프로덕션 dead(창 컷오버로 대체), 테스트-핀 |
+| [FIXED] DEF-S19 | `Headless/Effects/DpZeroDeletionHelpers.cs:22` | `SweepAsync` 호출 0, 재배선 시 CanBeDestroyed 게이트 없어 보호 0-DP 선택 위험 |
+| [OPEN] DEF-S20 | `Headless/Runtime/BattleResolver.cs` ResolveKnockOutWindow | 발명 창이나 배틀 삭제 시퀀스(:248 loser-루프) 결합 — 순수 no-op 아님. 조치=AS-IS DestroyPermanentsClass 삭제창과 대조해 발명 여부 판정 |
+| [FIXED] DEF-S21 | C5 잔재 고아 5종 | `ContinuousFieldMembership.GranterMembershipHolds`·`MatchStateMutationSink.HasSelfFlag`·`CardSource.EffectConditionPasses`·`EffectQueryContext(.Matches)`·`ContinuousScopeEvaluation.DynamicValue/Metric/InheritedEffectKey` — 라이터/호출 0, 오도 주석. 정리(삭제 or [Obsolete]) |
 
 ## D. design-item OPEN (이전-트랙 design_item_census 미반영 39종)
 
