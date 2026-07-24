@@ -1949,10 +1949,6 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _applied.Add(new AppliedMutation(mutation.Kind, cardId, "aceOverflow"));
     }
 
-    // (PRIM-W4/FR-P3) "does an applicable (self OR player-scope-with-predicate) continuous effect carry
-    // <paramref name="flagKey"/>=true".
-    private bool HasSelfFlag(HeadlessEntityId cardId, string flagKey) => HasValueFlag(cardId, flagKey);
-
     private bool IsDeletionPreventedByContinuous(HeadlessEntityId cardId, HeadlessEntityId causingSourceId)
     {
         // (C5-1) The former empty-union ScopedResult.Replacements Delete/Prevent scan was dropped — it reached

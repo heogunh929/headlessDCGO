@@ -24,7 +24,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// the AS-IS <c>CanNotPlay</c> = <c>CardCondition(option)</c> into a single
 /// <c>Func&lt;CardSource /*option being played*/, bool&gt;</c>, gated by the effect's own CanUse
 /// (<see cref="ContinuousScopeEvaluation.ConditionKey"/>). Field-scope bindings honour the AS-IS stack-position
-/// membership (<see cref="ContinuousFieldMembership"/>); a player-scope binding carries
+/// membership rules; a player-scope binding carries
 /// <see cref="PlayerScopeKey"/> and bypasses it (AS-IS region ① is a player bucket, not a field permanent).
 /// The stub <c>CanNotPlayClass</c> had no such scan, so every option was playable regardless of these effects.
 /// </summary>

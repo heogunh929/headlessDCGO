@@ -956,12 +956,6 @@ public sealed class CardSource
     // binding keys) are retired with the interface-scan re-folds above — no producer writes those keys since
     // the kind-class 1:1 rebuild.
 
-    // (A3) the AS-IS `cardEffect.CanUse(null)` gate — the binding's stored continuous condition.
-    internal static bool EffectConditionPasses(EffectRequest effect) =>
-        !effect.Context.Values.TryGetValue(ContinuousScopeEvaluation.ConditionKey, out object? raw)
-        || raw is not Func<bool> condition
-        || condition();
-
     /// <summary>(bridge W4) AS-IS <c>CardSource.BaseENGCardNameFromEntity</c> (CardSource.cs:1359,
     /// <c>_cEntity_Base.CardName_ENG</c>) — the PRINTED base-entity English name, UNtransformed (unlike
     /// <see cref="CardNames"/>, no ChangeBaseCardName/ChangeCardNames folds — AS-IS reads the raw entity).

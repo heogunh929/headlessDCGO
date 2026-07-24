@@ -14,7 +14,12 @@ var phase2Goals = new Phase2Goal[]
     new("G2A-006", "Flow", "G2A-006_legal_action_dispatch_unit_test_results.md", "G2A-006.Legal.action.dispatch.hook.Tests", RetiredTestProject: true),
     new("G2B-002", "Context", "G2B-002_visibility_view_unit_test_results.md", "G2B-002.Visibility.view.Tests"),
     new("G2C-002", "Player", "G2C-002_player_terminal_checks_unit_test_results.md", "G2C-002.Memory.security.deck.loss.check.Tests"),
-    new("G2D-004", "Card", "G2D-004_digivolution_source_attach_unit_test_results.md", "G2D-004.Digivolution.source.attach.Tests"),
+    // (substrate dead-code cleanup, 2026-07-24) G2D-004's verification target (DigivolutionSourceStackPort, an
+    // invented parallel source-stack port with zero production references — the live digivolution source path is
+    // DigivolutionStackHelpers) was physically deleted, so its dedicated test project is retired. The historical
+    // result document stays as the Phase-2 ledger; only the live-project existence assertion is waived for this
+    // entry (same convention as the G2A-006 / G2F-004 updates).
+    new("G2D-004", "Card", "G2D-004_digivolution_source_attach_unit_test_results.md", "G2D-004.Digivolution.source.attach.Tests", RetiredTestProject: true),
     new("G2E-005", "Action", "G2E-005_pass_cheat_guard_unit_test_results.md", "G2E-005.Pass.Cheat.guard.Tests"),
     // (B군 배치0, 2026-07-16) G2F-004's verification target (SecurityDelayedTriggerHook, a dead invented
     // trigger-read path with zero production references after the window cutover) was physically deleted, so its

@@ -16,22 +16,9 @@ using HeadlessDCGO.Engine.Headless.State;
 /// </summary>
 public static class ContinuousScopeEvaluation
 {
-    /// <summary>Marks a continuous binding as an inherited (digivolution-source) effect: it applies to the
-    /// TOP card of the stack the source is buried in, never to the source as a stand-alone permanent.
-    /// (W3c-final Stage 1) Rehoused here from ContinuousSelfModifierEffect so the continuous scope-evaluation
-    /// keys survive that type's deletion; string values are byte-identical.</summary>
-    public const string InheritedEffectKey = "continuous.isInherited";
-
     /// <summary>Carries the card-authored <c>condition</c> predicate (a <c>Func&lt;bool&gt;</c>) evaluated
     /// at read time by <see cref="ContinuousScopeEvaluation"/>.</summary>
     public const string ConditionKey = "continuous.condition";
-
-    /// <summary>Carries a card-authored dynamic delta (<c>Func&lt;int&gt;</c>, e.g. "+X where X = sources / 2")
-    /// evaluated at read time; the resolved int is written under <see cref="DynamicMetricKey"/>'s metric.</summary>
-    public const string DynamicValueKey = "continuous.dynamicValue";
-
-    /// <summary>The metric delta key a resolved <see cref="DynamicValueKey"/> should be written under.</summary>
-    public const string DynamicMetricKey = "continuous.dynamicMetric";
 
     // (C5-1) EvaluateForCard + ResolveCard were DELETED with the empty-union evaluator: EvaluateForCard fed the
     // ApplicableEffects producer-0 set (permanently empty) into the now-deleted ContinuousEffectEvaluator, whose
@@ -39,8 +26,8 @@ public static class ContinuousScopeEvaluation
     // MatchStateMutationSink / BattleDeletionGate / ContinuousRestrictionGate.Evaluate) were re-based onto the
     // AS-IS live scans (NewModelContinuousScan / Permanent.CanSuspend / Permanent.CanBeDestroyed). What survives
     // here is the still-empty ApplicableEffects query stub (consumed by DigivolveAction's added-requirement /
-    // ignore-flag loops, harmless empty unions with their new-model scans) and the continuous-scope const keys
-    // (InheritedEffectKey / ConditionKey) still read by ContinuousFieldMembership / CardSource / DigivolveAction.
+    // ignore-flag loops, harmless empty unions with their new-model scans) and the continuous-scope const key
+    // ConditionKey, still read by DigivolveAction.
 
     /// <summary>(FR-P3) The continuous effects that APPLY to <paramref name="cardId"/> under <paramref name="scope"/>
     /// — card-targeted + inherited + player-scope (owner + condition + arbitrary permanentCondition predicate,

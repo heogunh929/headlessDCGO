@@ -873,8 +873,8 @@ public sealed class GameFlowProcessor
     /// <summary>
     /// (X-05 + D-3 + #2) Drives event-driven trigger collection then resolves the scheduler. Pending
     /// game events are collected into one batch, each trigger's Kind reclassified from the bound
-    /// effect's <see cref="Effects.CardEffectDefinition.IsOptional"/>, then ordered by
-    /// <see cref="MandatoryEffectOrdering"/> (turn-player first, mandatory before optional).
+    /// effect's <see cref="Effects.CardEffectDefinition.IsOptional"/>, then ordered
+    /// turn-player first, mandatory before optional.
     /// <para>
     /// MANDATORY triggers are enqueued and resolve immediately. OPTIONAL ("you may") triggers are NOT
     /// auto-resolved: they go to the <see cref="EngineContext.OptionalPromptQueue"/> (turn player's

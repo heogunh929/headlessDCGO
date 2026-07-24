@@ -5,7 +5,7 @@
 **대상=엔진 전체**(미러 Script BOTH 344 + substrate Headless 208, 렌즈-없는 감사 완료). **카드층은 감사 대상 아님 — 사용자 판정으로 전량 무효·재포팅 대기(개별 검증 불요, 폐기)**. 하한선인 이유는 카드가 아니라 R1(RD-J-01 상환분)·R2(C5 빈-union) 엔진-내부 재검증 미완.
 상환 기준: **AS-IS 행동**(다이제스트는 결함난 엔진의 것이라 기준 아님). 각 항목 상환 시 AS-IS 원문 대조·행동 witness.
 
-**관리 지위(2026-07-24 사용자 확정)**: 이 원장 = **엔진 수리 조치대상 관리 정본.** **59 조치대상**(A16·B18·C4·S21) + R1/R2 재검증완료(조치대상 아님). 각 DEF 행 앞의 `[상태]` 마커로 추적: **[OPEN]** 미착수 / **[WIP]** 수리중 / **[FIXED]** 상환완료(AS-IS 대조+witness) / **[VERIFY]** 재검증대기. 서열 없음 — 착수 순서는 사용자. 상태 변경은 이 원장에만 기록.
+**관리 지위(2026-07-24 사용자 확정)**: **처리 순서(사용자 지정 2026-07-24)**: ①substrate 죽은코드 S14~21(진행중) → ②substrate 잠복 S11~13 → ③substrate 행동결함 S1~10 → ④미러 발명 C1~4 → ⑤미러 행동결함 A1~16 → ⑥미러 미포팅갭 B1~18. (서열-판정 아님·사용자 지정 실행순서) 이 원장 = **엔진 수리 조치대상 관리 정본.** **조치대상**: 미러 A16·B18·C4+C5~8·D(39종 5클러스터) / substrate S21. + R1/R2 재검증완료(조치대상 아님). **NewModelContinuousScan=DEF-C5**(이전-트랙 미반영 색출로 편입, prior_track_unreflected.md). 각 DEF 행 앞의 `[상태]` 마커로 추적: **[OPEN]** 미착수 / **[WIP]** 수리중 / **[FIXED]** 상환완료(AS-IS 대조+witness) / **[VERIFY]** 재검증대기. 서열 없음 — 착수 순서는 사용자. 상태 변경은 이 원장에만 기록.
 
 출처: `LENS_FREE_FINDINGS_2026-07-24.md`, `match_check_00~12.md`.
 
@@ -70,6 +70,10 @@
 | [OPEN] DEF-C2 | `Script/CardController.cs` PlayPermanentClass | isEvolution 시 WhenDigivolving 2번째 창+STOP 가드(DISPATCH-REMAP BRIDGE) |
 | [OPEN] DEF-C3 | `Script/CardEffectFactory.cs` | SpecialPlayRecipeRegistry(BurstDigivolve 등 등록) — 레지스트리 청산 규약 대조 요망 |
 | [OPEN] DEF-C4 | `Script/SelectCardEffect.cs:52-200`·`SelectPermanentEffect.cs:117-160` | 사문 레거시 API 블록(id-flip 잔존, 호출 0) |
+| [OPEN] DEF-C5 | `Script/CardEffectCommons/NewModelContinuousScan.cs`(1692줄·46메서드·라이브소비 32파일) | **미러-발명 파일**(AS-IS 무대응, mirror-into-asis 규약 위반). AS-IS는 Permanent/CardSource getter 인라인. 종점=44스캔을 Permanent/CardSource 멤버로 흡수(c5_census System5 4트랜치 삭제설계 완료·물리삭제 미집행). **최대 미반영**. 계약분리 위험: FoldCardDp(DEF 별기)·HasBlocker keyword-vs-getter |
+| [OPEN] DEF-C6 | `Script/CardEffectCommons/RestrictionHelpers.cs` 공개 evaluator/factory | Evaluate/ReadRestrictions/CannotAttack 등 프로덕션 소비 0(테스트 G3H-002만). AS-IS는 ICanNot* 인터페이스 스캔. DEF-C4 동형 발명 |
+| [OPEN] DEF-C7 | `Script/CardEffectCommons/ReplacementHelpers.cs` 공개 evaluator/factory | 프로덕션 소비 0(테스트 G3I-001만). DEF-C6 동형 발명 |
+| [OPEN] DEF-C8 | `Script/CardSource.cs` FoldCardDp↔getter 계약차이(NewModelContinuousScan 이관 하위) | FoldCardDp는 `IChangeCardDPEffect` 스캔, Permanent.DP는 다른 인터페이스 `IChangeDPEffect` — retarget 시 보안디지몬 전투DP에 필드효과 누출. 종점=미러 CardSource.CardDP(:1283)로 retarget(DEF-C5 트랜치) |
 
 ## R. 재검증 필요 (과거 상환의 과잉적용 의심)
 
@@ -119,14 +123,28 @@
 
 | ID | 파일 | 상태 |
 |---|---|---|
-| [OPEN] DEF-S14 | `Headless/Runtime/RevealAndSelect.cs` (602줄) | RevealLibrary 전체 재구현, 호출자 0(빅뱅 컷오버 시 선언효과 삭제), 미러에 충실 브릿지 별존. [Obsolete] 없음 |
-| [OPEN] DEF-S15 | `Headless/Runtime/DigivolutionSourceStackPort.cs` | 라이브와 병렬 disconnected 모델, 프로덕션 호출 0, AS-IS 인용 0의 게임규칙 |
-| [OPEN] DEF-S16 | `Headless/Effects/PlayCostHelpers.cs` | 발명 코스트-모디파이어 엔진이 미기록 메타키 읽어 pass-through 퇴화. 라이브 호출되나 inert. cost-fold 은퇴 잔재 |
-| [OPEN] DEF-S17 | `Headless/Services/InMemoryRuleQueryService.cs` | `CanPayCost=>cost>=0` 무조건-통과 스텁, 호출 0 |
-| [OPEN] DEF-S18 | `Headless/Effects/MandatoryEffectOrdering.cs` | 프로덕션 dead(창 컷오버로 대체), 테스트-핀 |
-| [OPEN] DEF-S19 | `Headless/Effects/DpZeroDeletionHelpers.cs:22` | `SweepAsync` 호출 0, 재배선 시 CanBeDestroyed 게이트 없어 보호 0-DP 선택 위험 |
-| [OPEN] DEF-S20 | `Headless/Runtime/BattleResolver.cs` ResolveKnockOutWindow | 발명 latent no-op(OnKnockOut AS-IS 대응 없음), 반응자 0 |
-| [OPEN] DEF-S21 | C5 잔재 고아 5종 | `ContinuousFieldMembership.GranterMembershipHolds`·`MatchStateMutationSink.HasSelfFlag`·`CardSource.EffectConditionPasses`·`EffectQueryContext(.Matches)`·`ContinuousScopeEvaluation.DynamicValue/Metric/InheritedEffectKey` — 라이터/호출 0, 오도 주석. 정리(삭제 or [Obsolete]) |
+| [WIP] DEF-S14 | `Headless/Runtime/RevealAndSelect.cs` (602줄) | RevealLibrary 전체 재구현, 호출자 0(빅뱅 컷오버 시 선언효과 삭제), 미러에 충실 브릿지 별존. [Obsolete] 없음 |
+| [WIP] DEF-S15 | `Headless/Runtime/DigivolutionSourceStackPort.cs` | 라이브와 병렬 disconnected 모델, 프로덕션 호출 0, AS-IS 인용 0의 게임규칙 |
+| [WIP] DEF-S16 | `Headless/Effects/PlayCostHelpers.cs` | 발명 코스트-모디파이어 엔진이 미기록 메타키 읽어 pass-through 퇴화. 라이브 호출되나 inert. cost-fold 은퇴 잔재 |
+| [WIP] DEF-S17 | `Headless/Services/InMemoryRuleQueryService.cs` | `CanPayCost=>cost>=0` 무조건-통과 스텁, 호출 0 |
+| [WIP] DEF-S18 | `Headless/Effects/MandatoryEffectOrdering.cs` | 프로덕션 dead(창 컷오버로 대체), 테스트-핀 |
+| [WIP] DEF-S19 | `Headless/Effects/DpZeroDeletionHelpers.cs:22` | `SweepAsync` 호출 0, 재배선 시 CanBeDestroyed 게이트 없어 보호 0-DP 선택 위험 |
+| [WIP] DEF-S20 | `Headless/Runtime/BattleResolver.cs` ResolveKnockOutWindow | 발명 latent no-op(OnKnockOut AS-IS 대응 없음), 반응자 0 |
+| [WIP] DEF-S21 | C5 잔재 고아 5종 | `ContinuousFieldMembership.GranterMembershipHolds`·`MatchStateMutationSink.HasSelfFlag`·`CardSource.EffectConditionPasses`·`EffectQueryContext(.Matches)`·`ContinuousScopeEvaluation.DynamicValue/Metric/InheritedEffectKey` — 라이터/호출 0, 오도 주석. 정리(삭제 or [Obsolete]) |
+
+## D. design-item OPEN (이전-트랙 design_item_census 미반영 39종)
+
+전건 정본=`docs/audit/manifest/prior_track_unreflected.md` §3 + `design_item_census_2026-07-23.md` §3. 현 소스 grep 존재 재확인된 39종(42중 3은 부모삭제 소멸). 카드-레벨 fidelity debt 6종은 카드 전량폐기 방침상 참고-보류(별도).
+
+| ID | 클러스터 | 내용 |
+|---|---|---|
+| [OPEN] DEF-D1 | ActivatedHashtableBridge 페이로드 미스레딩 8종 | P6A-HT-ENTERFIELD/USEOPTION/SECURITY/DIGISOURCE/ENDBATTLE/CAUSE·STAMP-PERSISTENCE·USED-JOURNAL·STACKED-DRAIN — 창 페이로드 CHECK-shape만 미러(풀 페이로드 미스레딩). DEF-C1/C2 방언 이음새 뿌리 |
+| [OPEN] DEF-D2 | MIG3 stub/reader latent 7종 | DEGEN-COUNTSELECT·LOCATIONTIME·SECURITYLOOKING·CANREDUCESECURITY·CANADDSECURITY·TAPPEDANYONE-PAYLOAD·TRASHSEC-UNIFY |
+| [OPEN] DEF-D3 | 브릿지 W3/W4 잔여 7종 | RD-W4-1/W4-6/W3-7/W3-6/W3-4/W3-2·RDW-05 |
+| [OPEN] DEF-D4 | 프레임/capacity 6종 | RD-P6C1-1(프레임모델)·P6C1-2·P6C1-9·P6B-2·P6B-5·EXT2B-01-BATTLEFIELD |
+| [OPEN] DEF-D5 | 이연④-e production-0 + RD9 + MIG1/2 재배치 11종 | SELFRESTR/PSRESTR/PSKEYWORD/TRIGGERGRANT/PSMODIFIER·RD9-87/90·MIG1/2 relocation류 |
+| (보류) | 카드-레벨 fidelity debt 6 | RD-R6-05/06·C1w-24/25·C2-01·CATK-EATTACK-MULTI·BT13028 — 카드 전량폐기로 재포팅 시 자연해소, 조치대상 제외 |
+
 
 ---
 

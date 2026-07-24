@@ -69,11 +69,6 @@ public sealed class InMemoryRuleQueryService :
             .ToArray();
     }
 
-    public bool CanPayCost(HeadlessPlayerId playerId, HeadlessEntityId sourceId, int cost)
-    {
-        return cost >= 0;
-    }
-
     public bool IsTerminal()
     {
         return _isTerminal;

@@ -5,7 +5,5 @@ public interface IRuleQueryService
 {
     IReadOnlyList<LegalAction> GetLegalActions(HeadlessPlayerId playerId);
 
-    bool CanPayCost(HeadlessPlayerId playerId, HeadlessEntityId sourceId, int cost);
-
     bool IsTerminal();
 }
