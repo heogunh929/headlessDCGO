@@ -4,15 +4,18 @@ using HeadlessDCGO.Engine.Headless.Services;
 
 // G3.5-RL-A4a: Perspective-filtered observation (fixes the "too much" half of P0-4).
 // Hidden zones (Library/Hand/Security/DigitamaLibrary) of OTHER players are exposed as count-only
-// to a viewer; the viewer's own cards and all public zones remain fully visible. A null perspective
-// preserves the full debug view for back-compat.
+// to a viewer. The viewer's own Hand ids stay visible, but its own deck/security/digitama stacks
+// are face-down secret even from their owner (DEF-S3), so their ids are also withheld. Public
+// zones remain fully visible. A null perspective preserves the full debug view for back-compat.
 
 var hiddenZones = new[] { ChoiceZone.Library, ChoiceZone.Hand, ChoiceZone.Security, ChoiceZone.DigitamaLibrary };
+// Zones the owner cannot inspect either (deck/security/digitama stay face-down); Hand is owner-visible.
+var secretFromOwnerZones = new[] { ChoiceZone.Library, ChoiceZone.Security, ChoiceZone.DigitamaLibrary };
 
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("Opponent hidden zones are count-only to a viewer", OpponentHiddenZonesAreCountOnly),
-    ("Viewer's own hidden zones stay fully visible", OwnHiddenZonesStayVisible),
+    ("Viewer's own hand stays visible while own secret zones are count-only", OwnHiddenZonesStayVisible),
     ("Public zones stay visible for all players", PublicZonesStayVisible),
     ("Counts are preserved exactly under filtering", CountsPreservedUnderFiltering),
     ("Full (null-perspective) view exposes opponent card ids", FullViewExposesEverything),
@@ -73,10 +76,17 @@ async Task OwnHiddenZonesStayVisible()
 
     ObservationSnapshot filtered = match.GetObservation(viewer);
 
-    foreach (ChoiceZone zone in hiddenZones)
+    // The owner sees its own Hand identities...
+    ZoneObservation ownHand = Zone(filtered, viewer, ChoiceZone.Hand);
+    AssertEqual(ownHand.Count, ownHand.CardIds.Count, "viewer's own hand ids fully visible");
+
+    // ...but its own deck/security/digitama stacks are face-down secret (DEF-S3): count-only.
+    int totalOwnSecret = secretFromOwnerZones.Sum(z => ZoneCount(filtered, viewer, z));
+    AssertTrue(totalOwnSecret > 0, "viewer has cards in its own secret zones after setup");
+    foreach (ChoiceZone zone in secretFromOwnerZones)
     {
         ZoneObservation z = Zone(filtered, viewer, zone);
-        AssertEqual(z.Count, z.CardIds.Count, $"viewer's own {zone} ids fully visible");
+        AssertEqual(0, z.CardIds.Count, $"viewer's own {zone} ids withheld (face-down secret)");
     }
 }
 
@@ -93,9 +103,10 @@ async Task PublicZonesStayVisible()
         foreach (ZoneObservation z in player.Zones)
         {
             bool isHidden = hiddenZones.Contains(z.Zone);
-            if (isHidden && player.PlayerId == opponent)
+            bool ownSecret = secretFromOwnerZones.Contains(z.Zone) && player.PlayerId == viewer;
+            if ((isHidden && player.PlayerId == opponent) || ownSecret)
             {
-                continue; // covered by the hidden-zone test
+                continue; // withheld ids are covered by the hidden-zone tests
             }
 
             AssertEqual(z.Count, z.CardIds.Count, $"visible zone {player.PlayerId.Value}.{z.Zone} exposes ids");

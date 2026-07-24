@@ -130,7 +130,7 @@ public sealed record PlayerState
         return this with { Zones = zones };
     }
 
-    public PlayerStateView ToView(HeadlessPlayerId viewerId)
+    public PlayerStateView ToView(HeadlessPlayerId viewerId, bool revealAll = false)
     {
         bool isOwner = viewerId == PlayerId;
         PlayerZoneView[] zones = Zones
@@ -139,7 +139,7 @@ public sealed record PlayerState
             {
                 ZoneStateView view = ZoneState
                     .Create(pair.Key, pair.Value)
-                    .ToView(isOwner);
+                    .ToView(isOwner, revealAll);
                 return new PlayerZoneView(
                     view.Id.Value,
                     view.Count,

@@ -135,6 +135,7 @@ public static class DeDigivolveHelpers
         HeadlessEntityId cardId,
         int count,
         GameEventQueue? gameEventQueue = null,
+        Bridge.EngineContext? context = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(repository);
@@ -165,11 +166,29 @@ public static class DeDigivolveHelpers
                 break; // no under-source to promote — the stack is a single card.
             }
 
-            // Rookie floor: do not regress a level-3 (or lower) Digimon further, when level is known.
-            int? level = ReadInt(top.Metadata, LevelKey);
-            if (level is int lvl && lvl <= LevelFloor)
+            // (DEF-S5) Rookie floor — AS-IS IDegeneration.Degeneration StopCondition (CardController.cs:4852):
+            // stop when the FOLDED permanent level (level-change continuous effects applied) is EXACTLY 3 AND
+            // the current top has a printed level. AS-IS reads `_permanent.Level` (the continuous-effect-folded
+            // getter, mirror Permanent.cs:565) and compares `== 3`, NOT the static printed-level metadata and
+            // NOT `<= 3`. The floor is only meaningful once we can fold live effects, so it is honoured when an
+            // EngineContext is supplied (the live de-digivolve mutation path always passes one).
+            if (context is not null)
             {
-                break;
+                var floorPermanent = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, currentTopId, top.OwnerId);
+                if (floorPermanent.Level == LevelFloor && floorPermanent.TopCard.HasLevel)
+                {
+                    break;
+                }
+            }
+            else
+            {
+                // (fallback, no EngineContext) static printed-level metadata — cannot fold level-change effects,
+                // but still enforces the exact `== 3` rookie floor rather than the earlier `<= 3` over-stop.
+                int? level = ReadInt(top.Metadata, LevelKey);
+                if (level is int lvl && lvl == LevelFloor)
+                {
+                    break;
+                }
             }
 
             HeadlessEntityId promotedId = sources[0];

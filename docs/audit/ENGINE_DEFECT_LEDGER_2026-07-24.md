@@ -100,16 +100,16 @@
 
 | ID | 파일 | 결함 | 연관 |
 |---|---|---|---|
-| [OPEN] DEF-S1 | `Headless/Runtime/SecurityResolver.cs` | **해결순서 오류(모든 시큐리티 체크 디폴트 경로)**: AS-IS는 공개 카드 `[Security]` 활성스킬을 OnSecurityCheck/OnLoseSecurity 반응자 **이전** 해결, TO-BE는 역순 무조건 | DEF-A11 확증(edge 아닌 전경로) |
-| [OPEN] DEF-S2 | `Headless/Runtime/SecurityResolver.cs` | checkCount 캡: 루프 진입 시 1회 `Math.Min(strike,available)` vs AS-IS 매 반복 재평가 → 중간 시큐리티 추가 시 AS-IS가 더 검사 | — |
-| [OPEN] DEF-S3 | `Headless/State/VisibilityView.cs` | **소유자 본인 Security/Library 식별자 무조건 공개** — 실규칙상 본인도 확인 전 미지. AS-IS 근거 없는 게임규칙 임의결정. G2B-002 문서가 "미해결 리스크" 자인 | **RL info-set 정보비대칭** |
-| [OPEN] DEF-S4 | `Headless/Runtime/DigivolveAction.cs` | "진화요구조건 전체 무시" 소비 배선이 영구 빈-스텁(ContinuousScopeEvaluation)에만 연결, union 파트너 없어 3소비 구조적 영구무효. 프로듀서 살아나도 반영 안 됨 | DEF-R2(C5 빈-union 잔재) |
-| [OPEN] DEF-S5 | `Headless/Runtime/DeDigivolveHelpers.cs` | 루키-플로어 정지가 라이브 `Permanent.Level`(folded) 대신 정적 printed-level 읽음 + AS-IS `==3` vs `<=3`. 레벨변경 연속효과 시 발산 | DEF-A13 동뿌리 |
-| [OPEN] DEF-S6 | `Headless/Runtime/EffectDrivenAttack.cs` | `RequestChoice` 항상 `canSkip:true`. AS-IS 강제-공격 모드(`_canNoSelect`) 대응 플래그 없어 **강제공격 표현 불가** | — |
+| [FIXED] DEF-S1 | `Headless/Runtime/SecurityResolver.cs` | **해결순서 오류(모든 시큐리티 체크 디폴트 경로)**: AS-IS는 공개 카드 `[Security]` 활성스킬을 OnSecurityCheck/OnLoseSecurity 반응자 **이전** 해결, TO-BE는 역순 무조건 | DEF-A11 확증(edge 아닌 전경로) |
+| [FIXED] DEF-S2 | `Headless/Runtime/SecurityResolver.cs` | checkCount 캡: 루프 진입 시 1회 `Math.Min(strike,available)` vs AS-IS 매 반복 재평가 → 중간 시큐리티 추가 시 AS-IS가 더 검사 | — |
+| [FIXED] DEF-S3 | `Headless/State/VisibilityView.cs` | **소유자 본인 Security/Library 식별자 무조건 공개** — 실규칙상 본인도 확인 전 미지. AS-IS 근거 없는 게임규칙 임의결정. G2B-002 문서가 "미해결 리스크" 자인 | **RL info-set 정보비대칭** |
+| [FIXED] DEF-S4 | `Headless/Runtime/DigivolveAction.cs` | "진화요구조건 전체 무시" 소비 배선이 영구 빈-스텁(ContinuousScopeEvaluation)에만 연결, union 파트너 없어 3소비 구조적 영구무효. 프로듀서 살아나도 반영 안 됨 | DEF-R2(C5 빈-union 잔재) |
+| [FIXED] DEF-S5 | `Headless/Runtime/DeDigivolveHelpers.cs` | 루키-플로어 정지가 라이브 `Permanent.Level`(folded) 대신 정적 printed-level 읽음 + AS-IS `==3` vs `<=3`. 레벨변경 연속효과 시 발산 | DEF-A13 동뿌리 |
+| [FIXED] DEF-S6 | `Headless/Runtime/EffectDrivenAttack.cs` | `RequestChoice` 항상 `canSkip:true`. AS-IS 강제-공격 모드(`_canNoSelect`) 대응 플래그 없어 **강제공격 표현 불가** | — |
 | [OPEN] DEF-S7 | `Headless/Runtime/ContinuousFieldMembership.cs` | AS-IS 4번째 arm(`IsLinkedEffect && cardSource.IsLinked`) 전면 부재, 2소비자 커버리지 갭 | — |
-| [OPEN] DEF-S8 | `Headless/Services/DeckValidator.cs` | main 0-60/digitama 0-10 허용 vs AS-IS **정확히 50/≤5**·BannedPair 미지원(StarterDecks 우연 통과) | DEF-B2 |
-| [OPEN] DEF-S9 | `Headless/Runtime/OptionColorRequirement.cs` | 옵션 색요건이 substrate·미러(CardSource.MatchColorRequirement:313) **이중 라이브 구현** — 표류 가능. 미러 단일화 필요 | — |
-| [OPEN] DEF-S10 | `Headless/Runtime/LinkHelpers.cs:164` | LinkedMax>1 오버플로 트림을 AS-IS는 소유자 SELECTION인데 substrate는 자동 oldest-first. 추적됨 MIG2-ADDLINK-SELECT, max>1 witness 없음 | — |
+| [RECLASS] DEF-S8 | `Headless/DataLoading/DeckValidator.cs`(**AS-IS에 없는 발명 파일**) | 사용자 지적: DeckValidator는 AS-IS 무대응(검증로직은 AS-IS DeckData.cs). 규칙오류(0-60 vs 50) + **경로위반(발명)** 이중. 규칙만 수리=오처방. 종점=미러 DeckData.cs에 검증 넣고 DeckValidator 해체. **덱 서브시스템 재구축(B1 DeckData·B2 DeckBuildingRule·B3 DeckCodeUtility·S8)으로 통합** | 덱-묶음 |
+| [FIXED] DEF-S9 | `Headless/Runtime/OptionColorRequirement.cs` | 옵션 색요건이 substrate·미러(CardSource.MatchColorRequirement:313) **이중 라이브 구현** — 표류 가능. 미러 단일화 필요 | — |
+| [FIXED] DEF-S10 | `Headless/Runtime/LinkHelpers.cs:164` | LinkedMax>1 오버플로 트림을 AS-IS는 소유자 SELECTION인데 substrate는 자동 oldest-first. 추적됨 MIG2-ADDLINK-SELECT, max>1 witness 없음 | — |
 
 ## S-latent/dormant: 현재 무증상(카드 재포팅·재배선 시 함정)
 

@@ -23,6 +23,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Initiate refuses to nest inside a pending attack", InitiateRefusesNesting),
     ("Agent choice: selecting a target declares the attack", ChoiceSelectsTarget),
     ("Agent choice: declining initiates no attack", ChoiceDeclineNoAttack),
+    ("(DEF-S6) mandatory attack (CanSelectNotAttack=false) is non-skippable and rejects a skip", MandatoryAttackNotSkippable),
     ("Vortex options expose Digimon and player targets (unsuspended allowed)", VortexOptionsTargets),
     ("(RD-9 / P1-2) an effect-driven attack emits the OnAttack choke point (window opens via the inline insert) and NOT OnDeclaration", EffectDrivenFiresWhenAttacking),
     ("(RD-9 / P1-2) the shared chokepoint emits OnAttack and NO LONGER emits OnAllyAttack (inline insert is the sole opener)", EffectDrivenSkipsOnDeclaration),
@@ -148,6 +149,30 @@ async Task ChoiceDeclineNoAttack()
     AssertTrue(EffectDrivenAttack.ResolveChoice(s.Match.Context, ChoiceResult.Skip()), "resolve (skip) succeeds");
 
     AssertFalse(s.Match.Context.AttackController.Current.IsPending, "declining initiates no attack");
+}
+
+async Task MandatoryAttackNotSkippable()
+{
+    // (DEF-S6) AS-IS SelectAttackEffect.SetCanNotSelectNotAttack (SelectAttackEffect.cs:40-43) suppresses the
+    // "Not Attack" opt-out — the effect-driven attack becomes MANDATORY. Threaded from SelectPermanentEffect
+    // Attack mode (!_canNoSelect, :1023) and Overclock (:92). The mirror: canSkip=false + minCount=1.
+    Setup s = await NewMatch();
+    HeadlessEntityId attacker = await Establish(s, P1, dp: 4000, suspended: false);
+    HeadlessEntityId target = await Establish(s, P2, dp: 3000, suspended: true);
+
+    AssertTrue(EffectDrivenAttack.RequestChoice(s.Match.Context, attacker, new EffectAttackOptions(CanSelectNotAttack: false)),
+        "mandatory choice opened");
+    ChoiceRequest request = s.Match.Context.ChoiceController.PendingRequest!;
+    AssertFalse(request.CanSkip, "mandatory attack request is not skippable");
+    AssertEqual(1, request.MinCount, "mandatory attack requires a pick (minCount 1)");
+
+    // A skip on a mandatory request is rejected (the choice stays pending, no attack declared).
+    AssertFalse(EffectDrivenAttack.ResolveChoice(s.Match.Context, ChoiceResult.Skip()), "resolve (skip) is refused");
+    AssertFalse(s.Match.Context.AttackController.Current.IsPending, "no attack declared from a refused skip");
+
+    // The mandatory attacker CAN still declare on a legal target.
+    AssertTrue(EffectDrivenAttack.ResolveChoice(s.Match.Context, ChoiceResult.Select(target)), "resolve (select) succeeds");
+    AssertTrue(s.Match.Context.AttackController.Current.IsPending, "mandatory attack declared on the chosen target");
 }
 
 async Task VortexOptionsTargets()

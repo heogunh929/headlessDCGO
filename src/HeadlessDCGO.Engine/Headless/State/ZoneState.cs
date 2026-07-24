@@ -98,6 +98,19 @@ public sealed record ZoneState
             : ZoneVisibility.Public;
     }
 
+    // Face-down zones whose card identities/order are secret even from their own owner
+    // until a card is revealed or checked: the deck (Library), the security stack (Security),
+    // and the digitama deck (DigitamaLibrary). This mirrors AS-IS rendering, where the owner's
+    // own deck/digitama/security are drawn face-down with ContinuousController.ReverseCard
+    // (Player.cs deck/DigitamaDeckCardImages, SecurityObject.SetSecurity). The Hand is private
+    // but visible to its owner, so it is deliberately excluded here.
+    public static bool IsSecretFromOwner(ChoiceZone zone)
+    {
+        return zone is ChoiceZone.Library
+            or ChoiceZone.Security
+            or ChoiceZone.DigitamaLibrary;
+    }
+
     public ZoneState InsertTop(HeadlessEntityId cardId)
     {
         ValidateCardId(cardId);
@@ -180,9 +193,13 @@ public sealed record ZoneState
             Destination: destination.InsertBottom(cardId));
     }
 
-    public ZoneStateView ToView(bool isOwnerView)
+    public ZoneStateView ToView(bool isOwnerView, bool revealAll = false)
     {
-        bool isHidden = Visibility == ZoneVisibility.Hidden && !isOwnerView;
+        // The owner only sees a hidden zone that is not secret even from the owner (i.e. the Hand);
+        // the deck/security/digitama stacks stay face-down for the owner too. revealAll forces the
+        // full ("god's-eye") reveal used by the debug view.
+        bool ownerCanSee = isOwnerView && !IsSecretFromOwner(Id.Value);
+        bool isHidden = !revealAll && Visibility == ZoneVisibility.Hidden && !ownerCanSee;
         return new ZoneStateView(
             Id,
             Visibility,

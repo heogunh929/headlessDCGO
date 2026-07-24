@@ -485,7 +485,7 @@ public sealed class DigivolveAction
         // CannotIgnoreDigivolutionCondition effect is active (BT8_059) — the ignore grants are then negated.
         bool ignoreBlocked = IsDigivolveIgnoreBlocked(context, payload.CardId, playerId, payload.TargetCardId, target.OwnerId);
         if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
-            && (ignoreBlocked || !CanIgnoreDigivolutionRequirement(context, playerId, payload.CardId))
+            && (ignoreBlocked || !CanIgnoreDigivolutionRequirement(context, playerId, payload.CardId, payload.TargetCardId, target.OwnerId))
             // The headless color-ignore is the negation-gated `ignore==Color && CanIgnoreDigivolutionRequirement`
             // path (CardSource.cs:596): a CannotIgnoreDigivolutionCondition effect (BT8_059) negates it too — colour
             // is part of the digivolution requirement. Verified by FAILd-06 (deliberate CannotIgnore feature test).
@@ -643,7 +643,7 @@ public sealed class DigivolveAction
         // ② the ignore gates (AS-IS EvoCosts :592-607, negation-gated by Player.CanIgnoreDigivolutionRequirement).
         if (!resolved && !IsDigivolveIgnoreBlocked(context, cardId, playerId, targetCardId, targetInstance.OwnerId))
         {
-            if (CanIgnoreDigivolutionRequirement(context, playerId, cardId))
+            if (CanIgnoreDigivolutionRequirement(context, playerId, cardId, targetCardId, targetInstance.OwnerId))
             {
                 resolved = TryGetEvolutionCost(context, cardId, targetCardId, out cost, out error, ignoreLevel: true, ignoreColor: true);
             }
@@ -698,8 +698,40 @@ public sealed class DigivolveAction
     // the effect-driven IgnoreRequirement.Level (CardController.SetIgnoreRequirements), handled by the effect-driven
     // digivolve path. So the player-initiated Validate deliberately has no ignore-level branch (matches AS-IS).
 
-    private static bool CanIgnoreDigivolutionRequirement(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId) =>
-        HasContinuousFlag(context, playerId, cardId, IgnoreDigivolutionRequirementKey);
+    private static bool CanIgnoreDigivolutionRequirement(
+        EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId,
+        HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner) =>
+        HasContinuousFlag(context, playerId, cardId, IgnoreDigivolutionRequirementKey)
+        || NewModelIgnoreDigivolutionRequirementActive(context, playerId, cardId, targetInstanceId, targetOwner);
+
+    /// <summary>(DEF-S4) The new-model full "ignore digivolution requirement" grant scan — the sister of
+    /// <see cref="NewModelIgnoreColorActive"/>. AS-IS realises a full-ignore grant
+    /// (<c>CardEffectCommons.GainIgnoreDigivolutionRequirementPlayerEffect</c> and
+    /// <c>CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(ignoreDigivolutionRequirement: true)</c>)
+    /// as an <c>AddDigivolutionRequirementClass</c> — a new-model kind-class that registers NO binding, so the
+    /// legacy <see cref="IgnoreDigivolutionRequirementKey"/> flag (read via the empty ApplicableEffects stub)
+    /// never carries it, exactly the color-ignore situation the sister <see cref="CanIgnoreColorRequirement"/>
+    /// solved by unioning a live scan. The grant's only observable live decision path is the AS-IS
+    /// <c>CardSource.EvoCosts</c>/<c>CostList</c> <c>IAddDigivolutionRequirementEffect</c> scan (mirror
+    /// <see cref="NewModelAddedDigivolutionCosts"/> -> <see cref="Assets.Scripts.Script.CardEffectCommons.CardSource.AddedDigivolutionCosts"/>):
+    /// a matching path (GetEvoCost >= 0) is how the grant becomes visible — the AS-IS interface does not expose
+    /// the ignore flag (it is captured inside the GetEvoCost closure), so this is the faithful seam. UNIONing it
+    /// keeps the flag live so a (re-)awoken producer is reflected. It is a harmless SUPERSET of the strict
+    /// full-ignore notion (it also sees plain color/level added grants), but every LIVE consumer of the flag is
+    /// already dominated by the added-requirement union — legality via <see cref="MatchesAddedDigivolutionRequirement"/>,
+    /// cost via the unconditional <see cref="TryGetAddedDigivolutionCost"/> override — so the union cannot alter a
+    /// resolved cost or a legality verdict (verified: whenever this returns true, the added override also fires).</summary>
+    private static bool NewModelIgnoreDigivolutionRequirementActive(
+        EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId,
+        HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner)
+    {
+        if (cardId.IsEmpty || targetInstanceId.IsEmpty || playerId.IsEmpty || targetOwner.IsEmpty)
+        {
+            return false;
+        }
+
+        return NewModelAddedDigivolutionCosts(context, cardId, playerId, targetInstanceId, targetOwner).Count > 0;
+    }
 
     private static bool CanIgnoreColorRequirement(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId) =>
         HasContinuousFlag(context, playerId, cardId, IgnoreColorRequirementKey)
@@ -919,7 +951,7 @@ public sealed class DigivolveAction
         // The headless splits grant (CanIgnoreDigivolutionRequirement) and negation (IsDigivolveIgnoreBlocked) —
         // the added path previously consulted only the grant, letting an ignore-path digivolve through a live negation.
         if ((level < 0 && minLevel < 0 && maxLevel < 0)
-            || (CanIgnoreDigivolutionRequirement(context, playerId, cardId)
+            || (CanIgnoreDigivolutionRequirement(context, playerId, cardId, permanent.InstanceId, permanent.OwnerId)
                 && !IsDigivolveIgnoreBlocked(context, cardId, playerId, permanent.InstanceId, permanent.OwnerId)))
         {
             return true;

@@ -10,7 +10,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("G2B-002 goal row and predecessor are satisfied", GoalRowAndPredecessorAreSatisfied),
     ("AS-IS GameContext visibility references are recorded", AsIsGameContextVisibilityReferencesAreRecorded),
     ("Player visibility view hides opponent hidden zones and keeps counts", PlayerViewHidesOpponentHiddenZones),
-    ("Player visibility view reveals own hidden zones and public opponent zones", PlayerViewRevealsOwnHiddenAndPublicOpponentZones),
+    ("Player visibility view reveals own hand and public opponent zones but keeps own secret zones hidden", PlayerViewRevealsOwnHiddenAndPublicOpponentZones),
     ("Debug full visibility view reveals all hidden card identities", DebugFullViewRevealsAllHiddenCardIdentities),
     ("Visibility view filters active cards by viewer information", PlayerViewFiltersActiveCards),
     ("Visibility view rejects invalid viewers without mutating state", InvalidViewerLeavesStateUnchanged),
@@ -100,10 +100,12 @@ Task PlayerViewRevealsOwnHiddenAndPublicOpponentZones()
     PlayerStateView owner = view.Player(new HeadlessPlayerId(1));
     PlayerStateView opponent = view.Player(new HeadlessPlayerId(2));
 
+    // Owner sees its own Hand, but its own deck/security/digitama stay face-down secret (DEF-S3):
+    // a real player does not know the order/identity of their own Library, Security, or DigitamaLibrary.
     AssertVisibleZone(owner, ChoiceZone.Hand, new[] { "p1-hand" }, "owner hand");
-    AssertVisibleZone(owner, ChoiceZone.Library, new[] { "p1-library" }, "owner library");
-    AssertVisibleZone(owner, ChoiceZone.Security, new[] { "p1-security" }, "owner security");
-    AssertVisibleZone(owner, ChoiceZone.DigitamaLibrary, new[] { "p1-digitama" }, "owner digitama");
+    AssertHiddenZone(owner, ChoiceZone.Library, 1, "owner library");
+    AssertHiddenZone(owner, ChoiceZone.Security, 1, "owner security");
+    AssertHiddenZone(owner, ChoiceZone.DigitamaLibrary, 1, "owner digitama");
     AssertVisibleZone(opponent, ChoiceZone.BattleArea, new[] { "p2-battle" }, "opponent battle");
     AssertVisibleZone(opponent, ChoiceZone.Trash, new[] { "p2-trash" }, "opponent trash");
     return Task.CompletedTask;

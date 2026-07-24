@@ -251,13 +251,19 @@ public static class EffectDrivenAttack
         }
 
         HeadlessPlayerId attackingPlayerId = targets[0].PlayerId;
+
+        // (DEF-S6) AS-IS SelectAttackEffect: when SetCanNotSelectNotAttack ran (!_canNoSelect) the "Not Attack"
+        // back-button is suppressed (:353-361) — the attacker MUST attack a legal target. Mirror = drop the skip
+        // AND require one pick (minCount 1) so an empty non-skip result is rejected too. If no legal target
+        // exists GetTargets is already empty above, so (like AS-IS active()) the mandatory offer never opens.
+        bool canSelectNotAttack = options.CanSelectNotAttack;
         var request = new ChoiceRequest(
             ChoiceType.EffectAttack,
             attackingPlayerId,
-            "Effect attack: choose a target, or decline.",
-            minCount: 0,
+            canSelectNotAttack ? "Effect attack: choose a target, or decline." : "Effect attack: choose a target.",
+            minCount: canSelectNotAttack ? 0 : 1,
             maxCount: 1,
-            canSkip: true,
+            canSkip: canSelectNotAttack,
             ChoiceZone.BattleArea,
             candidates);
         context.ChoiceController.RequestChoice(request, new HeadlessEntityId($"{RequestIdPrefix}:{attackerId.Value}"));
@@ -396,9 +402,14 @@ public sealed record EffectAttackOptions(
     bool AllowPlayerTarget = true,   // may attack the player directly (security)
     bool AllowDigimonTarget = true,  // may attack opponent Digimon (Overclock = false: player only)
     bool TargetUnsuspended = true,   // unsuspended Digimon are also targetable (AS-IS isVortex)
-    bool SelfDeleteAtEndOfAttack = false) // <Execute>: delete the attacker when THIS attack ends (AS-IS
+    bool SelfDeleteAtEndOfAttack = false, // <Execute>: delete the attacker when THIS attack ends (AS-IS
                                           // ExecuteProcess adds UntilEndAttack DeleteSelfEffect — the
                                           // window's attack only, NOT every attack by the keyword holder)
+    bool CanSelectNotAttack = true)  // (DEF-S6) AS-IS SelectAttackEffect._canSelectNotAttack — false = the
+                                     // attack is MANDATORY (no "Not Attack" opt-out). Threaded from AS-IS
+                                     // SetCanNotSelectNotAttack (SelectAttackEffect.cs:40-43): SelectPermanentEffect
+                                     // Attack mode when !_canNoSelect (:1023), Overclock (:92), StartOfMainAttack.
+                                     // Default true (optional) matches AS-IS SetUp default + Vortex/Blitz.
 {
     /// <summary>(B5) AS-IS <c>SelectAttackEffect._defenderCondition</c> — narrows which opponent Digimon are
     /// legal targets for this effect-driven attack (null = all, the AS-IS default <c>_ =&gt; true</c>).</summary>

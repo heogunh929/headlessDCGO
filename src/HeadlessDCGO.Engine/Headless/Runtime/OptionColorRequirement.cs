@@ -26,78 +26,16 @@ public static class OptionColorRequirement
             return true;
         }
 
-        // (1) AS-IS "ignore color requirement" effects (IIgnoreColorConditionEffect) — scanned over field
-        // permanents + players + ITSELF (CardSource.cs:263-303). (④) The legacy key-lowered routes (1a) the
-        // registry-backed ApplicableEffects scan and (1b) the option's own dispatch-built continuous scan
-        // (CardEffectRegistrar.BuildContinuousRequests) are RETIRED: their only producers were OLD-model ToBinding
-        // carriers (now deleted), so both were production-inert. The live path is (1c) — the NEW-model
-        // IIgnoreColorConditionEffect kind-class scan, which IS the AS-IS three-region ignore scan verbatim.
-        //   (1c) (EXEMPLAR-T1) NEW-model IIgnoreColorConditionEffect kind-classes — a P6-rebuild card's
-        //   IgnoreColorConditionClass (e.g. LM_054/BT19_091). The mirror CardSource.IgnoreColorConditionActive IS
-        //   the AS-IS three-region ignore scan verbatim (field permanents → players → the card itself,
-        //   CardSource.cs:263-303), so this gate consults it directly — same surface
-        //   CanNotPlayThisOption/MatchColorRequirement read.
-        if (new CardSource(context, optionCardId, owner, owner).IgnoreColorConditionActive())
-        {
-            return true;
-        }
-
-        // (2) every option color must appear on some owner field/breeding permanent's effective colors.
-        // (AS-IS colorsToCheck = IsDigimon ? DualCardColors : CardColors, CardSource.cs:307) — a DUAL card
-        // (Digimon+Option) played as an option uses its separate OptionCardColorRequirements list, not its
-        // printed Digimon colors; a pure option uses CardColors.
-        var optionSource = new CardSource(context, optionCardId, owner, owner);
-        IReadOnlyList<string> optionColors = IsDualCard(context, optionCardId)
-            ? optionSource.DualCardColors
-            : optionSource.CardColors;
-        if (optionColors.Count == 0)
-        {
-            return true;   // a colorless option imposes no requirement
-        }
-
-        var fieldColors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (context.ZoneMover is IZoneStateReader zones)
-        {
-            foreach (ChoiceZone zone in new[] { ChoiceZone.BattleArea, ChoiceZone.BreedingArea })
-            {
-                foreach (HeadlessEntityId permanentId in zones.GetCards(owner, zone))
-                {
-                    // (RD-2 latent-2 / AS-IS permanent.TopCard.IsPermanent, CardSource.cs:311 + CEntity_Base.cs:238)
-                    // only a Digimon / Tamer / DigiEgg supplies colors — a field Option (a delay-option permanent)
-                    // does NOT. A dual card (Digimon+Option) IS a permanent, so IsCardType reports it correctly.
-                    if (!IsColorSupplyingPermanent(context, permanentId))
-                    {
-                        continue;
-                    }
-
-                    foreach (string color in new CardSource(context, permanentId, owner, owner).CardColors)
-                    {
-                        fieldColors.Add(color);
-                    }
-                }
-            }
-        }
-
-        return optionColors.All(color => fieldColors.Contains(color));
+        // (DEF-S9, 2026-07-24) SINGLE-SOURCE the game rule on the mirror. The colour requirement is a game
+        // rule (not substrate), so it must live in ONE place: the mirror CardSource.MatchColorRequirement
+        // (Script/CardSource.cs:313-343) IS the AS-IS CardSource.MatchColorRequirement (DCGO CardSource.cs:255-321)
+        // verbatim — the three-region IIgnoreColorConditionEffect ignore-scan (via IgnoreColorConditionActive),
+        // then colorsToCheck = IsDigimon ? DualCardColors : CardColors, then EVERY required colour must appear on
+        // SOME owner field permanent whose TopCard.IsPermanent (Digimon/Tamer/DigiEgg). This substrate previously
+        // carried a SECOND live copy of that logic (ignore-scan + colorsToCheck + field-permanent colour union),
+        // which could drift from the mirror. It now DELEGATES to the mirror so there is one authoritative rule.
+        // (MatchColorRequirement itself returns true for a non-Option, so the delegation preserves the "only
+        // options gate" contract that this method is called under.)
+        return new CardSource(context, optionCardId, owner, owner).MatchColorRequirement;
     }
-
-    /// <summary>AS-IS <c>CardSource.IsPermanent</c> (CEntity_Base.cs:238): the card kind includes Digimon,
-    /// Tamer, OR DigiEgg (a dual card reports true for either of its kinds via <see cref="CardRecord.IsCardType"/>).</summary>
-    private static bool IsColorSupplyingPermanent(EngineContext context, HeadlessEntityId cardId)
-    {
-        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null ||
-            !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? card) || card is null)
-        {
-            return false;
-        }
-
-        return card.IsCardType("Digimon") || card.IsCardType("Tamer") || card.IsCardType("DigiEgg");
-    }
-
-    /// <summary>AS-IS <c>colorsToCheck = IsDigimon ? DualCardColors : CardColors</c> (CardSource.cs:307): a card
-    /// played as an option that is ALSO a Digimon (a dual card) checks its dual (option-requirement) colours.</summary>
-    private static bool IsDualCard(EngineContext context, HeadlessEntityId cardId) =>
-        context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) && instance is not null &&
-        context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? card) && card is not null &&
-        card.IsCardType("Digimon");
 }

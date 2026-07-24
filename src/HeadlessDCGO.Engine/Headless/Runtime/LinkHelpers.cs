@@ -161,22 +161,39 @@ public static class LinkHelpers
             Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountForCard(context, linkCardId);
         }
 
-        // (MIG2) AS-IS AddLinkCard (Permanent.cs:1251-1257): overflow is resolved BEFORE the attach — with
-        // LinkedMax == 1 the current LinkedCards[0] is removed SILENTLY (bare RemoveLinkedCard: trash, but NO
-        // OnLinkCardDiscarded window and NO selection). LinkedMax > 1 opens the owner's trim SELECTION
-        // (RemoveLinkedCard(null, excess) -> ITrashLinkCards per pick, which DOES emit) — that selection needs
-        // the effect-body choice park and has no witness yet (every ported host is max-1): design item
-        // MIG2-ADDLINK-SELECT; until it lands the >1 case falls back to the post-attach oldest-first
-        // enforcement below (documented divergence, not silent).
+        // (MIG2 / DEF-S10, 2026-07-24) AS-IS AddLinkCard (Permanent.cs:1251-1257): overflow is resolved BEFORE
+        // the attach. The AS-IS split is on LinkedMax:
+        //   if (LinkedCards.Count >= LinkedMax) {
+        //       if (LinkedMax > 1) RemoveLinkedCard(null, (LinkedCards.Count + 1) - LinkedMax);  // owner SELECTS
+        //       else               RemoveLinkedCard(LinkedCards[0]);                              // silent oldest
+        //   }
+        // LinkedMax == 1 removes the current LinkedCards[0] SILENTLY (bare RemoveLinkedCard: trash, but NO
+        // OnLinkCardDiscarded window and NO selection). LinkedMax > 1 runs RemoveLinkedCard(null, excess), whose
+        // removeCount>0 branch opens a SelectCardEffect (Discard mode over LinkedCards, canNoSelect => false,
+        // canEndNotMax => false ⇒ the owner picks EXACTLY `excess` cards to trash) and emits NO OnLinkCardDiscarded
+        // (AS-IS "//TODO: Add event call if something was removed"). DEF-S10 aligns the >1 case to that owner
+        // SELECTION (ChoiceProvider is the substrate translation of SelectCardEffect.Activate()); previously it
+        // silently fell through to the post-attach oldest-first enforcement. There is still no max>1 witness
+        // (every ported host is max-1), so this path is latent — the correction is structural. When no context /
+        // choice provider is wired the >1 case falls back to oldest-first (documented divergence, not silent).
         {
             CardInstanceRecord preHost = repository.TryGetInstance(hostId, out CardInstanceRecord? refreshed) && refreshed is not null ? refreshed : host;
             IReadOnlyList<HeadlessEntityId> preLinked = ReadLinkedCardIds(preHost.Metadata);
             int preMax = context is not null ? ResolveLinkedMax(context, hostId) : ReadLinkedMax(preHost.Metadata);
-            if (preLinked.Count >= preMax && preMax == 1 && preLinked.Count >= 1)
+            if (preLinked.Count >= preMax && preLinked.Count >= 1)
             {
-                await RemoveLinkCardAsync(
-                    repository, zoneMover, hostId, preLinked[0], trash: true,
-                    gameEventQueue: null, cancellationToken).ConfigureAwait(false);
+                if (preMax > 1)
+                {
+                    int excess = (preLinked.Count + 1) - preMax;
+                    await TrimLinkedOverflowByOwnerSelectionAsync(
+                        repository, zoneMover, hostId, preLinked, excess, context, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await RemoveLinkCardAsync(
+                        repository, zoneMover, hostId, preLinked[0], trash: true,
+                        gameEventQueue: null, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
 
@@ -256,6 +273,90 @@ public static class LinkHelpers
         }
 
         return true;
+    }
+
+    /// <summary>(DEF-S10) AS-IS <c>Permanent.RemoveLinkedCard(null, removeCount)</c> (Permanent.cs:1321-1345):
+    /// the host's owner SELECTS exactly <paramref name="excess"/> of its currently-linked cards to trash
+    /// (SelectCardEffect Discard mode over <c>LinkedCards</c>, <c>canNoSelect => false</c>,
+    /// <c>canEndNotMax => false</c>). No <c>OnLinkCardDiscarded</c> window is opened (AS-IS
+    /// "//TODO: Add event call if something was removed"). The selection is the substrate translation via
+    /// <see cref="IChoiceProvider"/>; each picked card is then removed with the bare (window-less)
+    /// <see cref="RemoveLinkCardAsync"/>. When no context / choice provider is wired, falls back to
+    /// oldest-first (documented divergence — no max&gt;1 witness exists).</summary>
+    private static async Task TrimLinkedOverflowByOwnerSelectionAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        IReadOnlyList<HeadlessEntityId> currentLinked,
+        int excess,
+        Bridge.EngineContext? context,
+        CancellationToken cancellationToken)
+    {
+        if (excess <= 0 || currentLinked.Count == 0)
+        {
+            return;
+        }
+
+        int pick = Math.Min(excess, currentLinked.Count);
+        IReadOnlyList<HeadlessEntityId> toTrash;
+
+        if (context is not null &&
+            repository.TryGetInstance(hostId, out CardInstanceRecord? host) && host is not null)
+        {
+            // AS-IS selectPlayer = TopCard.Owner (the host's owner). Link cards live off-field
+            // (ChoiceZone.None), but a ChoiceCandidate must carry a concrete zone; surface them under the
+            // host's field zone (a link host is always a battle-area Digimon).
+            ChoiceZone displayZone = ResolveHostZone(zoneMover, host.OwnerId, hostId);
+            var candidates = currentLinked
+                .Select(id => new ChoiceCandidate(id, $"Link {id.Value}", displayZone, IsSelectable: true, ownerId: host.OwnerId))
+                .ToArray();
+            var request = new ChoiceRequest(
+                ChoiceType.Card,
+                host.OwnerId,
+                $"Select {pick} link card(s) to trash.",
+                minCount: pick,
+                maxCount: pick,
+                canSkip: false,
+                displayZone,
+                candidates);
+
+            ChoiceResult result = await context.ChoiceProvider
+                .ChooseAsync(request, cancellationToken)
+                .ConfigureAwait(false);
+            result.ThrowIfInvalid(request);
+            toTrash = result.SelectedIds;
+        }
+        else
+        {
+            // (MIG2-ADDLINK-SELECT fallback) oldest-first: the newest-first list keeps oldest at the end.
+            toTrash = currentLinked.Skip(currentLinked.Count - pick).ToArray();
+        }
+
+        foreach (HeadlessEntityId linkCardId in toTrash)
+        {
+            // Bare removal (no OnLinkCardDiscarded) — AS-IS RemoveLinkedCard emits no window here.
+            await RemoveLinkCardAsync(
+                repository, zoneMover, hostId, linkCardId, trash: true,
+                gameEventQueue: null, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The concrete field zone the link host currently occupies (battle area by default), so its
+    /// off-field link cards can be surfaced as choice candidates under a valid zone.</summary>
+    private static ChoiceZone ResolveHostZone(IZoneMover zoneMover, HeadlessPlayerId ownerId, HeadlessEntityId hostId)
+    {
+        if (zoneMover is IZoneStateReader reader && !ownerId.IsEmpty)
+        {
+            foreach (ChoiceZone zone in new[] { ChoiceZone.BattleArea, ChoiceZone.BreedingArea })
+            {
+                if (reader.GetCards(ownerId, zone).Contains(hostId))
+                {
+                    return zone;
+                }
+            }
+        }
+
+        return ChoiceZone.BattleArea;
     }
 
     /// <summary>(AS-IS auto-processing <c>IsDigimonLackLinkMaxCountProcess</c>) Trash the oldest link cards

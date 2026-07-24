@@ -132,7 +132,7 @@ public static class OverclockEffect
         EffectDrivenAttack.RequestChoice(
             context,
             sourceId,
-            new EffectAttackOptions(WithoutTap: true, AllowPlayerTarget: true, AllowDigimonTarget: false, TargetUnsuspended: false));
+            new EffectAttackOptions(WithoutTap: true, AllowPlayerTarget: true, AllowDigimonTarget: false, TargetUnsuspended: false, CanSelectNotAttack: false));
         return true;
     }
 

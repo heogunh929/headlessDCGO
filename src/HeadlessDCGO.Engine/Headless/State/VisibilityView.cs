@@ -57,7 +57,7 @@ public static class VisibilityView
 
         PlayerStateView[] players = snapshot.Players
             .OrderBy(player => player.PlayerId.Value)
-            .Select(player => player.ToView(player.PlayerId))
+            .Select(player => player.ToView(player.PlayerId, revealAll: true))
             .ToArray();
 
         return CreateSnapshot(
@@ -94,7 +94,15 @@ public static class VisibilityView
                     continue;
                 }
 
-                return player.PlayerId == viewerId || ZoneState.DefaultVisibility(zone.Key) == ZoneVisibility.Public;
+                // Public zones are visible to everyone. A hidden zone is only visible to its owner,
+                // and only when the zone is not secret even from the owner (deck/security/digitama
+                // remain face-down for the owner too).
+                if (ZoneState.DefaultVisibility(zone.Key) == ZoneVisibility.Public)
+                {
+                    return true;
+                }
+
+                return player.PlayerId == viewerId && !ZoneState.IsSecretFromOwner(zone.Key);
             }
         }
 

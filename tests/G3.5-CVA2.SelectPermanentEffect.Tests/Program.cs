@@ -414,7 +414,11 @@ async Task MultiAttackerQueue()
         canTargetCondition_ByPreSelecetedList: null,
         canEndSelectCondition: null,
         maxCount: 2,
-        canNoSelect: false,
+        // (DEF-S6) canNoSelect: true → the per-attacker SelectAttackEffect is OPTIONAL (no SetCanNotSelectNotAttack),
+        // so a player DECLINE is legal and advances the AS-IS sequential foreach to the next attacker. With the
+        // mandatory mode (canNoSelect: false) the attack cannot be declined, so the queue would only advance on a
+        // CanAttack failure — not the decline path this test exercises.
+        canNoSelect: true,
         canEndNotMax: false,
         selectPermanentCoroutine: null,
         afterSelectPermanentCoroutine: null,

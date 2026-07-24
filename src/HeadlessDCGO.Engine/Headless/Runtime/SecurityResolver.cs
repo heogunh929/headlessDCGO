@@ -111,8 +111,13 @@ public sealed class SecurityResolver
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(zoneReader);
 
-        int available = zoneReader.GetCards(defendingPlayerId, ChoiceZone.Security).Count;
-        int checkCount = Math.Min(Math.Max(0, strike), available);
+        // (DEF-S2) AS-IS ISecurityCheck bounds the check ONLY by Strike (CardController.cs:3935
+        // `checkedCount >= AttackingPermanent.Strike` breaks) and RE-EVALUATES `player.SecurityCards.Count >= 1`
+        // at EVERY loop iteration (:3940, else-break :4217) — a reactor / [Security] effect that ADDS security
+        // mid-loop is therefore checked up to Strike. The previous one-time `Math.Min(strike, available)` cap
+        // snapshotted the security count at entry and under-checked when security grew after entry; the
+        // per-iteration `security.Count == 0` break below is the AS-IS re-evaluation (the else-break at :4217).
+        int checkCount = Math.Max(0, strike);
         var checkedCards = new List<HeadlessEntityId>();
         var movementResults = new List<ZoneMoveResult>();
         int securityDigimonBattles = 0;
@@ -155,10 +160,39 @@ public sealed class SecurityResolver
             checkedCards.Add(checkedCardId);
             movementResults.Add(move);
 
-            // W1/W4/P8: resolve the OnSecurityCheck timing window for the revealed card SYNCHRONOUSLY —
-            // AS-IS (CardController.cs:4108-4184) resolves AutoProcessCheck + the stacked OnSecurityCheck
-            // skills BEFORE the security-Digimon battle (:4177). The queued emit drained only after the
-            // whole loop, so a checked-card trigger that buffs the attacker resolved too late.
+            // (DEF-S1 / DEF-A11) AS-IS ISecurityCheck ORDER: the revealed card's own [Security] activated
+            // effect (SecuritySkill) resolves at CardController.cs:3987-4103 — BEFORE the collected
+            // OnSecurityCheck / OnLoseSecurity reactors are stacked + drained at :4108-4117. The previous
+            // TO-BE ran the OnSecurityCheck window FIRST (역순 무조건), so on EVERY security check (not an
+            // edge case) a revealed card whose [Security] skill and whose OnSecurityCheck/OnLoseSecurity
+            // reactors interact resolved in the wrong sequence. Restored to AS-IS: [Security] activated
+            // effect first (this block), then the OnSecurityCheck/OnLoseSecurity window, then (below) the
+            // security-Digimon battle (:4119-4184).
+
+            // G7-004: resolve the revealed card's [Security] activated effect (e.g. a Tamer/Option
+            // security skill), AS-IS :3987-4103. No-op for cards with no ported SecuritySkill effect.
+            try
+            {
+                await ActivatedEffectResolver
+                    .ResolveAsync(context, checkedCardId, defendingPlayerId, EffectTiming.SecuritySkill, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (DeferredChoicePendingException)
+            {
+                // G12-004: the [Security] effect asked the agent for a choice (interactive provider). Record
+                // the suspended activation so the next ResolveChoice resumes it (re-resolving the effect, no
+                // re-reveal) and stop the check — the pending choice is on the controller, so the game loop
+                // pauses for the agent.
+                context.DeferredActivations.Suspend(checkedCardId, EffectTiming.SecuritySkill, defendingPlayerId);
+                break;
+            }
+
+            // W1/W4/P8: resolve the OnSecurityCheck / OnLoseSecurity timing window for the revealed card
+            // SYNCHRONOUSLY — AS-IS (CardController.cs:4108-4117) stacks the collected OnSecurityCheck skills +
+            // the per-card OnLoseSecurity reducers and drains them via AutoProcessCheck, AFTER the [Security]
+            // activated effect above and BEFORE the security-Digimon battle (:4119-4184). The queued emit
+            // otherwise drained only after the whole loop, so a checked-card trigger that buffs the attacker
+            // resolved too late.
             // (P1-3 C2r — RD-C2-SECCHECK-INTERACTIVE) An INTERACTIVE OnSecurityCheck / OnLoseSecurity reactor asks
             // the agent for a choice: AutoProcessCheck opens a ChoiceController request and THROWS
             // WindowChoicePendingException to unwind the mirror MultipleSkills loop's C# stack (the normal headless
@@ -189,24 +223,6 @@ public sealed class SecurityResolver
                 return new SecurityCheckLoopResult(
                     checkedCards, movementResults, securityDigimonBattles, AttackerDeleted: false,
                     DeferredForDeletionReplacement: true, RemainingChecks: remaining);
-            }
-
-            // G7-004: resolve the revealed card's [Security] activated effect (e.g. a Tamer/Option
-            // security skill). No-op for cards with no ported SecuritySkill effect.
-            try
-            {
-                await ActivatedEffectResolver
-                    .ResolveAsync(context, checkedCardId, defendingPlayerId, EffectTiming.SecuritySkill, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (DeferredChoicePendingException)
-            {
-                // G12-004: the [Security] effect asked the agent for a choice (interactive provider). Record
-                // the suspended activation so the next ResolveChoice resumes it (re-resolving the effect, no
-                // re-reveal) and stop the check — the pending choice is on the controller, so the game loop
-                // pauses for the agent.
-                context.DeferredActivations.Suspend(checkedCardId, EffectTiming.SecuritySkill, defendingPlayerId);
-                break;
             }
 
             // W5: a revealed security Digimon battles the attacker. The security card is trashed by the

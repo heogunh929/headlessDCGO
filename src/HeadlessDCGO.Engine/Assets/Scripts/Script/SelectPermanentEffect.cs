@@ -258,7 +258,11 @@ public sealed class SelectPermanentEffect
             WithoutTap: false,
             AllowPlayerTarget: _canAttackPlayer,
             AllowDigimonTarget: true,
-            TargetUnsuspended: false)
+            TargetUnsuspended: false,
+            // (DEF-S6 / RD-W4-6) AS-IS :1023 `if (!_canNoSelect) selectAttackEffect.SetCanNotSelectNotAttack()` —
+            // the mandatory-attack mode now threads into the deferred effect-attack choice: canSelectNotAttack
+            // == _canNoSelect (when _canNoSelect is false the attack cannot be declined).
+            CanSelectNotAttack: _canNoSelect)
         {
             // (D2; P2-1) AS-IS passes the non-null _defenderCondition (allow-all default) straight through
             // (:1020); the effect-attack option channel is id-form, so materialise per candidate.
@@ -606,8 +610,8 @@ public sealed class SelectPermanentEffect
                 // The established queued effect-attack mirror (see TryOpenAttack): opens the first attacker's
                 // target choice, queues the rest, each re-checked alive/legal on its turn — the AS-IS
                 // per-selected `if (selectedPermanent.CanAttack(_cardEffect))` re-check. The AS-IS
-                // SetCanNotSelectNotAttack (mandatory attack when !_canNoSelect) has no thread into the
-                // deferred choice — design item RD-W4-6 (latent; zero AS-IS callers in the bridged corpus).
+                // SetCanNotSelectNotAttack (mandatory attack when !_canNoSelect, :1023) IS now threaded into the
+                // deferred choice via EffectAttackOptions.CanSelectNotAttack (DEF-S6 fix; was design item RD-W4-6).
                 // (D2) the Permanent-form _defenderCondition is materialised to the id-form option channel
                 // inside TryOpenAttack (identical per-candidate wrapping).
                 TryOpenAttack(context, _targetPermanents.Select(permanent => permanent.InstanceId));

@@ -772,7 +772,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 if (_zoneMover is { } ddMover)
                 {
                     int ddCount = ReadInt(mutation.Values, CountKey) ?? 1;
-                    _pendingAsync.Add(ct => DeDigivolveHelpers.DeDigivolveAsync(_repository, ddMover, targetId, ddCount, _gameEventQueue, ct));
+                    _pendingAsync.Add(ct => DeDigivolveHelpers.DeDigivolveAsync(_repository, ddMover, targetId, ddCount, _gameEventQueue, _context, ct));
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, DeDigivolveKind));
                 }
                 else

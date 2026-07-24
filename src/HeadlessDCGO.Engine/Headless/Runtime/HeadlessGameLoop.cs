@@ -331,9 +331,11 @@ public sealed class HeadlessGameLoop(
             .ToArray();
     }
 
-    // G3.5-RL-A4: when a perspective viewer is supplied, hidden zones (Library/Hand/Security/
-    // DigitamaLibrary) of players other than the viewer are exposed as count-only — the card ids
-    // are withheld so a self-play agent cannot read its opponent's private information.
+    // G3.5-RL-A4: when a perspective viewer is supplied, hidden zones are exposed as count-only
+    // (card ids withheld) so the observation matches the information a real player holds. An
+    // opponent's Hand/Library/Security/DigitamaLibrary are all withheld; the viewer sees its own
+    // Hand ids, but its own Library/Security/DigitamaLibrary stay face-down secret (DEF-S3) — the
+    // owner does not know the order/identity of its own deck, digitama deck, or security stack.
     // A null perspective preserves the full ("god's-eye") view for debugging and legacy callers.
     // G3.5-RL-A4b: visible cards additionally carry typed per-card features (DP/level/cost/...).
     private IReadOnlyList<ZoneObservation> BuildZoneObservations(
@@ -354,8 +356,8 @@ public sealed class HeadlessGameLoop(
 
                 bool hiddenFromViewer =
                     perspectivePlayerId is { } viewer &&
-                    viewer != playerId &&
-                    ZoneState.DefaultVisibility(zone) == ZoneVisibility.Hidden;
+                    ZoneState.DefaultVisibility(zone) == ZoneVisibility.Hidden &&
+                    (viewer != playerId || ZoneState.IsSecretFromOwner(zone));
 
                 // Count is always preserved; only the card identities are withheld when hidden.
                 if (hiddenFromViewer)
