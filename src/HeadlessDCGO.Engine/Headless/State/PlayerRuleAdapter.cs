@@ -2,119 +2,36 @@ namespace HeadlessDCGO.Engine.Headless.State;
 
 using HeadlessDCGO.Engine.Headless.Services;
 
+/// <summary>
+/// (X-02) The terminal-verdict seam: consolidates the AS-IS win/loss checks (deck-out on draw, direct-hit on
+/// empty security, and the consolidated <c>Player.IsLose</c> flag) into <see cref="PlayerTerminalCheck"/>
+/// verdicts read by <c>TerminalEvaluator</c> / the match result.
+///
+/// (DEF-S11 retirement) The adapter formerly also carried simplified memory-cost / security / draw PREDICATES
+/// (MaxMemoryCost, ExpectedMemory, CanPayMemoryCost, CanAddSecurity, CanReduceSecurity, CanDraw). Those were a
+/// dead duplicate of the fidelity mirror and had ZERO production consumers: production reads
+/// <c>new Player(context, owner).MaxMemoryCost</c> (Player.cs:255, AS-IS Player.cs:1127-1146) and
+/// <c>new Player(context, owner).CanAddSecurity(...)</c> (Player.cs:477, the AS-IS-literal
+/// <c>ICannotAddSecurityEffect</c> LIVE scan) directly. The adapter is a scan-less snapshot (built from bare
+/// lose flags, with no effect registry) and cannot host the continuous-restriction scan, so the simplified
+/// copies were removed rather than rewired — the mirror <c>Player</c> members are the single fidelity path.
+/// </summary>
 public sealed class PlayerRuleAdapter
 {
     public const string LoseFlagKey = "isLose";
 
-    public PlayerRuleAdapter(
-        PlayerZoneAdapter zones,
-        int memory,
-        bool isSecurityLooking = false,
-        int minimumMemory = -10,
-        int maximumMemory = 10)
+    public PlayerRuleAdapter(PlayerZoneAdapter zones)
     {
         ArgumentNullException.ThrowIfNull(zones);
-        if (minimumMemory > maximumMemory)
-        {
-            throw new ArgumentOutOfRangeException(nameof(minimumMemory), "Minimum memory must be less than or equal to maximum memory.");
-        }
-
         Zones = zones;
-        Memory = memory;
-        IsSecurityLooking = isSecurityLooking;
-        MinimumMemory = minimumMemory;
-        MaximumMemory = maximumMemory;
-        PositiveMemoryPlayerId = Zones.State.Players
-            .OrderBy(player => player.PlayerId.Value)
-            .FirstOrDefault()?.PlayerId
-            ?? throw new InvalidOperationException("At least one player is required.");
     }
 
-    public PlayerRuleAdapter(GameContextStateSnapshot snapshot, int minimumMemory = -10, int maximumMemory = 10)
-        : this(
-            new PlayerZoneAdapter(snapshot?.State ?? throw new ArgumentNullException(nameof(snapshot))),
-            snapshot.Memory,
-            snapshot.IsSecurityLooking,
-            minimumMemory,
-            maximumMemory)
+    public PlayerRuleAdapter(GameContextStateSnapshot snapshot)
+        : this(new PlayerZoneAdapter(snapshot?.State ?? throw new ArgumentNullException(nameof(snapshot))))
     {
     }
 
     public PlayerZoneAdapter Zones { get; }
-
-    public int Memory { get; }
-
-    public int MinimumMemory { get; }
-
-    public int MaximumMemory { get; }
-
-    public bool IsSecurityLooking { get; }
-
-    public HeadlessPlayerId PositiveMemoryPlayerId { get; }
-
-    public int MaxMemoryCost(HeadlessPlayerId playerId)
-    {
-        _ = Zones.State.GetPlayer(playerId);
-        return IsPositiveMemoryPlayer(playerId)
-            ? Math.Abs(MaximumMemory - Memory)
-            : Math.Abs(Memory - MinimumMemory);
-    }
-
-    public int ExpectedMemory(HeadlessPlayerId playerId, int memoryCost)
-    {
-        if (memoryCost < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(memoryCost), "Memory cost must not be negative.");
-        }
-
-        _ = Zones.State.GetPlayer(playerId);
-        return IsPositiveMemoryPlayer(playerId)
-            ? Memory + memoryCost
-            : Memory - memoryCost;
-    }
-
-    public bool CanPayMemoryCost(HeadlessPlayerId playerId, int memoryCost)
-    {
-        if (memoryCost < 0)
-        {
-            return false;
-        }
-
-        _ = Zones.State.GetPlayer(playerId);
-        return memoryCost <= MaxMemoryCost(playerId);
-    }
-
-    public bool CanAddSecurity(HeadlessPlayerId playerId, int count = 1)
-    {
-        if (count < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(count), "Security count must not be negative.");
-        }
-
-        _ = Zones.ReadPlayer(playerId);
-        return !IsSecurityLooking;
-    }
-
-    public bool CanReduceSecurity(HeadlessPlayerId playerId, int count = 1)
-    {
-        if (count < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(count), "Security count must not be negative.");
-        }
-
-        PlayerZoneOwnershipSnapshot player = Zones.ReadPlayer(playerId);
-        return !IsSecurityLooking && player.SecurityCount >= count;
-    }
-
-    public bool CanDraw(HeadlessPlayerId playerId, int count = 1)
-    {
-        if (count < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(count), "Draw count must not be negative.");
-        }
-
-        return Zones.ReadPlayer(playerId).LibraryCount >= count;
-    }
 
     public PlayerTerminalCheck EvaluateDeckLossOnDraw(HeadlessPlayerId drawingPlayerId, int drawCount = 1)
     {
@@ -187,11 +104,6 @@ public sealed class PlayerRuleAdapter
         return nextDrawCount > 0
             ? EvaluateDeckLossOnDraw(playerId, nextDrawCount)
             : PlayerTerminalCheck.NotTerminal(PlayerTerminalReason.None);
-    }
-
-    private bool IsPositiveMemoryPlayer(HeadlessPlayerId playerId)
-    {
-        return playerId == PositiveMemoryPlayerId;
     }
 
     private HeadlessPlayerId? OpponentOf(HeadlessPlayerId playerId)

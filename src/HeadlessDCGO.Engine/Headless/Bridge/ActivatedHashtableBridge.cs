@@ -133,15 +133,20 @@ public static class ActivatedHashtableBridge
 
             // (EXEMPLAR-T1) {Card, isFaceDown} — security skill (AS-IS CardController.cs:3991-3999:
             // `hashtable1 = { Card: brokenSecurityCard, isFaceDown }` gated by CanUse before stacking the
-            // SkillInfo). The mirror security-check loop reveals FACE-DOWN security cards only (the face-up
-            // security surface is the separate no-register continuous scan), so isFaceDown = true; a face-up
-            // reveal path narrows this when it lands — design item P6A-HT-SECURITY.
+            // SkillInfo). AS-IS computes `isFaceDown = brokenSecurityCard.IsFlipped` (CardController.cs:3946):
+            // IsFlipped is set true by SetReverse() (face-down, the security default) and false by SetFace()
+            // (face-up). The mirror analog is the persistent SecurityFaceState flag — face-up == IsFaceUpInSecurity,
+            // so isFaceDown == !IsFaceUpInSecurity. A face-down security card (the default) reports true, matching
+            // the AS-IS default; a card placed face-up in security now correctly reports false.
             case EffectTiming.SecuritySkill:
+            {
+                CardSource securityCard = SubjectCard(context, drivingEvent, card);
                 return new Hashtable()
                 {
-                    { "Card", SubjectCard(context, drivingEvent, card) },
-                    { "isFaceDown", true },
+                    { "Card", securityCard },
+                    { "isFaceDown", !SecurityFaceState.IsFaceUpInSecurity(context, securityCard.InstanceId) },
                 };
+            }
 
             // {Permanent} — a Digimon MOVED from breeding to battle area (CardObjectController.cs:1105-1111).
             case EffectTiming.OnMove:
@@ -259,8 +264,8 @@ public static class ActivatedHashtableBridge
                 };
 
             // Not yet mapped (design items, file header): OnEndBattle (P6A-HT-ENDBATTLE) —
-            // (EXEMPLAR-T1) SecuritySkill now mapped above ({Card, isFaceDown}; P6A-HT-SECURITY narrows to the
-            // face-up reveal flag only) — WhenTopCardTrashed, OnSecurityCheck, the would-be windows, and any timing
+            // (EXEMPLAR-T1) SecuritySkill now mapped above ({Card, isFaceDown} with the real SecurityFaceState
+            // face flag) — WhenTopCardTrashed, OnSecurityCheck, the would-be windows, and any timing
             // without a live new-model reactor. Null keeps the AS-IS null-tolerant gates working; a gate that
             // READS a key from null hashtable surfaces loudly (NRE) rather than silently mis-gating.
             default:

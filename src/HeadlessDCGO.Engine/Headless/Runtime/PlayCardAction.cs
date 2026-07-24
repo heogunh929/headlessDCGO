@@ -59,8 +59,13 @@ public sealed class PlayCardAction
         }
 
         var view = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, playerId);
+        // AS-IS gates the Assembly play on `card.HasAssembly && !isEvolution` ALONE (CardController.cs:755) —
+        // reduceCost-independent. Every AS-IS AssemblyCondition carries reduceCost > 0 (corpus values 2..7), and
+        // even a reduceCost==0 condition (a cost-neutral material tuck) would be a legal AS-IS Assembly play; the
+        // former `reduceCost <= 0` short-circuit was a stricter-than-AS-IS suppression with no AS-IS basis. The
+        // offer is therefore gated only on the condition existing and its full material set being fillable from
+        // the owner's trash.
         if (view.AssemblyConditionOf() is not Assets.Scripts.Script.CardEffectCommons.AssemblyCondition condition ||
-            condition.reduceCost <= 0 ||
             !Assets.Scripts.Script.SelectAssemblyClass.TryMatchMaterials(context, view, condition, out List<HeadlessEntityId> materials))
         {
             return null;

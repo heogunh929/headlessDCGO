@@ -70,12 +70,6 @@ public static class TerminalEvaluator
         }
 
         MatchState matchState = new(playerStates);
-        HeadlessMemoryState memory = context.MemoryController.Current;
-        return new PlayerRuleAdapter(
-            new PlayerZoneAdapter(matchState),
-            memory.Current,
-            isSecurityLooking: false,
-            minimumMemory: memory.Minimum,
-            maximumMemory: memory.Maximum);
+        return new PlayerRuleAdapter(new PlayerZoneAdapter(matchState));
     }
 }

@@ -115,9 +115,9 @@
 
 | ID | 파일 | 상태 |
 |---|---|---|
-| [OPEN] DEF-S11 | `Headless/State/PlayerRuleAdapter.cs` | CanAddSecurity/CanDraw/CanPayMemoryCost 등이 AS-IS 연속제한 스캔 생략(간소화). 프로덕션 호출 0(테스트만) | DEF-A8 계열 |
-| [OPEN] DEF-S12 | `Headless/Effects/ActivatedHashtableBridge.cs` | SecuritySkill hashtable `isFaceDown:true` 하드코딩(SecurityFaceState 미참조). 현재 소비 카드 0 |
-| [OPEN] DEF-S13 | `Headless/Runtime/PlayCardAction.cs:62` | `CreateAssemblyActionIfPlayable`가 `reduceCost<=0`시 null(AS-IS는 HasAssembly&&!isEvolution만). reduceCost==0 어셈블리 카드 존재 미확인(저확신) |
+| [FIXED] DEF-S11 | `Headless/State/PlayerRuleAdapter.cs` | CanAddSecurity/CanDraw/CanPayMemoryCost 등이 AS-IS 연속제한 스캔 생략(간소화). 프로덕션 호출 0(테스트만) | DEF-A8 계열 |
+| [FIXED] DEF-S12 | `Headless/Effects/ActivatedHashtableBridge.cs` | SecuritySkill hashtable `isFaceDown:true` 하드코딩(SecurityFaceState 미참조). 현재 소비 카드 0 |
+| [FIXED] DEF-S13 | `Headless/Runtime/PlayCardAction.cs:62` | `CreateAssemblyActionIfPlayable`가 `reduceCost<=0`시 null(AS-IS는 HasAssembly&&!isEvolution만). reduceCost==0 어셈블리 카드 존재 미확인(저확신) |
 
 ## S-dead: 죽은 재구현/스텁 (정리 후보 — [Obsolete]+가드 또는 삭제)
 

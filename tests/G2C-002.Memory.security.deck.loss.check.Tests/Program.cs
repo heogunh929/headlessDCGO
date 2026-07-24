@@ -9,8 +9,6 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("G2C-002 goal row and predecessor are satisfied", GoalRowAndPredecessorAreSatisfied),
     ("AS-IS memory security deck loss references are recorded", AsIsPlayerRuleReferencesAreRecorded),
-    ("Player rule adapter calculates player relative memory cost checks", AdapterCalculatesPlayerRelativeMemory),
-    ("Player rule adapter blocks security mutation while security is being looked at", AdapterBlocksSecurityMutationWhileLooking),
     ("Player rule adapter reports deck loss on failed draw", AdapterReportsDeckLossOnFailedDraw),
     ("Player rule adapter reports security loss on direct attack with empty security", AdapterReportsSecurityLossOnEmptySecurityAttack),
     ("Player rule adapter reports explicit player lose flag", AdapterReportsPlayerLoseFlag),
@@ -82,33 +80,13 @@ Task AsIsPlayerRuleReferencesAreRecorded()
     return Task.CompletedTask;
 }
 
-Task AdapterCalculatesPlayerRelativeMemory()
-{
-    PlayerRuleAdapter adapter = CreateAdapter(memory: 2);
-
-    AssertEqual(new HeadlessPlayerId(1), adapter.PositiveMemoryPlayerId, "positive memory player");
-    AssertEqual(8, adapter.MaxMemoryCost(new HeadlessPlayerId(1)), "p1 max memory cost");
-    AssertEqual(12, adapter.MaxMemoryCost(new HeadlessPlayerId(2)), "p2 max memory cost");
-    AssertEqual(5, adapter.ExpectedMemory(new HeadlessPlayerId(1), 3), "p1 expected memory");
-    AssertEqual(-1, adapter.ExpectedMemory(new HeadlessPlayerId(2), 3), "p2 expected memory");
-    AssertTrue(adapter.CanPayMemoryCost(new HeadlessPlayerId(1), 8), "p1 can pay boundary");
-    AssertFalse(adapter.CanPayMemoryCost(new HeadlessPlayerId(1), 9), "p1 cannot overpay");
-    AssertFalse(adapter.CanPayMemoryCost(new HeadlessPlayerId(2), -1), "negative cost rejected");
-    return Task.CompletedTask;
-}
-
-Task AdapterBlocksSecurityMutationWhileLooking()
-{
-    PlayerRuleAdapter open = CreateAdapter(memory: 0, isSecurityLooking: false);
-    PlayerRuleAdapter looking = CreateAdapter(memory: 0, isSecurityLooking: true);
-
-    AssertTrue(open.CanAddSecurity(new HeadlessPlayerId(1)), "add security while open");
-    AssertTrue(open.CanReduceSecurity(new HeadlessPlayerId(1)), "reduce security while open");
-    AssertFalse(looking.CanAddSecurity(new HeadlessPlayerId(1)), "add security while looking");
-    AssertFalse(looking.CanReduceSecurity(new HeadlessPlayerId(1)), "reduce security while looking");
-    AssertFalse(open.CanReduceSecurity(new HeadlessPlayerId(2), count: 2), "cannot reduce more security than present");
-    return Task.CompletedTask;
-}
+// (DEF-S11 retirement) The adapter's simplified memory-cost / security-mutation PREDICATES
+// (MaxMemoryCost / ExpectedMemory / CanPayMemoryCost / CanAddSecurity / CanReduceSecurity / CanDraw /
+// PositiveMemoryPlayerId) were dead duplicates of the fidelity mirror (new Player(...).MaxMemoryCost,
+// new Player(...).CanAddSecurity live scan) and were retired. The tests that pinned them
+// (AdapterCalculatesPlayerRelativeMemory / AdapterBlocksSecurityMutationWhileLooking, and the memory/security
+// arms of the invalid-input and determinism tests) are removed with them; the terminal-verdict coverage below
+// (deck-loss / security-attack / lose-flag) is the adapter's surviving live role.
 
 Task AdapterReportsDeckLossOnFailedDraw()
 {
@@ -162,10 +140,7 @@ Task AdapterRejectsInvalidInputsWithoutChangingState()
     PlayerRuleAdapter adapter = CreateAdapter(memory: 0);
     string fingerprint = adapter.Zones.State.ComputeFingerprint();
 
-    ExpectThrows<InvalidOperationException>(() => adapter.MaxMemoryCost(new HeadlessPlayerId(99)));
-    ExpectThrows<ArgumentOutOfRangeException>(() => adapter.ExpectedMemory(new HeadlessPlayerId(1), -1));
-    ExpectThrows<ArgumentOutOfRangeException>(() => adapter.CanDraw(new HeadlessPlayerId(1), -1));
-    ExpectThrows<ArgumentOutOfRangeException>(() => adapter.CanReduceSecurity(new HeadlessPlayerId(1), -1));
+    ExpectThrows<ArgumentOutOfRangeException>(() => adapter.EvaluateDeckLossOnDraw(new HeadlessPlayerId(1), -1));
     ExpectThrows<ArgumentOutOfRangeException>(() => adapter.EvaluateSecurityAttack(new HeadlessPlayerId(1), new HeadlessPlayerId(2), -1));
 
     AssertEqual(fingerprint, adapter.Zones.State.ComputeFingerprint(), "state fingerprint unchanged");
@@ -270,14 +245,10 @@ static IReadOnlyList<string> Flatten(PlayerRuleAdapter adapter)
 {
     return new[]
     {
-        $"p1:max={adapter.MaxMemoryCost(new HeadlessPlayerId(1))}",
-        $"p2:max={adapter.MaxMemoryCost(new HeadlessPlayerId(2))}",
-        $"p1:expected={adapter.ExpectedMemory(new HeadlessPlayerId(1), 2)}",
-        $"p2:expected={adapter.ExpectedMemory(new HeadlessPlayerId(2), 2)}",
         $"p2:deck={Format(adapter.EvaluateDeckLossOnDraw(new HeadlessPlayerId(2), 1))}",
         $"p2:security={Format(adapter.EvaluateSecurityAttack(new HeadlessPlayerId(1), new HeadlessPlayerId(2)))}",
-        $"p1:addSecurity={adapter.CanAddSecurity(new HeadlessPlayerId(1))}",
-        $"p1:reduceSecurity={adapter.CanReduceSecurity(new HeadlessPlayerId(1))}",
+        $"p1:deck={Format(adapter.EvaluateDeckLossOnDraw(new HeadlessPlayerId(1), 1))}",
+        $"p1:security={Format(adapter.EvaluateSecurityAttack(new HeadlessPlayerId(2), new HeadlessPlayerId(1)))}",
     };
 }
 
