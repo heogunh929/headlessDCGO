@@ -1,11 +1,10 @@
 name: CI
 
-# Build (compile) gate for the headless engine and the entire test suite.
+# Build (compile) gate for the headless engine and the RL adapter.
 #
-# NOTE: tests are NOT executed on CI. ~81 of the test projects read the original Unity sources under
-# DCGO/ at runtime for AS-IS parity verification, and DCGO/ is git-ignored (large, local-only). So
-# CI guarantees that everything COMPILES (the key safety net while Phase 4 edits thousands of card
-# effect files), while the full test run is done locally via scripts/run-tests.* where DCGO/ exists.
+# NOTE: the former tests/ suite was discarded (2026-07-24) — its baselines were self-referential to a
+# defective TO-BE engine and could not serve as an AS-IS fidelity or regression oracle. A new suite
+# will be built only after the mirror is a verified 1:1 of AS-IS. Until then CI is a pure compile gate.
 
 on:
   push:
@@ -29,17 +28,3 @@ jobs:
 
       - name: Build RL adapter
         run: dotnet build src/HeadlessDCGO.Rl/HeadlessDCGO.Rl.csproj -c Release --nologo
-
-      - name: Build all test projects
-        shell: bash
-        run: |
-          fail=0
-          for proj in $(find tests -name '*.Tests.csproj' | sort); do
-            echo "::group::build $proj"
-            if ! dotnet build "$proj" -c Release --nologo; then
-              echo "::error::build failed: $proj"
-              fail=1
-            fi
-            echo "::endgroup::"
-          done
-          exit $fail
