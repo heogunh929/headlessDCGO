@@ -1,0 +1,120 @@
+# BOTH 344 대조 — 결함여부=Y 유지(non) 115건 = 감사 non 110 + 선대조 5
+
+## 선대조 5건(opus 심층)
+- CardSource.cs — 선대조: 삭제89·로직상이22(공백정규화·DualColor·Level센티넬 등)
+- Permanent.cs — 선대조: 부재15·로직차6(Level센티넬·CanMove가드·breeding dead-code)
+- AttackProcess.cs — 선대조: 재진입가드협착·fizzle→failure경로·창타이밍·cardEffect손실
+- AutoProcessing.cs — 선대조: DP삭제위임(R2-P2-4)·승패위임·predicate가드추가
+- CardEffectCommons.cs — 선대조: OptionSecurityEffect삭제·param드롭·cost등록→인라인
+
+## Sonnet 감사 non 110건
+- StartTurnTamerMemory.cs — TOBE는 "TODO: Skeleton only. Port or implement deterministic .NET logic later." 주석 8줄뿐인 스텁이며 AS-IS의 GetSkillIndexAutomaticOrder 로직(39행
+- CEntity_Base.cs — TO-BE ports only the CardColor enum (per its own header comment: 'only the members ported effect code needs so far are mirrored here'). The entire AS-IS CEntity
+- CEntity_Effect.cs — TO-BE는 'TODO: Skeleton only' 7줄 스텁; AS-IS의 virtual CardEffects(EffectTiming,CardSource)·GetCardEffects(필터링 포함)·static isExistOnField(:10-29) 전부 미이식
+- CEntity_EffectController.cs — AS-IS AddCardEffect(string,string)(:179-241, reflection Component 부착)가 TO-BE에서 통째로 삭제(대체 배선 없음, MISSING.md만 기재); GetUseCountThisTurn에 AS-IS에 없는 CEntityUseCycle.
+- CardController.cs — AS-IS defines 35 classes in CardController.cs; TO-BE CardController.cs defines only 29. Six AS-IS classes are entirely absent from the TO-BE file (not substrate
+- CardDistributionTab.cs — TO-BE is a 7-line skeleton stub ('TODO: Skeleton only') while AS-IS has real logic (SetCardDistributionTab: count via deckData.AllDeckCards().Count(CardConditio
+- CanSuspend.cs — AS-IS CanActivateSuspendCostEffect(CardSource,bool)(:10-14)가 TO-BE 이 파일에서 누락되고 주석상 '동일 시그니처로 CardEffectCommons.cs에 이미 존재'라고 위임 처리(이 파일만으로 등가 확인 불가)
+- CanUnsuspend.cs — AS-IS CanUnsuspend(Permanent) (1 method) is NOT in this file — TO-BE's own comment states it is instead defined in CardEffectCommons.cs (to avoid a CS0111 dupli
+- OnDeletion.cs — IsByBattle (AS-IS :82-85 = GetBattleFromHashtable(hashtable)!=null only) gains an added OR fallback ReadCauseMarker(hashtable, ByBattleCauseKey) not present in 
+- OptionEffect.cs — CanTriggerOptionMainEffect is verbatim, but CanDeclareOptionDelayEffect (AS-IS :27-38) is NOT in this file — TO-BE's own comment states it is instead defined in
+- DNADigivolveEffects.cs — DNADigivolvePermanentsIntoHandOrTrashCard's real body (AS-IS :458-624, SetJogressEvoRootsController/PunRPC/WaitUntil flow) is NOT present in this TO-BE file — i
+- GameContextDeterminarion.cs — AS-IS는 CardEffectCommons partial 65개 심볼(IsExistOnField/Battle/Breeding/Trash/Security 계열, IsPermanentExistsOn* 계열, MatchCondition*/HasMatchCondition* 계열, IsOwne
+- ChangeDP.cs — TO-BE는 AS-IS 시그니처를 그대로 둔 채 본문 전체(CanUseCondition/ChangeDPClass 생성/AddEffectToPermanent/CreateBuffEffect·DebuffEffect 분기)를 다른 파일의 오버로드 ChangeDigimonDP(...,CardSo
+- ChangeOriginDP.cs — TO-BE는 activateClass?.EffectSourceCard를 붙여 다른 오버로드(CardEffectCommons.cs:3392의 ChangeBaseDigimonDP)로 위임하는 2줄 브릿지일 뿐, AS-IS의 실제 로직(CanUseCondition/ChangeBaseDPSta
+- ChangeSAttack.cs — TOBE 파일은 두 ChangeDigimonSAttack 오버로드 몸체가 전부 다른 파일(CardEffectCommons.cs:1812)의 병합된 구현으로 위임되는 브릿지뿐이며, 실제 조건분기/AddEffectToPermanent/버프이펙트 로직이 이 파일에 없어 이 파일만으로 AS-I
+- DeleteSelf.cs — TOBE의 AddSelfDeleteEffect 몸체는 실제 로직 없이 다른 파일(CardEffectCommons.cs:2663)의 문자열키 기반 구현으로 위임하는 브릿지이며, AS-IS의 permanent.PermanentEffects.Add(GetCardEffect/GetDetailE
+- TamerBecomesDigimonThatCanNotDigivolve.cs — TO-BE drops `changeBaseDPClass.SetActivatedTime(DateTime.Now);` (AS-IS line 48), comment-justified as "a Unity presentation-ordering timestamp with no headless 
+- GiveEffectToPermanentOrPlayer.cs — AddEffectToPermanent에 AS-IS에 없는 `if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty) return;` 조기-반환 가드 추가(AS-IS는 이 null 체크 없이 바로 switch 진입); AddE
+- ChangeDP.cs — TO-BE 본문이 실로직 없이 다른 오버로드(5-인자 ChangeDigimonDPPlayerEffect(permanentCondition, changeValue, effectDuration, activateClass?.EffectSourceCard, activateClass))로 위임하
+- ChangePlayCost.cs — TO-BE는 실제 로직(가드·PermanentCondition·ChangeCostClass 생성·AddEffectToPlayer·PermanentsForTurnPlayer 순회 VFX) 전체를 담지 않고, 다른 파일(CardEffectCommons.cs:3372 소재 CardSource
+- ChangeSAttack.cs — AS-IS sibling method InvertDigimonSAttackPlayerEffect (AS-IS :73-131, full PermanentCondition/AddEffectToPlayer/buff-debuff-loop logic) is entirely MISSING from
+- HashtableSetting.cs — PierceCheckHashtableOfPermanent가 AS-IS 4키(WinnerPermanents/_real,LoserPermanents/_real) 직접구성 대신 BuildBattleResultPayload로 위임하며 AS-IS에 없는 LoserCard/WasTie 키를 신규 
+- ArmorPurge.cs — ArmorPurgeProcess의 핵심 상태변경 로직(구 ArmorPurgeClass.ArmorPurge의 RemoveFromAllArea/AddTrashCard(!IsToken)/WhenTopCardTrashed 방출/SetChangedLocationTime 상당)이 이 파일이 아닌 
+- Blitz.cs — BlitzProcess: AS-IS는 beforeOnAttackCoroutine 유무와 무관하게 항상 동일 경로(CanActivateBlitz(cardSource,activateClass)->SelectAttackEffect.SetUp(cardEffect:activateClass))를 
+- Collision.cs — AS-IS GainCollision의 !targetPermanent.TopCard.CanNotBeAffected(activateClass) 분기 전체 삭제; 해당 분기 내 CreateBuffEffect VFX 호출도 함께 삭제(AS-IS:26-29 대응 로직 없음, TO-BE는 AddE
+- Decode.cs — DecodeProcess's final PlayPermanentCards call: AS-IS passes activateClass: activateClass (the live ICardEffect, TrashDigivolutionCards.cs/CardEffectCommons.cs:2
+- Fortitude.cs — CanActivateFortitude에서 AS-IS는 CardEffectCommons.CanPlayAsNewPermanent(cardSource, payCost:false, cardEffect, root: SelectCardEffect.Root.Trash)로 root 인자를 명시 전달하
+- MindLink.cs — (1) AS-IS CanSelectPermanentCondition(MindLink.cs:25) 술어 permanent.DigivolutionCards.Count(cs=>cs.IsTamer && !cs.IsFlipped)==0 에서 TOBE(CanSelectPermanentConditi
+- Progress.cs — AS-IS GainProgress(Permanent,EffectDuration,ICardEffect) (:10-40, ProgressStaticEffect 등록+AddEffectToPermanent)가 TO-BE 파일 및 전체 Script 트리에서 완전히 누락(grep 0건); CanA
+- Save.cs — CanActivateSave/MatchConditionPermanentCount/HasMatchConditionPermanent에 AS-IS에 없는 CardSource card 파라미터가 신설되어 전역(양측 플레이어) 스캔의 범위 결정 방식이 바뀜(EnumerateFieldPermane
+- Training.cs — TO-BE가 AS-IS에 없는 `libraryCards.Count > 0` 가드를 추가해 라이브러리가 빈 경우 AddDigivolutionCardsBottom 호출을 건너뜀; AS-IS는 무조건 card.Owner.LibraryCards[0]에 접근(가드 없음) — 코멘트 자체가 이 가
+- IsMaxCost.cs — IsMaxCost substitutes the owner-scoped AS-IS predicate IsPermanentExistsOnOwnerBattleArea(permanent, permanent.TopCard) with the generic IsPermanentExistsOnBatt
+- IsMinDigivolutionCards.cs — AS-IS는 permanent.TopCard==null을 명시적으로 가드하나 TO-BE는 permanent.InstanceId.IsEmpty만 확인하고 뒤에서 permanent.TopCard.Context를 무가드로 역참조(널가드 의미 변경); 카운트 집계 로직이 AS-IS는 perma
+- IsMinLevel.cs — IsMinLevel: AS-IS는 permanent.TopCard.Owner!=owner 체크 후 IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, permanent.TopCard)(소유자-연동 검사)를 호출; TO-BE는 permanent.
+- RevealLibrary.cs — Mode-based card routing (AddHand/Discard/PlayForFree/PlayForCost) is reimplemented directly in TO-BE via StageRevealMovesAsync/PlayPermanentCards, whereas AS-IS
+- ShowReducedCost.cs — AS-IS ShowReducedCost 본문(PlayCardClass/PayCost 체크, Card.Owner.ExpectedMemory(Card.PayingCost(...)) 계산, ShowMemoryPredictionLine 호출, WaitForSeconds)이 TO-BE에서 통째로
+- TrashDigivolutionCards.cs — TO-BE is a bridge/delegate: the AS-IS-signature overload only adapts parameters and calls a DIFFERENT overload of SelectTrashDigivolutionCards defined elsewhere
+- TrashLinkedCards.cs — TO-BE SelectTrashLinkedCards 본문이 AS-IS 1:1 가드(maxCount<=0/activateClass null)만 이식하고 실제 선택 루프(퍼머넌트 반복선택→링크카드 선택→ITrashLinkCards 트래시, AS-IS :44-180 전체)는 전부 삭제된 채 
+- CardEffectFactory.cs — PlaySelfDigimonAfterBattleSecurityEffect(AS-IS:285/TOBE:1006) 내부에서 6건: (1) AS-IS:390 IsPermanentExistsOnOwnerBattleArea(playedDigimon, playedDigimon.TopCard) 두번
+- ChangeSAttack.cs — AS-IS line 228 InvertSAttackStaticEffect: SetHashString($"InvertSecA_{card.CardID}") vs TO-BE line 238: SetHashString($"InvertSecA_{card.CardNumber}") - differe
+- ArmorPurge.cs — SetHashString uses `card.CardID` in AS-IS (ArmorPurge.cs:15) vs `card.CardNumber` in TO-BE — a different source field for the per-effect dedup hash string, not 
+- BlastDNADigivolution.cs — SelectCardCoroutine: AS-IS only materializes the played Permanent when a valid frameID exists (PreferredFrame()!=null && 0<=frameID<fieldCardFrames.Count guard,
+- Evade.cs — EvadeEffect's SetHashString uses $"Evade_{card.CardNumber}" in TO-BE versus $"Evade_{card.CardID}" in AS-IS — an undocumented field substitution (CardID vs Card
+- Fortitude.cs — AS-IS line 42: SetHashString($"Fortitude_{card.CardID}"...) vs TO-BE line 52: SetHashString($"Fortitude_{card.CardNumber}"...) - same CardID->CardNumber value s
+- Fragment.cs — AS-IS line 38: SetHashString($"Fragment_{card.CardID}"...) vs TO-BE line 48: SetHashString($"Fragment_{card.CardNumber}"...) - same CardID->CardNumber value sub
+- Scapegoat.cs — ScapegoatEffect SetHashString uses AS-IS card.CardID (:42) vs TO-BE card.CardNumber (:51) — different source property, not a substrate rename. CanUseCondition's
+- CardInfo.cs — TO-BE is a bare TODO skeleton stub (comment only, 0 members). AS-IS is a full MonoBehaviour with BackGrounds/BackGround/LinkBackground/CardImage/InheritedEffect
+- CardObjectController.cs — TO-BE ports only a subset of the AS-IS static helpers (RemoveFromAllArea/CreateNewPermanent/RemoveField/AddTrashCard/AddExecutingCard/AddSecurityCard/AddHandCar
+- CardPrefab_CreateDeck.cs — TO-BE가 7줄 스켈레톤('TODO: Skeleton only.')뿐이며 AS-IS 로직(643줄) 전체 미구현.
+- CheckCardPanel.cs — TO-BE가 7줄 스켈레톤('TODO: Skeleton only.')뿐이며 AS-IS 로직(435줄) 전체 미구현.
+- Combinations.cs — TOBE는 "TODO: Skeleton only. Port or implement deterministic .NET logic later." 주석 8줄뿐인 스텁이며 AS-IS의 GetCombinations/GetCombinationsCore/HighestValue/GetUniqueNam
+- ContinuousController.cs — TO-BE is a 7-line skeleton placeholder comment ("Skeleton only"); AS-IS has 1844 lines of real logic (token data, deck load/save, prefs, EndBattle coroutine, Ph
+- ConvertBinaryNumber.cs — TOBE는 "TODO: Skeleton only. Port or implement deterministic .NET logic later." 주석 8줄뿐인 스텁이며 AS-IS의 NStringToNKString/NKStringToNString/IntToNString/NStringToInt
+- CreateNewDeckButton.cs — TO-BE is a 7-line skeleton stub; AS-IS is a real 174-line component. No logic ported.
+- CutInProcess.cs — TO-BE는 STOP 주석뿐(코드 0줄)이고 AS-IS CutInProcessCoroutine(:12-109, end-game/DP<=0 trash/DP==0 Destroy 루프)이 dead-code·blocked-primitive 사유로 전량 미이식
+- DataBase.cs — TO-BE is an explicitly 'minimal mirror, grown member-by-member' — only ReplaceToASCII/IsXAntibodyString/keyword-EffectDiscription helpers/CardColorNameDictionar
+- DeckBuildingRule.cs — TO-BE가 7줄 스켈레톤(TODO 주석뿐)이고 AS-IS는 IsValidDeck/ModifiedDeckData/MaxCount_BanList/CanAddCard 등 실로직 212줄 전체 미이식
+- DeckCodeUtility.cs — TO-BE가 7줄 스켈레톤('TODO: Skeleton only. Port or implement deterministic .NET logic later.')뿐이며 AS-IS의 GetDeckBuilderFile/GetTTSDeckCode/GetDeckBuilderDeckCode/GetA
+- DeckData.cs — TO-BE는 7줄 TODO 스켈레톤("Skeleton only. Port or implement deterministic .NET logic later."); AS-IS는 840줄 실로직(덱코드 파싱 생성자, SortValue/DeckID/DeckName, DeckCards/Digita
+- DeckInfoPanel.cs — TO-BE is a 7-line skeleton stub; AS-IS is a real 350-line component. No logic ported.
+- DeckListPanel.cs — TO-BE가 7줄 스켈레톤(TODO 주석뿐)이고 AS-IS는 SetUpDeckListPanel/OpenCoroutine/SetUpDeckCard 등 실로직 176줄 전체 미이식
+- DetailCard_DeckEditor.cs — TO-BE는 'TODO: Skeleton only' 7줄 스텁; AS-IS의 SetUpDetailCard(UI 바인딩+로케일/색상 분기 로직 포함, :71-509)·OffDetailCard(:512-515)·EvoCostColorTab_DetailCard 클래스(:518-529) 전부 
+- DigiXrosEffectObject.cs — TO-BE는 7줄 TODO 스켈레톤; AS-IS의 EvolutionEffectAnimation 오버라이드(showCutInAnimation 가드·animTime), Shake, PlaySlashSE, ShakeIEnumerator(DOTween 시퀀스) 미포팅
+- EditDeck.cs — TO-BE is a 7-line skeleton stub (Decision: PORT / TODO comment only, no code); AS-IS has ~1350 lines of real deck-editor logic (drag/drop, card add/remove, filt
+- Link_Examples.cs — TO-BE는 'TODO: Skeleton only' 7줄 스텁; AS-IS CardEffects(EffectTiming,CardSource) 오버라이드 전체(Link Condition/Basic link/WhenLinked ×2/Trash 1 Link card/Change Link Ma
+- Effects.cs — TO-BE is a 7-line skeleton stub ("TODO: Skeleton only. Port or implement deterministic .NET logic later."); AS-IS is a real 2314-line MonoBehaviour with ~20 eff
+- FieldPermanentCard.cs — TO-BE is a 7-line skeleton stub ("TODO: Skeleton only."); AS-IS is a real component (901 lines per batch weight) with FieldPermanentCard fields/methods (Parent,
+- GManager.cs — TO-BE only implements instance/turnStateMachine/autoProcessing/autoProcessing_CutIn/attackProcess/userSelectionManager/GetComponent<T>(); AS-IS's real gameplay-
+- GSSReader.cs — TO-BE is a 7-line skeleton stub ("TODO: Skeleton only. Port or implement deterministic .NET logic later."); AS-IS has full CSV-fetch/parse logic (GetFromWeb/Con
+- GameContext.cs — Missing from TO-BE: SetPlayerID, PlayerFromID(int), SwitchTurnPlayer/DoSwitchTurnPlayer, FirstPlayer field, and the constructor GameContext(You,Opponent). IsSec
+- GameRandom.cs — TO-BE is a bare TODO skeleton stub (comment only, 0 members). AS-IS is a fully-implemented deterministic Xoshiro256**/SplitMix64 PRNG with Seed(long), Range(int
+- HandCard.cs — TO-BE is a 7-line skeleton placeholder comment; AS-IS has 1025 lines of real UI/state logic (SetUpHandCardImage, ShowPlayCost, ShowCostLevel, click/drag handlin
+- JogressEffectObject.cs — TO-BE는 헤더 주석만 있는 빈 스켈레톤; AS-IS의 EvolutionEffectAnimation 오버라이드 미포팅
+- JsonSerializedClass.cs — TO-BE는 헤더 주석만 있는 빈 스켈레톤('TODO: Skeleton only'); AS-IS의 6개 데이터 클래스(RootObject/CardData/AlternateArt/DigivolveCondition/CardName/Restriction, 약 30개 필드) 전부 미포팅
+- LoadCSV_CardEntity.cs — TO-BE is a 7-line skeleton stub with zero symbols. AS-IS (8 lines) is a ScriptableObject with a [CreateAssetMenu] attribute and a public TextAsset csvFile field
+- LoadJSON_CardEntity.cs — TO-BE는 7줄짜리 스켈레톤 스텁(Decision: PORT / TODO 주석뿐, 코드 없음); AS-IS는 실제 JSON 카드엔티티 로딩 로직을 보유(전체 미포팅).
+- ActivateCardAction.cs — AS-IS ActivateCardAction(byte[] bytes) 역직렬화 생성자가 TO-BE에서 삭제; AS-IS Deserialize/Serialize 메서드(Protocol.Deserialize/Serialize 기반)가 TO-BE에서 전량 삭제(대체 배선 없음)
+- ActivatePermanentAction.cs — AS-IS has a second constructor ActivatePermanentAction(byte[] bytes) plus Deserialize(byte[]) and Serialize() methods implementing Photon RPC (de)serialization;
+- AttackPermanentAction.cs — TO-BE는 AS-IS의 byte[] 생성자, Deserialize(byte[]), Serialize() 메서드 3개를 전부 삭제(Photon 전송 스트립 주석은 있으나 대체 구현 없이 순수 삭제); Execute만 남고 IGamePacket 계약 자체가 미이행
+- CheatAction.cs — TO-BE는 7줄 TODO 스켈레톤; AS-IS는 CheatAction 클래스 전체(2종 생성자, Execute의 8종 CheatType 분기·GManager 코루틴 디스패치, Deserialize, Serialize) 미포팅
+- PlayCardAction.cs — AS-IS has a second constructor PlayCardAction(byte[] bytes) plus Deserialize(byte[]) and Serialize() Photon-protocol methods (PlayCardAction.cs:21-100) that are
+- MultipleSkills.cs — AS-IS :270/:304 AutomaticOrder.GetSkillIndexAutomaticOrder + ContinuousController.autoEffectOrder auto-pick shortcut (bypasses interactive order choice when the
+- GamePacketFactory.cs — TO-BE is a 7-line skeleton stub ("TODO: Skeleton only."); AS-IS has full Register/Create/GetId packet-factory logic — entirely unported.
+- GamePacketRegistration.cs — TO-BE가 7줄 스켈레톤('TODO: Skeleton only.')뿐이며 AS-IS의 PacketRegistration.RegisterAll(6개 GamePacketFactory.Register 호출) 전체 미구현.
+- IGamePacket.cs — TO-BE는 7줄 스켈레톤 주석뿐; AS-IS의 IGamePacket 인터페이스(Serialize/Deserialize 계약) 자체가 미이행
+- NextPhaseButton.cs — TO-BE가 7줄 스켈레톤(TODO 주석뿐)이고 AS-IS는 OnClick/CoverCoroutine/Update/SwitchTurnSprite 등 실로직 203줄 전체 미이식
+- OfficialCardListUtility.cs — TO-BE is a 7-line skeleton stub (Decision: PORT / TODO comment only, no code); AS-IS has ~1330+ lines of real card-data-parsing logic (GetCardDatas, AttachCardD
+- PermanentDetail.cs — TO-BE is a 7-line skeleton placeholder comment; AS-IS has 444 lines of real logic (OpenUnitDetail effect-string building, keyword flags, AddDetails scan, animat
+- PermanentEffectFactory.cs — CanNotSwitchAttackTargetEffect.PermanentCondition (AS-IS PermanentEffectFactory.cs:123-126: `permanent != null && permanent.TopCard && permanent == targetPerman
+- Player.cs — self-documented partial mirror: CanMove (P6C1) drops the AS-IS fieldCardFrames empty-frame capacity check (Player.cs:1172, `fieldCardFrames.Count(frame=>frame.I
+- CardSelection.cs — TO-BE is a 7-line skeleton stub ("TODO: Skeleton only."); AS-IS has the IPlayerSelection CardIDList holder class — entirely unported.
+- IPlayerSelection.cs — TO-BE가 7줄 스켈레톤 주석뿐('TODO: Skeleton only.')이며 AS-IS는 빈 인터페이스 선언이지만 실제 마커 인터페이스 정의(interface IPlayerSelection{})가 TO-BE에 없음(인터페이스 자체 미이식).
+- PermanentSelection.cs — TO-BE is a skeleton stub ('TODO: Skeleton only') while AS-IS is a small real data class (IsTurnPlayerList/PermanentIDList fields + constructor) — no fields or c
+- ValueSelection.cs — TO-BE is a bare TODO skeleton stub (comment only, 0 members). AS-IS has ValueSelection(int)/ValueSelection(bool) constructors and ValueAsInt()/ValueAsBool() met
+- SelectBurstDigivolutionEffect.cs — BounceTamer: the AS-IS HandBounceClaass bounce process's PRE cut-in windows (WhenReturntoHandAnyone/WhenRemoveField, CardController.cs:2644-2660) are explicitly
+- SelectCardEffect.cs — IsSecurityLooking flag (AS-IS :380/:1008) never set in TO-BE Activate (file's own comment RD-W4-4 confirms no mirror surface); AS-IS DeckData.SortedCardsList + 
+- SelectCardPanel.cs — TO-BE is an intentionally bodiless stub (comment: 'left intentionally bodiless', reclassified as pure Unity UI panel, out of scope). All AS-IS logic (OpenSelect
+- SelectCountEffect.cs — AS-IS :118-123 autoMaxCardCount/autoMinDigivolutionCost preference shortcut (auto-resolves to min/max WITHOUT asking when the client setting + _preferMin/_isDig
+- SelectDeck.cs — TO-BE가 7줄 스켈레톤 주석뿐('Left intentionally bodiless')이며 AS-IS의 SetUpSelectDeck/SetDeckList/OnClickCopyDeckListButton/OnClickPasterDeckListButton/OnClickDeleteAllDec
+- SelectHandEffect.cs — AS-IS Discard builds IDiscardHand(cardSource, hashtable) carrying {"CardEffect":_cardEffect} per-card (:709/:729); TO-BE drops the hashtable entirely and instea
+- SelectJogressEffect.cs — TO-BE is an intentionally bodiless stub (comment: 'left intentionally bodiless', reclassified as UI-flow orchestrator). All AS-IS logic (SelectWheterToJogress, 
+- SelectPermanentEffect.cs — Attack Mode가 AS-IS(:1009-1036)는 각 SelectAttackEffect.Activate()를 순차 await해 공격 완결 후 _afterSelectPermanentCoroutine 실행이나 TO-BE의 TryOpenAttack은 첫 공격자 선택만 열고 즉시 반환(
+- ShowPhaseNotificationObject.cs — TO-BE는 헤더 주석만 있는 빈 스켈레톤; AS-IS의 Init/ShowPhase/CloseCoroutine(GManager.turnStateMachine.IsSelecting 토글 포함)/Off 전부 미포팅
+- ShowPhaseObject.cs — TO-BE is a skeleton stub ('TODO: Skeleton only.'). All AS-IS logic (Start/Update/ShowPhase, PhaseIcon.SetUpPhaseIcon) is absent.
+- ShuffleDeckCode.cs — TO-BE is a 7-line skeleton stub ('TODO: Skeleton only. Port or implement deterministic .NET logic later.') while AS-IS has full deck-code encode/decode logic (R
+- SpellRestoration.cs — TO-BE is a bare TODO skeleton stub (comment only, 0 members). AS-IS has the convertTable field plus ToSpellRestoration(object) and FromSpellRestoration<T>(strin
+- StarterDeck.cs — TO-BE가 7줄 스켈레톤('TODO: Skeleton only.')뿐이며 AS-IS의 StarterDeck.SetStarterDecks/StarterDeckData.AddDeckData/HasPlayerPrefs 전체 미구현.
+- StreamingAssetsUtility.cs — TO-BE is a skeleton stub ('TODO: Skeleton only. Port or implement deterministic .NET logic later.'). All AS-IS logic (ReadFile, GetSprite, GetCardImageData, Get
+- TurnStateMachine.cs — AS-IS 3374줄 vs TO-BE 825줄. SetMainPhase UI디스패치 전체(AS-IS :1354-2872, ~1500줄)가 '비-스코프'로 완전 누락; AI 자동플레이 로직(:989-1160) 삭제(대체 아님, 에이전트가 대신한다는 서술뿐); EndPhase의 버킷리셋 로
+- UserSelectionManager.cs — AS-IS opponent/AI branch (SetIntSelection/SetBoolSelection :127-140/:181-194) does a specific UnityEngine.Random.Range uniform pick among the valid selectionEle

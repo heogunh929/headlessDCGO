@@ -1,0 +1,25 @@
+tobe_path,verdict,diff_count,summary
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/GetFromHashtable.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CEntity_EffectController.cs,non,4,"AS-IS AddCardEffect(string,string)(:179-241, reflection Component 부착)가 TO-BE에서 통째로 삭제(대체 배선 없음, MISSING.md만 기재); GetUseCountThisTurn에 AS-IS에 없는 CEntityUseCycle.StagedCount 가산 로직 추가; RegisterUseEffectThisTurn에 AS-IS에 없는 CEntityUseCycle.TryStage 스테이징 분기 추가; RemoveUseEffectThisTurn에 AS-IS에 없는 CEntityUseCycle.TryRefund 분기 추가(register-before-body 트랜잭션 신규 도입, AS-IS는 단순 리스트 add/remove뿐)"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/HashtableSetting.cs,non,3,"PierceCheckHashtableOfPermanent가 AS-IS 4키(WinnerPermanents/_real,LoserPermanents/_real) 직접구성 대신 BuildBattleResultPayload로 위임하며 AS-IS에 없는 LoserCard/WasTie 키를 신규 추가; WhenPermanentWouldRemoveFieldCheckHashtable에 AS-IS에 없는 (permanents,bool byBattleCause,bool) 오버로드 신규 추가(ByBattleCauseKey 마커 기록); OnDeletionHashtable에 AS-IS에 없는 (permanents,bool byEffectCause,bool byBattleCause,bool) 오버로드 신규 추가(ByEffectCauseKey/ByBattleCauseKey 마커 기록)"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CheckEffectDisabledClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만; 주석만 추가)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/DeckBuildingRule.cs,non,1,"TO-BE가 7줄 스켈레톤(TODO 주석뿐)이고 AS-IS는 IsValidDeck/ModifiedDeckData/MaxCount_BanList/CanAddCard 등 실로직 212줄 전체 미이식"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Blitz.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만: IEnumerator/Func<IEnumerator>→Task, PermanentOfThisCard()→ResolvePermanentOfThisCard)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/NextPhaseButton.cs,non,1,"TO-BE가 7줄 스켈레톤(TODO 주석뿐)이고 AS-IS는 OnClick/CoverCoroutine/Update/SwitchTurnSprite 등 실로직 203줄 전체 미이식"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectFactory/VortexCanAttackPlayers.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만: PermanentOfThisCard()→ResolvePermanentOfThisCard, CanNotBeAffected(ICardEffect)→CanNotBeAffected(class))
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/DeckListPanel.cs,non,1,"TO-BE가 7줄 스켈레톤(TODO 주석뿐)이고 AS-IS는 SetUpDeckListPanel/OpenCoroutine/SetUpDeckCard 등 실로직 176줄 전체 미이식"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenLinked.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Retaliation.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만: IEnumerator→Task, PermanentOfThisCard()→ResolvePermanentOfThisCard)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CutInProcess.cs,non,1,"TO-BE는 STOP 주석뿐(코드 0줄)이고 AS-IS CutInProcessCoroutine(:12-109, end-game/DP<=0 trash/DP==0 Destroy 루프)이 dead-code·blocked-primitive 사유로 전량 미이식"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffects/ChangeCardDPClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/KeyWordEffects/Ascension.cs,1to1,0,"대조 심볼 N개 전부 일치(substrate 번역만: IEnumerator→Task, card.Owner.CanAddSecurity(activateClass)→new Player(...).CanAddSecurity(id), StartCoroutine/WaitForEndSelect→await)"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffects/CannotReduceCostClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/OptionResolutionClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만: IEnumerator→Task, StartCoroutine→await)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/CanSuspend.cs,non,1,"AS-IS CanActivateSuspendCostEffect(CardSource,bool)(:10-14)가 TO-BE 이 파일에서 누락되고 주석상 '동일 시그니처로 CardEffectCommons.cs에 이미 존재'라고 위임 처리(이 파일만으로 등가 확인 불가)"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenUseDigiBurst.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnMove.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/KeyWordEffects/Collision.cs,non,2,"AS-IS GainCollision의 !targetPermanent.TopCard.CanNotBeAffected(activateClass) 분기 전체 삭제; 해당 분기 내 CreateBuffEffect VFX 호출도 함께 삭제(AS-IS:26-29 대응 로직 없음, TO-BE는 AddEffectToPermanent 후 바로 Task.CompletedTask)"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/MainPhaseAction/ActivateCardAction.cs,non,2,"AS-IS ActivateCardAction(byte[] bytes) 역직렬화 생성자가 TO-BE에서 삭제; AS-IS Deserialize/Serialize 메서드(Protocol.Deserialize/Serialize 기반)가 TO-BE에서 전량 삭제(대체 배선 없음)"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffects/ChangeDPDeleteEffectMaxDPClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/ShowReducedCost.cs,non,1,"AS-IS ShowReducedCost 본문(PlayCardClass/PayCost 체크, Card.Owner.ExpectedMemory(Card.PayingCost(...)) 계산, ShowMemoryPredictionLine 호출, WaitForSeconds)이 TO-BE에서 통째로 Task.CompletedTask 무동작으로 대체(UI-ONLY 주장이나 계산·호출 로직 자체가 전량 삭제)"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenDiscardSecurity.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)

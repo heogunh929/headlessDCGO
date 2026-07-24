@@ -1,0 +1,26 @@
+tobe_path,verdict,diff_count,summary
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/SelectDigiXrosClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/GameContextDeterminarion.cs,non,63,"AS-IS는 CardEffectCommons partial 65개 심볼(IsExistOnField/Battle/Breeding/Trash/Security 계열, IsPermanentExistsOn* 계열, MatchCondition*/HasMatchCondition* 계열, IsOwnerEffect/IsOpponentEffect, GetUniqueColourCount*, OwnerHas1OrLessTamers, UniversalRootCanNoSelectCondition, EnforceLocationCheck, CardPermanenceMap/FailurePermanent 필드 등)을 담은 실질 본체(:1-881)인데, TO-BE는 그중 IsExistOnBattleAreaDigimonTrigger/Activate 2개만 이 파일에 두고 나머지는 주석상 '이미 CardEffectCommons.cs에 포팅됨'이라 주장(이 파일쌍만으로는 검증 불가); IsOwnerTurn/IsOpponentTurn도 CardEffectCommons가 아닌 별도 정적 클래스 TurnOwnershipHelpers로 이전·시그니처 변경(HeadlessPlayerId 기반)"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/DetailCard_DeckEditor.cs,non,3,"TO-BE는 'TODO: Skeleton only' 7줄 스텁; AS-IS의 SetUpDetailCard(UI 바인딩+로케일/색상 분기 로직 포함, :71-509)·OffDetailCard(:512-515)·EvoCostColorTab_DetailCard 클래스(:518-529) 전부 미이식"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Partition.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/Effect Examples/Link_Examples.cs,non,1,"TO-BE는 'TODO: Skeleton only' 7줄 스텁; AS-IS CardEffects(EffectTiming,CardSource) 오버라이드 전체(Link Condition/Basic link/WhenLinked ×2/Trash 1 Link card/Change Link Max Count/App Fusion 6개 효과 블록, :9-291) 미이식"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/KeyWordEffects/Vortex.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/IEnumerableExtension.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/KeyWordEffects/Progress.cs,non,1,"AS-IS GainProgress(Permanent,EffectDuration,ICardEffect) (:10-40, ProgressStaticEffect 등록+AddEffectToPermanent)가 TO-BE 파일 및 전체 Script 트리에서 완전히 누락(grep 0건); CanActivateProgress/ProgressProcess만 이식됨"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Pierce.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/ChangeCardDP.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/CanNotBlock.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만; ICardEffect cause 스레딩·가드 순서까지 AS-IS와 동일)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectFactory/CanNotBeDeletedByEffect.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/PermanentEnterField/PermanentEnterField.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectFactory/CanNotReturnToHand.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenRemoveField.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnAddDigivolutionCards.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnSuspend.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/DigiXrosEffects.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffects/IcecladClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffects/CanNotSelectBySkillClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffects/TreatAsDigimonClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffects/AddLinkConditionClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffects/ChangeCardNamesClass.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/CEntity_Effect.cs,non,3,"TO-BE는 'TODO: Skeleton only' 7줄 스텁; AS-IS의 virtual CardEffects(EffectTiming,CardSource)·GetCardEffects(필터링 포함)·static isExistOnField(:10-29) 전부 미이식"
+src/HeadlessDCGO.Engine/Assets/Scripts/Script/Utils.cs,1to1,0,대조 심볼 N개 전부 일치(substrate 번역만)
