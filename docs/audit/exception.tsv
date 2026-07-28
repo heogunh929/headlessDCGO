@@ -1,0 +1,3 @@
+port_file	original	port	what_differs
+CardController	/home/hg/git/headlessDCGO/DCGO/Assets/Scripts/Script/CardController.cs:1325	/home/hg/git/headlessDCGO/src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardController.cs:3962	first-empty-frame fallback scan over `card.Owner.fieldCardFrames` removed; `0<=frameId<count` gate became `if (framePlaceable)`
+Permanent	Permanent.cs:2074	ABSENT	CanMove empty-battle-slot capacity guard (fieldCardFrames.Count(empty && battleArea)==0 → return false) is omitted, so port permits a move on a full field where AS-IS forbids it

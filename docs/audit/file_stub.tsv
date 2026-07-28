@@ -1,0 +1,2 @@
+port_file	original	port	what_differs
+CheatAction	DCGO/Assets/Scripts/Script/MainPhaseAction/CheatAction.cs	ABSENT	file not ported (skeleton stub, 8 original members)
