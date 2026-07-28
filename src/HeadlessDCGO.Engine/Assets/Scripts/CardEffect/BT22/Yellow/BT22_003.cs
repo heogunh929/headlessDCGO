@@ -90,7 +90,7 @@ public sealed class BT22_003 : CEntity_Effect
 
                     if (targetPermanent != null)
                     {
-                        await CardEffectCommons.ChangeDigimonDP(targetPermanent: targetPermanent, changeValue: -2000, effectDuration: HeadlessDCGO.Engine.Headless.Effects.EffectDuration.UntilEachTurnEnd, activateClass: activateClass);
+                        await CardEffectCommons.ChangeDigimonDP(targetPermanent: targetPermanent, changeValue: -2000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass);
                     }
                 }
             }

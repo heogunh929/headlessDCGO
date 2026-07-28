@@ -60,4 +60,23 @@ public sealed class BareCauseEffect : ICardEffect
 
         return For(new CardSource(context, sourceId, instance.OwnerId, instance.OwnerId));
     }
+
+    /// <summary>Like <see cref="For(EngineContext, HeadlessEntityId)"/> but returns <c>null</c> for an empty /
+    /// unresolvable cause instead of a source-less stub. AS-IS threads a NULL causing effect for a rule-sourced
+    /// (battle / DP-zero / end-of-turn) or unknown cause, and the immunity getters short-circuit that null to
+    /// "not immune" (<c>CardSource.CanNotBeAffected</c>: <c>if (_cardEffect == null) return false</c>;
+    /// <c>Permanent.ImmuneFromStackTrashing</c> is only reached with a non-null cause). Use this at
+    /// immunity/restriction call sites so the AS-IS null path fires exactly, rather than evaluating the
+    /// predicate against a null-owner source-less stub (RD-BCE-01).</summary>
+    public static ICardEffect? ForOrNull(EngineContext context, HeadlessEntityId sourceId)
+    {
+        if (sourceId.IsEmpty
+            || !(context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance) && instance is not null)
+            || instance.OwnerId.IsEmpty)
+        {
+            return null;
+        }
+
+        return For(new CardSource(context, sourceId, instance.OwnerId, instance.OwnerId));
+    }
 }

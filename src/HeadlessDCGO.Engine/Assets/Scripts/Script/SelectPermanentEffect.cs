@@ -18,11 +18,11 @@
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
+using System.Collections;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class SelectPermanentEffect
@@ -178,122 +178,12 @@ public sealed class SelectPermanentEffect
         return !new Permanent(_context, candidateId).CanSelectBySkill(skill);
     }
 
-    /// <summary>Map the configured Mode to one mutation per selected target. Attack/Custom yield no
-    /// built-in mutation (the original delegates those to a bespoke coroutine); Degenerate is the
-    /// de-digivolve subsystem (D-4) and is not yet a mutation.</summary>
-    public IReadOnlyList<EffectMutation> BuildMutations(IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(selected);
-
-        var mutations = new List<EffectMutation>();
-        foreach (HeadlessEntityId target in selected)
-        {
-            EffectMutation? mutation = BuildMutation(target);
-            if (mutation is not null)
-            {
-                mutations.Add(mutation);
-            }
-        }
-
-        return mutations;
-    }
-
-    /// <summary>Resolve the Mode's mutations against a live mutation sink (per-target, in selection order).</summary>
-    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        foreach (EffectMutation mutation in BuildMutations(selected))
-        {
-            sink.Apply(mutation);
-        }
-    }
-
-    private EffectMutation? BuildMutation(HeadlessEntityId target)
-    {
-        return _mode switch
-        {
-            Mode.Tap => Mutation(MatchStateMutationSink.SuspendKind, target),
-            Mode.UnTap => Mutation(MatchStateMutationSink.UnsuspendKind, target),
-            Mode.Destroy => Mutation(MatchStateMutationSink.DeleteKind, target),
-            Mode.Bounce => Mutation(MatchStateMutationSink.ReturnToHandKind, target),
-            Mode.PutLibraryTop => Mutation(MatchStateMutationSink.ReturnToDeckTopKind, target),
-            Mode.PutLibraryBottom => Mutation(MatchStateMutationSink.ReturnToDeckBottomKind, target),
-            // (B5) NOTE: AS-IS guards every placement with Owner.CanAddSecurity(cardEffect); the restriction
-            // effect (CannotAddSecurityClass) is an unported skeleton with no grants — fold the gate here
-            // when it lands (fidelity_debt.md, same seam as Ascension/Save).
-            Mode.PutSecurityTop => SecurityMutation(target, toBottom: false),
-            Mode.PutSecurityBottom => SecurityMutation(target, toBottom: true),
-            // (B5) AS-IS Degenerate: new IDegeneration(selected, _degenerationCount, effect) — the D-4
-            // de-digivolve subsystem (rookie floor + WhenTopCardTrashed are inside the helper, 1:1 with
-            // IDegeneration's Level==3 stop).
-            Mode.Degenerate => new EffectMutation(
-                MatchStateMutationSink.DeDigivolveKind,
-                _sourceEntityId,
-                new Dictionary<string, object?>(StringComparer.Ordinal)
-                {
-                    [MatchStateMutationSink.TargetEntityIdKey] = target.Value,
-                    [MatchStateMutationSink.CountKey] = _degenerationCount,
-                }),
-            Mode.Attack or Mode.Custom => null,
-            _ => null,
-        };
-    }
-
-    /// <summary>(B5/P3) AS-IS <see cref="Mode.Attack"/>: each selected permanent that can attack runs a
-    /// <c>SelectAttackEffect</c> sub-flow honouring <c>canAttackPlayer</c>/<c>defenderCondition</c>,
-    /// SEQUENTIALLY (SelectPermanentEffect.cs:1009-1027). The headless flow opens the target choice for the
-    /// first attacker and queues the rest — the AttackPipeline dequeues the next once each attack fully
-    /// completes (each re-checked alive/legal on its turn). Returns true when a choice opened.</summary>
-    public bool TryOpenAttack(HeadlessDCGO.Engine.Headless.Bridge.EngineContext context, IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(selected);
-        if (_mode != Mode.Attack)
-        {
-            return false;
-        }
-
-        // Normal attack targeting (suspended Digimon only) + the AS-IS per-effect narrowing.
-        var options = new HeadlessDCGO.Engine.Headless.Runtime.EffectAttackOptions(
-            WithoutTap: false,
-            AllowPlayerTarget: _canAttackPlayer,
-            AllowDigimonTarget: true,
-            TargetUnsuspended: false,
-            // (DEF-S6 / RD-W4-6) AS-IS :1023 `if (!_canNoSelect) selectAttackEffect.SetCanNotSelectNotAttack()` —
-            // the mandatory-attack mode now threads into the deferred effect-attack choice: canSelectNotAttack
-            // == _canNoSelect (when _canNoSelect is false the attack cannot be declined).
-            CanSelectNotAttack: _canNoSelect)
-        {
-            // (D2; P2-1) AS-IS passes the non-null _defenderCondition (allow-all default) straight through
-            // (:1020); the effect-attack option channel is id-form, so materialise per candidate.
-            DefenderCondition = id => _defenderCondition(new Permanent(context, id, OwnerOf(context, id))),
-        };
-        return HeadlessDCGO.Engine.Headless.Runtime.EffectDrivenAttack.RequestQueuedChoices(context, selected.ToArray(), options);
-    }
-
-    private EffectMutation Mutation(string kind, HeadlessEntityId target)
-    {
-        return new EffectMutation(
-            kind,
-            _sourceEntityId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.TargetEntityIdKey] = target.Value,
-            });
-    }
-
-    private EffectMutation SecurityMutation(HeadlessEntityId target, bool toBottom)
-    {
-        return new EffectMutation(
-            MatchStateMutationSink.AddToSecurityKind,
-            _sourceEntityId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.TargetEntityIdKey] = target.Value,
-                [MatchStateMutationSink.ToBottomKey] = toBottom,
-                [MatchStateMutationSink.FaceUpKey] = _faceUp,
-            });
-    }
+    // (EFFECT-ATTACK re-migration) `TryOpenAttack` is RETIRED. It queued the selected attackers on the substrate
+    // `EffectDrivenAttack` (a second, parallel implementation of the AS-IS SelectAttackEffect flow: its own target
+    // enumeration, its own deferred ChoiceType.EffectAttack request and its own MetadataActionProcessor resolve
+    // branch). AS-IS :1009-1028 simply runs the AS-IS `SelectAttackEffect` sub-flow per selected attacker,
+    // SEQUENTIALLY and INLINE — which the mirror `SelectAttackEffect` port supports verbatim, so the Mode.Attack
+    // arm below is now the AS-IS loop and the queue/option/resolve triple is gone.
 
     // ================================================================================================
     // (bridge W4 / R3 id-flip 3a) AS-IS SetUp(...).Activate() surface — 1:1 with DCGO
@@ -543,12 +433,14 @@ public sealed class SelectPermanentEffect
         }
     }
 
-    /// <summary>The AS-IS Activate mode batches (:949-1028), in AS-IS statement order, on the verified
-    /// substrate carriers: Destroy/Bounce/PutLibrary*/PutSecurity* are the centralised sink mutation kinds
-    /// (the AS-IS DestroyPermanentsClass/HandBounceClaass/Deck*BounceClass/IPutSecurityPermanent carriers
-    /// have no mirror classes — the sink routes ARE their established mirrors, with the immunity/restriction
-    /// gates centralised); Tap/UnTap/Degenerate use the 1:1 mirror classes (SuspendPermanentsClass/
-    /// IUnsuspendPermanents/IDegeneration); Attack uses the established queued effect-attack flow.</summary>
+    /// <summary>The AS-IS Activate mode batches (SelectPermanentEffect.cs:949-1028), in AS-IS statement order,
+    /// each Mode calling its 1:1 mirror mutation class directly (AS-IS pattern — the single OnDeletion/
+    /// OnLeaveField/window collapse happens once per class call, NOT per target): Destroy/Bounce/PutLibrary*
+    /// make ONE batch call over the whole selected list (DestroyPermanentsClass/HandBounceClaass/
+    /// Deck*BounceClass); Tap/UnTap use SuspendPermanentsClass/IUnsuspendPermanents (one batch call);
+    /// PutSecurity*/Degenerate resolve SEQUENTIALLY per permanent (IPutSecurityPermanent/IDegeneration);
+    /// Attack uses the established queued effect-attack flow. The AS-IS cause is the {"CardEffect": _cardEffect}
+    /// hashtable (AS-IS :750-751).</summary>
     private async Task ApplyAsIsModeBatchAsync(EngineContext context)
     {
         if (_targetPermanents.Count == 0)
@@ -558,18 +450,31 @@ public sealed class SelectPermanentEffect
 
         HeadlessEntityId? causeId = _cardEffect?.EffectSourceCard?.InstanceId;
 
+        // AS-IS :750-751 — Hashtable hashtable = new Hashtable(); hashtable.Add("CardEffect", _cardEffect);
+        Hashtable hashtable = new Hashtable();
+        hashtable.Add("CardEffect", _cardEffect);
+
         switch (_mode)
         {
             case Mode.Destroy:   // AS-IS :949-952 — ONE DestroyPermanentsClass call = ONE delete batch.
-            case Mode.Bounce:    // AS-IS :996-999 — ONE HandBounceClaass call (one flush = one add-hand batch).
-            case Mode.PutLibraryBottom:   // AS-IS :964-967 DeckBottomBounceClass.
-            case Mode.PutLibraryTop:      // AS-IS :969-972 DeckTopBounceClass.
-            {
-                var sink = NewSink(context);
-                Apply(sink, _targetPermanents.Select(permanent => permanent.InstanceId));
-                await sink.FlushAsync().ConfigureAwait(false);
+                await new DestroyPermanentsClass(new List<Permanent>(_targetPermanents), hashtable)
+                    .Destroy().ConfigureAwait(false);
                 break;
-            }
+
+            case Mode.Bounce:    // AS-IS :996-999 — ONE HandBounceClaass call = ONE add-hand batch.
+                await new HandBounceClaass(new List<Permanent>(_targetPermanents), hashtable)
+                    .Bounce().ConfigureAwait(false);
+                break;
+
+            case Mode.PutLibraryBottom:   // AS-IS :964-967 — ONE DeckBottomBounceClass call.
+                await new DeckBottomBounceClass(new List<Permanent>(_targetPermanents), hashtable)
+                    .DeckBounce().ConfigureAwait(false);
+                break;
+
+            case Mode.PutLibraryTop:      // AS-IS :969-972 — ONE DeckTopBounceClass call.
+                await new DeckTopBounceClass(new List<Permanent>(_targetPermanents), hashtable)
+                    .DeckBounce().ConfigureAwait(false);
+                break;
 
             case Mode.Tap:   // AS-IS :954-957 SuspendPermanentsClass(tapPermanents, hashtable).Tap().
                 await new SuspendPermanentsClass(new List<Permanent>(_targetPermanents), _cardEffect, isBlock: false)
@@ -582,19 +487,30 @@ public sealed class SelectPermanentEffect
                 break;
 
             case Mode.PutSecurityBottom:  // AS-IS :974-983 — batch gated on the EFFECT-SOURCE owner's CanAddSecurity.
-            case Mode.PutSecurityTop:     // AS-IS :985-994.
-            {
                 if (new Player(context, _cardEffect!.EffectSourceCard.Owner).CanAddSecurity(causeId))
                 {
-                    // Per-permanent IPutSecurityPermanent (AS-IS sequential) — the sink allocates per-card
-                    // add-security batch ids in staging order, preserving the AS-IS per-card resolution order.
-                    var sink = NewSink(context);
-                    Apply(sink, _targetPermanents.Select(permanent => permanent.InstanceId));
-                    await sink.FlushAsync().ConfigureAwait(false);
+                    // AS-IS :978-981 — per-permanent IPutSecurityPermanent, SEQUENTIAL, toTop:false.
+                    foreach (Permanent targetPermanent in _targetPermanents)
+                    {
+                        await new IPutSecurityPermanent(targetPermanent, hashtable, toTop: false, isFaceup: _faceUp)
+                            .PutSecurity().ConfigureAwait(false);
+                    }
                 }
 
                 break;
-            }
+
+            case Mode.PutSecurityTop:     // AS-IS :985-994.
+                if (new Player(context, _cardEffect!.EffectSourceCard.Owner).CanAddSecurity(causeId))
+                {
+                    // AS-IS :989-991 — per-permanent IPutSecurityPermanent, SEQUENTIAL, toTop:true.
+                    foreach (Permanent targetPermanent in _targetPermanents)
+                    {
+                        await new IPutSecurityPermanent(targetPermanent, hashtable, toTop: true, isFaceup: _faceUp)
+                            .PutSecurity().ConfigureAwait(false);
+                    }
+                }
+
+                break;
 
             case Mode.Degenerate: // AS-IS :1001-1007 per-permanent IDegeneration(selected, count, _cardEffect).
                 foreach (Permanent selectedPermanent in _targetPermanents)
@@ -607,14 +523,24 @@ public sealed class SelectPermanentEffect
 
             case Mode.Attack:     // AS-IS :1009-1028 — per-permanent CanAttack + SelectAttackEffect, SEQUENTIAL.
             {
-                // The established queued effect-attack mirror (see TryOpenAttack): opens the first attacker's
-                // target choice, queues the rest, each re-checked alive/legal on its turn — the AS-IS
-                // per-selected `if (selectedPermanent.CanAttack(_cardEffect))` re-check. The AS-IS
-                // SetCanNotSelectNotAttack (mandatory attack when !_canNoSelect, :1023) IS now threaded into the
-                // deferred choice via EffectAttackOptions.CanSelectNotAttack (DEF-S6 fix; was design item RD-W4-6).
-                // (D2) the Permanent-form _defenderCondition is materialised to the id-form option channel
-                // inside TryOpenAttack (identical per-candidate wrapping).
-                TryOpenAttack(context, _targetPermanents.Select(permanent => permanent.InstanceId));
+                foreach (Permanent selectedPermanent in _targetPermanents)
+                {
+                    if (selectedPermanent.CanAttack(_cardEffect))
+                    {
+                        SelectAttackEffect selectAttackEffect = GManager.instance.GetComponent<SelectAttackEffect>();
+
+                        selectAttackEffect.SetUp(
+                            attacker: selectedPermanent,
+                            canAttackPlayerCondition: () => _canAttackPlayer,
+                            defenderCondition: _defenderCondition,
+                            cardEffect: _cardEffect);
+
+                        if (!_canNoSelect) selectAttackEffect.SetCanNotSelectNotAttack();
+
+                        await selectAttackEffect.Activate().ConfigureAwait(false);
+                    }
+                }
+
                 break;
             }
 
@@ -779,10 +705,6 @@ public sealed class SelectPermanentEffect
         context.CardInstanceRepository.TryGetInstance(id, out var record) && record is not null
             ? record.OwnerId
             : default;
-
-    private static MatchStateMutationSink NewSink(EngineContext context) =>
-        new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-            context.GameEventQueue, context: context);
 
     /// <summary>AS-IS <c>ParameterComparer.Enumerate(list, k)</c> — all k-element combinations (no mirror
     /// ParameterComparer exists; local index-based enumeration, lazily yielded).</summary>

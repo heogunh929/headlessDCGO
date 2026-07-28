@@ -4,7 +4,6 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Headless.Effects;
 
 public static partial class CardEffectCommons
 {

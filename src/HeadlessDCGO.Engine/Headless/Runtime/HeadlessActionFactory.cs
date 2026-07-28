@@ -414,20 +414,6 @@ public static class HeadlessActionFactory
         return Create(HeadlessActionTypes.ShuffleDeck, playerId, actionId);
     }
 
-    public static LegalAction EnqueueEffect(
-        HeadlessPlayerId playerId,
-        HeadlessEntityId effectId,
-        string timing = "Manual",
-        HeadlessEntityId? sourceEntityId = null,
-        string? actionId = null)
-    {
-        return Create(
-            HeadlessActionTypes.EnqueueEffect,
-            playerId,
-            actionId ?? BuildActionId(playerId, HeadlessActionTypes.EnqueueEffect, actionId, effectId.Value).Value,
-            EffectActionPayload.Create(effectId, timing, sourceEntityId).ToParameters());
-    }
-
     public static LegalAction AdvancePhase(HeadlessPlayerId playerId, string? actionId = null)
     {
         return Create(HeadlessActionTypes.AdvancePhase, playerId, actionId);

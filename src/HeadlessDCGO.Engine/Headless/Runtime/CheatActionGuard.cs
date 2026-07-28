@@ -46,7 +46,6 @@ public static class CheatActionGuard
             // D-6: HatchDigitama / MoveBreedingToBattle are now legitimate agent breeding-step actions,
             // not cheat/debug — they must survive the legal-action filter and the RL action space.
             HeadlessActionTypes.NormalizedShuffleDeck or
-            HeadlessActionTypes.NormalizedEnqueueEffect or
             HeadlessActionTypes.NormalizedSetMemory or
             HeadlessActionTypes.NormalizedAddMemory or
             HeadlessActionTypes.NormalizedPayMemory;

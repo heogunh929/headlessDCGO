@@ -28,7 +28,7 @@ public sealed record StackedCard(
 /// <summary>
 /// An ordered digivolution stack (bottom DigiEgg first, top Digimon last). Replaces the flat
 /// <c>SourceIds</c> list so DP, level, and stack depth are first-class instead of requiring a
-/// per-source repository lookup. The top card supplies the base DP for <see cref="DpCalculator"/>.
+/// per-source repository lookup. The top card supplies the base (printed) DP.
 /// </summary>
 public sealed record DigivolutionStack
 {
@@ -111,7 +111,7 @@ public sealed record DigivolutionStack
 
     public StackedCard? TopCard => _cards.Count > 0 ? _cards[^1] : null;
 
-    /// <summary>The base (printed) DP that <see cref="DpCalculator"/> starts from — the top card's DP.</summary>
+    /// <summary>The base (printed) DP the effective-DP fold starts from — the top card's DP.</summary>
     public int BaseDp => TopCard?.BaseDp ?? 0;
 
     /// <summary>Cards beneath the top, i.e. the digivolution sources (eggs + lower digivolutions).</summary>

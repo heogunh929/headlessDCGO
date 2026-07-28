@@ -49,7 +49,6 @@ using System.Globalization;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -60,29 +59,15 @@ using Commons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Card
 public sealed class AttackProcess
 {
     private readonly EngineContext _context;
-    private readonly BlockTiming _blockTiming;
-    private readonly BattleResolver _battleResolver;
-    private readonly SecurityResolver _securityResolver;
 
-    public AttackProcess(
-        EngineContext context,
-        BlockTiming? blockTiming = null,
-        BattleResolver? battleResolver = null,
-        SecurityResolver? securityResolver = null)
+    public AttackProcess(EngineContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
-        _blockTiming = blockTiming ?? new BlockTiming();
-        _battleResolver = battleResolver ?? new BattleResolver();
-        _securityResolver = securityResolver ?? new SecurityResolver();
     }
 
     /// <summary>The per-context instance (AS-IS <c>GManager.instance.attackProcess</c>).</summary>
-    public static AttackProcess For(
-        EngineContext context,
-        BlockTiming? blockTiming = null,
-        BattleResolver? battleResolver = null,
-        SecurityResolver? securityResolver = null)
+    public static AttackProcess For(EngineContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (context.TryGetService(out AttackProcess? existing) && existing is not null)
@@ -90,7 +75,7 @@ public sealed class AttackProcess
             return existing;
         }
 
-        var created = new AttackProcess(context, blockTiming, battleResolver, securityResolver);
+        var created = new AttackProcess(context);
         context.RegisterService(created);
         return created;
     }
@@ -147,8 +132,6 @@ public sealed class AttackProcess
         AttackPhase.Declared => AttackState.Counter,
         AttackPhase.Blocking => AttackState.Block,
         AttackPhase.Combat => AttackState.Battle,
-        AttackPhase.DeletionReplacement => AttackState.Battle,
-        AttackPhase.PiercingSecurity => AttackState.Battle,
         AttackPhase.Resolved => AttackState.End,
         AttackPhase.Completed => AttackState.CleanUp,
         _ => AttackState.None,
@@ -165,30 +148,39 @@ public sealed class AttackProcess
         CleanUp,
     }
 
-    // Counter-pass progress — the AS-IS CounterTiming() coroutine position (pass 1 / pass 2 emitted), explicit
-    // because each pass parks for the loop to drain (W6/P5 two-pass, AS-IS :266-296).
-    private bool _counterPass1Emitted;
-    private bool _counterPass2Emitted;
 
     /// <summary>AS-IS <c>ActiveAttack()</c> (:35-38).</summary>
     public bool ActiveAttack() => State != AttackState.None;
 
     // ===== AS-IS ProcessNextState (:40-62) ========================================================================
-    /// <summary>One state-machine step. AS-IS returns void and the driving loop re-reads State; the headless loop
-    /// consumes an <see cref="AttackAdvanceResult"/> record (substrate seam — the loop cannot observe coroutine
-    /// suspension, so each step reports its transition).</summary>
-    public async Task<AttackAdvanceResult> ProcessNextState(CancellationToken cancellationToken = default)
+    /// <summary>AS-IS <c>ProcessNextState()</c> (:40-62) 1:1 — one state-machine step: dispatch to the current
+    /// stage. AS-IS returns void; the pump loop (<c>while (ActiveAttack()) { ProcessNextState(); AutoProcessCheck();
+    /// }</c>) re-reads <see cref="State"/> after each step. Battle / security / block resolve INLINE inside the
+    /// stages (IBattle / ISecurityCheck / SelectPermanentEffect), suspending at choices on the pump gate — the
+    /// park/resume AttackAdvanceResult machine is retired.</summary>
+    public async Task ProcessNextState(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return State switch
+        switch (State)
         {
-            AttackState.Counter => await CounterTiming(cancellationToken).ConfigureAwait(false),
-            AttackState.Block => BlockStage(),
-            AttackState.Battle => await DetermineAttackOutcome(cancellationToken).ConfigureAwait(false),
-            AttackState.End => await EndAttackStage(cancellationToken).ConfigureAwait(false),
-            AttackState.CleanUp => Cleanup(),
-            _ => AttackAdvanceResult.Idle(),
-        };
+            case AttackState.Counter:
+                await CounterTiming(cancellationToken).ConfigureAwait(false);
+                break;
+            case AttackState.Block:
+                await BlockTiming(cancellationToken).ConfigureAwait(false);
+                break;
+            case AttackState.Battle:
+                await DetermineAttackOutcome(cancellationToken).ConfigureAwait(false);
+                break;
+            case AttackState.End:
+                await EndAttackStage(cancellationToken).ConfigureAwait(false);
+                break;
+            case AttackState.CleanUp:
+                Cleanup();
+                break;
+            default:
+                break;
+        }
     }
 
     // ===== AS-IS Attack (:73-253) — declaration ===================================================================
@@ -202,6 +194,34 @@ public sealed class AttackProcess
     /// pass null. The only AS-IS consumer is ST13_06 (Blitz BeforeOnAttackCoroutine — a conditional Jogress destroy
     /// BEFORE the [On Attack] window, ST13_06.cs:168-170), currently an unported skeleton, so no live damage; when
     /// ST13_06 (or any beforeOnAttack card) is ported, thread the callback through Declare/Initiate.</summary>
+    /// <summary>(DECLARATION re-migration) AS-IS <c>AttackProcess.Attack(attackingPermanent, defendingPermanent,
+    /// attackEffect, withoutTap, beforeOnAttackCoroutine)</c> (AttackProcess.cs:73) in its FULL AS-IS shape — the
+    /// attacker/defender pair is set FIRST (AS-IS <c>SetAttackerDefender</c>, :64-71, here the substrate
+    /// <c>AttackController.DeclareAttack</c> write) and the declaration sequence then runs. Re-homed from the
+    /// retired substrate <c>AttackDeclarationCommons.Declare</c> / <c>.DeclareAsync</c>, which existed only to give
+    /// the two callers (the main-phase attack action and <c>SelectAttackEffect</c>) one shared entry — that IS this
+    /// method in AS-IS. The retired sync <c>Declare</c> blocked on <c>GetAwaiter().GetResult()</c> (documented as
+    /// synchronous because nothing inside awaits an agent choice); both callers now simply await.</summary>
+    public async Task<HeadlessAttackState> Attack(
+        HeadlessPlayerId declaringPlayer,
+        HeadlessEntityId attackerId,
+        HeadlessPlayerId defendingPlayer,
+        HeadlessEntityId? targetId,
+        bool isDirectAttack,
+        HeadlessEntityId? attackEffectSourceId = null,
+        bool withoutTap = false,
+        Func<CancellationToken, Task>? beforeOnAttack = null,
+        CancellationToken cancellationToken = default)
+    {
+        // AS-IS :96 SetAttackerDefender(attackingPermanent, defendingPermanent) — the substrate state write
+        // (AttackingPermanent / DefendingPermanent / HasDefender / IsAttacking / AttackCount++).
+        _context.AttackController.DeclareAttack(
+            declaringPlayer, attackerId, defendingPlayer, targetId, isDirectAttack);
+
+        await Attack(attackerId, attackEffectSourceId, withoutTap, beforeOnAttack, cancellationToken).ConfigureAwait(false);
+        return _context.AttackController.Current;
+    }
+
     public async Task Attack(
         HeadlessEntityId attackerId,
         HeadlessEntityId? attackEffectSourceId = null,
@@ -225,8 +245,6 @@ public sealed class AttackProcess
         SecurityDigimon = null;
         IsEndAttack = false;
         CounterSourcesSnapshot = null;
-        _counterPass1Emitted = false;
-        _counterPass2Emitted = false;
 
         // AS-IS :96-99 — SetAttackerDefender (caller's DeclareAttack) + the hashtables. EffectHashtable
         // {AttackingPermanent, CardEffect} rides the emits' subject+cause below; CounterEffectHashtable is the
@@ -248,10 +266,22 @@ public sealed class AttackProcess
             // AS-IS :116 AttackCount++ — counted by the controller at DeclareAttack (substrate).
             // AS-IS :124-155 — outlines / break-glass / play log: stripped.
 
-            // AS-IS :158-167 — suspend the attacker ({"IsAttack", true} tap) unless withoutTap.
+            // AS-IS :158-167 — suspend the attacker unless withoutTap. Routed through the mirror
+            // SuspendPermanentsClass (CardController.cs:1761) exactly as AS-IS does, so the tap carries the full
+            // AS-IS semantics the raw metadata write skipped: already-suspended filter, !CanSuspend filter,
+            // CanNotBeAffected filter, DPWhenSuspended = DP, and the OnTappedAnyone window (design item RD9-87
+            // resolved for this call site). AS-IS ctor hashtable is `{"IsAttack", true}` (:160-163) —
+            // GetCardEffectFromHashtable -> null cause, IsBlock(...) -> false (key absent), and IsAttack is read at
+            // CardController.cs:5583 but never referenced again (verified dead), so the mirror ctor's
+            // (cardEffect: null, isBlock: false) is the exact translation of that hashtable.
+            // Tap() opens the OnTappedAnyone window via GManager.instance.autoProcessing — scoped on _context for
+            // direct-call AttackProcess harnesses exactly like the StackSkillInfos inserts below (the live path
+            // already runs under RunToStableAsync's scope, where Enter/Dispose is a no-op re-entry).
             if (!withoutTap)
             {
-                SuspendPermanent(attackerId, byAttack: true);
+                using AmbientMatchContext.Scope _attackerTapScope = AmbientMatchContext.Enter(_context);
+                await new SuspendPermanentsClass(new List<Permanent>() { attacker }, cardEffect: null, isBlock: false)
+                    .Tap(cancellationToken).ConfigureAwait(false);
             }
 
             // AS-IS :170-188 — target arrows: stripped.
@@ -262,17 +292,11 @@ public sealed class AttackProcess
                 await beforeOnAttack(cancellationToken).ConfigureAwait(false);
             }
 
-            // AS-IS :197-199 — StackSkillInfos(EffectHashtable, OnAllyAttack). The headless declaration still emits the
-            // raw OnAttack ("OnUseAttack") for the RD-9 self-scoped choke point (subject = the attacker). The
-            // OnAllyAttack EMIT is REMOVED at the C2r flip (see the inline insert below): keeping both the emit AND the
-            // insert would double-fire (supply converts an OnAllyAttack event to the SAME GetSkillInfos(OnAllyAttack)
-            // window the insert opens).
-            TriggerEventEmitter.Emit(
-                _context.GameEventQueue,
-                TriggerTimings.OnAttack,
-                actor: _context.AttackController.Current.AttackingPlayerId,
-                subject: attackerId,
-                extraMetadata: AttackEventMetadata(attackEffectSourceId));
+            // AS-IS :197-199 — StackSkillInfos(EffectHashtable, OnAllyAttack), opened by the inline insert below.
+            // (TriggerEventEmitter retirement) the vestigial raw-OnAttack ("OnUseAttack") queue emit is REMOVED: AS-IS
+            // opens NO OnUseAttack window (only OnAllyAttack), the event-queue collector that once drained the emit is
+            // gone, and no ported effect binds OnUseAttack as a firing site (the IsOnAttack / OnAttackCheckHashtableOfCard
+            // gate is served by the OnAllyAttack window whose payload is OnAttackCheckHashtableOfPermanent below).
 
             // (P1-2 C2r — RD-C1-ATTACK-BGFX resolved) AS-IS :197-199 StackSkillInfos(EffectHashtable, OnAllyAttack) —
             // NOW ENABLED as the SOLE window opener (the OnAllyAttack emit above was removed, so SkillWindowSupply no
@@ -318,16 +342,17 @@ public sealed class AttackProcess
     }
 
     // ===== AS-IS CounterTiming (:255-320) =========================================================================
-    private async Task<AttackAdvanceResult> CounterTiming(CancellationToken cancellationToken)
+    private async Task CounterTiming(CancellationToken cancellationToken)
     {
         _ = cancellationToken;
+        await Task.CompletedTask.ConfigureAwait(false);
         HeadlessAttackState attack = _context.AttackController.Current;
 
         // AS-IS :258-263 — force to end attack.
         if (IsEndAttack)
         {
             _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (counter head).");
-            return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Resolved);
+            return;
         }
 
         // (C-Atk RETIRED) Raid / Alliance were run here by the invented RaidAttackSwitch / AllianceAttackBoost
@@ -336,287 +361,238 @@ public sealed class AttackProcess
         // (AttackProcess.Attack, StackSkillInfos(OnAllyAttack)) — AS-IS AttackProcess.cs:197-199. That window is
         // the SOLE firing path now (a printed keyword makes Permanent.HasRaid/HasAlliance true off the SAME
         // ActivateClass the gate read, so keeping the gate here double-fired). The gate's RequestChoice firing-half
-        // is de-wired; the class survives only until G-clean. Progress stays here (a separate keyword, still
-        // engine-plumbed pending its own rehousing).
-        ProgressImmunity.TryRegister(_context);
+        // is de-wired; the class survives only until G-clean.
+        // (PROGRESS re-migration) The `ProgressImmunity.TryRegister(_context)` call that stood here is RETIRED
+        // for the SAME reason: AS-IS has no engine-side Progress seam at all. [Progress] is a printed SELF-STATIC
+        // `CanNotAffectedClass` (AS-IS CardEffectFactory.ProgressSelfStaticEffect / ProgressStaticEffect —
+        // mirrored 1:1 in CardEffectFactory/KeyWordEffects/Progress.cs), carried on the card's own effect list and
+        // evaluated LIVE by `CardSource.CanNotBeAffected`; its CardCondition already gates on
+        // "IsAttacking && AttackingPermanent == this permanent", which is exactly the window the substrate gate
+        // hand-rolled. The gate additionally keyed off an AS-IS-ABSENT `hasProgress` instance flag and the
+        // (now deleted) ContinuousKeywordGate. AS-IS's effect-driven counterpart, `CardEffectCommons.ProgressProcess`,
+        // is mirrored and reachable from the keyword ActivateClass path.
 
         if (attack.AttackerId is HeadlessEntityId counterAttackerId
             && _context.CardInstanceRepository.TryGetInstance(counterAttackerId, out CardInstanceRecord? counterAttacker)
             && counterAttacker is not null)
         {
-            // AS-IS :266-272 — pass 1: non-[Counter] OnCounterTiming effects, then the cut-in drain
-            // (autoProcessing_CutIn.TriggeredSkillProcess). The drain is the loop's next iteration — PARK.
-            if (!_counterPass1Emitted)
+            // AS-IS :99 CounterEffectHashtable = OnAttackCheckHashtableOfPermanent(new Permanent(cardSources), attackEffect)
+            // — {AttackingPermanent, CardEffect}, reused by both passes. The AS-IS DECLARATION-TIME cardSources snapshot
+            // (new Permanent(cardSources)) has no source-list Permanent ctor in the mirror, so the live AttackingPermanent
+            // view is used (non-null in this branch — AttackerId is present), consistent with the OnAllyAttack (:289) /
+            // OnEndAttack (:597) windows. cardEffect = null is the RDW-05 / RD-C1-CARDEFFECT-IDTHREAD residual.
+            System.Collections.Hashtable counterEffectHashtable = Commons.OnAttackCheckHashtableOfPermanent(
+                AttackingPermanent!, null);
+
+            // AS-IS :266-272 — pass 1: non-[Counter] OnCounterTiming effects (autoProcessing_CutIn), then the cut-in
+            // drain (TriggeredSkillProcess). The dead queue emit + collector two-pass filter is replaced by the AS-IS
+            // predicate. AmbientMatchContext.Enter guards StackSkillInfos' ActivateBackgroundEffects for direct-call
+            // harnesses (the live path already runs under RunToStableAsync's scope).
             {
-                _counterPass1Emitted = true;
-                TriggerEventEmitter.Emit(
-                    _context.GameEventQueue,
-                    TriggerTimings.OnCounter,
-                    actor: attack.AttackingPlayerId,
-                    subject: counterAttackerId,
-                    extraMetadata: CounterEventMetadata(AutoProcessingTriggerCollector.CounterPassRegular));
-                return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Declared);
+                using AmbientMatchContext.Scope _counterPass1Scope = AmbientMatchContext.Enter(_context);
+                await GManager.instance!.autoProcessing_CutIn
+                    .StackSkillInfos(counterEffectHashtable, EffectTiming.OnCounterTiming, cardEffect => !cardEffect.IsCounterEffect)
+                    .ConfigureAwait(false);
             }
+            await GManager.instance!.autoProcessing_CutIn.TriggeredSkillProcess(true, null).ConfigureAwait(false);
+            GManager.instance!.turnStateMachine.IsSelecting = true; // AS-IS :274
 
             // AS-IS :277-282 — force to end attack between the passes.
             if (IsEndAttack)
             {
                 _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (between counter passes).");
-                return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Resolved);
+                return;
             }
 
-            // AS-IS :285-296 — pass 2: [Counter] effects (the HasCounterEffect gate rides the collector's
-            // CounterPassKey filter), then the cut-in drain — PARK.
-            if (!_counterPass2Emitted)
+            // AS-IS :285-296 — pass 2: [Counter] effects (OnCounterTiming, IsCounterEffect predicate), then the cut-in
+            // drain gated by HasCounterEffect (AS-IS :290-293).
             {
-                _counterPass2Emitted = true;
-                TriggerEventEmitter.Emit(
-                    _context.GameEventQueue,
-                    TriggerTimings.OnCounter,
-                    actor: attack.AttackingPlayerId,
-                    subject: counterAttackerId,
-                    extraMetadata: CounterEventMetadata(AutoProcessingTriggerCollector.CounterPassCounter));
-                return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Declared);
+                using AmbientMatchContext.Scope _counterPass2Scope = AmbientMatchContext.Enter(_context);
+                await GManager.instance!.autoProcessing_CutIn
+                    .StackSkillInfos(counterEffectHashtable, EffectTiming.OnCounterTiming, cardEffect => cardEffect.IsCounterEffect)
+                    .ConfigureAwait(false);
             }
+            await GManager.instance!.autoProcessing_CutIn.TriggeredSkillProcess(true, HasCounterEffect).ConfigureAwait(false);
+            GManager.instance!.turnStateMachine.IsSelecting = true; // AS-IS :298
+
+            // AS-IS :290-293 — the pass-2 cut-in drain fires only while a [Counter] effect is stacked.
+            static bool HasCounterEffect(List<SkillInfo> skillInfos, SkillInfo skillInfo)
+                => skillInfos.Count(si => si.CardEffect.IsCounterEffect) >= 1;
         }
-        else
-        {
-            // Contract-level pipelines with no live attacker record: the single legacy counter emit (substrate-only
-            // branch; AS-IS always has a live AttackingPermanent here).
-            TriggerEventEmitter.Emit(
-                _context.GameEventQueue,
-                TriggerTimings.OnCounter,
-                actor: attack.AttackingPlayerId);
-        }
+        // (substrate-only fallback retired) AS-IS CounterTiming (:255-320) always has a live AttackingPermanent — there
+        // is no no-attacker branch in AS-IS; the former legacy no-attacker counter queue emit is removed with the queue.
 
         // AS-IS :301-306 — post-counter boundary: force-end OR the attacker died / stopped being a Digimon during
         // the counter windows.
         if (IsEndAttack || !AttackerAliveDigimon())
         {
             _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (post counter).");
-            return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Resolved);
+            return;
         }
 
-        // AS-IS :319 — State = Block. The block stage opens the blocker choice immediately (the AS-IS BlockTiming()
-        // coroutine starts with the selection); with no candidate it falls through to Battle.
-        BlockTimingResult block = _blockTiming.RequestBlockChoice(_context);
-        if (block.IsSuccess && block.ChoiceRequested)
-        {
-            _context.AttackController.AdvancePhase(AttackPhase.Blocking, "Block timing opened.");
-            return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Blocking, choiceRequested: true);
-        }
-
-        _context.AttackController.AdvancePhase(AttackPhase.Combat, "No blocker candidates.");
-        return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Combat);
+        // AS-IS :319 — State = Block (unconditional). The block SELECTION now lives in BlockTiming() (dispatched
+        // next by the pump), which opens the SelectPermanentEffect choice; with no candidate it falls through to
+        // Battle. This retires the invented RequestBlockChoice park (async-suspend supersedes it).
+        _context.AttackController.AdvancePhase(AttackPhase.Blocking, "Counter resolved -> block timing (AS-IS :319).");
     }
 
-    // ===== AS-IS BlockTiming (:322-405) ===========================================================================
-    // The blocker SELECTION half lives in BlockTiming (the SelectPermanentEffect mirror): RequestBlockChoice opened
-    // the choice (the coroutine suspension = the Blocking park); the external ResolveChoice action routes to
-    // BlockTiming.ResolveBlockChoice, which applies the selection via SwitchDefender (AS-IS :376-379). This stage
-    // method is the POST-selection tail (:383-404).
-    private AttackAdvanceResult BlockStage()
+    // ===== AS-IS BlockTiming (:322-405) 1:1 =======================================================================
+    /// <summary>AS-IS <c>BlockTiming()</c> (:322-405) — the blocker SELECTION stage: if the attacker's enemy has a
+    /// legal blocker, open the SelectPermanentEffect choice (suspends inline on the pump gate via
+    /// <c>ChoiceProvider.ChooseAsync</c>) and apply it via <see cref="SwitchDefender"/> (AS-IS :376-379); then
+    /// transition to Battle. UI/outline strips per the established pattern.</summary>
+    private async Task BlockTiming(CancellationToken cancellationToken)
     {
-        // AS-IS :386-391 — end attack / the attacker died or stopped being a Digimon during the block window.
+        _ = cancellationToken;
+
+        // AS-IS :325-330 — end attack / the attacker died or stopped being a Digimon.
+        if (IsEndAttack || !AttackerAliveDigimon())
+        {
+            _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (block head).");
+            return;
+        }
+
+        Permanent attacker = AttackingPermanent!;
+
+        // AS-IS :333-339 — a legal blocker is an opponent battle-area Digimon (not the current defender) with the
+        // Blocker keyword that CanBlock this attacker.
+        bool CanSelectBlockerCondition(Permanent permanent)
+        {
+            return Commons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, attacker.TopCard)
+                && (DefendingPermanent is null || permanent.InstanceId != DefendingPermanent.InstanceId)
+                && permanent.HasBlocker
+                && permanent.CanBlock(attacker);
+        }
+
+        Player attackerEnemy = new Player(_context, attacker.TopCard.Owner).Enemy!;
+
+        // AS-IS :341 — at least one candidate blocker.
+        if (attackerEnemy.GetBattleAreaDigimons().Count(CanSelectBlockerCondition) >= 1)
+        {
+            Permanent? selectedPermanent = null;
+
+            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+            // AS-IS :349-360 — SetUp (selectPlayer = the enemy who chooses the blocker; canNoSelect unless
+            // Collision forces a block).
+            selectPermanentEffect.SetUp(
+                selectPlayer: attackerEnemy.PlayerId,
+                canTargetCondition: CanSelectBlockerCondition,
+                canTargetCondition_ByPreSelecetedList: null,
+                canEndSelectCondition: null,
+                maxCount: 1,
+                canNoSelect: !attacker.HasCollision,
+                canEndNotMax: false,
+                selectPermanentCoroutine: SelectPermanentCoroutine,
+                afterSelectPermanentCoroutine: null,
+                mode: SelectPermanentEffect.Mode.Custom,
+                cardEffect: null);
+
+            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will block.", "The opponent is selecting 1 Digimon that will block.");
+
+            // AS-IS :364-365 — the "Not Block" back-button only when not already blocking.
+            if (!IsBlocking)
+            {
+                selectPermanentEffect.SetUpCustomBackButtonMessage("Not Block");
+            }
+
+            // AS-IS :367 — the choice suspends inline on the pump gate (ChoiceProvider.ChooseAsync).
+            await selectPermanentEffect.Activate().ConfigureAwait(false);
+
+            // AS-IS :369-374 — the selection callback.
+            async Task SelectPermanentCoroutine(Permanent permanent)
+            {
+                selectedPermanent = permanent;
+                await Task.CompletedTask.ConfigureAwait(false);
+            }
+
+            // AS-IS :376-379 — apply the block via SwitchDefender.
+            if (selectedPermanent is not null)
+            {
+                await SwitchDefender(null, true, selectedPermanent.InstanceId).ConfigureAwait(false);
+            }
+        }
+
+        // AS-IS :386-391 — end attack / attacker died during the block window.
         if (IsEndAttack || !AttackerAliveDigimon())
         {
             _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (post block).");
-            return AttackAdvanceResult.Transitioned(AttackPhase.Blocking, AttackPhase.Resolved);
+            return;
         }
 
         // AS-IS :404 — State = Battle.
         _context.AttackController.AdvancePhase(AttackPhase.Combat, "Block timing resolved.");
-        return AttackAdvanceResult.Transitioned(AttackPhase.Blocking, AttackPhase.Combat);
     }
 
-    // ===== AS-IS DetermineAttackOutcome (:407-468) ================================================================
-    // The AS-IS method suspends twice (the would-be-deleted PRE window inside IBattle/ISecurityCheck, and the
-    // post-battle trigger drain). Those suspensions are the Combat sub-parks: DeletionReplacement (F-6.8/C-5) and
-    // PiercingSecurity (B2 drain-then-check). Entry dispatches on the sub-park.
-    private async Task<AttackAdvanceResult> DetermineAttackOutcome(CancellationToken cancellationToken)
+    // ===== AS-IS DetermineAttackOutcome (:407-468) 1:1 ============================================================
+    /// <summary>AS-IS <c>DetermineAttackOutcome()</c> (:407-468) — resolve the attack: no defender = a direct
+    /// (security) attack (EndGame on an empty security stack, else set <c>DoSecurityCheck</c>); a live defender =
+    /// battle INLINE via <see cref="IBattle"/> + the post-battle trigger drain; then, when <c>DoSecurityCheck</c>,
+    /// the INLINE <see cref="ISecurityCheck"/>. The would-be-deleted PRE cut-in and the [Pierce] follow-up now
+    /// resolve inline inside IBattle / ISecurityCheck / DestroyPermanentsClass (choices suspend on the pump gate) —
+    /// the DeletionReplacement / PiercingSecurity park sub-phases are retired.</summary>
+    private async Task DetermineAttackOutcome(CancellationToken cancellationToken)
     {
-        HeadlessAttackState attack = _context.AttackController.Current;
-        switch (attack.Phase)
-        {
-            case AttackPhase.DeletionReplacement:
-                return await ResumeDeletionReplacement(attack, cancellationToken).ConfigureAwait(false);
-            case AttackPhase.PiercingSecurity:
-                return await ResumePiercingSecurity(attack, cancellationToken).ConfigureAwait(false);
-        }
-
         // AS-IS :410-415 — end attack / attacker dead or non-Digimon.
         if (IsEndAttack || !AttackerAliveDigimon())
         {
             _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (battle head).");
-            return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.Resolved);
+            return;
         }
 
-        // AS-IS :417-432 — no defending permanent: a direct attack.
-        bool directCheck = attack.IsDirectAttack && !attack.TargetId.HasValue && !attack.IsBlocked;
-        if (directCheck)
+        Permanent attacker = AttackingPermanent!;
+        Permanent? defender = DefendingPermanent;
+
+        // AS-IS :417-432 — no defending permanent: a direct (security) attack.
+        if (defender is null)
         {
-            // AS-IS :420-430 — Strike >= 1 against an empty security stack ends the game (:425 EndGame; surfaced
-            // by the resolver as DefenderHasNoSecurity -> MarkLose, X-02); otherwise DoSecurityCheck = true.
-            DoSecurityCheck = true;
-
-            SecurityResolutionResult security = await _securityResolver
-                .ResolveAsync(_context, cancellationToken)
-                .ConfigureAwait(false);
-
-            // (C-5/VR-6) a security-battle loss deferred for the attacker's would-be-deleted window — the AS-IS PRE
-            // cut-in suspends the coroutine chain mid-SecurityCheck: PARK at DeletionReplacement.
-            if (security.RequiresDeletionReplacement)
+            // AS-IS :420-428 — Strike >= 1 against an EMPTY security stack ends the game (the attacker's owner wins).
+            if (attacker.Strike >= 1)
             {
-                _context.AttackController.AdvancePhase(AttackPhase.DeletionReplacement, "Security battle deletion replacement window.");
-                return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.DeletionReplacement);
-            }
-
-            if (!security.IsSuccess && _context.AttackController.Current.IsPending)
-            {
-                if (security.DefenderHasNoSecurity && attack.DefendingPlayerId is HeadlessPlayerId defendingPlayer)
+                Player attackerOwner = new Player(_context, attacker.TopCard.Owner);
+                if (attackerOwner.Enemy!.SecurityCards.Count == 0)
                 {
-                    _context.PlayerStatusController.MarkLose(
-                        defendingPlayer,
-                        "Direct attack resolved with no security to check.");
+                    GManager.instance.turnStateMachine.EndGame(attackerOwner, false);
+                    _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Direct attack: enemy has no security -> EndGame.");
+                    return;
                 }
-
-                _context.LogSink.Warn($"[AttackProcess] security resolution failed: {security.FailureReason}");
-                _context.AttackController.ResolveAttack($"Security resolution failed: {security.FailureReason}");
             }
 
-            // AS-IS :467 — State = End.
-            return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.Resolved, securityResolved: true);
+            // AS-IS :430 — DoSecurityCheck = true.
+            DoSecurityCheck = true;
         }
 
-        // AS-IS :434-448 — there is a defending permanent: battle (the IBattle mirror = BattleResolver).
-        BattleResolutionResult battle = await _battleResolver
-            .ResolveAsync(_context, cancellationToken)
-            .ConfigureAwait(false);
-
-        // F-6.8 — battle deletion deferred for the would-be-deleted PRE window: PARK.
-        if (battle.RequiresDeletionReplacement)
+        // AS-IS :434-448 — there IS a defending permanent (both battle-area Digimons): battle inline.
+        else if (Commons.IsPermanentExistsOnBattleAreaDigimon(defender) && Commons.IsPermanentExistsOnBattleAreaDigimon(attacker))
         {
-            _context.AttackController.AdvancePhase(AttackPhase.DeletionReplacement, "Battle deletion replacement window.");
-            return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.DeletionReplacement);
+            // AS-IS :443-444 — battle (the would-be-deleted PRE cut-in resolves inside IBattle / DestroyPermanentsClass).
+            IBattle battle = new IBattle(AttackingPermanent: attacker, DefendingPermanent: defender, DefendingCard: null);
+            await battle.Battle(cancellationToken).ConfigureAwait(false);
+
+            // AS-IS :446 — post-battle trigger drain (main-stack cut-in).
+            await GManager.instance.autoProcessing.TriggeredSkillProcess(true, null).ConfigureAwait(false);
+            GManager.instance.turnStateMachine.IsSelecting = true;
         }
 
-        if (!battle.IsSuccess && _context.AttackController.Current.IsPending)
+        // AS-IS :451-456 — the attacker died during the battle / triggers.
+        if (!AttackerAlive())
         {
-            _context.LogSink.Warn($"[AttackProcess] battle resolution failed: {battle.FailureReason}");
-            _context.AttackController.ResolveAttack($"Battle resolution failed: {battle.FailureReason}");
+            _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Attacker did not survive the battle.");
+            return;
         }
 
-        // AS-IS :446 post-battle TriggeredSkillProcess, then :451-456 the attacker-survived re-check, then
-        // :459-465 the security check when DoSecurityCheck. (RD-CBTL-01) TriggersPiercingSecurityCheck is now the
-        // OnDetermineDoSecurityCheck WINDOW result (a [Pierce] ActivateClass was stacked by BattleResolver), not a
-        // pre-computed flag — so DoSecurityCheck is NOT set here; PierceProcess sets it when the next loop iteration
-        // drains the stacked skill (before this park's ResumePiercingSecurity re-entry). PARK at PiercingSecurity.
-        if (battle.IsSuccess && battle.TriggersPiercingSecurityCheck)
+        // AS-IS :459-465 — the security check (the [Pierce] follow-up resolves inline inside ISecurityCheck's
+        // StopSecurityCheck loop). Enemy = the attacker's opponent = the non-turn player.
+        if (DoSecurityCheck
+            && new Player(_context, AttackingPermanent!.TopCard.Owner).Enemy!.SecurityCards.Count >= 1)
         {
-            _context.AttackController.AdvancePhase(AttackPhase.PiercingSecurity, "Piercing security check pending (triggers drain first).");
-            return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.PiercingSecurity, battleResolved: true);
+            await new ISecurityCheck(
+                AttackingPermanent: AttackingPermanent!,
+                player: GManager.instance.turnStateMachine.gameContext.NonTurnPlayer!).SecurityCheck(cancellationToken).ConfigureAwait(false);
         }
 
-        return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.Resolved, battleResolved: true);
-    }
-
-    // (B2) AS-IS :446-465 resume — the battle triggers drained; re-check the attacker survived
-    // (`if (AttackingPermanent.TopCard == null) { State = End; }` :451-456) before the DoSecurityCheck half.
-    private async Task<AttackAdvanceResult> ResumePiercingSecurity(HeadlessAttackState attack, CancellationToken cancellationToken)
-    {
-        bool attackerAlive = AttackerAlive();
-        if (attackerAlive && DoSecurityCheck)
-        {
-            SecurityCheckLoopResult? piercing = await ApplyPiercingSecurityAsync(attack, cancellationToken).ConfigureAwait(false);
-
-            // (C-5/VR-6) the piercing check's security battle deferred — PARK at DeletionReplacement.
-            if (piercing is { DeferredForDeletionReplacement: true })
-            {
-                _context.AttackController.AdvancePhase(AttackPhase.DeletionReplacement, "Piercing security battle deletion replacement window.");
-                return AttackAdvanceResult.Transitioned(AttackPhase.PiercingSecurity, AttackPhase.DeletionReplacement);
-            }
-        }
-
-        _context.AttackController.AdvancePhase(AttackPhase.Resolved, attackerAlive
-            ? "Piercing security check resolved."
-            : "Piercing skipped: the attacker did not survive the battle triggers.");
-        return AttackAdvanceResult.Transitioned(AttackPhase.PiercingSecurity, AttackPhase.Resolved, securityResolved: attackerAlive);
-    }
-
-    // F-6.8 / C-5 — the would-be-deleted replacement windows resolved; finalize (the AS-IS coroutine resuming after
-    // the PRE cut-in).
-    private async Task<AttackAdvanceResult> ResumeDeletionReplacement(HeadlessAttackState attack, CancellationToken cancellationToken)
-    {
-        if (attack.AttackerId is HeadlessEntityId parkedAttackerId &&
-            SecurityResolver.HasDeferredSecurityCheck(_context, parkedAttackerId))
-        {
-            SecurityDeferredCheckResult security = await _securityResolver
-                .FinalizeDeferredSecurityCheckAsync(_context, cancellationToken)
-                .ConfigureAwait(false);
-            if (security.IsDeferred)
-            {
-                return AttackAdvanceResult.Transitioned(AttackPhase.DeletionReplacement, AttackPhase.DeletionReplacement);
-            }
-
-            if (attack.IsDirectAttack)
-            {
-                _context.AttackController.ResolveAttack("Security check resolved.");
-            }
-            else
-            {
-                _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Deferred piercing security check resolved.");
-            }
-
-            return AttackAdvanceResult.Transitioned(AttackPhase.DeletionReplacement, AttackPhase.Resolved, securityResolved: true);
-        }
-
-        BattleResolutionResult battle = await _battleResolver
-            .FinalizeDeferredAsync(_context, cancellationToken)
-            .ConfigureAwait(false);
-        if (!battle.IsSuccess && _context.AttackController.Current.IsPending)
-        {
-            _context.LogSink.Warn($"[AttackProcess] deferred battle finalize failed: {battle.FailureReason}");
-            _context.AttackController.ResolveAttack($"Battle finalize failed: {battle.FailureReason}");
-        }
-
-        // (RD-CBTL-01) PierceProcess (drained next iteration) sets DoSecurityCheck — see the DetermineAttackOutcome
-        // twin above; the deferred re-entry parks the same way when the window stacked a [Pierce] skill.
-        if (battle.IsSuccess && battle.TriggersPiercingSecurityCheck)
-        {
-            _context.AttackController.AdvancePhase(AttackPhase.PiercingSecurity, "Piercing security check pending (triggers drain first).");
-            return AttackAdvanceResult.Transitioned(AttackPhase.DeletionReplacement, AttackPhase.PiercingSecurity, battleResolved: true);
-        }
-
-        return AttackAdvanceResult.Transitioned(AttackPhase.DeletionReplacement, AttackPhase.Resolved, battleResolved: true);
-    }
-
-    // AS-IS :459-465 ISecurityCheck for the piercing follow-up — SecurityResolver's shared per-card loop (identical
-    // to the direct check: the OnSecurityCheck W4 window + the security-Digimon battle W5).
-    private async Task<SecurityCheckLoopResult?> ApplyPiercingSecurityAsync(HeadlessAttackState attack, CancellationToken cancellationToken)
-    {
-        if (attack.DefendingPlayerId is not HeadlessPlayerId defender ||
-            attack.AttackingPlayerId is not HeadlessPlayerId attackingPlayer ||
-            attack.AttackerId is not HeadlessEntityId attackerId ||
-            _context.ZoneMover is not IZoneStateReader zoneReader)
-        {
-            return null;
-        }
-
-        int strike = ReadStrike(attackerId);
-        if (strike <= 0)
-        {
-            return null;
-        }
-
-        // (A1) AS-IS CanActivatePierce (Pierce.cs:20-42): Pierce fires only while the defending player has >= 1
-        // security. Losing on an empty stack belongs ONLY to the direct-attack path (AS-IS :423 EndGame).
-        if (zoneReader.GetCards(defender, ChoiceZone.Security).Count == 0)
-        {
-            return null;
-        }
-
-        return await _securityResolver.RunSecurityCheckLoopAsync(
-            _context, zoneReader, attackingPlayer, attackerId, defender, strike, cancellationToken).ConfigureAwait(false);
+        // AS-IS :467 — State = End.
+        _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Determine attack outcome resolved.");
     }
 
     // ===== AS-IS EndAttack (:473-484) =============================================================================
@@ -626,22 +602,13 @@ public sealed class AttackProcess
     /// boundary). The [On End Attack] window itself runs when the state machine reaches the End stage.</summary>
     public void EndAttack() => IsEndAttack = true;
 
-    private async Task<AttackAdvanceResult> EndAttackStage(CancellationToken cancellationToken)
+    private async Task EndAttackStage(CancellationToken cancellationToken)
     {
         IsEndAttack = true; // AS-IS :475 — the End stage always latches the flag.
-        int enqueued = 0;
 
         HeadlessAttackState attack = _context.AttackController.Current;
         if (attack.AttackingPlayerId is HeadlessPlayerId turnPlayer)
         {
-            // (C2 / design item F1-ENDATTACK-HOOK RETIRED) The scheduler-half EndAttackTriggerHook is REMOVED at the
-            // flip: it collected bound OnEndAttack reactors onto the EffectScheduler off-queue, which — now that the
-            // queued OnEndAttack event drives the MIRROR window (SkillWindowSupply → GetSkillInfos(OnEndAttack) on the
-            // main stack) — would DOUBLE-FIRE a reactor found by both halves. The unified mirror path (supply-converted
-            // OnEndAttack emit + inline main-stack drain) owns both halves now; the WindowResolverWiring.cs OnEndAttack
-            // scheduler-skip guard that existed only to bridge the hook is likewise superseded (dead after the flip).
-            // enqueued stays 0 (no scheduler enqueue), carried through AttackAdvanceResult unchanged.
-
             // AS-IS :478-481 — [On End Attack] fires ONLY while the attacker is still alive
             // (`AttackingPermanent != null && AttackingPermanent.TopCard != null`). Activated half: the
             // EventBroadcast window (subject = the attacker). The emit guard mirrors the AS-IS alive guard
@@ -678,7 +645,6 @@ public sealed class AttackProcess
         // [End of Attack] reactors still see UntilEndAttack buffs. (The freeform pipeline expired them here — a
         // divergence this mirror corrects.)
         _context.AttackController.AdvancePhase(AttackPhase.Completed, "End attack triggers collected.");
-        return AttackAdvanceResult.Transitioned(AttackPhase.Resolved, AttackPhase.Completed, enqueuedEndAttackTriggers: enqueued);
     }
 
     /// <summary>The Execute end-of-attack self-delete flag key.</summary>
@@ -696,25 +662,23 @@ public sealed class AttackProcess
             return;
         }
 
-        // Consume the one-shot flag, then run a REAL effect deletion through the sink (AS-IS DeleteSelfEffect is a
-        // normal DeletePermanent: would-be-deleted replacements may respond; leave-play cleanup / deletion triggers
-        // apply).
+        // Consume the one-shot flag, then run a REAL effect deletion (AS-IS DeleteSelfEffect is a normal
+        // DeletePermanent: would-be-deleted replacements may respond; leave-play cleanup / deletion triggers apply).
         var metadata = new Dictionary<string, object?>(attacker.Metadata, StringComparer.Ordinal);
         metadata.Remove(DeleteSelfAtEndOfAttackKey);
         _context.CardInstanceRepository.Upsert(attacker with { Metadata = metadata });
 
-        var sink = new MatchStateMutationSink(
-            _context.CardInstanceRepository, log: null, _context.ZoneMover, memory: null,
-            _context.GameEventQueue, context: _context);
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.DeleteKind,
-            attackerId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = attackerId.Value }));
-        await sink.FlushAsync().ConfigureAwait(false);
+        // (RDW re-migration off the retired MatchStateMutationSink) ONE DestroyPermanentsClass call over the attacker
+        // runs the full AS-IS deletion pipeline (would-be-deleted PRE cut-in, OnDestroyedAnyone / OnLeaveFieldAnyone,
+        // per-permanent trash). Cause = the attacker card itself collapsed to a BareCauseEffect — the exact source-id
+        // fidelity the sink's DeleteKind carried (mutation.SourceEntityId == attackerId).
+        await new DestroyPermanentsClass(
+            new List<Permanent> { new Permanent(_context, attackerId, attacker.OwnerId) },
+            Commons.CardEffectHashtable(BareCauseEffect.For(_context, attackerId))).Destroy().ConfigureAwait(false);
     }
 
     // ===== AS-IS Cleanup (:486-512) ===============================================================================
-    private AttackAdvanceResult Cleanup()
+    private void Cleanup()
     {
         // (③-B) The registry attack-end sweep (EffectDurationExpiry.ExpireAttackEnd) is RETIRED — the EffectRegistry
         // continuous-binding producer is 0, so it was a dead write. The live AS-IS attack-end duration expiry is the
@@ -743,11 +707,11 @@ public sealed class AttackProcess
             // (C-Atk RETIRED) the per-attack Raid/Alliance offered-once markers were substrate for the retired
             // counter-head gate choices — no longer set (the OnAllyAttack window is per-collection, not a
             // persistent per-attack marker), so nothing to clear.
-            // (C-5/VR-6) drop any stale deferred-security-check park marker with the attack.
-            SecurityResolver.ClearDeferredRemaining(_context, attackerId);
-            // (R3-W3c-2) clear the Progress per-attack dedup marker alongside the UntilEndAttack bucket reset
-            // above (the bucket held the Progress CanNotAffectedClass; both expire here — AS-IS Cleanup :489-495).
-            Headless.Runtime.ProgressImmunity.ClearApplied(_context, attackerId);
+            // (PROGRESS re-migration) the Progress per-attack dedup marker clear is RETIRED with its writer
+            // (see CounterTiming): the AS-IS Progress immunity is a printed self-static read live off the card's
+            // effect list, so there is no per-attack marker to reset — the UntilEndAttack bucket reset above is
+            // the whole of AS-IS Cleanup :489-495.
+            _ = attackerId;
         }
 
         // AS-IS :503-509 — field resets + State = None.
@@ -755,15 +719,14 @@ public sealed class AttackProcess
         SecurityDigimon = null;
         IsEndAttack = false;
         CounterSourcesSnapshot = null;
-        _counterPass1Emitted = false;
-        _counterPass2Emitted = false;
         _context.AttackController.ClearAttack();
 
-        // (P3) a queued multi-attacker Attack-mode selection continues with the next attacker (the AS-IS sequential
-        // SelectAttackEffect loop) — substrate seam over the effect-driven attack queue.
-        EffectDrivenAttack.TryOpenNextQueued(_context);
-
-        return AttackAdvanceResult.Transitioned(AttackPhase.Completed, AttackPhase.None);
+        // (EFFECT-ATTACK re-migration) The `EffectDrivenAttack.TryOpenNextQueued(_context)` pump that stood here is
+        // RETIRED with its queue. It re-opened the NEXT attacker of a multi-attacker Attack-mode selection, because
+        // the substrate offer was DEFERRED (park the choice, return, resume from Cleanup). AS-IS has no such queue:
+        // SelectPermanentEffect's Mode.Attack (:1009-1028) simply awaits one `SelectAttackEffect.Activate()` per
+        // selected attacker in a sequential foreach, which the mirror now does inline — the loop's own await IS the
+        // continuation, so there is nothing to dequeue here.
     }
 
     // ===== AS-IS SwitchDefender (:514-626) ========================================================================
@@ -790,7 +753,11 @@ public sealed class AttackProcess
             return;
         }
 
-        if (AttackTargetSwitchGate.IsLocked(_context, attackerId))
+        // (SWITCH-GATE re-migration) AS-IS :519 `if (!AttackingPermanent.CanSwitchAttackTarget) yield break` —
+        // the substrate `AttackTargetSwitchGate.IsLocked` wrapper re-implemented the AS-IS
+        // ICanNotSwitchAttackTargetEffect scan; that scan is the live mirror getter
+        // `Permanent.CanSwitchAttackTarget` (Permanent.cs:4020), so the AS-IS call is used directly.
+        if (AttackingPermanent is { } attackingPermanent && !attackingPermanent.CanSwitchAttackTarget)
         {
             return;
         }
@@ -807,20 +774,20 @@ public sealed class AttackProcess
             _context.AttackController.RetargetDefender(newDefendingPermanentId, "SwitchDefender retarget.");
         }
 
-        // AS-IS :536-545 — the hashtable payload {AttackingPermanent, DefendingPermanent, CardEffect, IsBlock};
-        // carried in full on both emits below (no payload reduction).
-        Dictionary<string, object?> switchMetadata = SwitchEventMetadata(causeEffectSourceId, newDefendingPermanentId, isBlock);
+        // AS-IS :514 `SwitchDefender(ICardEffect cardEffect, …)` — the mirror threads only the cause SOURCE ID
+        // (RD-C1-CARDEFFECT-IDTHREAD), so the id is lifted back to an ICardEffect for the hashtable slot with
+        // BareCauseEffect.ForOrNull: an absent / unresolvable id yields NULL, exactly as AS-IS carries a null
+        // cardEffect for the rule-sourced (block) path, while a card-driven redirect (AD1_012, BT15_078, BT25_039,
+        // Raid) now carries its real cause into BOTH windows below AND into the blocker tap (:557).
+        ICardEffect? cardEffect = BareCauseEffect.ForOrNull(_context, causeEffectSourceId ?? default);
 
         // (C1b) AS-IS AttackProcess.cs:536-545 — the StackSkillInfos window hashtable, built ONCE (capturing the
-        // permanents post-retarget) and SHARED by both emits below, exactly like AS-IS. CardEffect is null here:
-        // both mirror callers (BlockTiming block-select, RaidAttackSwitch redirect) pass a null cause — the AS-IS
-        // block path also passes null, and the card-redirect live-effect loss is the pre-existing RaidAttackSwitch
-        // null-cause substrate gap (F1-ATC-EMIT-CENTRALIZE / RDW-05), NOT a C1b re-thread target (no card call site).
+        // permanents post-retarget) and SHARED by both emits below AND by the blocker tap, exactly like AS-IS.
         var attackSwitchWindow = new System.Collections.Hashtable
         {
             { "AttackingPermanent", AttackingPermanent },
             { "DefendingPermanent", DefendingPermanent },
-            { "CardEffect", null },
+            { "CardEffect", cardEffect },
         };
         if (isBlock)
         {
@@ -829,15 +796,17 @@ public sealed class AttackProcess
 
         // AS-IS :547-564 — block: suspend the blocker, then the [When Blocking] window (OnBlockAnyone). The gate
         // reads the ATTACKER (CanTriggerOnAttack over AttackingPermanent) — subject = the attacker.
-        if (isBlock && newDefendingPermanentId is HeadlessEntityId suspendTarget)
+        if (isBlock && newDefendingPermanentId is HeadlessEntityId && DefendingPermanent is { } blockingPermanent)
         {
-            SuspendPermanent(suspendTarget); // AS-IS SuspendPermanentsClass.Tap() (:557)
-            TriggerEventEmitter.Emit(
-                _context.GameEventQueue,
-                TriggerTimings.OnBlock,
-                actor: attack.AttackingPlayerId,
-                subject: attackerId,
-                extraMetadata: switchMetadata);
+            // AS-IS :557 `new SuspendPermanentsClass(new List<Permanent>(){ DefendingPermanent }, hashtable).Tap()`
+            // — the SHARED SwitchDefender hashtable, so GetCardEffectFromHashtable -> cardEffect and IsBlock -> true
+            // (the key added at :544). Routed through the mirror class so the tap carries the already-suspended /
+            // !CanSuspend / CanNotBeAffected filters, DPWhenSuspended = DP and the OnTappedAnyone window.
+            {
+                using AmbientMatchContext.Scope _blockerTapScope = AmbientMatchContext.Enter(_context);
+                await new SuspendPermanentsClass(new List<Permanent>() { blockingPermanent }, cardEffect, isBlock)
+                    .Tap().ConfigureAwait(false);
+            }
 
             // (C2 seam-carrier) AS-IS AttackProcess.cs:560-562 StackSkillInfos(attackSwitchWindow, OnBlockAnyone) —
             // NOW ENABLED. SkillWindowSupply GAP-drops OnBlockAnyone (RDW-02), so this inline insert at the AS-IS emit
@@ -870,13 +839,6 @@ public sealed class AttackProcess
         // AS-IS :619-625 — the effects when the attack target switched (only on a REAL change).
         if (newDefendingPermanentId != oldDefendingPermanentId)
         {
-            TriggerEventEmitter.Emit(
-                _context.GameEventQueue,
-                TriggerTimings.OnAttackTargetChanged,
-                actor: attack.AttackingPlayerId,
-                subject: attackerId,
-                extraMetadata: switchMetadata);
-
             // (C2 seam-carrier) AS-IS AttackProcess.cs:622-624 StackSkillInfos(attackSwitchWindow,
             // OnAttackTargetChanged) — NOW ENABLED (reuses the SAME shared hashtable, so the IsBlock key rides along
             // when isBlock was true, as AS-IS). SkillWindowSupply GAP-drops this timing (RDW-02), so the inline insert
@@ -923,39 +885,11 @@ public sealed class AttackProcess
         return zones.GetCards(record.OwnerId, ChoiceZone.BattleArea).Contains(id);
     }
 
-    // AS-IS SuspendPermanentsClass.Tap() — the raw metadata write the actions use today (design item RD9-87: route
-    // through the sink SuspendKind so OnTappedAnyone / CanSuspend / DPWhenSuspended apply). The ATTACK tap carries
-    // the AS-IS `{"IsAttack", true}` hashtable (AttackProcess.cs:160-163) — mirrored as the `suspendedByAttack`
-    // marker; the blocker tap (SwitchDefender) carries the switch hashtable instead and sets no attack marker.
-    private void SuspendPermanent(HeadlessEntityId id, bool byAttack = false)
-    {
-        if (_context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? record) && record is not null)
-        {
-            var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal) { ["isSuspended"] = true };
-            if (byAttack)
-            {
-                metadata["suspendedByAttack"] = true;
-            }
-
-            _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
-        }
-    }
-
-    private int ReadStrike(HeadlessEntityId? attackerId)
-    {
-        if (attackerId is not HeadlessEntityId id ||
-            !_context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? attacker) ||
-            attacker is null)
-        {
-            return 1;
-        }
-
-        // (R1-b) number of security cards checked = AS-IS Permanent.Strike: a constant-1 seed folded LIVE with
-        // every applicable IChangeSAttackEffect (bucketed UpToConstant → UpDownValue → DownToConstant), clamped
-        // at 0 inside the getter (Permanent.Strike → Strike_AllowMinus). The metadata StrikeKey base is not an
-        // AS-IS concept (AS-IS hardcodes the 1 seed); discarded per the R1-a base-discard precedent.
-        return new Permanent(_context, id, attacker.OwnerId).Strike;
-    }
+    // (RD9-87 resolved) The private raw-metadata `SuspendPermanent(id, byAttack)` helper is RETIRED: both AS-IS tap
+    // sites (:160-166 attacker, :557 blocker) now call the mirror `SuspendPermanentsClass(...).Tap()` exactly as
+    // AS-IS does. The helper's `suspendedByAttack` marker had NO reader anywhere in the repo (it stood in for the
+    // AS-IS `IsAttack` hashtable key, itself read at CardController.cs:5583 and never used again), so nothing is
+    // lost by the retirement.
 
     // AS-IS :99 `new Permanent(AttackingPermanent.cardSources)` — the declaration-time stack snapshot (top +
     // digivolution sources).
@@ -976,50 +910,4 @@ public sealed class AttackProcess
         return snapshot;
     }
 
-    private static Dictionary<string, object?> AttackEventMetadata(HeadlessEntityId? attackEffectSourceId)
-    {
-        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (attackEffectSourceId is HeadlessEntityId cause && !cause.IsEmpty)
-        {
-            metadata["attackCauseEffectId"] = cause.Value;
-        }
-
-        return metadata;
-    }
-
-    private Dictionary<string, object?> CounterEventMetadata(string pass)
-    {
-        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [AutoProcessingTriggerCollector.CounterPassKey] = pass,
-        };
-
-        // AS-IS :99 — the counter gates evaluate over the DECLARATION-TIME cardSources snapshot.
-        if (CounterSourcesSnapshot is { Count: > 0 } snapshot)
-        {
-            metadata["counterSourcesSnapshot"] = string.Join(",", snapshot.Select(id => id.Value));
-        }
-
-        return metadata;
-    }
-
-    private static Dictionary<string, object?> SwitchEventMetadata(
-        HeadlessEntityId? causeEffectSourceId, HeadlessEntityId? newDefendingPermanentId, bool isBlock)
-    {
-        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            ["isBlock"] = isBlock,
-        };
-        if (newDefendingPermanentId is HeadlessEntityId defender && !defender.IsEmpty)
-        {
-            metadata["defendingPermanentId"] = defender.Value;
-        }
-
-        if (causeEffectSourceId is HeadlessEntityId cause && !cause.IsEmpty)
-        {
-            metadata["switchCauseEffectId"] = cause.Value;
-        }
-
-        return metadata;
-    }
 }

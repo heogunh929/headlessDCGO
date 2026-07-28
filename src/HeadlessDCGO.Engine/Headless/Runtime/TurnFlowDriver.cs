@@ -166,12 +166,15 @@ public sealed class TurnFlowDriver : IActionProcessor
                 // (RD-RLENV-05 — Option A landed, batch 7b) A pump-match SpecialPlay is DELIBERATELY not a pump
                 // action. The DigiXros/Assembly cluster is fully ported (RD-P6C1-5 / RD-R5-04 상환), and its pump
                 // EXECUTION is the mirror interactive pre-play selection reached through the ORDINARY PlayCard
-                // packet: a HasDigiXros / HasAssembly card is offered by PlayCardAction.GetLegalActions and this
+                // packet: a HasDigiXros / HasAssembly card is offered by HeadlessLegalActionDispatcher
+                // .PlayCardLegalActions (the re-homed enumeration lane) and this
                 // Queue()s Cec.PlayCardAction, whose PlayCardClass.PlayCard runs SelectDigiXros/SelectAssembly
                 // (CardController.cs:3387-3404). So the dispatcher does NOT offer SpecialPlay on a pump match
-                // (HeadlessLegalActionDispatcher) — routing a SpecialPlay packet through the live SpecialPlayAction
-                // path would be a REDUNDANT invented shortcut for the same play. The seat is unreachable via the
-                // legal set (validator boundary rejects it first); it stays an honest rejection here as a backstop.
+                // (HeadlessLegalActionDispatcher) — routing a SpecialPlay packet through a separate special-play
+                // driver would be a REDUNDANT invented shortcut for the same play, and that driver is now DELETED
+                // outright (SpecialPlay re-migration: no lane enumerates or executes SpecialPlay any more). The
+                // seat is unreachable via the legal set (validator boundary rejects it first); it stays an honest
+                // rejection here as a backstop.
                 return ActionProcessResult.Illegal(
                     action,
                     "SpecialPlay is not a pump-match action (Option A: a DigiXros/Assembly play is the ordinary PlayCard entry, which routes through the mirror interactive SelectDigiXros/SelectAssembly).",

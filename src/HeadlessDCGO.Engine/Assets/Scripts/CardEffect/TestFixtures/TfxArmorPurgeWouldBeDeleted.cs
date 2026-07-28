@@ -1,6 +1,6 @@
 // TEST FIXTURE (not a real card). Dispatch-discoverable CEntity_Effect whose [WhenPermanentWouldBeDeleted]
 // returns an OPTIONAL, window-form ActivateClass that survives by the AS-IS <Armor Purge> top-swap: trash ONLY
-// the top card and promote the immediate under-source (DeDigivolveHelpers.ArmorPurgeTopAsync), then cancel the
+// the top card and promote the immediate under-source (Permanent.ArmorPurgeTopAsync), then cancel the
 // pending deletion (willBeRemoveField=false) so the sink's per-entry survivor read spares the permanent. Used
 // as the current-model canon replacing the retired HasArmorPurgeKey metadata gate-key (R2-DeletionPipeline P1-4):
 // the top-swap trash is NOT a departure — ArmorPurgeTopAsync strips the deletion markers and moves the top with
@@ -56,10 +56,21 @@ public sealed class TfxArmorPurgeWouldBeDeleted : CEntity_Effect
                 // then cancel the pending deletion so the sink's survivor read spares the (now-promoted) permanent.
                 if (targetPermanent != null)
                 {
-                    await DeDigivolveHelpers.ArmorPurgeTopAsync(
+                    CardSource purgedTop = targetPermanent.TopCard;
+                    await Permanent.ArmorPurgeTopAsync(
                         card.Context.CardInstanceRepository, card.Context.ZoneMover,
-                        targetPermanent.InstanceId, card.Context.GameEventQueue);
+                        targetPermanent.InstanceId);
                     targetPermanent.willBeRemoveField = false;
+
+                    // AS-IS ArmorPurgeClass.ArmorPurge:69-79 — the [When Top Card is Trashed] window, opened at
+                    // the AS-IS position by the keyword process (the primitive is emit-free).
+                    await HeadlessDCGO.Engine.Assets.Scripts.Script.AutoProcessing.For(card.Context).StackSkillInfos(
+                        new Hashtable
+                        {
+                            { "Permanent", targetPermanent },
+                            { "CardSources", new List<CardSource> { purgedTop } },
+                        },
+                        EffectTiming.WhenTopCardTrashed);
                 }
             }
         }

@@ -18,7 +18,6 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class TfxDestroy : CEntity_Effect
@@ -51,21 +50,24 @@ public sealed class TfxDestroy : CEntity_Effect
             async Task ActivateDestroyCoroutine(Hashtable _hashtable)
             {
                 EngineContext context = card.Context;
-                // AS-IS "one DestroyPermanentsClass call == one delete batch" (SelectPermanentEffect Mode.Destroy
-                // NewSink idiom): stage a DeleteKind mutation per target, then flush. The sink's centralised
-                // immunity / deletion-prevention gate filters (source = this card, cannotBeDeleted honoured).
-                var sink = new MatchStateMutationSink(
-                    context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-                    context.GameEventQueue, context: context);
+                // AS-IS "one DestroyPermanentsClass call == one delete batch": build the pre-computed target LIST
+                // and run ONE DestroyPermanentsClass over it (its own cut-in / OnDeletion window handles the
+                // deletion-prevention + drain), replacing the retired per-target DeleteKind sink staging. Cause =
+                // this fixture's live activateClass (CardEffectHashtable), the same immunity source the sink carried.
+                var targetPermanents = new List<Permanent>();
                 foreach (HeadlessEntityId target in targets)
                 {
                     if (!target.IsEmpty)
                     {
-                        CardEffectCommons.DestroyPermanent(sink, card, target);
+                        targetPermanents.Add(new Permanent(context, target));
                     }
                 }
 
-                await sink.FlushAsync();
+                // The mirror keeps the CardController.cs top-level classes in the file's second block-scoped
+                // namespace `...Script.CardEffectCommons` (CardController.cs:2800 header), already imported
+                // above — the same unqualified `new DestroyPermanentsClass(...)` idiom the card corpus uses.
+                await new DestroyPermanentsClass(
+                    targetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy().ConfigureAwait(false);
             }
         }
 

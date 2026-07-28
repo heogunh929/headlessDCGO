@@ -240,17 +240,17 @@ public sealed class EX10_010 : CEntity_Effect
                 if (CardEffectCommons.IsExistOnBattleAreaDigimon(card))
                 {
                     if (CardEffectCommons.HasMatchConditionPermanent(card, OpponentsPermanent))
-                        DpBoostHelpers.AddBoost(card.Context.CardInstanceRepository, thisPermanent.InstanceId, "AT_EX10-010", 3000);
+                        thisPermanent.AddBoost(new Permanent.DPBoost("AT_EX10-010", 3000, null));
                     else
                     {
                         if (thisPermanent.Boosts.Exists(x => x.ID == "AT_EX10-010"))
-                            DpBoostHelpers.RemoveBoost(card.Context.CardInstanceRepository, thisPermanent.InstanceId, "AT_EX10-010");
+                            thisPermanent.RemoveBoost("AT_EX10-010");
                     }
                 }
                 else
                 {
                     if (thisPermanent.Boosts.Exists(x => x.ID == "AT_EX10-010"))
-                        DpBoostHelpers.RemoveBoost(card.Context.CardInstanceRepository, thisPermanent.InstanceId, "AT_EX10-010");
+                        thisPermanent.RemoveBoost("AT_EX10-010");
                 }
             }
         }

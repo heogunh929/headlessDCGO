@@ -1058,9 +1058,27 @@ public abstract class ICardEffect
 }
 
 // AS-IS ICardEffect.cs:938-965 (`CalculateOrder` / `EffectDuration` enum regions): CalculateOrder is C3-folded
-// into this file (its AS-IS home; see the enum at the bottom). EffectDuration already exists at
-// HeadlessDCGO.Engine.Headless.Effects.EffectDuration with a 1:1 AS-IS value set — referenced, not redefined here
-// (per the FOUNDATION brief's "if already exists, reference it" rule).
+// into this file (its AS-IS home; see the enum at the bottom). EffectDuration is defined HERE at its AS-IS home
+// (ICardEffect.cs:951-963): the former substrate housing Headless.Effects.EffectDuration was flagged in its own
+// header as a re-migration target ("미러 원가(재이관 대상): ICardEffect.cs:953"), now retired — this is its 1:1
+// port back into the mirror ICardEffect.cs, per mirror-into-AS-IS-file.
+
+#region Effect Duration
+
+// AS-IS ICardEffect.cs:951-963 (1:1).
+public enum EffectDuration
+{
+    UntilEachTurnEnd,
+    UntilOpponentTurnEnd,
+    UntilOwnerTurnEnd,
+    UntilEndAttack,
+    UntilEndBattle,
+    UntilOwnerActivePhase,
+    UntilCalculateFixedCost,
+    UntilNextUntap,
+}
+
+#endregion
 
 // AS-IS ICardEffect.cs:967-1032 (`EffectTiming` enum, 65 values): already ported at
 // CardEffectCommons/EffectTiming.cs with every AS-IS member name preserved (string-equal to
@@ -1342,13 +1360,13 @@ public enum EffectTiming
     OnEndAttack,
 
     // (PRIM-P0-timing batch 3b) new emit sites added:
-    //   OnDigivolutionCardDiscarded 53 — source (under) card trashed by an effect (DigivolutionStackHelpers).
+    //   OnDigivolutionCardDiscarded 53 — source (under) card trashed by an effect (Permanent stack mutations).
     //   OnAttackTargetChanged 31 — attack defender switched by raid/block (RaidAttackSwitch/BlockTiming).
     // Both are broadcast (see TriggerTimings.BroadcastTimings) to mirror the AS-IS global StackSkillInfos.
     OnDigivolutionCardDiscarded,
     OnAttackTargetChanged,
     //   OnDigivolutionCardReturnToDeckBottom — a Digimon's digivolution cards returned to the deck (c-remediation,
-    //   AS-IS ReturnToLibraryBottomDigivolutionCardsClass). Broadcast; emitted by DigivolutionStackHelpers.
+    //   AS-IS ReturnToLibraryBottomDigivolutionCardsClass). Broadcast; emitted by Permanent.
     OnDigivolutionCardReturnToDeckBottom,
 
     // (PRIM-P0-timing batch 4) The would-be-deleted replacement/prevention window (206 cards). A card

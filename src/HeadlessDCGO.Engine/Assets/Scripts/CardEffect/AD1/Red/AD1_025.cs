@@ -43,7 +43,6 @@ using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition;
 
@@ -124,32 +123,22 @@ public sealed class AD1_025 : CEntity_Effect
             var context = card.Context;
 
             // AS-IS :93 bottomDeckTargets = card.Owner.Enemy.GetBattleAreaDigimons().Filter(IsEnemyWithLessSources).
-            var bottomDeckTargets = new List<HeadlessEntityId>();
+            List<Permanent> bottomDeckTargets = new List<Permanent>();
             foreach (Permanent permanent in new Player(context, CardEffectCommons.OpponentOf(card)).GetBattleAreaDigimons())
             {
                 if (IsEnemyWithLessSources(permanent))
                 {
-                    bottomDeckTargets.Add(permanent.InstanceId);
+                    bottomDeckTargets.Add(permanent);
                 }
             }
 
-            // AS-IS :95 new DeckBottomBounceClass(bottomDeckTargets, ...).DeckBounce(). Mirror: stage the pre-computed
-            // list via the AS-IS `DeckBottomBounceClass(target).DeckBounce()` sink helper
-            // (CardEffectCommons.ReturnToDeckBottom, one per target — the DestroyPermanent per-target idiom) on a
-            // fresh MatchStateMutationSink and FLUSH — the flush is the commit boundary so the SelectPermanent
-            // below re-scans the POST-bounce board (AS-IS re-reads GetBattleAreaDigimons after DeckBounce). The
-            // sink's ReturnToDeckBottomKind handler applies the AS-IS gates + opens the DeckBounce leave window.
+            // AS-IS :95 new DeckBottomBounceClass(bottomDeckTargets, CardEffectHashtable(activateClass)).DeckBounce()
+            // — one batch call over the selected list (the single DeckBounce leave-window collapse). The
+            // SelectPermanent below then re-scans the POST-bounce board (AS-IS re-reads GetBattleAreaDigimons after DeckBounce).
             if (bottomDeckTargets.Count >= 1)
             {
-                var bounceSink = new MatchStateMutationSink(
-                    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
-                    context.GameEventQueue, context: context);
-                foreach (HeadlessEntityId bounceTarget in bottomDeckTargets)
-                {
-                    CardEffectCommons.ReturnToDeckBottom(bounceSink, card, bounceTarget);
-                }
-
-                await bounceSink.FlushAsync().ConfigureAwait(false);
+                await new DeckBottomBounceClass(bottomDeckTargets, CardEffectCommons.CardEffectHashtable(activateClass))
+                    .DeckBounce().ConfigureAwait(false);
             }
 
             // AS-IS :97-115 — if the opponent still has a Digimon (post-bounce), delete 1.

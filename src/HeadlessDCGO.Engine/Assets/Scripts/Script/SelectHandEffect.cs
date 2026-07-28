@@ -32,7 +32,6 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 // Inside namespace ...Script the identifier `CardEffectCommons` binds to the SIBLING NAMESPACE, not the
@@ -228,29 +227,13 @@ public sealed class SelectHandEffect
                         discardHands = _targetCards.Select(cardSource => new IDiscardHand(cardSource)).ToList();
                         break;
 
-                    case Mode.PutLibraryTop:   // AS-IS :732-735 CardObjectController.AddLibraryTopCards(_targetCards).
-                    {
-                        var sink = NewSink(context);
-                        foreach (CardSource cardSource in _targetCards)
-                        {
-                            sink.Apply(Mutation(MatchStateMutationSink.ReturnToDeckTopKind, cardSource));
-                        }
-
-                        await sink.FlushAsync().ConfigureAwait(false);
+                    case Mode.PutLibraryTop:   // AS-IS :734 — ONE CardObjectController.AddLibraryTopCards(_targetCards) batch call.
+                        await CardObjectController.AddLibraryTopCards(_targetCards).ConfigureAwait(false);
                         break;
-                    }
 
-                    case Mode.PutLibraryBottom:   // AS-IS :737-740 CardObjectController.AddLibraryBottomCards(_targetCards).
-                    {
-                        var sink = NewSink(context);
-                        foreach (CardSource cardSource in _targetCards)
-                        {
-                            sink.Apply(Mutation(MatchStateMutationSink.ReturnToDeckBottomKind, cardSource));
-                        }
-
-                        await sink.FlushAsync().ConfigureAwait(false);
+                    case Mode.PutLibraryBottom:   // AS-IS :739 — ONE CardObjectController.AddLibraryBottomCards(_targetCards) batch call.
+                        await CardObjectController.AddLibraryBottomCards(_targetCards).ConfigureAwait(false);
                         break;
-                    }
 
                     case Mode.PutSecurityBottom:   // AS-IS :742-746 per-card AddSecurityCard(cardSource, false, _isFaceUp).
                         foreach (CardSource cardSource in _targetCards)
@@ -525,17 +508,6 @@ public sealed class SelectHandEffect
         };
     }
 
-    private EffectMutation Mutation(string kind, CardSource card)
-    {
-        return new EffectMutation(
-            kind,
-            _sourceEntityId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value,
-            });
-    }
-
     private EngineContext? ResolveContext() => _context ?? _cardEffect?.EffectSourceCard?.Context;
 
     private EngineContext RequireContext() =>
@@ -543,8 +515,4 @@ public sealed class SelectHandEffect
         ?? throw new InvalidOperationException(
             "SelectHandEffect has no EngineContext — obtain the instance via " +
             "GManager.instance.GetComponent<SelectHandEffect>() (bridge W4).");
-
-    private static MatchStateMutationSink NewSink(EngineContext context) =>
-        new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-            context.GameEventQueue, context: context);
 }

@@ -39,12 +39,11 @@ public sealed class TfxPlayOption : CEntity_Effect
         async Task ActivateCoroutine(Hashtable _hashtable)
         {
             // (E3-P1-1 / AS-IS CardEffectCommons.PlayOptionCards) the effect-driven option-play candidates are
-            // filtered by `!CanNotPlayThisOption` (CanNotPlayOptionScan regions ①②③ + the colour requirement)
+            // filtered by the AS-IS `!CanNotPlayThisOption` getter (regions ①②③ + the colour requirement)
             // before the select — the same legality gate PlayOptionCards re-applies.
             var zones = (IZoneStateReader)card.Context.ZoneMover;
             var candidates = zones.GetCards(card.Owner, ChoiceZone.Hand)
-                .Where(id => !CanNotPlayOptionScan.CanNotPlay(card.Context, card.Owner, id)
-                          && OptionColorRequirement.Matches(card.Context, card.Owner, id))
+                .Where(id => !new CardSource(card.Context, id, card.Owner, card.Owner).CanNotPlayThisOption)
                 .Select(id => EffectChoiceHelpers.Candidate(id, id.Value, ChoiceZone.Hand, isSelectable: true, card.Owner))
                 .ToList();
             int max = Math.Min(1, candidates.Count);

@@ -9,11 +9,18 @@
 // `SetInt` are the direct, no-choice setters (the "only one branch is live" path — sets `_endSelect`).
 //
 // Substrate translation (docs/audit/rebuild_bridge_w5_notes.md):
-//   - The panel/RPC/queue plumbing (:19-30/:38-41/:43-54/:62-65 and the isYou/AI branches of Set*Selection,
-//     :108-141/:162-195) is the SELECTION TRANSPORT — the mirror's `context.ChoiceProvider.ChooseAsync` request
-//     IS the transport (the W4 SelectPermanentEffect/SelectCardEffect precedent). Both the human panel and the
-//     AI random branch collapse to the ONE ChoiceProvider request (RD-W5-2: the provider policy owns the
-//     opponent/AI decision; the AS-IS UnityEngine.Random pick is not reproduced).
+//   - (isAI restore) The RPC/queue plumbing (:19-30/:38-41/:43-54/:62-65) and the isYou/AI branches of
+//     Set*Selection (:108-141/:162-195) are now ported 1:1, including the AI branch's canSelectValue build and
+//     its random pick. Only the two UI ARMS are stripped: the owner's command panel and the non-select player's
+//     waiting banner — their delivery is the `context.ChoiceProvider.ChooseAsync` request issued by
+//     WaitForEndSelect where AS-IS blocks on the queue (the W4 SelectPermanentEffect/SelectCardEffect
+//     precedent). Headless `Player.isYou` and `GManager.IsAI` are both false, so the AI branch never runs and
+//     the request path is the only live one, as before.
+//     The AI pick uses `EngineContext.RandomSource.NextInt` for AS-IS's `UnityEngine.Random.Range`; NOTE
+//     (verified in Headless/Services/GameRandomSource.cs:6) that source is documented as the equivalent of
+//     AS-IS `GameRandom.Range`, NOT of `UnityEngine.Random.Range` (:22-27 of the same header classes the AI's
+//     non-synchronized selection draws as UnityEngine.Random). Same [0,count) contract, different stream; the
+//     branch is unreachable headless, so no live draw is affected.
 //   - `Set*Selection` stores the pending elements + select player verbatim-reset state (:104-107/:158-161);
 //     the request itself is issued inside `WaitForEndSelect` (:77-100), where AS-IS blocks — the deferred point
 //     is identical, no state is readable between the two in any AS-IS caller (RD-W5-1).
@@ -30,6 +37,8 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.PlayerSelection;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -91,32 +100,60 @@ public class UserSelectionManager
     /// kept for a skipped/empty result. CloseCommandText + activeSelf wait (:98-99) = UI (stripped).</summary>
     public async Task WaitForEndSelect()
     {
+        // SUBSTRATE: SetIntForPlayer below reads the process-global `GManager.instance` — scope the match, as in
+        // Set*Selection.
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(RequireContext());
+
         if (_selectPlayer is { } selectPlayer)
         {
-            List<(string Message, int Value, int SpriteIndex)> elements =
-                _pendingElements ?? new List<(string, int, int)>();
+            Player selectionPlayer = new Player(RequireContext(), selectPlayer);
 
-            var candidates = new List<ChoiceCandidate>(elements.Count);
-            for (int index = 0; index < elements.Count; index++)
+            // AS-IS :79 `yield return new WaitUntil(() => _selectPlayer.HasPlayerSelection());` — blocks until a
+            // Set*Selection branch delivered a ValueSelection (the restored AI branch queues one immediately; the
+            // owner's panel delivers one by RPC). The mirror's ChoiceProvider request IS that panel/RPC delivery,
+            // so it is issued exactly when nothing was queued.
+            if (!selectionPlayer.HasPlayerSelection())
             {
-                candidates.Add(new ChoiceCandidate(
-                    new HeadlessEntityId($"userSelection#{index}"),
-                    elements[index].Message, ChoiceZone.BattleArea, IsSelectable: true, ownerId: selectPlayer));
+                List<(string Message, int Value, int SpriteIndex)> elements =
+                    _pendingElements ?? new List<(string, int, int)>();
+
+                var candidates = new List<ChoiceCandidate>(elements.Count);
+                for (int index = 0; index < elements.Count; index++)
+                {
+                    candidates.Add(new ChoiceCandidate(
+                        new HeadlessEntityId($"userSelection#{index}"),
+                        elements[index].Message, ChoiceZone.BattleArea, IsSelectable: true, ownerId: selectPlayer));
+                }
+
+                var request = new ChoiceRequest(
+                    ChoiceType.ModeChoice, selectPlayer, _pendingMessage,
+                    minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.BattleArea, candidates);
+
+                ChoiceResult result = await RequireContext().ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
+                if (!result.IsSkipped && result.SelectedIds.Count > 0)
+                {
+                    // Parse the picked index off the synthetic id — the ModeChoiceEffect.BranchFor convention.
+                    string[] parts = result.SelectedIds[0].Value.Split('#');
+                    if (int.TryParse(parts.Length > 1 ? parts[1] : null, out int picked)
+                        && picked >= 0 && picked < elements.Count)
+                    {
+                        // The AS-IS transport the button closure uses (SendSelection -> SetInt_RPC ->
+                        // SetIntForPlayer): queue it on the seat, then take it off below as AS-IS does.
+                        SetIntForPlayer(selectPlayer, elements[picked].Value);
+                    }
+                }
             }
 
-            var request = new ChoiceRequest(
-                ChoiceType.ModeChoice, selectPlayer, _pendingMessage,
-                minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.BattleArea, candidates);
-
-            ChoiceResult result = await RequireContext().ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
-            if (!result.IsSkipped && result.SelectedIds.Count > 0)
+            // AS-IS :81-88 `DequeuePlayerSelection<ValueSelection>()`; a null dequeue leaves _selectedIntValue
+            // untouched. The HasPlayerSelection guard keeps the pre-existing skipped/empty-result fallthrough:
+            // AS-IS's WaitUntil cannot fall through with an empty queue, headless a skipped choice queues nothing.
+            if (selectionPlayer.HasPlayerSelection())
             {
-                // Parse the picked index off the synthetic id — the ModeChoiceEffect.BranchFor convention.
-                string[] parts = result.SelectedIds[0].Value.Split('#');
-                if (int.TryParse(parts.Length > 1 ? parts[1] : null, out int picked)
-                    && picked >= 0 && picked < elements.Count)
+                ValueSelection? valueSeletion = selectionPlayer.DequeuePlayerSelection<ValueSelection>();
+
+                if (valueSeletion != null)
                 {
-                    _selectedIntValue = elements[picked].Value;
+                    _selectedIntValue = valueSeletion.ValueAsInt();
                 }
             }
         }
@@ -139,23 +176,118 @@ public class UserSelectionManager
         // AS-IS :98-99 commandText.CloseCommandText() + activeSelf wait = UI (stripped).
     }
 
-    /// <summary>AS-IS <c>SetIntSelection</c> (:102-152). The verbatim reset (:104-107); the panel/AI/RPC
-    /// branches (:108-141, incl. <c>SendSelection</c> :143-151) are the transport — carried by the
-    /// WaitForEndSelect ChoiceProvider request (file header). <c>notSelectPlayerMessage</c> is the OTHER
-    /// player's waiting-banner text (:126) = UI (stripped, parameter kept at the AS-IS signature).</summary>
+    /// <summary>(isAI restore) AS-IS <c>[PunRPC] public void SetIntForPlayer(int playerID, int value)</c>
+    /// (:19-29), ported 1:1 including the AS-IS null-seat early return. SUBSTRATE: the first parameter carries
+    /// the mirror's seat-identity type (AS-IS callers pass the int <c>Player.PlayerID</c>; the mirror has no int
+    /// seat index — see <c>GManager.GetPlayerFromID</c>); name, order and count unchanged. <c>[PunRPC]</c> is
+    /// Photon substrate (stripped).</summary>
+    public void SetIntForPlayer(HeadlessPlayerId playerID, int value)
+    {
+        Player? selectionPlayer = GManager.instance!.GetPlayerFromID(playerID);
+
+        if (selectionPlayer == null)
+        {
+            return;
+        }
+
+        selectionPlayer.QueuePlayerSelection(new ValueSelection(value));
+    }
+
+    /// <summary>(isAI restore) AS-IS <c>protected void SetInt_RPC(int playerID, int value)</c> (:38-41) —
+    /// <c>photonView.RPC("SetIntForPlayer", RpcTarget.All, playerID, value)</c>, translated to the direct call
+    /// with the same arguments (the sanctioned Photon-dispatch translation).</summary>
+    protected void SetInt_RPC(HeadlessPlayerId playerID, int value)
+    {
+        SetIntForPlayer(playerID, value);
+    }
+
+    /// <summary>(isAI restore) AS-IS <c>[PunRPC] public void SetBoolForPlayer(int playerID, bool value)</c>
+    /// (:43-54) — the bool sibling of <see cref="SetIntForPlayer"/>; AS-IS queues the bool through the same
+    /// <see cref="ValueSelection"/> (its bool constructor).</summary>
+    public void SetBoolForPlayer(HeadlessPlayerId playerID, bool value)
+    {
+        Player? selectionPlayer = GManager.instance!.GetPlayerFromID(playerID);
+
+        if (selectionPlayer == null)
+        {
+            return;
+        }
+
+        selectionPlayer.QueuePlayerSelection(new ValueSelection(value));
+    }
+
+    /// <summary>(isAI restore) AS-IS <c>protected void SetBool_RPC(int playerID, bool value)</c> (:62-65).
+    /// </summary>
+    protected void SetBool_RPC(HeadlessPlayerId playerID, bool value)
+    {
+        SetBoolForPlayer(playerID, value);
+    }
+
+    /// <summary>AS-IS <c>SetIntSelection</c> (:102-152). The verbatim reset (:104-107), then the AS-IS
+    /// <c>selectPlayer.isYou</c> / <c>GManager.IsAI</c> split (:108-141) with <c>SendSelection</c> (:143-151)
+    /// — restored branch-for-branch. Only the two UI ARMS are stripped: the owner's command panel (:110-121)
+    /// and the non-select player's waiting banner from <paramref name="notSelectPlayerMessage"/> (:126); their
+    /// delivery is the WaitForEndSelect ChoiceProvider request (file header). Headless <c>isYou</c> and
+    /// <c>IsAI</c> are both false, so nothing is queued here and WaitForEndSelect issues that request, exactly
+    /// as before this restore.</summary>
     public void SetIntSelection(List<SelectionElement<int>> selectionElements, HeadlessPlayerId selectPlayer, string selectPlayerMessage, string notSelectPlayerMessage, bool IsLocal = false)
     {
+        // SUBSTRATE: the AS-IS branches read the process-global `GManager.instance`; the mirror resolves that
+        // from AmbientMatchContext, so scope the match here (a caller already in the same scope re-enters
+        // harmlessly) — the CardSource.GetPayingCostWithBaseCost idiom.
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(RequireContext());
+
         _endSelect = false;
         _selectedIntValue = 0;
         _selectPlayer = selectPlayer;
         _isLocal = IsLocal;
 
-        _ = notSelectPlayerMessage; // UI-only (:126).
+        // Mirror-only: the labeled options AS-IS keeps in the command-panel button closures (:114-119) are
+        // carried to the WaitForEndSelect request instead.
         _pendingMessage = selectPlayerMessage;
         _pendingElements = new List<(string, int, int)>();
         foreach (SelectionElement<int> selectionElement in selectionElements)
         {
             _pendingElements.Add((selectionElement.Message, selectionElement.Value, selectionElement.SpriteIndex));
+        }
+
+        if (new Player(RequireContext(), selectPlayer).isYou)
+        {
+            // AS-IS :110-121 commandText.OpenCommandText(selectPlayerMessage) + one Command_SelectCommand per
+            // element, each firing SendSelection = UI (stripped).
+        }
+
+        else
+        {
+            // AS-IS :126 commandText.OpenCommandText(notSelectPlayerMessage) — waiting banner = UI (stripped).
+
+            #region AIモード
+            if (GManager.instance!.IsAI)
+            {
+                List<int> canSelectValue = new List<int>();
+
+                foreach (SelectionElement<int> selectionElement in selectionElements)
+                {
+                    canSelectValue.Add(selectionElement.Value);
+                }
+
+                int value = canSelectValue.Count >= 1 ? canSelectValue[RequireContext().RandomSource.NextInt(0, canSelectValue.Count)] : 0;
+                SendSelection(value);
+            }
+            #endregion
+        }
+
+        // AS-IS :143-151.
+        void SendSelection(int value)
+        {
+            if (_isLocal)
+            {
+                SetIntForPlayer(selectPlayer, value);
+            }
+            else
+            {
+                SetInt_RPC(selectPlayer, value);
+            }
         }
     }
 
@@ -164,17 +296,56 @@ public class UserSelectionManager
     /// (SetBool :56-60 / SetBoolForPlayer :43-54 store ints).</summary>
     public void SetBoolSelection(List<SelectionElement<bool>> selectionElements, HeadlessPlayerId selectPlayer, string selectPlayerMessage, string notSelectPlayerMessage, bool IsLocal = false)
     {
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(RequireContext());
+
         _endSelect = false;
         _selectedIntValue = 0;
         _selectPlayer = selectPlayer;
         _isLocal = IsLocal;
 
-        _ = notSelectPlayerMessage; // UI-only (:180).
         _pendingMessage = selectPlayerMessage;
         _pendingElements = new List<(string, int, int)>();
         foreach (SelectionElement<bool> selectionElement in selectionElements)
         {
             _pendingElements.Add((selectionElement.Message, getIntFromBool(selectionElement.Value), selectionElement.SpriteIndex));
+        }
+
+        if (new Player(RequireContext(), selectPlayer).isYou)
+        {
+            // AS-IS :164-175 command panel = UI (stripped).
+        }
+
+        else
+        {
+            // AS-IS :180 commandText.OpenCommandText(notSelectPlayerMessage) = UI (stripped).
+
+            #region AIモード
+            if (GManager.instance!.IsAI)
+            {
+                List<bool> canSelectValue = new List<bool>();
+
+                foreach (SelectionElement<bool> selectionElement in selectionElements)
+                {
+                    canSelectValue.Add(selectionElement.Value);
+                }
+
+                bool value = canSelectValue.Count >= 1 ? canSelectValue[RequireContext().RandomSource.NextInt(0, canSelectValue.Count)] : false;
+                SendSelection(value);
+            }
+            #endregion
+        }
+
+        // AS-IS :197-205.
+        void SendSelection(bool value)
+        {
+            if (_isLocal)
+            {
+                SetBoolForPlayer(selectPlayer, value);
+            }
+            else
+            {
+                SetBool_RPC(selectPlayer, value);
+            }
         }
     }
 

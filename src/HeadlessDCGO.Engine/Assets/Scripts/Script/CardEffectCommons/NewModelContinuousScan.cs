@@ -1,3 +1,12 @@
+// ============================================================================
+// ⛔ DELETION-TARGET · DO-NOT-REFERENCE
+// 원장(docs/audit/filelist/merged_files_no_cards.csv): 삭제대상여부=Y · 결함여부=Y
+// 분류: 미러발명(AS-IS 무대응)
+// 미러 원가(재이관 대상): (미확정)
+// 이 파일은 AS-IS 원본에 동일-경로 대응이 없는 오배치/발명 코드다.
+// 규칙 로직은 위 미러 원가로 재이관 후 이 파일은 삭제 예정.
+// 서브에이전트/포팅 작업 시: 이 파일의 심볼을 참조·모방·확장하지 말 것.
+// ============================================================================
 // (P6 dispatch-flip STAGE B) New-model continuous interface scan.
 //
 // AS-IS truth: Permanent.DP / Permanent.Strike (SAttack) / Permanent.HasBlocker / HasJamming / HasPierce /
@@ -206,7 +215,7 @@ public static class NewModelContinuousScan
     // EffectList(None) + players' EffectList(None), gated by PermanentCondition(this) && CanUse(null) &&
     // !TopCard.CanNotBeAffected, then split by isUpDown() and fold in the order UpToConstant -> UpDownValue ->
     // DownToConstant, calling GetLinkMax(Max, this, InvertSecutiryValue). AS-IS base is a constant 1; here the
-    // legacy-resolved value (base metadata + legacy binding modifiers, LinkHelpers.ResolveLinkedMax) is the
+    // legacy-resolved value (base metadata + legacy binding modifiers, the retired LinkHelpers.ResolveLinkedMax) is the
     // baseValue we fold onto — the two representations are interface-disjoint so the union double-counts
     // nothing (RD-P6B-16).
     // ==================================================================================================
@@ -281,7 +290,7 @@ public static class NewModelContinuousScan
     // over Players_ForTurnPlayer field permanents (EXCLUDING this card's own permanent) + players' + THIS
     // card's own EffectList(None), gated by CanUse(null) && CardCondition(this) && PermanentCondition(target),
     // then fold the NotIsUpDown() group first, then the IsUpDown() group, calling GetCost(cost, this, target,
-    // root); clamp >= 0. AS-IS seeds Cost from linkCondition.cost — here the caller (LinkHelpers.ResolveLinkCost)
+    // root); clamp >= 0. AS-IS seeds Cost from linkCondition.cost — here the caller (CardSource.GetChangedLinkCost)
     // supplies the base cost it is folding, and the new-model interface scan is UNIONed onto the legacy binding
     // fold (interface-disjoint, no double-count; RD-P6B-16). SUBSTRATE: the mirror's real cost call sites supply
     // no target permanent / SelectCardEffect.Root (the link-play orchestration RD-P6C2-7 is unported), so

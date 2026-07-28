@@ -3,23 +3,18 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Diagnostics;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 
 public sealed class HeadlessGameLoop(
     EngineContext context,
     ITraceSink? traceSink = null,
-    IActionProcessor? actionProcessor = null,
-    GameFlowProcessor? gameFlowProcessor = null)
+    IActionProcessor? actionProcessor = null)
 {
     private readonly HeadlessActionQueue _actionQueue = new();
     private readonly IActionProcessor _actionProcessor = actionProcessor ?? new MetadataActionProcessor();
     private readonly HeadlessLegalActionDispatcher _legalActionDispatcher = new();
     private readonly ITraceSink _traceSink = traceSink ?? new NullTraceSink();
-    // R2-3: the flow processor is injectable (default new()) so tests can drive a non-converging loop
-    // and verify the iteration-cap flag propagates through StepResult / RlStepResult.
-    private readonly GameFlowProcessor _gameFlowProcessor = gameFlowProcessor ?? new();
     private ActionProcessResult? _lastActionResult;
     private LegalAction? _lastAction;
     private long _stepIndex;
@@ -84,11 +79,21 @@ public sealed class HeadlessGameLoop(
                 }));
         }
 
-        bool hadPendingEffects = Context.EffectScheduler.HasPendingEffects;
-        FlowProcessResult flow = await _gameFlowProcessor
-            .RunToStableAsync(Context, cancellationToken)
-            .ConfigureAwait(false);
-        int resolvedEffectCount = flow.ResolvedEffectCount;
+        // AS-IS game-flow stabilization: the mirror AutoProcessing.AutoProcessCheck (Assets/Scripts/Script/
+        // AutoProcessing.cs:1401 = RuleProcess -> RulesTiming StackSkillInfos -> TriggeredSkillProcess) IS the
+        // AS-IS "process to stable" the game loop runs after an action; the substrate GameFlowProcessor /
+        // EffectScheduler wrappers are retired. (window inline re-migration) A pending agent choice now suspends
+        // INLINE on the pump gate — the window no longer unwinds via a WindowChoicePendingException throw.
+        Assets.Scripts.Script.AutoProcessing autoProcessing = Assets.Scripts.Script.AutoProcessing.For(Context);
+        bool hadPendingEffects = autoProcessing.HasAwaitingActivateEffects();
+        using (AmbientMatchContext.Scope _autoProcessScope = AmbientMatchContext.Enter(Context))
+        {
+            await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+        }
+
+        // The substrate per-step "resolved effect count" is not an AS-IS metric; report whether the effect
+        // stack that was pending before the check has drained (best-effort observability, 1/0).
+        int resolvedEffectCount = hadPendingEffects && !autoProcessing.HasAwaitingActivateEffects() ? 1 : 0;
 
         // (4b B6) The OLD loop-level memory-pass evaluation (HeadlessMainPhaseFlow.EvaluateAfterMemoryMutation,
         // the GR-001 seat of the OLD step driver) is physically retired: the pump runs the real AS-IS
@@ -150,25 +155,8 @@ public sealed class HeadlessGameLoop(
                 "Resolved pending effects.",
                 new Dictionary<string, object?>
                 {
-                    ["count"] = resolvedEffectCount,
-                    ["flowIterations"] = flow.Iterations
+                    ["count"] = resolvedEffectCount
                 });
-        }
-
-        if (flow.PausedForChoice)
-        {
-            messages.Add("Flow paused for pending choice.");
-            _traceSink.Record("runtime", "Flow processor paused for pending choice.");
-        }
-
-        if (flow.IsMaxIterationsExceeded)
-        {
-            // GPT-#3: surface a runaway/iteration-cap stop distinctly from a genuine stable fixpoint.
-            messages.Add("Flow hit the iteration cap without stabilizing.");
-            _traceSink.Record(
-                "runtime",
-                "Flow processor exceeded MaxIterations without reaching a stable state.",
-                new Dictionary<string, object?> { ["flowIterations"] = flow.Iterations });
         }
 
         if (isTerminal)
@@ -186,7 +174,7 @@ public sealed class HeadlessGameLoop(
             hadPendingEffects,
             resolvedEffectCount,
             messages,
-            flow.IsMaxIterationsExceeded);
+            false);
     }
 
     public void EnqueueAction(LegalAction action)
@@ -198,7 +186,6 @@ public sealed class HeadlessGameLoop(
     {
         _actionQueue.Clear();
         Context.ResetMatchState();
-        Context.EffectScheduler.Clear();
         Context.TaskRunner.Clear();
         _lastAction = null;
         _lastActionResult = null;
@@ -226,7 +213,9 @@ public sealed class HeadlessGameLoop(
             _stepIndex,
             isTerminal,
             _actionQueue.Count,
-            Context.EffectScheduler.HasPendingEffects,
+            // (Batch 1) EffectScheduler pipeline retired (superseded by mirror AutoProcessing); the OLD
+            // scheduler queue is gone, so its pending flag / counters are always the empty baseline.
+            false,
             Context.CardInstanceRepository.Snapshot().Count,
             (Context.RandomSource as IRandomStateReader)?.CurrentSeed,
             _lastAction?.ActionType,
@@ -235,12 +224,7 @@ public sealed class HeadlessGameLoop(
             Context.TurnController.Current,
             FilterChoiceForPerspective(Context.ChoiceController.Current, perspectivePlayerId),
             Context.AttackController.Current,
-            new HeadlessEffectState(
-                Context.EffectScheduler.PendingCount,
-                Context.EffectScheduler.TotalEnqueuedCount,
-                Context.EffectScheduler.TotalResolvedCount,
-                Context.EffectScheduler.LastResolvedCount,
-                Context.EffectScheduler.TotalUnboundCount),
+            HeadlessEffectState.Empty,
             Context.MemoryController.Current,
             BuildPlayerObservations(playerIds ?? Array.Empty<HeadlessPlayerId>(), perspectivePlayerId));
     }
@@ -354,10 +338,20 @@ public sealed class HeadlessGameLoop(
                     ? cards.ToArray()
                     : Array.Empty<HeadlessEntityId>();
 
+                // AS-IS face-down convention (HandCard.cs:410 Owner.isYou; Player.cs:312/344 & SecurityObject.cs:135
+                // ReverseCard): deck (Library) / Security / DigiEgg deck (DigitamaLibrary) are face-down for
+                // everyone incl. the owner; the Hand is face-down only to the opponent.
+                bool defaultHidden = zone is ChoiceZone.Library
+                    or ChoiceZone.Hand
+                    or ChoiceZone.Security
+                    or ChoiceZone.DigitamaLibrary;
+                bool secretFromOwner = zone is ChoiceZone.Library
+                    or ChoiceZone.Security
+                    or ChoiceZone.DigitamaLibrary;
                 bool hiddenFromViewer =
                     perspectivePlayerId is { } viewer &&
-                    ZoneState.DefaultVisibility(zone) == ZoneVisibility.Hidden &&
-                    (viewer != playerId || ZoneState.IsSecretFromOwner(zone));
+                    defaultHidden &&
+                    (viewer != playerId || secretFromOwner);
 
                 // Count is always preserved; only the card identities are withheld when hidden.
                 if (hiddenFromViewer)
@@ -365,13 +359,13 @@ public sealed class HeadlessGameLoop(
                     return new ZoneObservation(zone, cardIds.Length, Array.Empty<HeadlessEntityId>());
                 }
 
-                CardObservation[] cardObservations = cardIds.Select(BuildCardObservation).ToArray();
+                CardObservation[] cardObservations = cardIds.Select(id => BuildCardObservation(id, zone)).ToArray();
                 return new ZoneObservation(zone, cardIds.Length, cardIds, cardObservations);
             })
             .ToArray();
     }
 
-    private CardObservation BuildCardObservation(HeadlessEntityId instanceId)
+    private CardObservation BuildCardObservation(HeadlessEntityId instanceId, ChoiceZone zone)
     {
         if (!Context.CardInstanceRepository.TryGetInstance(instanceId, out CardInstanceRecord? instance) ||
             instance is null)
@@ -380,6 +374,21 @@ public sealed class HeadlessGameLoop(
         }
 
         Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition);
+
+        // (DP re-migration) A field card's observed DP is the AS-IS EFFECTIVE DP (mirror Permanent.DP =
+        // AS-IS Permanent.BaseDP/GetDP: the continuous IChangeDPEffect fold + LinkedDP + Boosts), so the policy
+        // sees the same number the battle pipeline compares. Off-field zones have no AS-IS Permanent, so they
+        // keep the printed value.
+        if (zone is ChoiceZone.BattleArea or ChoiceZone.BreedingArea)
+        {
+            return CardObservationView.BuildFieldPermanent(
+                Context,
+                instance,
+                definition,
+                Context.CardInstanceRepository,
+                Context.CardRepository);
+        }
+
         return CardObservationView.Build(
             instance,
             definition,

@@ -17,7 +17,6 @@ using System.Collections;
 using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Effects;
 
 public sealed class BT1_090 : CEntity_Effect
 {

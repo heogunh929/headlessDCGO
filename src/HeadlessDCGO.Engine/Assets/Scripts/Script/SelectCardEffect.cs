@@ -21,7 +21,6 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 // Inside namespace ...Script the identifier `CardEffectCommons` binds to the SIBLING NAMESPACE, not the
@@ -113,74 +112,6 @@ public sealed class SelectCardEffect
         return EffectChoiceHelpers.CreateCardRequest(_selectPlayer, _message, minCount, maxCount, canSkip, zone, candidates);
     }
 
-    /// <summary>Map the Mode to one mutation per selected card. PlayForFree/PlayForCost need the
-    /// effect-Play mutation (F-3.7); Custom yields no built-in mutation.</summary>
-    public IReadOnlyList<EffectMutation> BuildMutations(IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(selected);
-
-        var mutations = new List<EffectMutation>();
-        foreach (HeadlessEntityId card in selected)
-        {
-            EffectMutation? mutation = BuildMutation(card);
-            if (mutation is not null)
-            {
-                mutations.Add(mutation);
-            }
-        }
-
-        return mutations;
-    }
-
-    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        foreach (EffectMutation mutation in BuildMutations(selected))
-        {
-            sink.Apply(mutation);
-        }
-    }
-
-    private EffectMutation? BuildMutation(HeadlessEntityId card)
-    {
-        return _mode switch
-        {
-            Mode.AddHand => Mutation(MatchStateMutationSink.ReturnToHandKind, card),
-            Mode.Discard => Mutation(MatchStateMutationSink.TrashCardKind, card),
-            Mode.PlayForFree => PlayMutation(card, memoryCost: 0),
-            // D-8: PlayForCost pays the resolved cost (set via SetPlayCost) per played card.
-            Mode.PlayForCost => PlayMutation(card, memoryCost: _playCost),
-            Mode.Custom => null,
-            _ => null,
-        };
-    }
-
-    private EffectMutation Mutation(string kind, HeadlessEntityId card)
-    {
-        return new EffectMutation(
-            kind,
-            _sourceEntityId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.TargetEntityIdKey] = card.Value,
-            });
-    }
-
-    private EffectMutation PlayMutation(HeadlessEntityId card, int memoryCost)
-    {
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [MatchStateMutationSink.TargetEntityIdKey] = card.Value,
-            [MatchStateMutationSink.FromZoneKey] = MapRoot(_root).ToString(),
-        };
-        if (memoryCost > 0)
-        {
-            values[MatchStateMutationSink.MemoryCostKey] = memoryCost;
-        }
-
-        return new EffectMutation(MatchStateMutationSink.PlayCardKind, _sourceEntityId, values);
-    }
-
     private static ChoiceZone MapRoot(Root root)
     {
         return root switch
@@ -229,7 +160,7 @@ public sealed class SelectCardEffect
     private bool _notAddLog;                  // UI-only (PlayLog gating).
     private bool _isDigiXros;                 // UI banner flag.
     private bool _isAssembly;                 // UI banner flag.
-    private bool _isSecurity;                 // AS-IS gates IsSecurityLooking — no live mirror surface (RD-W4-4).
+    private bool _isSecurity;                 // AS-IS gates IsSecurityLooking (live since fidelity defect C).
     private bool _allowFaceDown;
     private (int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? _reduceCostTuple;
     private (int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? _fixedCostTuple;
@@ -330,8 +261,8 @@ public sealed class SelectCardEffect
     /// <summary>AS-IS <c>SetAssembly</c> (:95-98) — UI banner flag.</summary>
     public void SetAssembly() => _isAssembly = true;
 
-    /// <summary>AS-IS <c>SetIsSecurity</c> (:100-103) — flags the security-looking window (the AS-IS
-    /// IsSecurityLooking poll has no live mirror surface — MIG6-SECURITYLOOKING / RD-W4-4).</summary>
+    /// <summary>AS-IS <c>SetIsSecurity</c> (:100-103) — flags the security-looking window; <see cref="Activate"/>
+    /// raises <c>GameContext.IsSecurityLooking</c> from it at AS-IS :378-381 (fidelity defect C).</summary>
     public void SetIsSecurity() => _isSecurity = true;
 
     /// <summary>AS-IS <c>SetUseFaceDown</c> (:105-108) — face-down cards stay selectable.</summary>
@@ -486,7 +417,7 @@ public sealed class SelectCardEffect
     /// selection (ChoiceProvider; batch or per-pick incremental) → per-Mode routing on the verified substrate
     /// carriers → the single AddHandCards batch → the always-run after-coroutines.
     /// UI/Photon strips (AS-IS anchors): IsSelecting save/restore + attacking-permanent outline + Off*Target
-    /// (:334-364, :1010), IsSecurityLooking flips (:378-381/:1008 — RD-W4-4/MIG6-SECURITYLOOKING), command
+    /// (:334-364, :1010), command
     /// text/messages (:396-435, :585-601, :688-689), the DeckData sort + matching-first panel ordering
     /// (:444-478 — presentation order, RD-W4-7), skillInfos decoration (:480-544), the RPC/WaitUntil selection
     /// transport (:561-686 — the ChoiceProvider request IS the transport; the AI AutoSelect branch collapses
@@ -514,6 +445,13 @@ public sealed class SelectCardEffect
         {
             EngineContext context = RequireContext();
 
+            // AS-IS :378-381 — a security-rooted look raises gameContext.IsSecurityLooking for the duration of the
+            // window (cleared unconditionally at :1008 below). Read by Player.CanAddSecurity / CanReduceSecurity.
+            if (_isSecurity)
+            {
+                new GameContext(context).IsSecurityLooking = true;
+            }
+
             List<CardSource> rootCards = RootCardList();   // AS-IS :437-442 working copy
 
             (List<CardSource> selected, List<int> selectedIndices) =
@@ -532,16 +470,9 @@ public sealed class SelectCardEffect
 
                         if (cardSource.IsDigiEgg)
                         {
-                            // AS-IS: a selected DigiEgg goes to the LIBRARY BOTTOM instead of the hand.
-                            var eggSink = NewSink(context);
-                            eggSink.Apply(new EffectMutation(
-                                MatchStateMutationSink.ReturnToDeckBottomKind,
-                                _sourceEntityId,
-                                new Dictionary<string, object?>(StringComparer.Ordinal)
-                                {
-                                    [MatchStateMutationSink.TargetEntityIdKey] = cardSource.InstanceId.Value,
-                                }));
-                            await eggSink.FlushAsync().ConfigureAwait(false);
+                            // AS-IS :770 — a selected DigiEgg goes to the LIBRARY BOTTOM instead of the hand:
+                            // CardObjectController.AddLibraryBottomCards(new List<CardSource> { cardSource }).
+                            await CardObjectController.AddLibraryBottomCards(new List<CardSource> { cardSource }).ConfigureAwait(false);
                         }
                         else
                         {
@@ -594,16 +525,8 @@ public sealed class SelectCardEffect
                         }
                         else
                         {
-                            // AS-IS CardObjectController.AddTrashCard(cardSource).
-                            var trashSink = NewSink(context);
-                            trashSink.Apply(new EffectMutation(
-                                MatchStateMutationSink.TrashCardKind,
-                                _sourceEntityId,
-                                new Dictionary<string, object?>(StringComparer.Ordinal)
-                                {
-                                    [MatchStateMutationSink.TargetEntityIdKey] = cardSource.InstanceId.Value,
-                                }));
-                            await trashSink.FlushAsync().ConfigureAwait(false);
+                            // AS-IS :811 CardObjectController.AddTrashCard(cardSource).
+                            await CardObjectController.AddTrashCard(cardSource).ConfigureAwait(false);
                         }
                     }
 
@@ -745,21 +668,9 @@ public sealed class SelectCardEffect
 
             if (handCards.Count >= 1)
             {
-                // AS-IS :975-978 CardObjectController.AddHandCards(handCards, false, _cardEffect) — ONE call =
-                // ONE add-hand batch: one sink flush shares one add-hand batch id across the N cards.
-                var handSink = NewSink(context);
-                foreach (CardSource cardSource in handCards)
-                {
-                    handSink.Apply(new EffectMutation(
-                        MatchStateMutationSink.ReturnToHandKind,
-                        _sourceEntityId,
-                        new Dictionary<string, object?>(StringComparer.Ordinal)
-                        {
-                            [MatchStateMutationSink.TargetEntityIdKey] = cardSource.InstanceId.Value,
-                        }));
-                }
-
-                await handSink.FlushAsync().ConfigureAwait(false);
+                // AS-IS :977 CardObjectController.AddHandCards(handCards, false, _cardEffect) — ONE call =
+                // ONE add-hand batch over the whole handCards list.
+                await CardObjectController.AddHandCards(handCards, false, _cardEffect).ConfigureAwait(false);
             }
         }
 
@@ -771,6 +682,14 @@ public sealed class SelectCardEffect
         if (_afterSelectIndexCoroutine != null)
         {
             await _afterSelectIndexCoroutine(_slectedInexesInList).ConfigureAwait(false);
+        }
+
+        // AS-IS :1008 gameContext.IsSecurityLooking = false — UNCONDITIONAL (outside the active() branch), so a
+        // window opened at :380 is closed on every exit path. (AS-IS reaches gameContext through the always-present
+        // GManager singleton; the mirror closes only when a context is resolvable — the same set of live calls.)
+        if (ResolveContext() is EngineContext closingContext)
+        {
+            new GameContext(closingContext).IsSecurityLooking = false;
         }
     }
 
@@ -929,8 +848,4 @@ public sealed class SelectCardEffect
         ?? throw new InvalidOperationException(
             "SelectCardEffect has no EngineContext — obtain the instance via " +
             "GManager.instance.GetComponent<SelectCardEffect>() (bridge W4).");
-
-    private static MatchStateMutationSink NewSink(EngineContext context) =>
-        new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-            context.GameEventQueue, context: context);
 }

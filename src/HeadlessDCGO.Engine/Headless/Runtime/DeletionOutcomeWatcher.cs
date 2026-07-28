@@ -9,7 +9,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// <c>DeletePeremanentAndProcessAccordingToResult</c> continuation must run only after EVERY target's
 /// deletion has SETTLED — and a target with a would-be-deleted replacement (Evade …) settles only after its
 /// agent choice, across a game-loop pause. The continuation (a Func — never serialised) parks here as a
-/// context service; <see cref="SettleAsync"/> runs in the GameFlowProcessor loop (next to
+/// context service; <see cref="SettleAsync"/> runs in the rule/auto-processing loop (next to
 /// <c>SettleAwaitingSacrifices</c>) and fires it once all targets are settled: DESTROYED = the card left
 /// the battle area (AS-IS <c>DestroyedPermanents</c> membership), SPARED = it is still there with no
 /// pending deletion.
@@ -120,7 +120,11 @@ public sealed class DeletionOutcomeWatcher
             return Outcome.Destroyed;   // instance gone = it left the field
         }
 
-        if (record.Metadata.TryGetValue(GameFlowProcessor.PendingDeletionKey, out object? pending) && pending is true)
+        // (GAMEFLOW re-migration) the pending-deletion flag constant is re-homed onto the mirror `Permanent`
+        // (its AS-IS home is the Permanent deletion bookkeeping); string value "pendingDeletion" unchanged.
+        if (record.Metadata.TryGetValue(
+                Assets.Scripts.Script.CardEffectCommons.Permanent.PendingDeletionMetadataKey, out object? pending)
+            && pending is true)
         {
             return Outcome.Pending;     // its would-be-deleted window has not resolved yet
         }

@@ -4,7 +4,6 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Yellow;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT2_035 : CEntity_Effect

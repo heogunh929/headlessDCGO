@@ -59,7 +59,6 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -163,16 +162,7 @@ public sealed class P_048 : CEntity_Effect
                             // 필드에 남은 미-플립 ACE 카드만(IsExistOnBattleArea || IsExistOnBreedingAreaDigimon)
                             // 유지 — 이 카드들은 트래시(Root.Trash)에서 뽑혔으므로 필드-필터가 전부 제거(구조적 no-op),
                             // 그래도 1:1로 배선(반환 목록에 필드 카드가 있으면 페널티 부과).
-                            List<CardSource> overflowCards = cardSources.FindAll(cs =>
-                                CardEffectCommons.IsExistOnBattleArea(cs) || CardEffectCommons.IsExistOnBreedingAreaDigimon(cs));
-                            if (overflowCards.Count > 0)
-                            {
-                                DeletionSourceTrash.ApplyAceOverflow(
-                                    card.Context.CardInstanceRepository,
-                                    overflowCards.ConvertAll(cs => cs.InstanceId),
-                                    card.Context.MemoryController,
-                                    card.Context.TurnController.Current.TurnPlayerId);
-                            }
+                            await new AceOverflowClass(cardSources).Overflow();
 
                             // AS-IS :99 CardObjectController.AddLibraryBottomCards(cardSources) — 명명 헬퍼
                             // 미이관(위 헤더 참조). AS-IS AddLibraryBottomCards(:867-874)는 물리 이동보다
@@ -182,21 +172,18 @@ public sealed class P_048 : CEntity_Effect
                                 new Hashtable { { "CardSources", cardSources } },
                                 EffectTiming.OnReturnCardsToLibraryFromTrash);
 
-                            // 물리 이동: 선택-순서 그대로 ReturnToDeckBottomKind 뮤테이션 루프로 재구현
-                            // (AD1_025.cs:146-150 직접-sink 구성 선례 + CardEffectCommons.cs:2811-2819
-                            // 프리미티브 재사용).
+                            // 물리 이동: 선택-순서 그대로 deck-bottom 이동. (RDW re-migration off the retired
+                            // MatchStateMutationSink) the sink's ReturnToDeckBottomKind reduced, for these trash-drawn
+                            // (never-on-field) cards, to a bare MoveToDeckBottomAsync per card — its field-only leave-
+                            // window / ACE-on-leave / return-to-deck restriction bits are structural no-ops off the
+                            // field. The ACE overflow + OnReturnCardsToLibraryFromTrash window staged above are this
+                            // card's own AS-IS AddLibraryBottomCards reconstruction; only the physical move was on the
+                            // sink, so only it is re-pointed at the zone mover it wrapped.
                             EngineContext context = card.Context;
-                            var bottomSink = new MatchStateMutationSink(
-                                context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
-                                context.GameEventQueue, context: context);
                             foreach (CardSource cs in cardSources)
                             {
-                                bottomSink.Apply(new EffectMutation(
-                                    MatchStateMutationSink.ReturnToDeckBottomKind, activateClass.EffectSourceCard?.InstanceId ?? card.InstanceId,
-                                    new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cs.InstanceId.Value }));
+                                await context.ZoneMover.MoveToDeckBottomAsync(cs.Owner, cs.InstanceId);
                             }
-
-                            await bottomSink.FlushAsync();
 
                             // AS-IS :101 Effects.ShowCardEffect(...) — UI 연출, 스트립.
 

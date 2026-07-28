@@ -4,7 +4,6 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
     using System;
     using System.Threading.Tasks;
     using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-    using HeadlessDCGO.Engine.Headless.Effects;
 
     public static partial class CardEffectCommons
     {
@@ -28,26 +27,22 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
         ///   restriction producer is ported; no such producer exists on the mirror today). The HOOK path (below)
         ///   DOES thread <paramref name="activateClass"/> into <c>SelectAttackEffect.SetUp(cardEffect:)</c> 1:1.
         /// - <paramref name="beforeOnAttackCoroutine"/> (RD-W3-7 RESOLVED): AS-IS runs it after the attacker
-        ///   suspend, before the [On Attack] window (AttackProcess.cs:191). A non-null hook now routes 1:1 through
-        ///   the mirror <see cref="SelectAttackEffect"/> (the AS-IS SelectAttackEffect port — the SAME surface
-        ///   Execute/Vortex/Overclock use), whose <c>Activate</c> declares the attack INLINE via the async-pausable
-        ///   <c>AttackDeclarationCommons.DeclareAsync</c>, firing the hook at the AS-IS point. The hook's own select
-        ///   (ST13_06's mandatory Jogress destroy) parks the pump in place and resumes (WaitPendingChoiceUnderPump
-        ///   idiom). The no-hook path keeps the established deferred <see cref="Headless.Runtime.EffectDrivenAttack"/>
-        ///   offer (digest-stable; the sole hook caller is ST13_06, not in any digest game).</summary>
+        ///   suspend, before the [On Attack] window (AttackProcess.cs:191). It routes 1:1 through the mirror
+        ///   <see cref="SelectAttackEffect"/> (the AS-IS SelectAttackEffect port — the SAME surface
+        ///   Execute/Vortex/Overclock use), whose <c>Activate</c> declares the attack INLINE, firing the hook at
+        ///   the AS-IS point. The hook's own select (ST13_06's mandatory Jogress destroy) parks the pump in place
+        ///   and resumes (WaitPendingChoiceUnderPump idiom).
+        /// (EFFECT-ATTACK re-migration) The former no-hook SHORT-CUT — which called the substrate
+        /// <c>BlitzProcess(cardSource)</c> → <c>EffectDrivenAttack.RequestChoice</c>, a second implementation of
+        /// the same flow that could not thread <paramref name="activateClass"/> (the RD-W3-7 residual) — is
+        /// RETIRED; BOTH cases now take the single AS-IS body below, so the causing effect reaches
+        /// <c>SelectAttackEffect.SetUp(cardEffect:)</c> and the <c>CanAttack(activateClass)</c> gate exactly as
+        /// AS-IS. A null hook is simply a null <c>SetBeforeOnAttackCoroutine</c> (AS-IS's own default).</summary>
         public static async Task BlitzProcess(CardSource cardSource, ICardEffect activateClass, Func<Task> beforeOnAttackCoroutine = null)
         {
-            if (beforeOnAttackCoroutine == null)
-            {
-                _ = activateClass;   // design item RD-W3-7 residual (see summary — no-hook gate/offer cause-threading).
-                BlitzProcess(cardSource);
-                await Task.CompletedTask;
-                return;
-            }
-
-            // (RD-W3-7) AS-IS BlitzProcess (Blitz.cs:31-47) 1:1 — the pre-OnAttack-hook path. Guard, then the AS-IS
-            // SelectAttackEffect offer (attacker = this permanent, player + any Digimon targetable) with the
-            // beforeOnAttackCoroutine set, awaited. `cardSource.PermanentOfThisCard()` → ResolvePermanentOfThisCard.
+            // AS-IS BlitzProcess (Blitz.cs:31-47) 1:1. Guard, then the AS-IS SelectAttackEffect offer (attacker =
+            // this permanent, player + any Digimon targetable) with the beforeOnAttackCoroutine set, awaited.
+            // `cardSource.PermanentOfThisCard()` → ResolvePermanentOfThisCard.
             if (CanActivateBlitz(cardSource, activateClass))
             {
                 Permanent attacker = ICardEffect.ResolvePermanentOfThisCard(cardSource);

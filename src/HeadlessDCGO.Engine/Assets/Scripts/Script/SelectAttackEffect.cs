@@ -370,20 +370,13 @@ public sealed class SelectAttackEffect
             isDirectAttack = true;
         }
 
-        if (beforeOnAttack is null)
-        {
-            Headless.Runtime.AttackDeclarationCommons.Declare(
-                context, attackingPlayer, _attacker.InstanceId,
-                defendingPlayer, targetId, isDirectAttack,
-                _withoutTap, attackEffectSourceId);
-        }
-        else
-        {
-            await Headless.Runtime.AttackDeclarationCommons.DeclareAsync(
-                context, attackingPlayer, _attacker.InstanceId,
-                defendingPlayer, targetId, isDirectAttack,
-                _withoutTap, attackEffectSourceId, beforeOnAttack).ConfigureAwait(false);
-        }
+        // (DECLARATION re-migration) the retired substrate AttackDeclarationCommons split this into a SYNC
+        // Declare (null hook) and an ASYNC DeclareAsync; both were the same body, so the single AS-IS-shaped
+        // mirror overload carries both — the hook is simply passed through (null keeps the previous path).
+        await AttackProcess.For(context).Attack(
+            attackingPlayer, _attacker.InstanceId,
+            defendingPlayer, targetId, isDirectAttack,
+            attackEffectSourceId, _withoutTap, beforeOnAttack).ConfigureAwait(false);
 
         // AS-IS after-attack coroutine (:1019-1020).
         if (_afterOnAttackCoroutine != null)

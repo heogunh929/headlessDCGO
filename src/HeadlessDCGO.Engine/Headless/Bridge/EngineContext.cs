@@ -4,7 +4,6 @@ using System.Collections.ObjectModel;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Coroutines;
 using HeadlessDCGO.Engine.Headless.DataLoading;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -25,7 +24,6 @@ public sealed class EngineContext
         IHeadlessMemoryController memoryController,
         ILogSink logSink,
         EngineTaskRunner taskRunner,
-        EffectScheduler effectScheduler,
         ContinuousContext? continuousContext = null,
         GameEventQueue? gameEventQueue = null,
         IHeadlessPlayerStatusController? playerStatusController = null)
@@ -42,13 +40,9 @@ public sealed class EngineContext
         MemoryController = memoryController ?? throw new ArgumentNullException(nameof(memoryController));
         LogSink = logSink ?? throw new ArgumentNullException(nameof(logSink));
         TaskRunner = taskRunner ?? throw new ArgumentNullException(nameof(taskRunner));
-        EffectScheduler = effectScheduler ?? throw new ArgumentNullException(nameof(effectScheduler));
         GameEventQueue = gameEventQueue ?? new GameEventQueue();
-        OptionalPromptQueue = new OptionalPromptQueue();
-        MulliganCoordinator = new MulliganCoordinator();
         PlayerTurnCounters = new HeadlessDCGO.Engine.Headless.Runtime.PlayerTurnCounterController();
         DeferredActivations = new HeadlessDCGO.Engine.Headless.Runtime.DeferredActivationController();
-        WindowResolution = new HeadlessDCGO.Engine.Headless.Effects.WindowResolutionController();
         PlayerStatusController = playerStatusController ?? new InMemoryHeadlessPlayerStatusController();
         ContinuousContext = continuousContext ?? ContinuousContext.Create(
             Array.Empty<HeadlessPlayerId>(),
@@ -89,17 +83,11 @@ public sealed class EngineContext
 
     public EngineTaskRunner TaskRunner { get; }
 
-    public EffectScheduler EffectScheduler { get; }
-
     public GameEventQueue GameEventQueue { get; }
 
-    /// <summary>(#2) Pending optional ("you may") trigger prompts awaiting an agent decision. Persists
-    /// across the loop's pause/resume so optional triggers are activated by choice, not auto-fired.</summary>
-    public OptionalPromptQueue OptionalPromptQueue { get; }
-
-    /// <summary>(N-5) Coordinates the opening-hand mulligan decisions during setup. Active only when the
-    /// match setup enables mulligan; otherwise idle.</summary>
-    public MulliganCoordinator MulliganCoordinator { get; }
+    // (mulligan inline re-migration) The `MulliganCoordinator` seat is RETIRED: the opening-hand mulligan runs
+    // INLINE in TurnStateMachine.StartGameAsync (AS-IS StartGame :374-501), parking on the pump gate per decision,
+    // so no cross-step coordinator state survives between decisions and nothing needs a context seat.
 
     // (R6-Da'-6 D1=A) `OnceFlags` (OnceFlagController — the invented string-key once-per-turn cap holder +
     // uniform-cycle transaction) DELETED with the uniform ActivatedEffect corpus. The AS-IS cap store is the
@@ -112,10 +100,6 @@ public sealed class EngineContext
     /// <summary>(G11-002) Holds an activation suspended mid-resolution waiting for an agent choice, so the
     /// next ResolveChoice resumes it without re-running the originating action (no re-pay).</summary>
     public HeadlessDCGO.Engine.Headless.Runtime.DeferredActivationController DeferredActivations { get; }
-
-    /// <summary>(A-2 RD-6) Holds the per-match [End of Your Turn] window drain-once marker. (The old registry-currency
-    /// window continuation this once parked was retired at the SkillInfo cutover; only the EoT drain state survives.)</summary>
-    public HeadlessDCGO.Engine.Headless.Effects.WindowResolutionController WindowResolution { get; }
 
     public IHeadlessPlayerStatusController PlayerStatusController { get; }
 
@@ -342,25 +326,18 @@ public sealed class EngineContext
         ResetIfSupported(AttackController);
         ResetIfSupported(MemoryController);
         ResetIfSupported(GameEventQueue);
-        OptionalPromptQueue.Clear();
-        MulliganCoordinator.Clear();
         PlayerTurnCounters.ResetMatchState();
         DeferredActivations.ResetMatchState();
-        WindowResolution.ResetMatchState();
         ResetIfSupported(PlayerStatusController);
         Interlocked.Exchange(ref _deletionBatchSequence, 0);
         _promotedBatchTrailingOps.Clear();
         CurrentState = ObservationSnapshot.Empty;
     }
 
-    /// <summary>Auto-register a card's ported continuous/passive-trigger effects as it enters play. This is
-    /// the enter-play chokepoint every <see cref="MatchStateMutationSink"/> defaults to (a sink that plays a
-    /// card via PlayCardKind / PlayDigivolutionAsDigimonKind invokes this) — mirroring AS-IS, where every play
-    /// (action- or effect-driven) runs through the single <c>PlayCardClass.PlayCard()</c> path, so the entered
-    /// card's <c>EffectList</c> is live regardless of who played it. No-op for un-ported cards;
-    /// <c>RegisterOnEnterPlay</c> skips activated effects, so this never double-runs imperative activations.</summary>
-    public void RegisterEnteredCardEffects(Services.HeadlessEntityId instanceId, Services.HeadlessPlayerId controller)
-        => HeadlessDCGO.Engine.Headless.Runtime.CardEffectRegistrar.RegisterCard(this, instanceId, controller);
+    // (REGISTRAR re-migration) `RegisterEnteredCardEffects(instanceId, controller)` is RETIRED. It was the
+    // enter-play chokepoint the now-retired `MatchStateMutationSink` defaulted to, forwarding to the retired
+    // substrate `CardEffectRegistrar.RegisterCard`; with the sink gone it had ZERO callers. The AS-IS seam it
+    // stood in for is `CardSource.Init()`, which every mirror enter-play / re-parent site now calls directly.
 
     /// <param name="randomSeed">Deterministic RNG seed.</param>
     /// <param name="strictUnbound">(GPT-#1 / 신1) When true, the effect scheduler treats a request with
@@ -378,22 +355,6 @@ public sealed class EngineContext
         // Hoisted so the mutation sink can open non-zone-move timing windows (CV-A4: OnTapped/OnUntapped)
         // on the same queue the EngineContext exposes.
         var gameEventQueue = new GameEventQueue();
-        // (G8-002) Captured here, assigned to the constructed context below. Sinks are created lazily (after
-        // construction), so selfRef is set by the time a sink is built — passing `context: selfRef` gives the
-        // scheduler sink the same enter-play registration every context-bearing sink defaults to
-        // (MatchStateMutationSink → selfRef.RegisterEnteredCardEffects), the same semantics as PlayCardAction.
-        EngineContext? selfRef = null;
-        var effectScheduler = new EffectScheduler(
-            new EffectResolutionQueue(),
-            CardEffectSchedulerResolver.Create(
-                sinkFactory: _ => new MatchStateMutationSink(
-                    cardInstanceRepository, logSink, zoneMover, memoryController, gameEventQueue,
-                    // (PRIM-W4 AceOverflow) turn-relative memory sign for a leaving ACE's overflow penalty.
-                    currentTurnPlayer: () => selfRef?.TurnController.Current.TurnPlayerId,
-                    // (FR-P3) EngineContext so restriction/immunity checks honour player-scope predicates AND the
-                    // played card auto-registers on enter-play via the sink's default hook.
-                    context: selfRef),
-                strictUnbound: strictUnbound));
 
         // G7-005: opt into the interactive DeferredChoiceProvider (suspend/resume) instead of the default
         // immediate ScriptedChoiceProvider. The provider must share the context's choice controller.
@@ -415,9 +376,7 @@ public sealed class EngineContext
             memoryController,
             logSink,
             new EngineTaskRunner(),
-            effectScheduler,
             gameEventQueue: gameEventQueue);
-        selfRef = context;
         return context;
     }
 
@@ -435,12 +394,8 @@ public sealed class EngineContext
         RegisterService<IHeadlessMemoryController>(MemoryController);
         RegisterService<ILogSink>(LogSink);
         RegisterService(TaskRunner);
-        RegisterService(EffectScheduler);
         RegisterService(GameEventQueue);
-        RegisterService(OptionalPromptQueue);
-        RegisterService(MulliganCoordinator);
         RegisterService(DeferredActivations);
-        RegisterService(WindowResolution);
         RegisterService<IHeadlessPlayerStatusController>(PlayerStatusController);
         RegisterService(ContinuousContext);
     }

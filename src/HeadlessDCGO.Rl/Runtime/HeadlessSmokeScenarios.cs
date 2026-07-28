@@ -552,30 +552,6 @@ public static class HeadlessSmokeScenarios
         };
     }
 
-    public static HeadlessScenario EnqueueAndResolveEffect(
-        string name = "enqueue-and-resolve-effect",
-        int randomSeed = 0,
-        HeadlessPlayerId? actingPlayerId = null)
-    {
-        HeadlessPlayerId playerOne = new(1);
-        HeadlessPlayerId playerTwo = new(2);
-        HeadlessPlayerId actor = actingPlayerId ?? playerOne;
-        HeadlessEntityId effectId = new("effect-smoke-001");
-        HeadlessEntityId sourceId = new("effect-source-smoke-card-001");
-
-        return new HeadlessScenario(
-            name,
-            CreateConfig(playerOne, playerTwo, randomSeed),
-            new[]
-            {
-                HeadlessActionFactory.EnqueueEffect(
-                    actor,
-                    effectId,
-                    timing: "Smoke",
-                    sourceEntityId: sourceId)
-            });
-    }
-
     public static HeadlessScenario AdvancePhaseToDraw(
         string name = "advance-phase-to-draw",
         int randomSeed = 0,
@@ -1095,30 +1071,6 @@ public static class HeadlessSmokeScenarios
             {
                 new HeadlessEventTypeExpectation(GameEventType.ChoiceRequested),
                 new HeadlessEventTypeExpectation(GameEventType.ChoiceResolved)
-            }
-        };
-    }
-
-    public static HeadlessScenarioExpectation EnqueueAndResolveEffectExpectation()
-    {
-        return new HeadlessScenarioExpectation
-        {
-            IsTerminal = false,
-            StepCount = 1,
-            FinalReward = 0d,
-            TotalReward = 0d,
-            FinalDiscount = 1d,
-            Features = new[]
-            {
-                new HeadlessFeatureExpectation("effects.pendingCount", 0d),
-                new HeadlessFeatureExpectation("effects.hasPending", 0d),
-                new HeadlessFeatureExpectation("effects.totalEnqueued", 1d),
-                new HeadlessFeatureExpectation("effects.totalResolved", 1d),
-                new HeadlessFeatureExpectation("effects.lastResolvedCount", 1d)
-            },
-            EventTypes = new[]
-            {
-                new HeadlessEventTypeExpectation(GameEventType.EffectResolved)
             }
         };
     }

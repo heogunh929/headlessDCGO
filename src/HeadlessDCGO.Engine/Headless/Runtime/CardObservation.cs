@@ -27,8 +27,15 @@ public sealed record CardObservation(
     public IReadOnlyList<StackedCard> UnderCards { get; init; } = Array.Empty<StackedCard>();
 }
 
-/// <summary>Builds a <see cref="CardObservation"/> from a card instance and its definition,
-/// computing DP through <see cref="DpCalculator"/> so the observed DP matches battle resolution.</summary>
+/// <summary>Builds a <see cref="CardObservation"/> from a card instance and its definition.
+/// (DP re-migration) DP used to be folded by the substrate <c>DpCalculator.ComputeDp(baseDp, dpModifiers)</c>,
+/// whose <c>dpModifiers</c> instance-metadata channel has ZERO writers on the whole tree — so the fold was the
+/// identity <c>max(0, baseDp)</c> and the observation reported PRINTED DP, never the effective one. The AS-IS DP
+/// source is <c>Permanent.BaseDP</c>/<c>GetDP</c> (DCGO Permanent.cs:193/327), mirrored 1:1 by the live
+/// <c>Permanent.DP</c> getter (continuous IChangeDPEffect fold + LinkedDP + Boosts). The
+/// <see cref="BuildFieldPermanent"/> overload uses it, so a battle/breeding-area card's observed DP matches
+/// battle resolution; off-field zones keep the printed value (AS-IS has no Permanent for a hand/deck/trash card,
+/// and the fold's field scans would be meaningless there).</summary>
 public static class CardObservationView
 {
     public const string DpKey = "dp";
@@ -68,7 +75,7 @@ public static class CardObservationView
         IReadOnlyDictionary<string, object?>? defMeta = definition?.Metadata;
 
         int baseDp = ReadInt(meta, DpKey) ?? ReadInt(defMeta, DpKey) ?? 0;
-        int dp = DpCalculator.ComputeDp(baseDp, ReadModifiers(meta));
+        int dp = baseDp < 0 ? 0 : baseDp;
 
         int level = ReadInt(meta, LevelKey) ?? ReadInt(defMeta, LevelKey) ?? ReadInt(defMeta, "Level") ?? 0;
         int playCost = definition?.PlayCost ?? ReadInt(defMeta, "playCost") ?? 0;
@@ -87,11 +94,23 @@ public static class CardObservationView
             ReadStackDepth(meta));
     }
 
-    private static IReadOnlyList<DpModifier> ReadModifiers(IReadOnlyDictionary<string, object?> metadata)
+    /// <summary>(DP re-migration) A battle/breeding-area card's observation, with DP taken from the AS-IS
+    /// source — the mirror <c>Permanent.DP</c> getter (AS-IS <c>Permanent.BaseDP</c>/<c>GetDP</c>), i.e. the
+    /// EFFECTIVE value the battle pipeline compares. Off-field callers stay on <see cref="Build(CardInstanceRecord,
+    /// CardRecord?, ICardInstanceRepository, ICardRepository)"/>, which reports the printed DP.</summary>
+    public static CardObservation BuildFieldPermanent(
+        Bridge.EngineContext context,
+        CardInstanceRecord instance,
+        CardRecord? definition,
+        ICardInstanceRepository instances,
+        ICardRepository cards)
     {
-        return metadata.TryGetValue(DpModifiersKey, out object? raw) && raw is IEnumerable<DpModifier> modifiers
-            ? modifiers.ToArray()
-            : Array.Empty<DpModifier>();
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(instance);
+
+        CardObservation observation = Build(instance, definition, instances, cards);
+        int dp = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, instance.InstanceId, instance.OwnerId).DP;
+        return observation with { Dp = dp < 0 ? 0 : dp };
     }
 
     private static int ReadStackDepth(IReadOnlyDictionary<string, object?> metadata)

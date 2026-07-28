@@ -1,9 +1,10 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 /// <summary>
-/// Sub-states of a single attack, mirroring Unity AS-IS <c>AttackProcess.ProcessNextState()</c>
-/// (Counter/Block/Battle/Security/End/CleanUp). Each <see cref="AttackPipeline"/> step advances
-/// the attack by exactly one phase so the common loop can pause for choices and resume.
+/// Sub-states of a single attack, mirroring AS-IS <c>AttackProcess.ProcessNextState()</c>
+/// (Counter/Block/Battle/End/CleanUp). The AttackProcess pump advances the attack one phase per step;
+/// battle/security resolve INLINE (IBattle/ISecurityCheck), so the loop pauses for choices via the pump
+/// gate and resumes — the resolver-driven DeletionReplacement/PiercingSecurity park phases are retired.
 /// </summary>
 public enum AttackPhase
 {
@@ -18,15 +19,6 @@ public enum AttackPhase
 
     /// <summary>Block timing finished (blocked or skipped); ready for battle/security resolution.</summary>
     Combat,
-
-    /// <summary>(F-6.8) Battle deletion is deferred for an OPTIONAL would-be-deleted replacement choice
-    /// (Barrier/Evade/…): the pipeline parks here while the owner decides, then finalizes the battle.</summary>
-    DeletionReplacement,
-
-    /// <summary>(B2) A Piercing follow-up security check is due. The pipeline parks for one loop iteration
-    /// so battle-generated triggers drain FIRST (AS-IS AttackProcess: battle → TriggeredSkillProcess →
-    /// security check), then re-verifies the attacker survived before checking security.</summary>
-    PiercingSecurity,
 
     /// <summary>Battle/security resolved; end-attack triggers not yet collected.</summary>
     Resolved,

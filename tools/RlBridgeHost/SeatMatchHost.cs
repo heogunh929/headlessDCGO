@@ -246,16 +246,13 @@ public sealed class SeatMatchHost
         }
 
         HeadlessPlayerId[] players = { new(1), new(2) };
-        // (R4 S3c-d1, pump promotion) Setup seeds DECKS ONLY: the pump's StartGameAsync owns the opening
-        // hand deal, the mulligan choices and the security deal (hand 0 / security 0 / setup-mulligan off;
-        // deck seeding + seeded shuffle kept). CreatePumpDriven normalizes this anyway — explicit here so
-        // the protocol reference implementation states the pump-era setup contract.
+        // (MatchSetup re-migration) Setup carries DECK DATA ONLY — it is the headless stand-in for the Photon
+        // deck/first-player custom properties. The opening hand deal, the mulligan choices and the security deal
+        // are AS-IS TurnStateMachine.StartGame steps owned by the pump, so there are no setup-level hand/security/
+        // mulligan knobs to turn off any more (and no NormalizeForPump suppression to keep them from double-dealing).
         MatchSetupConfig setup2 = MatchSetupConfig.Create(
             deckSetups,
-            firstPlayerId: players[0],
-            initialHandSize: 0,
-            initialSecuritySize: 0,
-            enableMulligan: false);
+            firstPlayerId: players[0]);
         MatchConfig config = MatchConfig.Create(players, randomSeed: seed, setup: setup2);
 
         _matchId = $"m-{seed}-{_matchCounter++}";

@@ -34,8 +34,8 @@ public enum ChoiceType
     ModeChoice,
     // (Stage 5, Phase 3) a trigger-window decision — either "which of these simultaneous effects resolves
     // first" (AS-IS MultipleSkills OpenSelectCardPanel, _MaxCount:1) or "activate this optional effect? yes/no"
-    // (AS-IS Activate_Optional). Candidate Id == the trigger's effect id; skip == "don't activate". Resolved by
-    // WindowResolutionController resume in ResolveChoiceAsync, NOT by the OptionalPromptQueue.
+    // (AS-IS Activate_Optional). Candidate Id == the trigger's effect id; skip == "don't activate". Resolved
+    // INLINE by the pump-deposit seam in ResolveChoiceAsync (the skill body parks the pump on ChooseAsync).
     WindowChoice,
     // (R4 S3a) the breeding-phase decision (AS-IS TurnStateMachine.cs:719-816, a bool ValueSelection —
     // SendShouldHatch semantics): act (hatch when possible, else move — AS-IS both-possible resolves to hatch)

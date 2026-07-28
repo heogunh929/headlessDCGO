@@ -12,9 +12,9 @@
 // the exact analogue of a parked Unity coroutine frame. This is why the pump needs NO re-entrancy, NO body
 // slicing and NO record-replay: decision 1 (non-reentrant 1:1 bodies) and decision 3 (AS-IS cadence) compose.
 //
-// While a pump segment is executing (TurnFlowPumpHost.IsPumpExecuting), the choice pipeline's two suspension
-// points switch from the THROW contract (WindowChoicePendingException / DeferredChoicePendingException — the
-// stack-unwind model built for the RunToStable drive) to AWAIT-mode: the port/provider opens the choice, marks
+// While a pump segment is executing (TurnFlowPumpHost.IsPumpExecuting), the choice pipeline's suspension
+// point switches from the THROW contract (DeferredChoicePendingException — the stack-unwind model built for the
+// RunToStable drive) to AWAIT-mode: the port/provider opens the choice, marks
 // it pump-owned, and awaits the gate; MetadataActionProcessor.ResolveChoiceAsync deposits the agent's answer on
 // the host instead of driving the record-replay resume. Windows and effect bodies therefore resolve their
 // choices IN PLACE on the pump stack — the AS-IS in-coroutine wait, with zero body re-runs.
@@ -30,7 +30,6 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Coroutines;
-using HeadlessDCGO.Engine.Headless.Effects;
 using Cec = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 /// <summary>The pump's await-gate — the async equivalent of the AS-IS <c>WaitUntil</c>. Single park slot
@@ -264,17 +263,23 @@ public static class TurnFlowPump
         Cec.TurnStateMachine turnStateMachine = Cec.TurnStateMachine.For(context);
         Cec.GameContext gameContext = turnStateMachine.gameContext;
 
-        // AS-IS StartGame (:341-504): opening hands (non-turn player first) + mulligan begin; the coordinator
-        // applies redraws and deals security as each player's choice resolves (the externalized :374-501).
-        await turnStateMachine.StartGameAsync(cancellationToken).ConfigureAwait(false);
+        // AS-IS :291 `StartCoroutine(GameStateMachine())` — this pump IS the AS-IS GameStateMachine (:301-334), and
+        // it is started from the TAIL of AS-IS Init (:34-297). Init's rule-relevant steps (deck creation :233, the
+        // first/second decision :255-283) therefore run BEFORE this pump, in TurnStateMachine.InitAsync, which the
+        // match bootstrap (DcgoMatch.InitializeAsync/ResetAsync) drives — the same ordering AS-IS has, and the one
+        // place that also serves a non-pump match. So the whole opening is ONE AS-IS path:
+        // Init -> CreatePlayerDecks -> (GameStateMachine) StartGame -> deal -> mulligan -> security.
 
-        // The mulligan decisions resolve via ResolveChoice agent actions -> MulliganCoordinator.ResolveAsync
-        // (the existing seam, NOT a pump-owned choice). Park until the whole sequence (including the deferred
-        // security deal) completes. AS-IS :503 DoneStartGame=true maps to the first ActivePhase entry below
+        // AS-IS StartGame (:341-504) IN FULL: opening hands (first player first), the per-player mulligan and
+        // the security deal all run INLINE on this stack. Each keep/redraw choice parks the pump in place
+        // (ChoiceProvider.ChooseAsync await-mode) and the body resumes where it stopped, so StartGameAsync does
+        // not return until the whole opening sequence is done — exactly the AS-IS single-coroutine shape.
+        // (mulligan inline re-migration) The former post-StartGame park on
+        // `!MulliganCoordinator.IsActive && !ChoiceController.Current.IsPending` is RETIRED along with the
+        // coordinator: there is nothing left to wait FOR, and AS-IS :303-306 likewise falls straight from
+        // StartGame into the turn loop. AS-IS :503 DoneStartGame=true maps to the first ActivePhase entry below
         // (mirror DoneStartGame = phase past None; nothing rule-relevant sits between :503 and :554).
-        await host.Gate.WaitUntilAsync(() =>
-            !context.MulliganCoordinator.IsActive && !context.ChoiceController.Current.IsPending)
-            .ConfigureAwait(false);
+        await turnStateMachine.StartGameAsync(cancellationToken).ConfigureAwait(false);
 
         // AS-IS turn loop: the phase-body chain. Each body self-guards on TurnPhase==End (the AS-IS in-body
         // EndTurnCheck guards), so the chain calls them in order exactly like the original driver.
@@ -349,14 +354,14 @@ public static class TurnFlowPump
                 {
                     if (!context.CardInstanceRepository.TryGetInstance(cardId, out Services.CardInstanceRecord? record)
                         || record is null
-                        || !(record.Metadata.TryGetValue(MatchStateMutationSink.EnteredThisTurnKey, out object? raw) && raw is true))
+                        || !(record.Metadata.TryGetValue(Services.ZoneMoveMetadataKeys.EnteredThisTurnKey, out object? raw) && raw is true))
                     {
                         continue;
                     }
 
                     var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
                     {
-                        [MatchStateMutationSink.EnteredThisTurnKey] = false,
+                        [Services.ZoneMoveMetadataKeys.EnteredThisTurnKey] = false,
                     };
                     context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
                 }

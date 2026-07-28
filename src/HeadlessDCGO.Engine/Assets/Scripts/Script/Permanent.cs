@@ -4,7 +4,6 @@ using System.Collections; // (R1-c) Hashtable — AS-IS HasBlitz/HasEvade/HasBar
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -774,6 +773,53 @@ public sealed class Permanent
                         if (cardEffect1.CanUse(null))
                         {
                             if (((ICannotReturnToHandEffect)cardEffect1).CannotReturnToHand(this, cardEffect))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+
+    #region Can be returned to deck?
+    /// <summary>AS-IS <c>Permanent.CannotReturnToLibrary(ICardEffect cardEffect)</c> (Permanent.cs:785-822): the
+    /// aggregate ICannotReturnToLibrary scan — TRUE if ANY live <see cref="ICannotReturnToLibraryEffect"/> (on any
+    /// player's field permanents' [None] effects OR any player's own [None] effects) forbids THIS permanent from
+    /// returning to the deck for <paramref name="cardEffect"/>. Verbatim scan scope/order (structural sibling of
+    /// <see cref="CannotReturnToHand"/>, same nested-loop quirk); substrate:
+    /// <c>GManager.instance.turnStateMachine.gameContext.Players</c> → <c>new GameContext(_context).Players</c>.</summary>
+    public bool CannotReturnToLibrary(ICardEffect cardEffect)
+    {
+        foreach (Player player in new GameContext(_context).Players)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is ICannotReturnToLibraryEffect)
+                    {
+                        if (cardEffect1.CanUse(null))
+                        {
+                            if (((ICannotReturnToLibraryEffect)cardEffect1).CannotReturnToLibrary(this, cardEffect))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is ICannotReturnToLibraryEffect)
+                    {
+                        if (cardEffect1.CanUse(null))
+                        {
+                            if (((ICannotReturnToLibraryEffect)cardEffect1).CannotReturnToLibrary(this, cardEffect))
                             {
                                 return true;
                             }
@@ -1695,20 +1741,22 @@ public sealed class Permanent
     /// <summary>(P6C3) AS-IS <c>Permanent.IsDestroyedByBattle</c> (Permanent.cs:3666, a public
     /// auto-property the battle pipeline stamps on a battle loser and the WhenDeleteOpponentDigimon* /
     /// Pierce gates read). Mirror carrier = the instance <c>deletedByBattle</c> metadata flag the live
-    /// substrate battle pipeline ALREADY stamps (<see cref="Headless.Runtime.BattleResolver.DeletedByBattleKey"/>)
-    /// — so a gate reading this view sees exactly the live pipeline's answer, and the Hashtable builders'
-    /// AS-IS-verbatim <c>{ IsDestroyedByBattle = true }</c> writes land on the same shared flag.</summary>
+    /// battle pipeline ALREADY stamps (<see cref="DeletedByBattleMetadataKey"/> — re-homed here from the retired
+    /// substrate <c>BattleResolver.DeletedByBattleKey</c>, string value <c>"deletedByBattle"</c> unchanged, and
+    /// already the class-local constant this file's top-swap marker strip uses) — so a gate reading this view
+    /// sees exactly the live pipeline's answer, and the Hashtable builders' AS-IS-verbatim
+    /// <c>{ IsDestroyedByBattle = true }</c> writes land on the same shared flag.</summary>
     public bool IsDestroyedByBattle
     {
         get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
-            && record.Metadata.TryGetValue(Headless.Runtime.BattleResolver.DeletedByBattleKey, out object? raw) && raw is true;
+            && record.Metadata.TryGetValue(DeletedByBattleMetadataKey, out object? raw) && raw is true;
         set
         {
             if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
             {
                 var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
                 {
-                    [Headless.Runtime.BattleResolver.DeletedByBattleKey] = value,
+                    [DeletedByBattleMetadataKey] = value,
                 };
                 _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
             }
@@ -1716,9 +1764,9 @@ public sealed class Permanent
     }
 
     // ===== (R3-A) DestroyPermanentsClass deletion-snapshot members (AS-IS Permanent.cs public fields the
-    // Destroy() sequence marks/records). The five "JustBeforeRemoveField" carriers are backed by the SAME
-    // instance-metadata keys the substrate CardLeavePlayCleanup snapshot writes/reads (Runtime.CardLeavePlayCleanup),
-    // so the mirror DestroyPermanentsClass writer and every OnDeletion reader agree on one carrier — no invention.
+    // Destroy() sequence marks/records). The five "JustBeforeRemoveField" carriers are backed by the
+    // instance-metadata keys re-homed into this class (below), so the mirror DestroyPermanentsClass writer and
+    // every OnDeletion reader agree on one carrier — no invention.
     // willBeRemoveField / DestroyingEffect use per-match stores (the PermanentJustBeforeRemoveFieldStore pattern). =====
 
     /// <summary>(R3-A) AS-IS <c>Permanent.willBeRemoveField</c> (a transient bool the Destroy() PRE cut-in reads to
@@ -1764,45 +1812,126 @@ public sealed class Permanent
         public Dictionary<HeadlessEntityId, ICardEffect?> Values { get; } = new Dictionary<HeadlessEntityId, ICardEffect?>();
     }
 
-    /// <summary>(R3-A) AS-IS <c>Permanent.DPJustBeforeRemoveField</c> (default -1). Backed by the substrate
+    /// <summary>AS-IS <c>Permanent.HandBounceEffect</c> (Permanent.cs:3678, default null) — the ICardEffect that
+    /// returned this permanent to hand, recorded by <c>HandBounceClaass.Bounce</c> (:2783). Per-match store keyed
+    /// by InstanceId (the <see cref="DestroyingEffect"/> pattern), holding the live effect reference like the AS-IS
+    /// auto-property.</summary>
+    public ICardEffect? HandBounceEffect
+    {
+        get => _context.TryGetService(out HandBounceEffectStore? store) && store is not null
+            && store.Values.TryGetValue(InstanceId, out ICardEffect? effect) ? effect : null;
+        set
+        {
+            if (!_context.TryGetService(out HandBounceEffectStore? store) || store is null)
+            {
+                store = new HandBounceEffectStore();
+                _context.RegisterService(store);
+            }
+
+            store.Values[InstanceId] = value;
+        }
+    }
+
+    private sealed class HandBounceEffectStore
+    {
+        public Dictionary<HeadlessEntityId, ICardEffect?> Values { get; } = new Dictionary<HeadlessEntityId, ICardEffect?>();
+    }
+
+    /// <summary>AS-IS <c>Permanent.LibraryBounceEffect</c> (Permanent.cs:3682, default null) — the ICardEffect that
+    /// returned this permanent to the deck, recorded by <c>DeckBottomBounceClass.DeckBounce</c> (:2394) /
+    /// <c>DeckTopBounceClass.DeckBounce</c> (:2560). Per-match store keyed by InstanceId (the
+    /// <see cref="DestroyingEffect"/> pattern).</summary>
+    public ICardEffect? LibraryBounceEffect
+    {
+        get => _context.TryGetService(out LibraryBounceEffectStore? store) && store is not null
+            && store.Values.TryGetValue(InstanceId, out ICardEffect? effect) ? effect : null;
+        set
+        {
+            if (!_context.TryGetService(out LibraryBounceEffectStore? store) || store is null)
+            {
+                store = new LibraryBounceEffectStore();
+                _context.RegisterService(store);
+            }
+
+            store.Values[InstanceId] = value;
+        }
+    }
+
+    private sealed class LibraryBounceEffectStore
+    {
+        public Dictionary<HeadlessEntityId, ICardEffect?> Values { get; } = new Dictionary<HeadlessEntityId, ICardEffect?>();
+    }
+
+    // --- (LEAVE-PLAY re-migration) The five "just before remove field" instance-metadata keys + their default
+    // readers, re-homed here from the retired substrate `CardLeavePlayCleanup` into their AS-IS 원가 (the AS-IS
+    // `Permanent` public fields below, DCGO/Assets/Scripts/Script/Permanent.cs:3702-3722). String values are
+    // UNCHANGED, so already-stamped records keep matching. The retired file's OTHER members are RETIRED, not
+    // re-homed: `RecordParametersJustBeforeRemoveField` duplicated the AS-IS record-parameters block that is now
+    // LIVE as the mirror `DestroyPermanentsClass.Destroy` port (CardController.cs:5665-5690 / :6038-6063 —
+    // it writes through the SETTERS below); `SnapshotPostReplacementKeywords` / `OnDeleted` had zero live
+    // callers; `OnLeftPlay` was an empty no-op after the (③-B) registry-binding-drop retirement; and
+    // `PermanentJustBeforeRemoveFieldKey` had zero readers (the live identity surface is the AS-IS
+    // `CardSource.PermanentJustBeforeRemoveField` store, CardSource.cs:2289).
+    /// <summary>Instance metadata: effective DP recorded just before the card left the field (-1 = none).</summary>
+    internal const string DpJustBeforeRemoveFieldKey = "dpJustBeforeRemoveField";
+    /// <summary>Instance metadata: permanent level just before leaving (only when the top card HAS a level).</summary>
+    internal const string LevelJustBeforeRemoveFieldKey = "levelJustBeforeRemoveField";
+    /// <summary>Instance metadata: printed play cost just before leaving (only when the top card HAS one).</summary>
+    internal const string CostJustBeforeRemoveFieldKey = "costJustBeforeRemoveField";
+    /// <summary>Instance metadata: the top card's live name list just before leaving.</summary>
+    internal const string CardNamesJustBeforeRemoveFieldKey = "cardNamesJustBeforeRemoveField";
+    /// <summary>Instance metadata: the top card's live trait list just before leaving.</summary>
+    internal const string CardTraitsJustBeforeRemoveFieldKey = "cardTraitsJustBeforeRemoveField";
+
+    /// <summary>AS-IS JustBeforeRemoveField int-field default (-1 when never recorded).</summary>
+    private static int ReadJustBeforeInt(IReadOnlyDictionary<string, object?> metadata, string key) =>
+        metadata.TryGetValue(key, out object? raw) && raw is int value ? value : -1;
+
+    /// <summary>AS-IS JustBeforeRemoveField list-field default (empty when never recorded).</summary>
+    private static IReadOnlyList<string> ReadJustBeforeStrings(IReadOnlyDictionary<string, object?> metadata, string key) =>
+        metadata.TryGetValue(key, out object? raw) && raw is IEnumerable<string> values
+            ? values.ToArray()
+            : Array.Empty<string>();
+
+    /// <summary>(R3-A) AS-IS <c>Permanent.DPJustBeforeRemoveField</c> (default -1). Backed by the shared
     /// snapshot key so OnDeletion DP-comparison predicates read the same value the writer stamped.</summary>
     public int DPJustBeforeRemoveField
     {
         get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
-            ? CardLeavePlayCleanup.DpJustBeforeRemoveField(record.Metadata) : -1;
-        set => WriteJustBeforeKey(CardLeavePlayCleanup.DpJustBeforeRemoveFieldKey, value);
+            ? ReadJustBeforeInt(record.Metadata, DpJustBeforeRemoveFieldKey) : -1;
+        set => WriteJustBeforeKey(DpJustBeforeRemoveFieldKey, value);
     }
 
     /// <summary>(R3-A) AS-IS <c>Permanent.LevelJustBeforeRemoveField</c> (default -1; consumers gate on &gt; 0).</summary>
     public int LevelJustBeforeRemoveField
     {
         get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
-            ? CardLeavePlayCleanup.LevelJustBeforeRemoveField(record.Metadata) : -1;
-        set => WriteJustBeforeKey(CardLeavePlayCleanup.LevelJustBeforeRemoveFieldKey, value);
+            ? ReadJustBeforeInt(record.Metadata, LevelJustBeforeRemoveFieldKey) : -1;
+        set => WriteJustBeforeKey(LevelJustBeforeRemoveFieldKey, value);
     }
 
     /// <summary>(R3-A) AS-IS <c>Permanent.CostJustBeforeRemoveField</c> (default -1).</summary>
     public int CostJustBeforeRemoveField
     {
         get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
-            ? CardLeavePlayCleanup.CostJustBeforeRemoveField(record.Metadata) : -1;
-        set => WriteJustBeforeKey(CardLeavePlayCleanup.CostJustBeforeRemoveFieldKey, value);
+            ? ReadJustBeforeInt(record.Metadata, CostJustBeforeRemoveFieldKey) : -1;
+        set => WriteJustBeforeKey(CostJustBeforeRemoveFieldKey, value);
     }
 
     /// <summary>(R3-A) AS-IS <c>Permanent.CardNamesJustBeforeRemoveField</c> (default empty).</summary>
     public List<string> CardNamesJustBeforeRemoveField
     {
         get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
-            ? CardLeavePlayCleanup.CardNamesJustBeforeRemoveField(record.Metadata).ToList() : new List<string>();
-        set => WriteJustBeforeKey(CardLeavePlayCleanup.CardNamesJustBeforeRemoveFieldKey, value?.ToArray() ?? Array.Empty<string>());
+            ? ReadJustBeforeStrings(record.Metadata, CardNamesJustBeforeRemoveFieldKey).ToList() : new List<string>();
+        set => WriteJustBeforeKey(CardNamesJustBeforeRemoveFieldKey, value?.ToArray() ?? Array.Empty<string>());
     }
 
     /// <summary>(R3-A) AS-IS <c>Permanent.CardTraitsJustBeforeRemoveField</c> (default empty).</summary>
     public List<string> CardTraitsJustBeforeRemoveField
     {
         get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
-            ? CardLeavePlayCleanup.CardTraitsJustBeforeRemoveField(record.Metadata).ToList() : new List<string>();
-        set => WriteJustBeforeKey(CardLeavePlayCleanup.CardTraitsJustBeforeRemoveFieldKey, value?.ToArray() ?? Array.Empty<string>());
+            ? ReadJustBeforeStrings(record.Metadata, CardTraitsJustBeforeRemoveFieldKey).ToList() : new List<string>();
+        set => WriteJustBeforeKey(CardTraitsJustBeforeRemoveFieldKey, value?.ToArray() ?? Array.Empty<string>());
     }
 
     private void WriteJustBeforeKey(string key, object? value)
@@ -1851,13 +1980,28 @@ public sealed class Permanent
         }
     }
 
-    /// <summary>The digivolution (under-)cards of this permanent (mirror of <c>DigivolutionCards</c>).</summary>
+    /// <summary>1:1 mirror of AS-IS <c>Permanent.DigivolutionCards</c> (Permanent.cs:888):
+    /// <c>cardSources.Filter(cs =&gt; cs != TopCard &amp;&amp; !LinkedCards.Contains(cs))</c>.
+    /// ORDER (AS-IS): the AS-IS <c>cardSources</c> list holds the top card at index 0 and every new source is
+    /// either <c>Insert(1, …)</c>-ed (AddDigivolutionCardsTop, Permanent.cs:1090) or <c>Add(…)</c>-ed
+    /// (AddDigivolutionCardsBottom, Permanent.cs:1192), so the filtered list runs TOP→BOTTOM:
+    /// index 0 = the source directly under the top card, the LAST entry = the DigiEgg.
+    /// The substrate stack read (<see cref="DigivolutionStackReader"/>) yields the under-cards
+    /// BOTTOM→TOP (<c>UnderCards[0]</c> = the DigiEgg), so it is walked in reverse here — the projection is
+    /// the only place the substrate convention is translated, and every consumer sees the AS-IS order.</summary>
     public IReadOnlyList<CardSource> DigivolutionCards
     {
         get
         {
             DigivolutionStack stack = DigivolutionStackReader.Read(_context.CardInstanceRepository, _context.CardRepository, InstanceId);
-            return stack.UnderCards.Select(u => new CardSource(_context, u.InstanceId, OwnerId)).ToArray();
+            IReadOnlyList<StackedCard> under = stack.UnderCards;
+            var topDown = new CardSource[under.Count];
+            for (int i = 0; i < under.Count; i++)
+            {
+                topDown[i] = new CardSource(_context, under[under.Count - 1 - i].InstanceId, OwnerId);
+            }
+
+            return topDown;
         }
     }
 
@@ -1913,8 +2057,8 @@ public sealed class Permanent
     /// (AS-IS <c>DigivolutionCards = cardSources.Filter(c != TopCard &amp;&amp; !LinkedCards.Contains(c))</c>,
     /// Permanent.cs:888). Order mirrors the AS-IS list: top card at index 0 (AS-IS
     /// <c>AddDigivolutionCardsTop</c> inserts new sources at index 1 — directly under the top), then the
-    /// digivolution sources TOP-MOST FIRST (the reverse of the substrate <see cref="DigivolutionCards"/> view,
-    /// whose stack read yields bottom→top), then the linked cards (AS-IS AddLinkCard appends). Consumed by the
+    /// digivolution sources TOP-MOST FIRST (exactly the order <see cref="DigivolutionCards"/> already
+    /// reports), then the linked cards (AS-IS AddLinkCard appends). Consumed by the
     /// flip's per-card effect-membership scans (CEntity_EffectController.GetCardEffects,
     /// AS-IS CEntity_EffectController.cs:29-168) and gates like <c>cardSources.Contains(card)</c>.</summary>
     public List<CardSource> cardSources
@@ -1922,12 +2066,7 @@ public sealed class Permanent
         get
         {
             var all = new List<CardSource> { TopCard };
-            IReadOnlyList<CardSource> under = DigivolutionCards;
-            for (int i = under.Count - 1; i >= 0; i--)
-            {
-                all.Add(under[i]);
-            }
-
+            all.AddRange(DigivolutionCards);
             all.AddRange(LinkedCards);
             return all;
         }
@@ -2366,13 +2505,13 @@ public sealed class Permanent
     /// <summary>(R1-a) AS-IS <c>Permanent.LinkedDP</c> (Permanent.cs:670, a <c>{ get; set; }</c> auto-property):
     /// the accumulated DP of this permanent's attached link cards, folded into <see cref="DP"/> between the
     /// isUpDown and NotIsUpDown groups. ADAPTATION: the AS-IS field maps to the SAME instance metadata key
-    /// (<see cref="LinkHelpers.LinkedDpKey"/>) that <see cref="LinkHelpers"/> AddLink/RemoveLink already write, so
-    /// existing link records are visible and an AS-IS <c>LinkedDP +=/-=</c> lands on the shared value.</summary>
+    /// (<see cref="LinkedDpKey"/>) that the link attach/detach helpers below already write, so existing link
+    /// records are visible and an AS-IS <c>LinkedDP +=/-=</c> lands on the shared value.</summary>
     public int LinkedDP
     {
         get =>
             _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
-                ? LinkHelpers.ReadLinkedDp(i.Metadata)
+                ? ReadLinkedDp(i.Metadata)
                 : 0;
         set
         {
@@ -2380,7 +2519,7 @@ public sealed class Permanent
             {
                 var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
                 {
-                    [LinkHelpers.LinkedDpKey] = value,
+                    [LinkedDpKey] = value,
                 };
                 _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
             }
@@ -2390,7 +2529,7 @@ public sealed class Permanent
     /// <summary>(R1-a) AS-IS <c>Permanent.Boosts</c> (Permanent.cs:672, a <c>List&lt;DPBoost&gt;</c> field) folded
     /// into <see cref="DP"/> at the very end (<c>foreach (DPBoost boost in Boosts) DP += boost.DP</c>). ADAPTATION:
     /// the AS-IS in-memory list maps to a read view over the id→dp instance metadata
-    /// (<see cref="DpBoostHelpers.DpBoostsKey"/>) that <see cref="DpBoostHelpers"/> AddBoost/RemoveBoost manage;
+    /// (<see cref="DpBoostsKey"/>) that <see cref="AddBoost"/> / <see cref="RemoveBoost"/> manage;
     /// the fold only reads <c>boost.DP</c>, so the reconstructed <see cref="DPBoost"/> carries a null Condition.</summary>
     public List<DPBoost> Boosts
     {
@@ -2398,7 +2537,7 @@ public sealed class Permanent
         {
             var boosts = new List<DPBoost>();
             if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
-                && i.Metadata.TryGetValue(DpBoostHelpers.DpBoostsKey, out object? raw)
+                && i.Metadata.TryGetValue(DpBoostsKey, out object? raw)
                 && raw is IReadOnlyDictionary<string, int> map)
             {
                 foreach (KeyValuePair<string, int> pair in map)
@@ -2409,6 +2548,66 @@ public sealed class Permanent
 
             return boosts;
         }
+    }
+
+    /// <summary>Instance-metadata key holding the id→dp boost map (Dictionary&lt;string,int&gt;) that backs the
+    /// AS-IS <c>List&lt;DPBoost&gt; Boosts</c> field. Re-homed here from the retired substrate DpBoostHelpers —
+    /// string value unchanged (<c>"dpBoosts"</c>).</summary>
+    public const string DpBoostsKey = "dpBoosts";
+
+    /// <summary>(R1-a) AS-IS <c>Permanent.AddBoost(DPBoost)</c> (Permanent.cs:674-681): upsert by ID — if a boost
+    /// with the same ID is already present its DP is REPLACED, otherwise the boost is appended. ADAPTATION: the
+    /// AS-IS list mutation writes the id→dp map on the instance metadata that <see cref="Boosts"/> reads back
+    /// (the AS-IS DP fold consults only <c>boost.DP</c>, never <c>Condition</c>, so the Condition is not stored).</summary>
+    public void AddBoost(DPBoost boost)
+    {
+        ArgumentNullException.ThrowIfNull(boost);
+        ArgumentException.ThrowIfNullOrWhiteSpace(boost.ID);
+        if (!_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) || record is null)
+        {
+            return;
+        }
+
+        Dictionary<string, int> boosts = ReadBoosts(record.Metadata);
+        boosts[boost.ID] = boost.DP;
+        WriteBoosts(record, boosts);
+    }
+
+    /// <summary>(R1-a) AS-IS <c>Permanent.RemoveBoost(string ID)</c> (Permanent.cs:682-686): remove the boost with
+    /// that ID (no-op when absent).</summary>
+    public void RemoveBoost(string ID)
+    {
+        if (string.IsNullOrWhiteSpace(ID)
+            || !_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) || record is null)
+        {
+            return;
+        }
+
+        Dictionary<string, int> boosts = ReadBoosts(record.Metadata);
+        if (boosts.Remove(ID))
+        {
+            WriteBoosts(record, boosts);
+        }
+    }
+
+    private static Dictionary<string, int> ReadBoosts(IReadOnlyDictionary<string, object?> metadata) =>
+        metadata.TryGetValue(DpBoostsKey, out object? raw) && raw is IReadOnlyDictionary<string, int> existing
+            ? new Dictionary<string, int>(existing, StringComparer.Ordinal)
+            : new Dictionary<string, int>(StringComparer.Ordinal);
+
+    private void WriteBoosts(CardInstanceRecord record, Dictionary<string, int> boosts)
+    {
+        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
+        if (boosts.Count == 0)
+        {
+            metadata.Remove(DpBoostsKey);
+        }
+        else
+        {
+            metadata[DpBoostsKey] = boosts;
+        }
+
+        _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
     }
 
     /// <summary>(R1-a) AS-IS nested <c>Permanent.DPBoost</c> (Permanent.cs:687-699): a named additive DP boost.</summary>
@@ -2818,7 +3017,7 @@ public sealed class Permanent
                 return new List<CardSource>();
             }
 
-            return LinkHelpers.ReadLinkedCardIds(host.Metadata)
+            return ReadLinkedCardIds(host.Metadata)
                 .Select(id => new CardSource(
                     _context,
                     id,
@@ -2830,8 +3029,21 @@ public sealed class Permanent
     }
 
     /// <summary>(MIG2) AS-IS <c>Permanent.LinkedMax</c> (Permanent.cs:896): base 1 folded with active
-    /// <c>IChangeLinkMaxEffect</c>s (the M-4 continuous linkedMaxDelta fold).</summary>
-    public int LinkedMax => LinkHelpers.ResolveLinkedMax(_context, InstanceId);
+    /// <c>IChangeLinkMaxEffect</c>s (the new-model FoldLinkedMax scan).
+    /// (RD-P6B-16 RETIRED — C5-1, 2026-07-24) The legacy <c>linkedMaxDelta</c> pre-fold the retired substrate
+    /// helper ran first was an AS-IS-ABSENT union scaffold with ZERO producers (BIT-IDENTICAL removal), so the
+    /// sole path is the AS-IS one: base <see cref="ReadLinkedMax"/> folded by
+    /// <see cref="NewModelContinuousScan.FoldLinkedMax"/>.</summary>
+    public int LinkedMax
+    {
+        get
+        {
+            int baseMax = _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? host) && host is not null
+                ? ReadLinkedMax(host.Metadata)
+                : DefaultLinkedMax;
+            return NewModelContinuousScan.FoldLinkedMax(_context, InstanceId, baseMax);
+        }
+    }
 
     /// <summary>(MIG2) AS-IS <c>Permanent.HasNoLinkCards</c> (Permanent.cs:3958).</summary>
     public bool HasNoLinkCards => LinkedCards.Count == 0;
@@ -2842,18 +3054,18 @@ public sealed class Permanent
     /// <c>DigivolveIntoHandOrTrashCard</c>, :259 restores true). The setter stamps the metadata key the getter
     /// reads (default-true is the ABSENT/true state, false is the explicit opt-out) via the established
     /// per-flag CardInstanceRecord.Metadata write idiom (Permanent.cs WriteJustBeforeKey / CardEffectCommons
-    /// IsPlayedOptionPermanentKey :464).</summary>
+    /// IsPlayedOptionPermanentKey :421).</summary>
     public bool IsPlaceToTrashDueToNotHavingDP
     {
         get => !(_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
-            && i.Metadata.TryGetValue(GameFlowProcessor.PlaceToTrashDueToNoDpKey, out object? optOut) && optOut is false);
+            && i.Metadata.TryGetValue(PlaceToTrashDueToNoDpKey, out object? optOut) && optOut is false);
         set
         {
             if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
             {
                 var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
                 {
-                    [GameFlowProcessor.PlaceToTrashDueToNoDpKey] = value,
+                    [PlaceToTrashDueToNoDpKey] = value,
                 };
                 _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
             }
@@ -2864,7 +3076,7 @@ public sealed class Permanent
     /// Option a card effect legitimately keeps on the battle area).</summary>
     public bool IsPlayedOptionPermanent =>
         _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? p) && p is not null
-            && p.Metadata.TryGetValue(GameFlowProcessor.IsPlayedOptionPermanentKey, out object? played) && played is true;
+            && p.Metadata.TryGetValue(IsPlayedOptionPermanentKey, out object? played) && played is true;
 
     /// <summary>(R1-d) AS-IS <c>Permanent.CanBeDestroyed()</c> (Permanent.cs:3186-3229): TRUE unless some usable
     /// <c>ICanNotBeDestroyedEffect</c> (scanned over every turn-ordered player's field permanents and the player
@@ -3062,11 +3274,11 @@ public sealed class Permanent
 
     /// <summary>(R1-d) The mirror carrier of AS-IS <c>Permanent.EnterFieldTurnCount == TurnCount</c> (summoning
     /// sickness): the established <c>enteredThisTurn</c> boolean metadata flag stamped by the play/move/fusion
-    /// paths (<see cref="Headless.Effects.MatchStateMutationSink.EnteredThisTurnKey"/>) and read verbatim by the
+    /// paths (<see cref="Headless.Services.ZoneMoveMetadataKeys.EnteredThisTurnKey"/>) and read verbatim by the
     /// existing attack validator. TRUE == entered the field this turn (AS-IS EnterFieldTurnCount == TurnCount).</summary>
     private bool EnteredThisTurn =>
         _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? e) && e is not null
-        && e.Metadata.TryGetValue(Headless.Effects.MatchStateMutationSink.EnteredThisTurnKey, out object? raw) && raw is true;
+        && e.Metadata.TryGetValue(Headless.Services.ZoneMoveMetadataKeys.EnteredThisTurnKey, out object? raw) && raw is true;
 
     /// <summary>(R4 S3b-2①) AS-IS <c>Permanent.EnterFieldTurnCount</c> (a plain mutable int the executor writes:
     /// PlayPermanentClass :1387 <c>= TurnCount</c> on play, :1500 <c>= -1</c> on jogress) — the mirror WRITE
@@ -3082,7 +3294,7 @@ public sealed class Permanent
             {
                 var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
                 {
-                    [Headless.Effects.MatchStateMutationSink.EnteredThisTurnKey] = value == _context.TurnController.Current.TurnNumber,
+                    [Headless.Services.ZoneMoveMetadataKeys.EnteredThisTurnKey] = value == _context.TurnController.Current.TurnNumber,
                 };
                 _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
             }
@@ -3875,9 +4087,9 @@ public sealed class Permanent
     {
         if (cardSource is not null && LinkedCards.Any(linked => linked.InstanceId == cardSource.InstanceId))
         {
-            await LinkHelpers.RemoveLinkCardAsync(
+            await RemoveLinkCardAsync(
                 _context.CardInstanceRepository, _context.ZoneMover, InstanceId, cardSource.InstanceId,
-                trash: trashCard, gameEventQueue: null, cancellationToken).ConfigureAwait(false);
+                trash: trashCard, cancellationToken).ConfigureAwait(false);
         }
 
         if (removeCount > 0)
@@ -3912,75 +4124,63 @@ public sealed class Permanent
     // verified headless helper so a local-LLM card port is a mechanical mirror. No current caller — an additive
     // AS-IS surface; unsupported AS-IS branches throw with a design item rather than fabricate behavior.
 
-    /// <summary>(MIG4) AS-IS <c>Permanent.DiscardEvoRoots(ignoreOverflow, putToTrash)</c> (Permanent.cs:106-142):
-    /// trash this permanent's digivolution sources AND link cards, applying the ACE-Overflow penalty to both
-    /// first (unless <paramref name="ignoreOverflow"/>). Delegates to
-    /// <see cref="DeletionSourceTrash.TrashEvoSourcesAsync"/> (the putToTrash==true path every headless deletion
-    /// call site uses, always gameEventQueue:null — AS-IS's own trash-add is direct, no OnDigivolutionCardDiscarded).
-    /// The AS-IS <c>putToTrash == false</c> RETURN variant (bare detach-without-trash, MIG4-DISCARDEVOROOTS-PUTTOTRASH)
-    /// is now LIVE below (snapshot roots + ACE-Overflow + RemoveFromAllArea each, no trash).</summary>
+    /// <summary>(MIG4; DELETION-SOURCE re-migration) 1:1 mirror of AS-IS
+    /// <c>Permanent.DiscardEvoRoots(ignoreOverflow, putToTrash)</c> (Permanent.cs:106-142), now carrying the AS-IS
+    /// body itself: snapshot BOTH root lists (<c>DigivolutionCards.Clone()</c> / <c>LinkedCards.Clone()</c>),
+    /// run the ACE-Overflow pass over each list (<c>new AceOverflowClass(roots).Overflow()</c>) unless
+    /// <paramref name="ignoreOverflow"/>, then per evo root <c>AddTrashCard</c> (putToTrash) else
+    /// <c>RemoveFromAllArea</c>, and per link root <c>RemoveLinkedCard</c> (putToTrash) else
+    /// <c>RemoveFromAllArea</c>.
+    /// The <c>putToTrash == true</c> arm previously delegated to the substrate
+    /// <c>DeletionSourceTrash.TrashEvoSourcesAsync</c>, which folded the same AS-IS lines into a bulk
+    /// <c>TrashSourcesAsync(fromBottom:true, honorProtection:false)</c> plus a hand-rolled overflow pass
+    /// (<c>ApplyAceOverflow</c>) — both are re-expressed here in the AS-IS primitives, which are live mirrors:
+    /// <see cref="CardObjectController.AddTrashCard"/> withdraws the source from the stack and inserts it face-up
+    /// at the top of the trash (AS-IS CardObjectController.cs:717-734, no protection check, no
+    /// OnDigivolutionCardDiscarded window — the AS-IS deletion trash is direct) and
+    /// <see cref="AceOverflowClass"/> applies the AS-IS per-card on-field filter + turn-player-first ordering,
+    /// replacing the retired helper's coarser host-on-field guard.</summary>
     public async Task DiscardEvoRoots(bool ignoreOverflow = false, bool putToTrash = true, CancellationToken cancellationToken = default)
     {
-        if (!putToTrash)
+        List<CardSource> evoRoots = new List<CardSource>(DigivolutionCards);   // AS-IS :108 DigivolutionCards.Clone()
+        List<CardSource> linkRoots = new List<CardSource>(LinkedCards);        // AS-IS :109 LinkedCards.Clone()
+
+        if (!ignoreOverflow)
         {
-            // (MIG4-DISCARDEVOROOTS-PUTTOTRASH) AS-IS Permanent.cs:106-142 putToTrash==false path — the jogress
-            // collapse's bare-DETACH (CardController.cs:1484 uses ignoreOverflow:true): snapshot BOTH root lists,
-            // apply the ACE-Overflow penalty first (unless ignoreOverflow, host-on-field guard = AS-IS
-            // AceOverflowClass.Overflow's IsExistOnBattleArea/IsExistOnBreedingAreaDigimon filter), then
-            // RemoveFromAllArea each evo source AND each link card (AS-IS's exact call — detach from the stack /
-            // link + withdraw to zone None, NO trash). The detached sources are left in None for the caller to
-            // re-parent under the new jogress permanent.
-            List<CardSource> evoRoots = new List<CardSource>(DigivolutionCards);   // AS-IS DigivolutionCards.Clone()
-            List<CardSource> linkRoots = new List<CardSource>(LinkedCards);        // AS-IS LinkedCards.Clone()
-
-            if (!ignoreOverflow && HostIsOnField())
-            {
-                DeletionSourceTrash.ApplyAceOverflow(
-                    _context.CardInstanceRepository,
-                    evoRoots.Select(c => c.InstanceId).ToArray(),
-                    _context.MemoryController,
-                    _context.TurnController.Current.TurnPlayerId);
-                DeletionSourceTrash.ApplyAceOverflow(
-                    _context.CardInstanceRepository,
-                    linkRoots.Select(c => c.InstanceId).ToArray(),
-                    _context.MemoryController,
-                    _context.TurnController.Current.TurnPlayerId);
-            }
-
-            foreach (CardSource evoRoot in evoRoots)
-            {
-                await CardObjectController.RemoveFromAllArea(evoRoot, cancellationToken).ConfigureAwait(false);
-            }
-
-            foreach (CardSource linkRoot in linkRoots)
-            {
-                await CardObjectController.RemoveFromAllArea(linkRoot, cancellationToken).ConfigureAwait(false);
-            }
-
-            return;
-
-            // AS-IS AceOverflowClass.Overflow keeps only sources whose host permanent is on the battle/breeding
-            // area (IsExistOnBattleArea || IsExistOnBreedingAreaDigimon). The sources belong to THIS permanent, so
-            // the per-card existence test collapses to "is this permanent on the field".
-            bool HostIsOnField() =>
-                new Player(_context, OwnerId).GetFieldPermanents().Any(p => p.InstanceId == InstanceId);
+            // AS-IS :113-114 — evo roots FIRST, then link roots, both while the host is still on the field.
+            await new AceOverflowClass(evoRoots).Overflow(cancellationToken).ConfigureAwait(false);
+            await new AceOverflowClass(linkRoots).Overflow(cancellationToken).ConfigureAwait(false);
         }
 
-        await DeletionSourceTrash.TrashEvoSourcesAsync(
-            _context.CardInstanceRepository,
-            _context.ZoneMover,
-            InstanceId,
-            gameEventQueue: null,
-            cancellationToken: cancellationToken,
-            memory: _context.MemoryController,
-            turnPlayer: _context.TurnController.Current.TurnPlayerId,
-            ignoreOverflow: ignoreOverflow).ConfigureAwait(false);
+        foreach (CardSource cardSource1 in evoRoots)   // AS-IS :117-128
+        {
+            if (putToTrash)
+            {
+                await CardObjectController.AddTrashCard(cardSource1, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await CardObjectController.RemoveFromAllArea(cardSource1, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        foreach (CardSource cardSource2 in linkRoots)   // AS-IS :130-141
+        {
+            if (putToTrash)
+            {
+                await RemoveLinkedCard(cardSource2, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await CardObjectController.RemoveFromAllArea(cardSource2, cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>(MIG4) AS-IS <c>Permanent.AddDigivolutionCardsTop(added, cardEffect)</c> (Permanent.cs:1064-1123):
     /// move each card off its current zone and insert it just under the top card. AS-IS per-card
     /// <c>cardSources.Insert(1, ...)</c> REVERSES the batch's relative order under the top (last processed ends
-    /// up highest) — replicated by reversing before <see cref="DigivolutionStackHelpers.AddSourcesTopAsync"/>'s
+    /// up highest) — replicated by reversing before <see cref="Permanent.AddSourcesTopAsync"/>'s
     /// single ordered prepend. The <c>!this.IsToken &amp;&amp; !card.IsToken</c> guard (:1088) is preserved (a token
     /// host/card is still pulled off its zone but never attached). AS-IS fires ONE OnAddDigivolutionCards for the
     /// whole batch; a batch spanning &gt;1 live zone splits into one emit per zone group — design item
@@ -4029,7 +4229,7 @@ public sealed class Permanent
 
         foreach (IGrouping<Headless.Choices.ChoiceZone, HeadlessEntityId> group in attachable.GroupBy(id => CurrentZoneOf(OwnerId, id)))
         {
-            await DigivolutionStackHelpers.AddSourcesTopAsync(
+            await Permanent.AddSourcesTopAsync(
                 _context.CardInstanceRepository,
                 _context.ZoneMover,
                 InstanceId,
@@ -4048,13 +4248,13 @@ public sealed class Permanent
     /// REPRODUCES the AS-IS list algorithm on a VIRTUAL stack (per-card RemoveFromAllArea + <c>cardSources.Insert
     /// (1, ...)</c>) to derive the final ordered stack, then TRANSLATES that to the mirror identity model: the
     /// final first element becomes the new top; the rest become its ordered digivolution sources (the
-    /// <see cref="Headless.Runtime.DigivolveAction.AttachTargetAsSource"/> stack shape — reconstructed on this
+    /// <see cref="Permanent.AttachTargetAsSource"/> stack shape — reconstructed on this
     /// dedicated path, WITHOUT touching AttachTargetAsSource itself). The old top physically leaves the field
     /// (→ None, a buried source) and the new top enters it (→ BattleArea, face-up); both moves carry
     /// <see cref="HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.PermanentContinuityKey"/> so the zone-mover lifetime chokepoint
     /// leaves the PERSISTING permanent's just-after bookkeeping alone, and this op owns the
     /// <see cref="HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ReKey"/> (the digivolve / de-digivolve top-swap seat convention). The
-    /// new top re-registers its ported effects (<see cref="CardEffectRegistrar.RegisterCard"/>, as
+    /// new top re-inits its ported effects (AS-IS <c>CardSource.Init()</c>, as
     /// <see cref="AddCardSource"/> does), and the persisting permanent fires ONE OnAddDigivolutionCards for the
     /// whole batch (AS-IS :1119). Folding ANOTHER permanent's live top (AS-IS
     /// <c>IPlacePermanentToDigivolutionCards</c>) is a DISTINCT re-parenting primitive that is NOW RESOLVED
@@ -4071,12 +4271,11 @@ public sealed class Permanent
         bool hostIsToken = this.IsToken;
 
         // The AS-IS virtual cardSources list: top at index 0, then the digivolution sources TOP-MOST first
-        // (DigivolutionCards is bottom→top, so reverse — same mapping as the cardSources getter, :1866-1879).
+        // (DigivolutionCards already reports the AS-IS top→bottom order — same mapping as the cardSources getter).
         var virtualStack = new List<HeadlessEntityId> { oldTopId };
-        IReadOnlyList<CardSource> currentSources = DigivolutionCards;
-        for (int i = currentSources.Count - 1; i >= 0; i--)
+        foreach (CardSource currentSource in DigivolutionCards)
         {
-            virtualStack.Add(currentSources[i].InstanceId);
+            virtualStack.Add(currentSource.InstanceId);
         }
 
         var addedCards = new List<HeadlessEntityId>();
@@ -4175,7 +4374,7 @@ public sealed class Permanent
 
             WriteReRootedStack(newTopId, oldTopId, newSourceIds);
             HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ReKey(_context.CardInstanceRepository, oldTopId, newTopId);
-            CardEffectRegistrar.RegisterCard(_context, newTopId, OwnerId);
+            CardSource.Init(_context, newTopId, OwnerId);
         }
         else
         {
@@ -4186,7 +4385,8 @@ public sealed class Permanent
 
         // AS-IS :1099-1119 — ONE OnAddDigivolutionCards for the whole batch (subject = the persisting permanent,
         // now topped by newTopId). Same window/metadata as the plain place-under path.
-        DigivolutionStackHelpers.EmitAddDigivolutionCards(
+        await EmitAddDigivolutionCardsAsync(
+            _context,
             _context.GameEventQueue,
             OwnerId,
             newTopId,
@@ -4194,14 +4394,14 @@ public sealed class Permanent
             causeEffectSourceId ?? default,
             skip: false,
             isFromSameDigimon,
-            isFromDigimon);
+            isFromDigimon).ConfigureAwait(false);
     }
 
     /// <summary>(MIG4-DETACH-LIVE-TOP) Write the re-rooted stack onto <paramref name="newTopId"/>: its
     /// <c>sourceIds</c> become <paramref name="newSourceIds"/> (top→bottom, the AttachTargetAsSource shape) and it
     /// INHERITS the persisting permanent's tap / summoning-sickness state from <paramref name="oldTopId"/> — the
     /// AS-IS Permanent object survives the swap (EnterFieldTurnCount / suspend are permanent-level), the same
-    /// carry the de-digivolve promote makes (<c>DeDigivolveHelpers</c>). A demoted old top keeps its now-stale
+    /// carry the de-digivolve promote makes (<c>ArmorPurgeTopAsync</c>). A demoted old top keeps its now-stale
     /// <c>sourceIds</c> untouched, exactly as <c>AttachTargetAsSource</c> leaves a digivolved-under target.</summary>
     private void WriteReRootedStack(HeadlessEntityId newTopId, HeadlessEntityId oldTopId, IReadOnlyList<HeadlessEntityId> newSourceIds)
     {
@@ -4283,7 +4483,7 @@ public sealed class Permanent
 
         foreach (IGrouping<Headless.Choices.ChoiceZone, HeadlessEntityId> group in toAttach.GroupBy(id => CurrentZoneOf(OwnerId, id)))
         {
-            await DigivolutionStackHelpers.AddSourcesBottomAsync(
+            await Permanent.AddSourcesBottomAsync(
                 _context.CardInstanceRepository,
                 _context.ZoneMover,
                 InstanceId,
@@ -4325,10 +4525,13 @@ public sealed class Permanent
         _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
     }
 
-    /// <summary>(MIG4) AS-IS <c>Permanent.AddLinkCard(addedLinkCard, cardEffect)</c> (Permanent.cs:1237-1294):
-    /// attach a link card to this permanent. Delegates to <see cref="LinkHelpers.AddLinkCardAsync"/> (excess-trim
-    /// + attach + WhenLinked emit; its LinkedMax&gt;1 owner-selection is pre-existing design item MIG2-ADDLINK-SELECT).
-    /// The <c>!this.IsToken &amp;&amp; !addedLinkCard.IsToken</c> guard (:1261) is preserved.</summary>
+    /// <summary>(MIG4; LINK re-migration) AS-IS <c>Permanent.AddLinkCard(addedLinkCard, cardEffect)</c>
+    /// (Permanent.cs:1237-1292), re-homed here from the retired substrate <c>LinkHelpers.AddLinkCardAsync</c> and
+    /// realigned to the AS-IS statement order: isFromDigimon (PRE-move, :1241-1249) → pre-attach overflow via
+    /// <see cref="RemoveLinkedCard"/> (:1251-1256) → RemoveFromAllArea (:1259) → the
+    /// <c>!this.IsToken &amp;&amp; !addedLinkCard.IsToken</c> attach (:1261-1268) → the single WhenLinked emit
+    /// (:1270-1291). The invented post-attach max enforcement is retired (see the link region header): AS-IS
+    /// sweeps a standing over-max through <c>AutoProcessing.DigimonLackLinkMaxCountProcess</c>.</summary>
     public async Task AddLinkCard(
         CardSource addedLinkCard,
         HeadlessEntityId? causeEffectSourceId,
@@ -4336,27 +4539,60 @@ public sealed class Permanent
     {
         ArgumentNullException.ThrowIfNull(addedLinkCard);
 
+        // (C1d RDW-02) AS-IS :1241-1249 — isFromDigimon == the added card is currently a battle-area permanent
+        // whose stack has >=1 digivolution source. Evaluated PRE-move (post-move it is off-field ⇒ false).
+        bool isFromDigimon =
+            CardEffectCommons.IsExistOnBattleArea(addedLinkCard)
+            && addedLinkCard.PermanentOfThisCard().DigivolutionCards.Count >= 1;
+
+        // AS-IS :1251-1256 — the overflow is resolved BEFORE the attach, through RemoveLinkedCard:
+        //   LinkedMax > 1 ⇒ RemoveLinkedCard(null, (LinkedCards.Count + 1) - LinkedMax)  (owner SELECTS)
+        //   LinkedMax <= 1 ⇒ RemoveLinkedCard(LinkedCards[0])                            (silent oldest)
+        List<CardSource> preLinked = LinkedCards;
+        int preMax = LinkedMax;
+        if (preLinked.Count >= preMax && preLinked.Count >= 1)
+        {
+            if (preMax > 1)
+            {
+                await RemoveLinkedCard(null, (preLinked.Count + 1) - preMax, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await RemoveLinkedCard(preLinked[0], cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        // AS-IS :1259 CardObjectController.RemoveFromAllArea(addedLinkCard) — detach from whatever permanent it
+        // is embedded in, then pull it out of its concrete zone (link cards are stored off-field).
         await DetachEmbeddedSourceOrLinkAsync(addedLinkCard, cancellationToken).ConfigureAwait(false);
+        await WithdrawToNoneAsync(addedLinkCard, cancellationToken).ConfigureAwait(false);
 
         if (this.IsToken || addedLinkCard.IsToken)
         {
-            await WithdrawToNoneAsync(addedLinkCard, cancellationToken).ConfigureAwait(false);
+            // AS-IS :1261 — the token guard skips the attach; the RemoveFromAllArea withdrawal already ran.
             return;
         }
 
-        Headless.Choices.ChoiceZone fromZone = CurrentZoneOf(addedLinkCard.Owner, addedLinkCard.InstanceId);
-        await LinkHelpers.AddLinkCardAsync(
-            _context.CardInstanceRepository,
-            _context.ZoneMover,
+        // (B-3 tuck reset) AS-IS AddLinkCard resets the attached card's per-turn use counts
+        // (cardSource.cEntity_EffectController.InitUseCountThisTurn(), CardController.cs:3393).
+        // (R6-Da'-6 D3) per-card cap reset on the CEntity_EffectController store.
+        CEntity_EffectControllerStore.ResetUseCountForCard(_context, addedLinkCard.InstanceId);
+
+        // AS-IS :1263-1267 — LinkedCards.Insert(0, addedLinkCard); LinkedDP += addedLinkCard.LinkDP;
+        // cardSources.Insert(1, addedLinkCard); addedLinkCard.SetFace();
+        AttachLinkCard(_context.CardInstanceRepository, InstanceId, addedLinkCard.InstanceId);
+        SetSourceFaceState(addedLinkCard.InstanceId, faceDown: false);
+
+        // AS-IS :1270-1291 — the single WhenLinked window ({Permanent, CardEffect, Card, isFromDigimon}).
+        // (G-Link P2 risk-1) the causing effect's SOURCE id is threaded as the AS-IS {"CardEffect", cardEffect};
+        // empty when the caller passes no cause ⇒ a NULL CardEffect, exactly as AS-IS.
+        await EmitWhenLinkedAsync(
+            _context,
+            OwnerId,
             InstanceId,
-            addedLinkCard.InstanceId,
-            fromZone,
-            gameEventQueue: _context.GameEventQueue,
-            cancellationToken: cancellationToken,
-            context: _context,
-            // (G-Link P2 risk-1) thread the causing effect's source to the WhenLinked window (AS-IS
-            // Permanent.AddLinkCard {"CardEffect", cardEffect}); empty when the caller passes no cause.
-            causeSourceId: causeEffectSourceId ?? default).ConfigureAwait(false);
+            addedLinkCard,
+            causeEffectSourceId ?? default,
+            isFromDigimon).ConfigureAwait(false);
     }
 
     /// <summary>(R4 S3b-2) AS-IS <c>Permanent.StackCards</c> (Permanent.cs:884) — verbatim: every stacked card
@@ -4461,7 +4697,7 @@ public sealed class Permanent
     /// (DigivolveAction targetRemoval): NOT a leave-field kind, no windows fire);</item>
     /// <item>the new card enters the SAME zone under the same controller (no OnEnterField supply metadata —
     /// the AS-IS executor opens the window inline, design doc S3b-2① option B);</item>
-    /// <item>the stack threads via the verified <see cref="Headless.Runtime.DigivolveAction.AttachTargetAsSource"/>
+    /// <item>the stack threads via the verified <see cref="Permanent.AttachTargetAsSource"/>
     /// (sourceIds + the N-1 entered-this-turn inheritance);</item>
     /// <item>G6-001: the new top auto-registers its ported effects (the old top's registration stays — its
     /// inherited half folds into the new top, per the digivolve action's model).</item>
@@ -4495,24 +4731,24 @@ public sealed class Permanent
                 Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata),
             cancellationToken).ConfigureAwait(false);
 
-        Headless.Runtime.DigivolveAction.AttachTargetAsSource(
+        AttachTargetAsSource(
             _context.CardInstanceRepository,
             cardSource.InstanceId,
             oldTopId);
 
-        CardEffectRegistrar.RegisterCard(_context, cardSource.InstanceId, controller);
+        CardSource.Init(_context, cardSource.InstanceId, controller);
         return new Permanent(_context, cardSource.InstanceId, controller);
     }
 
     /// <summary>(MIG4) AS-IS <c>Permanent.RemoveCardSource(cardSource)</c> (Permanent.cs:1297-1302): a bare
     /// removal from this permanent's stack list (AS-IS `cardSources.Remove(cardSource)`) — NO zone move, NO
-    /// trash/trigger. Delegates to <see cref="DigivolutionStackHelpers.PlaySpecificSourceAsync"/> with
+    /// trash/trigger. Delegates to <see cref="Permanent.PlaySpecificSourceAsync"/> with
     /// <c>destination: ChoiceZone.None</c> (its documented detach-only mode: remove from sourceIds, skip the
     /// physical move). No-ops silently if the card is not one of this permanent's sources (List.Remove parity).</summary>
     public async Task RemoveCardSource(CardSource cardSource, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(cardSource);
-        await DigivolutionStackHelpers.PlaySpecificSourceAsync(
+        await Permanent.PlaySpecificSourceAsync(
             _context.CardInstanceRepository,
             _context.ZoneMover,
             InstanceId,
@@ -4554,20 +4790,19 @@ public sealed class Permanent
         }
 
         if (_context.CardInstanceRepository.TryGetInstance(host.TopInstanceId, out CardInstanceRecord? hostRecord) && hostRecord is not null
-            && LinkHelpers.ReadLinkedCardIds(hostRecord.Metadata).Contains(card.InstanceId))
+            && ReadLinkedCardIds(hostRecord.Metadata).Contains(card.InstanceId))
         {
-            await LinkHelpers.RemoveLinkCardAsync(
+            await RemoveLinkCardAsync(
                 _context.CardInstanceRepository,
                 _context.ZoneMover,
                 host.TopInstanceId,
                 card.InstanceId,
                 trash: false,
-                gameEventQueue: null,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        await DigivolutionStackHelpers.PlaySpecificSourceAsync(
+        await Permanent.PlaySpecificSourceAsync(
             _context.CardInstanceRepository,
             _context.ZoneMover,
             host.TopInstanceId,
@@ -4606,6 +4841,1021 @@ public sealed class Permanent
 
         return Headless.Choices.ChoiceZone.None;
     }
+
+    // ========================================================================================================
+    // #region Digivolution-stack (AS-IS `cardSources`) mutations
+    //
+    // (DIGIVOLVE cluster re-migration) Re-homed VERBATIM from the retired substrate `DigivolutionStackHelpers`
+    // (+ `DeDigivolveHelpers.ArmorPurgeTopAsync`) into their AS-IS原가: `Permanent.AddCardSource` /
+    // `AddDigivolutionCardsTop` / `AddDigivolutionCardsBottom` / `RemoveCardSource` (Permanent.cs:1045 / 1064 /
+    // 1133 / 1297) — i.e. the `List<CardSource> cardSources` mutations that AS-IS performs on the live Permanent
+    // object itself. In the mirror that list is the top card's `sourceIds` instance metadata (ordered top→bottom),
+    // so the AS-IS list ops become metadata rewrites; they stay STATIC (host-id-keyed) because a mirror Permanent
+    // view is transient and the same op is issued for hosts other than `this` (keyword / effect paths).
+    //
+    // ONLY change from the retired file: the dead `TriggerEventEmitter.Emit(...)` calls are DROPPED — that
+    // substrate event-queue trigger model is retired (GameEventQueue.cs header: "all trigger windows now fire via
+    // the AS-IS AutoProcessing.StackSkillInfos inline"), and the OnAddDigivolutionCards window is now opened by
+    // the AS-IS `StackSkillInfos(hashtable, EffectTiming.OnAddDigivolutionCards)` call ported 1:1 from
+    // Permanent.cs:1105-1119 / 1213-1223 (see EmitAddDigivolutionCardsAsync). The `gameEventQueue` parameters are
+    // KEPT: callers use them as the AS-IS "does this path open the window" discriminator.
+    // Retired with zero live callers: `ReturnSourcesAsync`, `DetachSourceFromHostAsync`,
+    // `DeDigivolveHelpers.DeDigivolveAsync` (IDegeneration owns the AS-IS de-digivolve walk), and
+    // `DeDigivolveHelpers.IsDeDigivolveImmune` (a one-line wrapper — inlined at its two CardController sites).
+    // ========================================================================================================
+
+    /// <summary>Instance-metadata key holding the ordered (top→bottom) digivolution-source id list — the mirror
+    /// of AS-IS <c>Permanent.cardSources</c>. Re-homed from the retired substrate helpers; string value unchanged.</summary>
+    internal const string SourceIdsKey = "sourceIds";
+
+    /// <summary>Instance-metadata flag behind AS-IS <c>Permanent.IsSuspended</c>. Re-homed from the retired
+    /// substrate helpers; string value unchanged (the literal readers in this file keep matching).</summary>
+    internal const string IsSuspendedKey = "isSuspended";
+
+    /// <summary>Instance-metadata flag behind AS-IS <c>Permanent.CanSuspend</c>.</summary>
+    internal const string CanSuspendKey = "canSuspend";
+
+    /// <summary>Instance-metadata stamp behind the STATIC half of AS-IS <c>Permanent.ImmuneFromDeDigivolve()</c>
+    /// (<c>IImmuneFromDeDigivolveEffect</c>); the CONTINUOUS half is the live
+    /// <see cref="ImmuneFromDeDigivolve"/> scan.</summary>
+    internal const string CannotBeDeDigivolvedKey = "cannotBeDeDigivolved";
+
+    // Deletion markers stripped from a top card that is trashed by a top-swap (the deletion was REPLACED, so no
+    // OnDeletion / POST window may open for it). Byte-identical to the substrate constants they mirror.
+    private const string DeletedByBattleMetadataKey = "deletedByBattle";
+    private const string DeletedByEffectMetadataKey = "deletedByEffect";
+    private const string DeletedByOwnEffectMetadataKey = "deletedByOwnEffect";
+    internal const string PendingDeletionMetadataKey = "pendingDeletion";
+
+    /// <summary>Instance-metadata opt-out behind AS-IS <c>Permanent.IsPlaceToTrashDueToNotHavingDP</c>
+    /// (Permanent.cs:3694, default true — ABSENT/true is the default, explicit <c>false</c> is the opt-out).
+    /// Re-homed from the retired substrate <c>GameFlowProcessor</c>; string value unchanged.</summary>
+    internal const string PlaceToTrashDueToNoDpKey = "isPlaceToTrashDueToNotHavingDP";
+
+    /// <summary>Instance-metadata flag behind AS-IS <c>Permanent.IsPlayedOptionPermanent</c> (Permanent.cs:3946,
+    /// default false). Re-homed from the retired substrate <c>GameFlowProcessor</c>; string value unchanged.</summary>
+    internal const string IsPlayedOptionPermanentKey = "isPlayedOptionPermanent";
+
+    // ========================================================================================================
+    // #region Link cards (AS-IS `LinkedCards` / `LinkedDP` / `LinkedMax` / `AddLinkCard` / `RemoveLinkedCard`)
+    //
+    // (LINK cluster re-migration) Re-homed VERBATIM from the retired substrate `LinkHelpers` into its AS-IS 원가:
+    // DCGO/Assets/Scripts/Script/Permanent.cs — `AddLinkCard` (:1237-1292), `RemoveLinkedCard` (:1306-1348),
+    // `LinkedCards` (:1041), `LinkedMax` (:896), `LinkedDP` (:670). AS-IS holds the link cards in the live
+    // `List<CardSource> LinkedCards` ON the Permanent object; the mirror holds the same list as the HOST top
+    // card's `linkedCardIds` instance metadata (newest-first — the AS-IS `Insert(0, …)` order), so the AS-IS
+    // list ops become metadata rewrites. The helpers stay STATIC (host-id-keyed) for the same reason as the
+    // digivolution-stack block above: a mirror Permanent view is transient and the same op is issued for hosts
+    // other than `this`.
+    //
+    // Changes from the retired substrate file (both forced, both structural — no logic simplification):
+    //  * the dead `TriggerEventEmitter.Emit(WhenLinked / OnLinkCardDiscarded)` calls are DROPPED — that substrate
+    //    event-queue trigger model is retired (GameEventQueue.cs header). The AS-IS WhenLinked window is opened
+    //    by the 1:1 `StackSkillInfos(hashtable, EffectTiming.WhenLinked)` port (AS-IS Permanent.cs:1278-1290,
+    //    see EmitWhenLinkedAsync), exactly like the sibling OnAddDigivolutionCards emit. AS-IS RemoveLinkedCard
+    //    opens NO window at all (AS-IS :1345 "//TODO: Add event call if something was removed"), so the retired
+    //    OnLinkCardDiscarded emit has no AS-IS replacement — nothing is lost.
+    //  * the substrate-invented post-attach `EnforceLinkedMaxAsync` + its `TrimLinkedOverflowByOwnerSelectionAsync`
+    //    / `ResolveHostZone` duplicate selection are RETIRED: AS-IS resolves the overflow BEFORE the attach
+    //    (`if (LinkedCards.Count >= LinkedMax) { … RemoveLinkedCard(…) }`, AS-IS :1251-1257) and the standing
+    //    over-max state is swept by the AS-IS rule process `DigimonLackLinkMaxCountProcess`
+    //    (AS-IS AutoProcessing.cs:524-537), which the mirror AutoProcessing already runs 1:1. `AddLinkCard` below
+    //    now issues the AS-IS pre-attach `RemoveLinkedCard` calls verbatim.
+    // ========================================================================================================
+
+    /// <summary>Host instance-metadata key holding the ordered (newest-first) link-card id list — the mirror of
+    /// AS-IS <c>Permanent.LinkedCards</c>. Re-homed from the retired substrate helper; string value unchanged.</summary>
+    internal const string LinkedCardIdsKey = "linkedCardIds";
+
+    /// <summary>Host instance-metadata key behind AS-IS <c>Permanent.LinkedDP</c> (:670).</summary>
+    internal const string LinkedDpKey = "linkedDp";
+
+    /// <summary>Host instance-metadata key carrying an effect-written base override of AS-IS
+    /// <c>Permanent.LinkedMax</c> (:896).</summary>
+    internal const string LinkedMaxKey = "linkedMax";
+
+    /// <summary>Per-card definition-metadata key behind AS-IS <c>CardSource.LinkDP</c>.</summary>
+    internal const string LinkDpKey = "linkDp";
+
+    /// <summary>AS-IS <c>Permanent.LinkedMax</c> default (1).</summary>
+    internal const int DefaultLinkedMax = 1;
+
+    /// <summary>The link cards currently attached to <paramref name="metadata"/>'s host (newest first) — the
+    /// mirror read of AS-IS <c>Permanent.LinkedCards</c>.</summary>
+    internal static IReadOnlyList<HeadlessEntityId> ReadLinkedCardIds(IReadOnlyDictionary<string, object?> metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        if (!metadata.TryGetValue(LinkedCardIdsKey, out object? raw) || raw is null)
+        {
+            return Array.Empty<HeadlessEntityId>();
+        }
+
+        return raw switch
+        {
+            IEnumerable<HeadlessEntityId> ids => ids.ToArray(),
+            IEnumerable<string> strings => strings
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => new HeadlessEntityId(value))
+                .ToArray(),
+            string text => text
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(value => new HeadlessEntityId(value))
+                .ToArray(),
+            _ => Array.Empty<HeadlessEntityId>(),
+        };
+    }
+
+    /// <summary>AS-IS <c>Permanent.LinkedDP</c> read (sum of the attached cards' LinkDP).</summary>
+    internal static int ReadLinkedDp(IReadOnlyDictionary<string, object?> metadata) =>
+        ReadLinkMetadataInt(metadata, LinkedDpKey) ?? 0;
+
+    /// <summary>The host's BASE link maximum (its <see cref="LinkedMaxKey"/> override, else
+    /// <see cref="DefaultLinkedMax"/>) — the value AS-IS <c>Permanent.LinkedMax</c> folds effects onto.</summary>
+    internal static int ReadLinkedMax(IReadOnlyDictionary<string, object?> metadata) =>
+        ReadLinkMetadataInt(metadata, LinkedMaxKey) ?? DefaultLinkedMax;
+
+    /// <summary>
+    /// (AS-IS <c>Permanent.RemoveLinkedCard</c>'s storage half, :1308-1319) Detach <paramref name="linkCardId"/>
+    /// from <paramref name="hostId"/>: remove it from the linked list, subtract its LinkDP, and optionally trash
+    /// it (AS-IS <c>CardObjectController.AddTrashCard</c>). Returns true when removed. AS-IS opens NO window here.
+    /// </summary>
+    internal static async Task<bool> RemoveLinkCardAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        HeadlessEntityId linkCardId,
+        bool trash = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+
+        if (!repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null)
+        {
+            return false;
+        }
+
+        List<string> linked = ReadLinkedCardIds(host.Metadata).Select(id => id.Value).ToList();
+        if (!linked.Remove(linkCardId.Value))
+        {
+            return false;
+        }
+
+        int linkDp = repository.TryGetInstance(linkCardId, out CardInstanceRecord? linkCard) && linkCard is not null
+            ? ReadLinkMetadataInt(linkCard.Metadata, LinkDpKey) ?? 0
+            : 0;
+        int linkedDp = Math.Max(0, ReadLinkedDp(host.Metadata) - linkDp);
+        repository.Upsert(host with { Metadata = WithLinked(host.Metadata, linked, linkedDp) });
+
+        if (trash && linkCard is not null)
+        {
+            await zoneMover.MoveAsync(
+                new ZoneMoveRequest(linkCard.OwnerId, linkCardId, Headless.Choices.ChoiceZone.None, Headless.Choices.ChoiceZone.Trash),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return true;
+    }
+
+    /// <summary>(AS-IS <c>Permanent.AddLinkCard</c>'s storage half, :1263-1267) Prepend
+    /// <paramref name="linkCardId"/> to <paramref name="hostId"/>'s linked list (AS-IS <c>Insert(0, …)</c>) and
+    /// add its LinkDP (AS-IS <c>LinkedDP += addedLinkCard.LinkDP</c>).</summary>
+    internal static void AttachLinkCard(
+        ICardInstanceRepository repository,
+        HeadlessEntityId hostId,
+        HeadlessEntityId linkCardId)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        if (!repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null)
+        {
+            return;
+        }
+
+        List<string> linked = ReadLinkedCardIds(host.Metadata).Select(id => id.Value).ToList();
+        linked.Insert(0, linkCardId.Value);
+        int linkDp = repository.TryGetInstance(linkCardId, out CardInstanceRecord? linkCard) && linkCard is not null
+            ? ReadLinkMetadataInt(linkCard.Metadata, LinkDpKey) ?? 0
+            : 0;
+        repository.Upsert(host with { Metadata = WithLinked(host.Metadata, linked, ReadLinkedDp(host.Metadata) + linkDp) });
+    }
+
+    private static Dictionary<string, object?> WithLinked(IReadOnlyDictionary<string, object?> metadata, IReadOnlyList<string> linked, int linkedDp)
+    {
+        var copy = new Dictionary<string, object?>(metadata, StringComparer.Ordinal);
+        if (linked.Count > 0)
+        {
+            copy[LinkedCardIdsKey] = linked.ToArray();
+            copy[LinkedDpKey] = linkedDp;
+        }
+        else
+        {
+            copy.Remove(LinkedCardIdsKey);
+            copy.Remove(LinkedDpKey);
+        }
+
+        return copy;
+    }
+
+    private static int? ReadLinkMetadataInt(IReadOnlyDictionary<string, object?> metadata, string key)
+    {
+        if (!metadata.TryGetValue(key, out object? raw) || raw is null)
+        {
+            return null;
+        }
+
+        return raw switch
+        {
+            int i => i,
+            long l when l >= int.MinValue && l <= int.MaxValue => (int)l,
+            string s when int.TryParse(s, out int parsed) => parsed,
+            _ => null,
+        };
+    }
+
+    /// <summary>AS-IS <c>AddLinkCard</c>'s <c>StackSkillInfos(hashtable, EffectTiming.WhenLinked)</c>
+    /// (Permanent.cs:1278-1290), ported 1:1: payload <c>{Permanent, CardEffect, Card, isFromDigimon}</c>, ONE
+    /// emit, gated on <c>addedCard</c>. The AS-IS <c>cardEffect</c> is the mirror's threaded causing-effect
+    /// SOURCE id collapsed to a <see cref="BareCauseEffect"/> (empty id ⇒ NULL CardEffect, exactly as AS-IS).
+    /// Sibling of <see cref="EmitAddDigivolutionCardsAsync"/>.</summary>
+    private static async Task EmitWhenLinkedAsync(
+        EngineContext context,
+        HeadlessPlayerId hostOwner,
+        HeadlessEntityId hostId,
+        CardSource addedLinkCard,
+        HeadlessEntityId causeSourceId,
+        bool isFromDigimon)
+    {
+        using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(context);
+        var hashtable = new System.Collections.Hashtable
+        {
+            { "Permanent", new Permanent(context, hostId, hostOwner) },
+            { "CardEffect", BareCauseEffect.ForOrNull(context, causeSourceId) },
+            { "Card", addedLinkCard },
+            { "isFromDigimon", isFromDigimon },
+        };
+
+        await HeadlessDCGO.Engine.Assets.Scripts.Script.AutoProcessing.For(context)
+            .StackSkillInfos(hashtable, EffectTiming.WhenLinked).ConfigureAwait(false);
+    }
+    // #endregion Link cards
+
+    /// <summary>(AS-IS <c>AddDigivolutionCardsBottom</c>, Permanent.cs:1133-1223) Moves <paramref name="cards"/>
+    /// from <paramref name="fromZone"/> off-field and appends them (in order) to the BOTTOM of
+    /// <paramref name="targetId"/>'s digivolution stack.
+    /// (B-3 tuck reset; R6-Da'-6 D3) When <paramref name="context"/> is supplied, each tucked card's per-turn use counts are
+    /// cleared — AS-IS clears them on EVERY path that puts a card under another permanent:
+    /// PlacePermanentToDigivolutionCards runs InitUseCountThisTurn on the tucked card (CardController.cs:3093)
+    /// after RemoveField already Init()-reset the whole leaving stack (CardObjectController.cs:546-553); DigiXros
+    /// materials reset per card (SelectDigiXrosClass.cs:923); hand/deck/trash-origin cards were reset when they
+    /// entered that zone, so the uniform reset is a no-op for them.</summary>
+    internal static async Task AddSourcesBottomAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId targetId,
+        IReadOnlyList<HeadlessEntityId> cards,
+        Headless.Choices.ChoiceZone fromZone,
+        CancellationToken cancellationToken = default,
+        EngineContext? context = null,
+        GameEventQueue? gameEventQueue = null,
+        HeadlessEntityId causeSourceId = default,
+        bool skipEffectAndActivateSkill = false)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        ArgumentNullException.ThrowIfNull(cards);
+
+        if (cards.Count == 0 || !repository.TryGetInstance(targetId, out CardInstanceRecord? target) || target is null)
+        {
+            return;
+        }
+
+        // (C1d RDW-02) compute the AS-IS from-flags BEFORE the cards move (post-move they read wrong).
+        (bool isFromSame, bool isFromDigimon) = ComputeAddDigivolutionFromFlags(repository, zoneMover, target, cards);
+        var appended = new List<string>();
+        foreach (HeadlessEntityId cardId in cards)
+        {
+            if (!repository.TryGetInstance(cardId, out CardInstanceRecord? card) || card is null)
+            {
+                continue;
+            }
+
+            // (C-Del 3c-2b / Material Save) an ALREADY-OFF-ZONE card (a digivolution source detached from a dying
+            // permanent, moving permanent→permanent) needs no zone move — AS-IS RemoveFromAllArea is a no-op for
+            // it; AppendSources below performs the attach. A None→None ZoneMoveRequest is rejected by its ctor.
+            if (fromZone != Headless.Choices.ChoiceZone.None)
+            {
+                await zoneMover.MoveAsync(
+                    new ZoneMoveRequest(card.OwnerId, cardId, fromZone, Headless.Choices.ChoiceZone.None),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            appended.Add(cardId.Value);
+            // (R6-Da'-6 D3) AS-IS CardSource.Init() per-card cap reset on the CEntity_EffectController store
+            // (the OnceFlags string-key twin died with the uniform corpus).
+            if (context is not null)
+            {
+                CEntity_EffectControllerStore.ResetUseCountForCard(context, cardId);
+            }
+        }
+
+        AppendSources(repository, target, appended);
+        // AS-IS AddDigivolutionCardsBottom (Permanent.cs:1203-1223) fires OnAddDigivolutionCards when an EFFECT
+        // places >=1 card under a permanent, EXCEPT when skipEffectAndActivateSkill.
+        await EmitAddDigivolutionCardsAsync(
+            context, gameEventQueue, target.OwnerId, targetId, appended, causeSourceId,
+            skipEffectAndActivateSkill, isFromSame, isFromDigimon).ConfigureAwait(false);
+    }
+
+    /// <summary>(AS-IS <c>AddDigivolutionCardsTop</c>, Permanent.cs:1064-1123) Moves <paramref name="cards"/> from
+    /// <paramref name="fromZone"/> off-field and inserts them (in order) at the TOP of
+    /// <paramref name="targetId"/>'s digivolution stack (just below the top card). The sourceIds list is
+    /// top→bottom, so "add to top" prepends.</summary>
+    internal static async Task AddSourcesTopAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId targetId,
+        IReadOnlyList<HeadlessEntityId> cards,
+        Headless.Choices.ChoiceZone fromZone,
+        CancellationToken cancellationToken = default,
+        EngineContext? context = null,
+        GameEventQueue? gameEventQueue = null,
+        HeadlessEntityId causeSourceId = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        ArgumentNullException.ThrowIfNull(cards);
+
+        if (cards.Count == 0 || !repository.TryGetInstance(targetId, out CardInstanceRecord? target) || target is null)
+        {
+            return;
+        }
+
+        // (C1d RDW-02) compute the AS-IS from-flags BEFORE the cards move.
+        (bool isFromSame, bool isFromDigimon) = ComputeAddDigivolutionFromFlags(repository, zoneMover, target, cards);
+        var moved = new List<string>();
+        foreach (HeadlessEntityId cardId in cards)
+        {
+            if (!repository.TryGetInstance(cardId, out CardInstanceRecord? card) || card is null)
+            {
+                continue;
+            }
+
+            // (C-Del 3c-2b / MIG4-DISCARDEVOROOTS-PUTTOTRASH) an ALREADY-OFF-ZONE card (a digivolution source
+            // detached to None — e.g. the jogress collapse's DiscardEvoRoots(putToTrash:false) roots re-parented
+            // onto the fused permanent) needs no zone move; PrependSources below performs the attach. A None→None
+            // ZoneMoveRequest is rejected by its ctor — identical guard to AddSourcesBottomAsync.
+            if (fromZone != Headless.Choices.ChoiceZone.None)
+            {
+                await zoneMover.MoveAsync(
+                    new ZoneMoveRequest(card.OwnerId, cardId, fromZone, Headless.Choices.ChoiceZone.None),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            moved.Add(cardId.Value);
+            // (B-3 tuck reset) same AS-IS InitUseCountThisTurn mirror as AddSourcesBottomAsync.
+            if (context is not null)
+            {
+                CEntity_EffectControllerStore.ResetUseCountForCard(context, cardId);
+            }
+        }
+
+        PrependSources(repository, target, moved);
+        // AS-IS AddDigivolutionCardsTop (Permanent.cs:1064-1119) has NO skip flag — an effect placing >=1 card on
+        // top always fires OnAddDigivolutionCards.
+        await EmitAddDigivolutionCardsAsync(
+            context, gameEventQueue, target.OwnerId, targetId, moved, causeSourceId,
+            skip: false, isFromSame, isFromDigimon).ConfigureAwait(false);
+    }
+
+    /// <summary>(C-23 Material Save / MindLink) Moves the first <paramref name="count"/> digivolution sources of
+    /// <paramref name="fromId"/> to the bottom of <paramref name="toId"/>'s stack (pure re-parent — the source
+    /// cards already live off-field). Returns true when at least one source moved. This is the AS-IS
+    /// <c>cardSources</c> re-parent tail only: it is NOT an AS-IS <c>AddDigivolutionCardsBottom</c> call, so it
+    /// opens NO OnAddDigivolutionCards window (the AS-IS caller's own AddDigivolutionCardsBottom already did).</summary>
+    internal static bool MoveSourcesBottom(
+        ICardInstanceRepository repository,
+        HeadlessEntityId fromId,
+        HeadlessEntityId toId,
+        int count,
+        EngineContext? context = null)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        if (count < 1 ||
+            fromId == toId ||
+            !repository.TryGetInstance(fromId, out CardInstanceRecord? source) || source is null ||
+            !repository.TryGetInstance(toId, out CardInstanceRecord? destination) || destination is null)
+        {
+            return false;
+        }
+
+        List<string> fromSources = ReadSourceIdsFrom(source.Metadata).Select(id => id.Value).ToList();
+        if (fromSources.Count == 0)
+        {
+            return false;
+        }
+
+        List<string> moved = fromSources.Take(Math.Min(count, fromSources.Count)).ToList();
+        List<string> remaining = fromSources.Skip(moved.Count).ToList();
+
+        repository.Upsert(source with { Metadata = WithSources(source.Metadata, remaining) });
+        AppendSources(repository, destination, moved);
+        if (context is not null)
+        {
+            foreach (string movedValue in moved)
+            {
+                CEntity_EffectControllerStore.ResetUseCountForCard(context, new HeadlessEntityId(movedValue));
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>(B-10) Trash <paramref name="count"/> of <paramref name="hostId"/>'s digivolution sources
+    /// (from the bottom/DigiEgg end by default) — move them off-field to the trash and drop them from the
+    /// host's stack. Returns the number trashed.</summary>
+    /// <param name="honorProtection">(C-3) AS-IS effect-trash (<c>ITrashDigivolutionCards</c>) filters
+    /// <c>CanNotTrashFromDigivolutionCards</c>-protected sources OUT of the window; the DELETION path
+    /// (<c>DiscardEvoRoots</c>) does NOT (no keyword check) and passes false.</param>
+    internal static Task<int> TrashSourcesAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        int count,
+        bool fromBottom = true,
+        CancellationToken cancellationToken = default,
+        GameEventQueue? gameEventQueue = null,
+        bool honorProtection = true,
+        EngineContext? context = null,
+        HeadlessEntityId causingEffectSourceId = default) =>
+        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, Headless.Choices.ChoiceZone.Trash, cancellationToken, gameEventQueue, honorProtection, context, causingEffectSourceId);
+
+    /// <summary>(W6 process) Trash SPECIFIC digivolution sources of <paramref name="hostId"/> (AS-IS
+    /// <c>ITrashDigivolutionCards(permanent, selectedCards, …)</c>). Returns the count trashed.</summary>
+    internal static async Task<int> TrashSpecificSourcesAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        IReadOnlyList<HeadlessEntityId> cardIds,
+        CancellationToken cancellationToken = default,
+        GameEventQueue? gameEventQueue = null,
+        EngineContext? context = null,
+        HeadlessEntityId causingEffectSourceId = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        ArgumentNullException.ThrowIfNull(cardIds);
+        if (!repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null ||
+            !host.Metadata.TryGetValue(SourceIdsKey, out object? raw) || raw is not IEnumerable<string> existing)
+        {
+            return 0;
+        }
+
+        List<string> sources = existing.ToList();
+        // First determine which requested cards are real sources (and their owners) WITHOUT moving them yet, so
+        // the OnDigivolutionCardDiscarded trigger can fire BEFORE the cards physically leave (AS-IS ordering).
+        var discarded = new List<(HeadlessEntityId Id, HeadlessPlayerId Owner)>();
+        foreach (HeadlessEntityId cardId in cardIds)
+        {
+            // (C-3) AS-IS ITrashDigivolutionCards.TrashDigivolutionCards() re-filters CanNotTrashFromDigivolutionCards-
+            // protected sources (CardController.cs:5158-5160) — a defensive second filter over the already-narrowed
+            // DigiBurst candidate pool. This is an EFFECT-trash path (no deletion caller), so protection is honoured.
+            if (IsSourceTrashProtected(repository, cardId.Value, context, causingEffectSourceId))
+            {
+                continue;
+            }
+
+            if (!sources.Remove(cardId.Value))
+            {
+                continue;
+            }
+
+            HeadlessPlayerId owner = repository.TryGetInstance(cardId, out CardInstanceRecord? card) && card is not null
+                ? card.OwnerId
+                : host.OwnerId;
+            discarded.Add((cardId, owner));
+        }
+
+        if (discarded.Count == 0)
+        {
+            return 0;
+        }
+
+        repository.TryGetInstance(hostId, out CardInstanceRecord? refreshed);
+        repository.Upsert(refreshed! with
+        {
+            Metadata = new Dictionary<string, object?>(refreshed!.Metadata, StringComparer.Ordinal) { [SourceIdsKey] = sources.ToArray() }
+        });
+
+        // (C-3 재상환 P2-1) AS-IS ITrashDigivolutionCards runs `new AceOverflowClass(_trashTargetCards).Overflow()`
+        // IMMEDIATELY BEFORE the removal loop (CardController.cs:5219) — an un-flipped ACE source leaving by an
+        // effect-trash costs its owner the printed Overflow memory.
+        await ApplyEffectTrashAceOverflow(
+            repository, zoneMover, context, hostId, host.OwnerId, discarded.Select(d => d.Id).ToArray(), cancellationToken).ConfigureAwait(false);
+
+        foreach ((HeadlessEntityId id, HeadlessPlayerId owner) in discarded)
+        {
+            // (MIG3 review P2-2) AS-IS ITrashDigivolutionCards skips AddTrashCard for a TOKEN source
+            // (CardController.cs:5227-5230 `if (!cardSource.IsToken)`) — a trashed token vanishes instead of
+            // becoming a real trash card. Same isToken handling as ArmorPurgeTopAsync.
+            bool isToken = repository.TryGetInstance(id, out CardInstanceRecord? tokenRecord) && tokenRecord is not null
+                && tokenRecord.Metadata.TryGetValue("isToken", out object? tokenRaw) && tokenRaw is true;
+            if (isToken)
+            {
+                continue; // already off-stack (ChoiceZone.None) — vanishes, no trash move.
+            }
+
+            await zoneMover.MoveAsync(
+                new ZoneMoveRequest(owner, id, Headless.Choices.ChoiceZone.None, Headless.Choices.ChoiceZone.Trash), cancellationToken).ConfigureAwait(false);
+        }
+
+        return discarded.Count;
+    }
+
+    /// <summary>(G10-007) Remove a SPECIFIC digivolution source from <paramref name="hostId"/> and move it to
+    /// <paramref name="destination"/> (e.g. the battle area, to play it as another Digimon) — the AS-IS
+    /// <c>Permanent.RemoveCardSource</c> (Permanent.cs:1297) list drop plus the physical move. Returns true if
+    /// the source belonged to the host and was moved.</summary>
+    internal static async Task<bool> PlaySpecificSourceAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        HeadlessEntityId sourceId,
+        Headless.Choices.ChoiceZone destination,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        if (sourceId.IsEmpty || !repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null)
+        {
+            return false;
+        }
+
+        List<string> sources = ReadSourceIdsFrom(host.Metadata).Select(id => id.Value).ToList();
+        if (!sources.Remove(sourceId.Value))
+        {
+            return false;
+        }
+
+        repository.Upsert(host with { Metadata = WithSources(host.Metadata, sources) });
+        HeadlessPlayerId owner = repository.TryGetInstance(sourceId, out CardInstanceRecord? src) && src is not null
+            ? src.OwnerId
+            : host.OwnerId;
+        // (BT22_035) destination == None ⇒ DETACH-only: the source is already off-field (ChoiceZone.None as a
+        // digivolution source); removing it from sourceIds leaves it off-field for an immediate re-attach (e.g.
+        // as a LINK card). A None → None ZoneMoveRequest is rejected (both zones abstract), so skip the move.
+        if (destination != Headless.Choices.ChoiceZone.None)
+        {
+            await zoneMover.MoveAsync(new ZoneMoveRequest(owner, sourceId, Headless.Choices.ChoiceZone.None, destination), cancellationToken).ConfigureAwait(false);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// (B1) The Armor Purge / de-digivolve top-trash: trash ONLY the top card and promote the immediate
+    /// under-source — the permanent survives (AS-IS <c>ArmorPurgeClass.ArmorPurge</c>, KeyWordEffects/ArmorPurge.cs:
+    /// 40-99, whose physical half is <c>CardObjectController.RemoveFromAllArea</c> + <c>AddTrashCard</c> and whose
+    /// "promote" is implicit in the AS-IS live object — <c>cardSources[0]</c> becomes the top). Unlike a full
+    /// de-digivolve there is NO rookie floor and NO de-digivolve immunity here (those guards belong to
+    /// <c>IDegeneration</c> alone), and a TOKEN top is removed without being trashed (AS-IS ArmorPurge.cs:54-57).
+    /// The AS-IS <c>[When Top Card is Trashed]</c> window is opened by the CALLER at its own AS-IS position
+    /// (IDegeneration / IMassDegeneration / ITrashStack batch it; ArmorPurgeProcess fires it per purge), so this
+    /// primitive stays emit-free. Returns false when there is no under-source to promote.
+    /// </summary>
+    internal static async Task<bool> ArmorPurgeTopAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId cardId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        if (!repository.TryGetInstance(cardId, out CardInstanceRecord? top) || top is null)
+        {
+            return false;
+        }
+
+        IReadOnlyList<HeadlessEntityId> sources = ReadSourceIdsFrom(top.Metadata);
+        if (sources.Count == 0 ||
+            !repository.TryGetInstance(sources[0], out CardInstanceRecord? promoted) || promoted is null)
+        {
+            return false;
+        }
+
+        // The trashed top is NOT a deleted permanent (the deletion was replaced) — strip the deletion
+        // markers so no OnDeletion/POST window opens for it, then move it out.
+        var topMetadata = new Dictionary<string, object?>(top.Metadata, StringComparer.Ordinal);
+        topMetadata.Remove(PendingDeletionMetadataKey);
+        topMetadata.Remove(DeletedByBattleMetadataKey);
+        topMetadata.Remove(DeletedByEffectMetadataKey);
+        topMetadata.Remove(DeletedByOwnEffectMetadataKey);
+        bool isToken = ReadFlagFrom(top.Metadata, "isToken");
+        repository.Upsert(top with { Metadata = topMetadata });
+
+        // (RD-R3-02) both halves of the top swap carry the continuity marker: the AS-IS Permanent object
+        // PERSISTS across the promote, so the zone-mover lifetime chokepoint must not Reset either card's
+        // bookkeeping — the ReKey below carries it to the new top.
+        await zoneMover.MoveAsync(
+            new ZoneMoveRequest(top.OwnerId, cardId, Headless.Choices.ChoiceZone.BattleArea, isToken ? Headless.Choices.ChoiceZone.None : Headless.Choices.ChoiceZone.Trash,
+                Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata),
+            cancellationToken).ConfigureAwait(false);
+        await zoneMover.MoveAsync(
+            new ZoneMoveRequest(promoted.OwnerId, sources[0], Headless.Choices.ChoiceZone.None, Headless.Choices.ChoiceZone.BattleArea, FaceUp: true,
+                Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata),
+            cancellationToken).ConfigureAwait(false);
+
+        var metadata = new Dictionary<string, object?>(promoted.Metadata, StringComparer.Ordinal);
+        string[] remaining = sources.Skip(1).Select(id => id.Value).ToArray();
+        if (remaining.Length > 0)
+        {
+            metadata[SourceIdsKey] = remaining;
+        }
+        else
+        {
+            metadata.Remove(SourceIdsKey);
+        }
+
+        // The permanent persists: carry tap state to the new top (AS-IS SetChangedLocationTime — continuous
+        // effects re-derive from the new top), no deletion markers.
+        metadata[IsSuspendedKey] = ReadFlagFrom(top.Metadata, IsSuspendedKey);
+        metadata.Remove(DeletedByBattleMetadataKey);
+        metadata.Remove(DeletedByEffectMetadataKey);
+        repository.Upsert(promoted with { Metadata = metadata });
+        // (R4 S3b-2②) same persistence for the just-after bookkeeping store (the AS-IS object survives).
+        HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ReKey(repository, cardId, sources[0]);
+
+        return true;
+    }
+
+    private static async Task<int> RemoveSourcesAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        int count,
+        bool fromBottom,
+        Headless.Choices.ChoiceZone destination,
+        CancellationToken cancellationToken,
+        GameEventQueue? gameEventQueue = null,
+        bool honorProtection = true,
+        EngineContext? context = null,
+        HeadlessEntityId causingEffectSourceId = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        if (count < 1 || !repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null)
+        {
+            return 0;
+        }
+
+        List<string> sources = ReadSourceIdsFrom(host.Metadata).Select(id => id.Value).ToList();
+        if (sources.Count == 0)
+        {
+            return 0;
+        }
+
+        int take = Math.Min(count, sources.Count);
+        // Bottom (DigiEgg) is the end of the top→bottom list; top is the start.
+        List<string> window = fromBottom
+            ? sources.Skip(sources.Count - take).ToList()
+            : sources.Take(take).ToList();
+        // (fidelity) AS-IS ITrashDigivolutionCards.TrashDigivolutionCards() filters CanNotTrashFromDigivolutionCards-
+        // protected sources OUT of the selected window before trashing — the protection applies to TRASH only, NOT
+        // return-to-hand/deck. A protected source in the window is skipped and stays in the stack; the trash does
+        // NOT reach deeper to make up the count (AS-IS collects the window by position, then filters).
+        List<string> removed = destination == Headless.Choices.ChoiceZone.Trash && honorProtection
+            ? window.Where(value => !IsSourceTrashProtected(repository, value, context, causingEffectSourceId)).ToList()
+            : window;
+        List<string> remaining = sources.Where(value => !removed.Contains(value)).ToList();
+
+        // (RD-C5W-ESSTRASHSCAN) AS-IS ITrashDigivolutionCards.TrashDigivolutionCards opens the
+        // OnDigivolutionCardDiscarded trigger window INLINE (CardController.cs:5202-5215) with the payload
+        // {"CardEffect", _cardEffect}, {"Permanent", permanentTarget_Fixed}, {"DiscardedCards",
+        // trashDigivolutionCards_Fixed} — COLLECTED BEFORE the sources leave the host's stack (:5219-5234 physical
+        // removal follows). Opened BEFORE the Upsert so Permanent.DigivolutionCards STILL contains the removed
+        // sources: the trash-resident ESS (EX8_051) is collected via the host permanent's inherited-effect
+        // EffectList scan and its CanTriggerOnTrashSelfDigivolutionCard membership gate passes. Gated on a live
+        // context: the DELETION path (Permanent.DiscardEvoRoots) passes context:null and must NOT fire it.
+        if (context is not null && gameEventQueue is not null && destination == Headless.Choices.ChoiceZone.Trash && removed.Count > 0)
+        {
+            using AmbientMatchContext.Scope _discardScope = AmbientMatchContext.Enter(context);
+            List<CardSource> discardedCards = removed
+                .Select(value => new CardSource(context, new HeadlessEntityId(value), host.OwnerId, host.OwnerId))
+                .ToList();
+            var discardHashtable = new System.Collections.Hashtable
+            {
+                { "CardEffect", BareCauseEffect.For(context, causingEffectSourceId) },
+                { "Permanent", new Permanent(context, hostId, host.OwnerId) },
+                { "DiscardedCards", discardedCards },
+            };
+            await HeadlessDCGO.Engine.Assets.Scripts.Script.AutoProcessing.For(context)
+                .StackSkillInfos(discardHashtable, EffectTiming.OnDigivolutionCardDiscarded).ConfigureAwait(false);
+        }
+
+        repository.Upsert(host with { Metadata = WithSources(host.Metadata, remaining) });
+
+        // (C-3 재상환 P2-1) AS-IS ITrashDigivolutionCards applies the ACE-Overflow pass to the trash targets just
+        // before moving them (CardController.cs:5219) — TRASH destination only (return-to-hand/deck is not this
+        // AS-IS path). The deletion path (DiscardEvoRoots) applies its own AceOverflowClass pass and
+        // calls in with context:null, so it never double-charges here.
+        if (destination == Headless.Choices.ChoiceZone.Trash && removed.Count > 0)
+        {
+            await ApplyEffectTrashAceOverflow(
+                repository, zoneMover, context, hostId, host.OwnerId,
+                removed.Select(value => new HeadlessEntityId(value)).ToArray(), cancellationToken).ConfigureAwait(false);
+        }
+
+        foreach (string sourceValue in removed)
+        {
+            var sourceId = new HeadlessEntityId(sourceValue);
+            HeadlessPlayerId owner = repository.TryGetInstance(sourceId, out CardInstanceRecord? src) && src is not null
+                ? src.OwnerId
+                : host.OwnerId;
+            await zoneMover.MoveAsync(new ZoneMoveRequest(owner, sourceId, Headless.Choices.ChoiceZone.None, destination), cancellationToken).ConfigureAwait(false);
+        }
+
+        return removed.Count;
+    }
+
+    // (C-3 재상환 P2-1) AS-IS ITrashDigivolutionCards' `new AceOverflowClass(trashTargets).Overflow()`
+    // (CardController.cs:5219): the effect-trash counterpart of the DiscardEvoRoots overflow.
+    // (DELETION-SOURCE re-migration) The substrate `DeletionSourceTrash.ApplyAceOverflow` reimplementation is
+    // replaced by the AS-IS call itself — the mirror `AceOverflowClass` (CardController.cs:2100) applies the
+    // per-card on-field existence filter, the turn-player-first ordering and the MemoryController.Add. The
+    // host-on-field guard is kept (for a source-trash the per-source existence test IS "is the host fielded",
+    // and it short-circuits the CardSource view construction).
+    private static async Task ApplyEffectTrashAceOverflow(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        EngineContext? context,
+        HeadlessEntityId hostId,
+        HeadlessPlayerId hostOwner,
+        IReadOnlyList<HeadlessEntityId> trashTargets,
+        CancellationToken cancellationToken = default)
+    {
+        if (context is null || trashTargets.Count == 0 || zoneMover is not IZoneStateReader zones
+            || !(zones.GetCards(hostOwner, Headless.Choices.ChoiceZone.BattleArea).Contains(hostId)
+                || zones.GetCards(hostOwner, Headless.Choices.ChoiceZone.BreedingArea).Contains(hostId)))
+        {
+            return;
+        }
+
+        var trashTargetCards = trashTargets
+            .Select(id => new CardSource(
+                context,
+                id,
+                repository.TryGetInstance(id, out CardInstanceRecord? source) && source is not null ? source.OwnerId : hostOwner))
+            .ToList();
+
+        await new AceOverflowClass(trashTargetCards).Overflow(cancellationToken).ConfigureAwait(false);
+    }
+
+    // (C-3, fidelity) AS-IS CardSource.CanNotTrashFromDigivolutionCards = the legacy per-source stamp
+    // (willBeRemoveSources-style flag) OR a field-effect SCAN (ICanNotTrashFromDigivolutionCardsEffect). The
+    // EFFECT-trash path passes the context/causing-source so BT9_109's conditional continuous protection
+    // (X-Antibody sources under a live host) is honoured; the DELETION path passes honorProtection: false and
+    // never reaches here, exactly AS-IS DiscardEvoRoots (no keyword check).
+    private static bool IsSourceTrashProtected(
+        ICardInstanceRepository repository,
+        string sourceValue,
+        EngineContext? context,
+        HeadlessEntityId causingEffectSourceId)
+    {
+        if (string.IsNullOrEmpty(sourceValue))
+        {
+            return false;
+        }
+
+        var sourceId = new HeadlessEntityId(sourceValue);
+        // Stamp (AS-IS in-flight willBeRemoveSources mirror) — honoured even without a live context.
+        if (repository.TryGetInstance(sourceId, out CardInstanceRecord? source) && source is not null
+            && source.Metadata.TryGetValue(CardEffectCommons.TrashProtectedKey, out object? raw) && raw is true)
+        {
+            return true;
+        }
+
+        if (context is null || causingEffectSourceId.IsEmpty)
+        {
+            return false;
+        }
+
+        // (R3-W3c-4) AS-IS-literal live scan via the R1-e getter CardSource.CanNotTrashFromDigivolutionCards
+        // (delegated through CardEffectCommons.IsTrashProtectedSource) over the LIVE EffectList(None).
+        return CardEffectCommons.IsTrashProtectedSource(context, causingEffectSourceId, sourceId);
+    }
+
+    /// <summary>AS-IS <c>AddDigivolutionCardsTop</c> / <c>AddDigivolutionCardsBottom</c>'s
+    /// <c>StackSkillInfos(hashtable, EffectTiming.OnAddDigivolutionCards)</c> (Permanent.cs:1105-1119 /
+    /// 1213-1223), ported 1:1: payload <c>{Permanent, CardEffect, CardSources, isFromSameDigimon, isFromDigimon}</c>,
+    /// ONE emit for the whole batch, gated on <c>addedCards.Count >= 1</c> (and, on the Bottom arm, on
+    /// <c>!skipEffectAndActivateSkill</c>). The AS-IS <c>cardEffect</c> is the mirror's threaded causing-effect
+    /// SOURCE id collapsed to a <see cref="BareCauseEffect"/>; a rule-sourced add (AS-IS
+    /// <c>AddDigivolutionCardsBottom(card, null)</c>) carries an empty id and therefore a NULL CardEffect, exactly
+    /// as AS-IS — the reactors' <c>CanTriggerOnAddDigivolutionCard</c> gate requires a non-null one.
+    /// A context-less (bare / unit) caller cannot reach AutoProcessing, so it opens no window.</summary>
+    private static async Task EmitAddDigivolutionCardsAsync(
+        EngineContext? context,
+        GameEventQueue? gameEventQueue,
+        HeadlessPlayerId hostOwner,
+        HeadlessEntityId hostId,
+        IReadOnlyList<string> addedCardIds,
+        HeadlessEntityId causeSourceId,
+        bool skip,
+        bool isFromSameDigimon,
+        bool isFromDigimon)
+    {
+        if (context is null || gameEventQueue is null || addedCardIds.Count == 0 || skip)
+        {
+            return;
+        }
+
+        using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(context);
+        List<CardSource> addedCards = addedCardIds
+            .Select(value => new CardSource(context, new HeadlessEntityId(value), hostOwner, hostOwner))
+            .ToList();
+        var hashtable = new System.Collections.Hashtable
+        {
+            { "Permanent", new Permanent(context, hostId, hostOwner) },
+            { "CardEffect", BareCauseEffect.ForOrNull(context, causeSourceId) },
+            { "CardSources", addedCards },
+            { "isFromSameDigimon", isFromSameDigimon },
+            { "isFromDigimon", isFromDigimon },
+        };
+
+        await HeadlessDCGO.Engine.Assets.Scripts.Script.AutoProcessing.For(context)
+            .StackSkillInfos(hashtable, EffectTiming.OnAddDigivolutionCards).ConfigureAwait(false);
+    }
+
+    // (C1d RDW-02) AS-IS AddDigivolutionCardsTop/Bottom (Permanent.cs:1071-1085): isFromSameDigimon == an added
+    // card was already in THIS permanent's cardSources; isFromDigimon == an added card exists on the battle area
+    // and its permanent has >=1 digivolution sources. Evaluated PRE-move (target + cards still in their prior
+    // state). No zone reader (bare re-parent) => isFromDigimon can only be a battle-area top, so it is false.
+    private static (bool isFromSame, bool isFromDigimon) ComputeAddDigivolutionFromFlags(
+        ICardInstanceRepository repository, IZoneMover? zoneMover, CardInstanceRecord target, IReadOnlyList<HeadlessEntityId> cards)
+    {
+        bool isFromSame = false;
+        bool isFromDigimon = false;
+        var hostSources = ReadSourceIdsFrom(target.Metadata).Select(id => id.Value).ToHashSet(StringComparer.Ordinal);
+        IZoneStateReader? reader = zoneMover as IZoneStateReader;
+        foreach (HeadlessEntityId cardId in cards)
+        {
+            if (hostSources.Contains(cardId.Value))
+            {
+                isFromSame = true;
+            }
+
+            if (reader is not null
+                && repository.TryGetInstance(cardId, out CardInstanceRecord? card) && card is not null
+                && reader.GetCards(card.OwnerId, Headless.Choices.ChoiceZone.BattleArea).Contains(cardId)
+                && ReadSourceIdsFrom(card.Metadata).Count >= 1)
+            {
+                isFromDigimon = true;
+            }
+        }
+
+        return (isFromSame, isFromDigimon);
+    }
+
+    private static void AppendSources(ICardInstanceRepository repository, CardInstanceRecord target, IReadOnlyList<string> add)
+    {
+        if (add.Count == 0)
+        {
+            return;
+        }
+
+        // Re-read the target so an earlier append in the same operation is preserved.
+        CardInstanceRecord current = repository.TryGetInstance(target.InstanceId, out CardInstanceRecord? latest) && latest is not null
+            ? latest
+            : target;
+        List<string> sources = ReadSourceIdsFrom(current.Metadata).Select(id => id.Value).ToList();
+        sources.AddRange(add);
+        repository.Upsert(current with { Metadata = WithSources(current.Metadata, sources) });
+    }
+
+    private static void PrependSources(ICardInstanceRepository repository, CardInstanceRecord target, IReadOnlyList<string> add)
+    {
+        if (add.Count == 0)
+        {
+            return;
+        }
+
+        CardInstanceRecord current = repository.TryGetInstance(target.InstanceId, out CardInstanceRecord? latest) && latest is not null
+            ? latest
+            : target;
+        List<string> sources = ReadSourceIdsFrom(current.Metadata).Select(id => id.Value).ToList();
+        sources.InsertRange(0, add);
+        repository.Upsert(current with { Metadata = WithSources(current.Metadata, sources) });
+    }
+
+    private static Dictionary<string, object?> WithSources(IReadOnlyDictionary<string, object?> metadata, IReadOnlyList<string> sources)
+    {
+        var copy = new Dictionary<string, object?>(metadata, StringComparer.Ordinal);
+        if (sources.Count > 0)
+        {
+            copy[SourceIdsKey] = sources.ToArray();
+        }
+        else
+        {
+            copy.Remove(SourceIdsKey);
+        }
+
+        return copy;
+    }
+
+    private static IReadOnlyList<HeadlessEntityId> ReadSourceIdsFrom(IReadOnlyDictionary<string, object?> metadata)
+    {
+        if (!metadata.TryGetValue(SourceIdsKey, out object? raw) || raw is null)
+        {
+            return Array.Empty<HeadlessEntityId>();
+        }
+
+        return raw switch
+        {
+            IEnumerable<HeadlessEntityId> ids => ids.ToArray(),
+            IEnumerable<string> strings => strings
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => new HeadlessEntityId(value))
+                .ToArray(),
+            string text => text
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(value => new HeadlessEntityId(value))
+                .ToArray(),
+            _ => Array.Empty<HeadlessEntityId>()
+        };
+    }
+
+    private static bool ReadFlagFrom(IReadOnlyDictionary<string, object?> metadata, string key, bool defaultValue = false)
+    {
+        if (!metadata.TryGetValue(key, out object? raw) || raw is null)
+        {
+            return defaultValue;
+        }
+
+        return raw is bool value ? value : defaultValue;
+    }
+
+    /// <summary>(DIGIVOLVE cluster re-migration) AS-IS <c>Permanent.AddCardSource(cardSource)</c>
+    /// (Permanent.cs:1045-1052) as the digivolve orchestrator issues it (CardController.cs:1365-1376
+    /// <c>permanent = _targetPermanent; permanent.AddCardSource(card)</c>): the OLD top is inserted at index 0 of
+    /// the stack and the digivolving card becomes the new top. The AS-IS Permanent OBJECT persists across the
+    /// swap, which the mirror's identity model (permanent id == top instance) expresses as: the new top's
+    /// <c>sourceIds</c> = [old top] + old top's sources + the card's own sources, and the just-after bookkeeping
+    /// is ReKeyed onto the new top. Re-homed VERBATIM from the retired substrate
+    /// <c>Permanent.AttachTargetAsSource</c> (its sole rule content).</summary>
+    internal static IReadOnlyList<HeadlessEntityId> AttachTargetAsSource(
+        ICardInstanceRepository repository,
+        HeadlessEntityId cardId,
+        HeadlessEntityId targetCardId)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        CardInstanceRecord card = repository.TryGetInstance(cardId, out CardInstanceRecord? currentCard) && currentCard is not null
+            ? currentCard
+            : throw new InvalidOperationException($"Card instance '{cardId}' was not found.");
+        CardInstanceRecord target = repository.TryGetInstance(targetCardId, out CardInstanceRecord? currentTarget) && currentTarget is not null
+            ? currentTarget
+            : throw new InvalidOperationException($"Target card '{targetCardId}' was not found.");
+
+        HeadlessEntityId[] sourceIds = new[] { targetCardId }
+            .Concat(ReadSourceIdsFrom(target.Metadata))
+            .Concat(ReadSourceIdsFrom(card.Metadata))
+            .Distinct()
+            .ToArray();
+
+        // N-1 (summoning sickness): digivolving keeps the SAME permanent in the original (the top card
+        // is swapped, EnterFieldTurnCount is not reset), so the evolved Digimon INHERITS the under-card's
+        // entered-this-turn status. A Digimon that has been on the field since a prior turn stays able to
+        // attack after digivolving; one played this turn remains sick. Jogress/breeding paths are exempt
+        // (they never set the flag), matching the original's EnterFieldTurnCount = -1.
+        bool inheritedEnteredThisTurn = ReadBoolFrom(target.Metadata, "enteredThisTurn");
+        Dictionary<string, object?> metadata = new(card.Metadata, StringComparer.Ordinal)
+        {
+            [SourceIdsKey] = sourceIds.Select(id => id.Value).ToArray(),
+            ["digivolvedFromCardId"] = targetCardId.Value,
+            ["digivolvedFromDefinitionId"] = target.DefinitionId.Value,
+            ["enteredThisTurn"] = inheritedEnteredThisTurn
+        };
+        repository.Upsert(card with { Metadata = metadata });
+        // (R4 S3b-2②) the AS-IS Permanent OBJECT persists across the top swap — carry its just-after
+        // bookkeeping (PlayingEffect / LevelJustAfterPlayed / …) to the new top key.
+        HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ReKey(repository, targetCardId, cardId);
+        return sourceIds;
+    }
+
+    private static bool ReadBoolFrom(IReadOnlyDictionary<string, object?> metadata, string key)
+    {
+        if (!metadata.TryGetValue(key, out object? rawValue) || rawValue is null)
+        {
+            return false;
+        }
+
+        return rawValue switch
+        {
+            bool value => value,
+            string value => bool.TryParse(value, out bool parsed) && parsed,
+            _ => false
+        };
+    }
+
+    // #endregion Digivolution-stack mutations
 }
 
 /// <summary>(W3 / P6A-PERMANENT-EFFECTLIST-ADDED) Match-scoped backing for the AS-IS <see cref="Permanent"/> duration

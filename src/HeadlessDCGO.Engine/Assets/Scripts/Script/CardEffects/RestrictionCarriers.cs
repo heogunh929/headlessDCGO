@@ -1,3 +1,12 @@
+// ============================================================================
+// ⛔ DELETION-TARGET · DO-NOT-REFERENCE
+// 원장(docs/audit/filelist/merged_files_no_cards.csv): 삭제대상여부=Y · 결함여부=Y
+// 분류: 미러발명(AS-IS 무대응)
+// 미러 원가(재이관 대상): (미확정)
+// 이 파일은 AS-IS 원본에 동일-경로 대응이 없는 오배치/발명 코드다.
+// 규칙 로직은 위 미러 원가로 재이관 후 이 파일은 삭제 예정.
+// 서브에이전트/포팅 작업 시: 이 파일의 심볼을 참조·모방·확장하지 말 것.
+// ============================================================================
 // (C3 REHOUSED) The two LIVE joint-carrier restriction effects were relocated here verbatim from
 // CardEffectCommons/ContinuousAndRestrictionEffects.cs to sit in the CardEffects/ kind-class neighborhood,
 // beside their AS-IS analogues CanNotMoveClass.cs / CanNotSelectBySkillClass.cs. Same namespace as those

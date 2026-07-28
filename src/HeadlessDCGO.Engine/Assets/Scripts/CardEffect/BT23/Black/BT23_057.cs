@@ -68,7 +68,6 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT23_057 : CEntity_Effect
@@ -200,22 +199,17 @@ public sealed class BT23_057 : CEntity_Effect
                     {
                         selectedCards.Reverse();
 
-                        // AS-IS :136 `CardObjectController.AddLibraryTopCards(selectedCards)` — 명명 헬퍼
-                        // 미이관(헤더 참조). AD1_025.cs:146-150/P_048.cs:180-191 established idiom: sink
-                        // ReturnToDeckTopKind 뮤테이션 루프를 카드-파일 스코프에서 직접 재사용, 선택-순서(여기선
-                        // Reverse 이후 순서) 그대로 보존.
+                        // AS-IS :136 `CardObjectController.AddLibraryTopCards(selectedCards)`. (RDW re-migration off
+                        // the retired MatchStateMutationSink) the sink's ReturnToDeckTopKind reduced, for these
+                        // (non-field) selected cards, to a bare MoveToDeckTopAsync per card — its field-only leave-
+                        // window / ACE-on-leave / return-to-deck restriction bits are structural no-ops off the field.
+                        // Selection order (post-Reverse) preserved: each top-insert stacks so the last iterated ends
+                        // topmost, exactly as the sink's per-card ReturnToDeckTop did.
                         EngineContext context = card.Context;
-                        var topSink = new MatchStateMutationSink(
-                            context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
-                            context.GameEventQueue, context: context);
                         foreach (CardSource cs in selectedCards)
                         {
-                            topSink.Apply(new EffectMutation(
-                                MatchStateMutationSink.ReturnToDeckTopKind, activateClass.EffectSourceCard?.InstanceId ?? card.InstanceId,
-                                new Dictionary<string, object?>(System.StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cs.InstanceId.Value }));
+                            await context.ZoneMover.MoveToDeckTopAsync(cs.Owner, cs.InstanceId);
                         }
-
-                        await topSink.FlushAsync();
                     }
                 }
 

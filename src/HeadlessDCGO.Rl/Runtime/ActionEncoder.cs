@@ -130,7 +130,6 @@ public sealed record ActionEncodingOptions
         HeadlessActionTypes.ResolveChoice,
         HeadlessActionTypes.ClearChoice,
         HeadlessActionTypes.ShuffleDeck,
-        HeadlessActionTypes.EnqueueEffect,
         HeadlessActionTypes.AdvancePhase,
         HeadlessActionTypes.EndTurn,
         HeadlessActionTypes.SetMemory,

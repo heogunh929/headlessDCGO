@@ -34,7 +34,6 @@ public static class HeadlessActionTypes
     public const string ToggleChoiceCandidate = "ToggleChoiceCandidate";
     public const string ClearChoice = "ClearChoice";
     public const string ShuffleDeck = "ShuffleDeck";
-    public const string EnqueueEffect = "EnqueueEffect";
     public const string AdvancePhase = "AdvancePhase";
     public const string EndTurn = "EndTurn";
     public const string SetMemory = "SetMemory";
@@ -70,7 +69,6 @@ public static class HeadlessActionTypes
     public const string NormalizedToggleChoiceCandidate = "TOGGLECHOICECANDIDATE";
     public const string NormalizedClearChoice = "CLEARCHOICE";
     public const string NormalizedShuffleDeck = "SHUFFLEDECK";
-    public const string NormalizedEnqueueEffect = "ENQUEUEEFFECT";
     public const string NormalizedAdvancePhase = "ADVANCEPHASE";
     public const string NormalizedEndTurn = "ENDTURN";
     public const string NormalizedSetMemory = "SETMEMORY";

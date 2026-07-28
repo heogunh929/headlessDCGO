@@ -8,7 +8,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public static partial class CardEffectCommons

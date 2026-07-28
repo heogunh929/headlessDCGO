@@ -23,7 +23,6 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public class SelectBurstDigivolutionEffect
@@ -301,23 +300,15 @@ public class SelectBurstDigivolutionEffect
                 {
                     if (!tamer.CannotReturnToHand(null))
                     {
-                        // AS-IS :234-237 — `new HandBounceClaass([tamer], {"IsBurst":true}).Bounce()` over the sink
-                        // carrier (the established HandBounceClaass mirror). One flush = one AS-IS bounce call.
-                        var sink = new MatchStateMutationSink(
-                            context.CardInstanceRepository, log: null, context.ZoneMover,
-                            memory: context.MemoryController, context.GameEventQueue,
-                            context: context);
-
-                        sink.Apply(new EffectMutation(
-                            MatchStateMutationSink.ReturnToHandKind,
-                            new HeadlessEntityId("select"),
-                            new Dictionary<string, object?>(StringComparer.Ordinal)
-                            {
-                                [MatchStateMutationSink.TargetEntityIdKey] = tamer.InstanceId.Value,
-                                [MatchStateMutationSink.IsBurstKey] = true,
-                            }));
-
-                        await sink.FlushAsync().ConfigureAwait(false);
+                        // AS-IS :234-237 — `new HandBounceClaass([tamer], {"IsBurst":true}).Bounce()` (RDW re-migration
+                        // off the retired MatchStateMutationSink). The AS-IS hashtable carries "IsBurst"=true with NO
+                        // CardEffect key, so GetCardEffectFromHashtable → null (a CAUSELESS bounce, matching the sink's
+                        // "select" sentinel source), and HandBounceClaass.Bounce() stamps
+                        // Permanent.IsReturnedToHandByBurstDigivolution via CardEffectCommons.IsBurst(_hashtable) AFTER
+                        // the move (CardController.cs:5822). One class call = one AS-IS bounce.
+                        await new HandBounceClaass(
+                            new List<Permanent> { tamer },
+                            new Hashtable { { "IsBurst", true } }).Bounce().ConfigureAwait(false);
 
                         // AS-IS :239 `tamer.TopCard == null && tamer.IsReturnedToHandByBurstDigivolution`. SUBSTRATE:
                         // the id-keyed mirror Permanent.TopCard view is never null (CardController.cs:498 precedent),

@@ -26,18 +26,17 @@ using HeadlessDCGO.Engine.Headless.Services;
 ///   wrong-host invention. The value exists in substrate (<c>HeadlessTurnState.TurnNumber</c>, 1-indexed like
 ///   AS-IS TurnCount), so the additive is trivial once landed on the correct file (deferred: outside this file's
 ///   sole ownership / R4 P2a phase-body scope).
-/// • <c>IsSecurityLooking</c> (10 card call sites) has NO live EngineContext source — the only substrate holder
-///   (<c>GameContextStateAccessor.IsSecurityLooking</c>) is never instantiated/set, i.e. dead. It is a mutable
-///   <c>{ get; set; }</c> flag WRITTEN by cards (BT14_033/BT14_093/ST10_06/BT16_024) around an interactive
-///   "look at security" window; the headless model deliberately replaced that IsSelecting/IsSecurityLooking
-///   polling with the choice-pause mechanism (asis-mirror-migration-decision), where the interactive select IS
-///   the look and is atomic (no concurrent effect observes a mid-look state). Its consumers are already covered:
-///   the CanAddSecurity/CanReduceSecurity guards (Player.cs:1471/1523) delegate to
-///   <c>SecurityRuleGateSeam</c> (stubbed as if IsSecurityLooking==false), and the face-down visibility reads
-///   (CardObjectController:373 / Permanent:1092) are subsumed by choice-pause reveal. A faithful mirror would
-///   need a match-scoped mutable box (the <c>isExecuting</c> pattern) to host the writes on this stateless VIEW —
-///   substrate state the existing decision deliberately avoided ("a compile-error is a clearer card-port signal
-///   than a throwing/constant property"). Not stubbed here — design item MIG6-SECURITYLOOKING (unchanged).</summary>
+/// • <c>IsSecurityLooking</c> (10 card call sites) — RESOLVED (design item MIG6-SECURITYLOOKING retired, fidelity
+///   defect C). AS-IS <c>GameContext.IsSecurityLooking</c> is a mutable <c>{ get; set; }</c> flag whose ENGINE-layer
+///   writes live in <c>SelectCardEffect.Activate</c> (SelectCardEffect.cs:380 set / :1008 clear) and which cards
+///   (BT14_033/BT14_093/ST10_06/BT16_024) also flip around their own "look at security" windows. Its rule-bearing
+///   consumers are <c>Player.CanAddSecurity</c> (:1471) / <c>Player.CanReduceSecurity</c> (:1523), which return
+///   FALSE while it is set — previously stubbed as if it were always false, i.e. those two guards were dead.
+///   Ported here, on its AS-IS home (GameContext), as a match-scoped mutable box keyed by
+///   <see cref="EngineContext"/> — the ESTABLISHED pattern for a mutable AS-IS field on a stateless mirror VIEW
+///   (<c>TurnStateMachine.isExecuting</c> / <c>TurnStateMachine.Passed</c>), needed for the same reason: a mirror
+///   GameContext instance is created fresh per <c>GManager.instance</c> read, so a per-instance field would not
+///   survive the AS-IS write-then-read-elsewhere flow.</summary>
 public sealed class GameContext
 {
     /// <summary>(MIG6) 1:1 mirror of AS-IS <c>GameContext.phase</c> (GameContext.cs:116-124).</summary>
@@ -57,6 +56,24 @@ public sealed class GameContext
     }
 
     public EngineContext Context { get; }
+
+    // (fidelity defect C) AS-IS GameContext.IsSecurityLooking — a plain mutable public bool on the per-match
+    // GameContext. The mirror GameContext is a per-access VIEW (a fresh instance on every `GManager.instance`
+    // /`new GameContext(context)`), so a per-instance field would not survive the AS-IS
+    // "SelectCardEffect sets it -> Player.CanAddSecurity/CanReduceSecurity read it" flow. Backed by a
+    // match-scoped box keyed by EngineContext — identical to TurnStateMachine.isExecuting / .Passed.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<EngineContext, System.Runtime.CompilerServices.StrongBox<bool>> _isSecurityLookingStore = new();
+
+    /// <summary>(fidelity defect C) 1:1 mirror of AS-IS <c>GameContext.IsSecurityLooking</c> — true while an
+    /// interactive "look at security" window is open. Written by <c>SelectCardEffect.Activate</c>
+    /// (SelectCardEffect.cs:378-381 set / :1008 clear) and by the cards that open their own security-look window;
+    /// read by <c>Player.CanAddSecurity</c> (Player.cs:1471) / <c>Player.CanReduceSecurity</c> (:1523), both of
+    /// which return false while it is set.</summary>
+    public bool IsSecurityLooking
+    {
+        get => _isSecurityLookingStore.GetValue(Context, static _ => new System.Runtime.CompilerServices.StrongBox<bool>(false)).Value;
+        set => _isSecurityLookingStore.GetValue(Context, static _ => new System.Runtime.CompilerServices.StrongBox<bool>(false)).Value = value;
+    }
 
     private HeadlessTurnState Turn => Context.TurnController.Current;
 

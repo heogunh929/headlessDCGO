@@ -41,10 +41,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
+using CardObjectController = HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController;
 
 #region In which area the remaining cards are placed (AS-IS RevealLibrary.cs:723-732, 1:1)
 
@@ -215,10 +215,10 @@ public static partial class CardEffectCommons
         switch (simplifiedSelectCardCondition.Mode)
         {
             case SelectCardEffect.Mode.AddHand:
-                await StageRevealMovesAsync(context, activateClass, selectedCards, MatchStateMutationSink.ReturnToHandKind).ConfigureAwait(false);
+                await StageRevealMovesAsync(context, activateClass, selectedCards, toHand: true).ConfigureAwait(false);
                 break;
             case SelectCardEffect.Mode.Discard:
-                await StageRevealMovesAsync(context, activateClass, selectedCards, MatchStateMutationSink.TrashCardKind).ConfigureAwait(false);
+                await StageRevealMovesAsync(context, activateClass, selectedCards, toHand: false).ConfigureAwait(false);
                 break;
             case SelectCardEffect.Mode.Custom:
                 if (simplifiedSelectCardCondition.SelectCardCoroutine != null)
@@ -434,10 +434,10 @@ public static partial class CardEffectCommons
                     switch (selectCondition.Mode)
                     {
                         case SelectCardEffect.Mode.AddHand:
-                            await StageRevealMovesAsync(context, activateClass, selected, MatchStateMutationSink.ReturnToHandKind).ConfigureAwait(false);
+                            await StageRevealMovesAsync(context, activateClass, selected, toHand: true).ConfigureAwait(false);
                             break;
                         case SelectCardEffect.Mode.Discard:
-                            await StageRevealMovesAsync(context, activateClass, selected, MatchStateMutationSink.TrashCardKind).ConfigureAwait(false);
+                            await StageRevealMovesAsync(context, activateClass, selected, toHand: false).ConfigureAwait(false);
                             break;
                         case SelectCardEffect.Mode.PlayForFree:
                         case SelectCardEffect.Mode.PlayForCost:
@@ -599,35 +599,33 @@ public static partial class CardEffectCommons
         return selected;
     }
 
-    /// <summary>Stage one reveal-flow move per card and flush. A revealed card sent to the TRASH carries the
-    /// <see cref="MatchStateMutationSink.RevealTrashFlagKey"/> stamp (AS-IS resets IsBeingRevealed only after
-    /// the trash move, so its OnDiscardLibrary broadcast is suppressed — F1 reveal-remainder convention,
-    /// copied from the verified RevealMultiSelectEffect.StageMove).</summary>
+    /// <summary>Route the reveal-flow selection to hand or trash. (RDW re-migration off the retired
+    /// MatchStateMutationSink.) <paramref name="toHand"/> ⇒ AS-IS <c>CardObjectController.AddHandCards(list,
+    /// isDraw:false, cardEffect)</c> (ONE OnAddHand fire over the whole revealed selection, cause = the reveal
+    /// effect — exactly what the sink's ReturnToHandKind derived, whose field-leave / ACE-on-leave bits were
+    /// structural no-ops for these off-field library cards). Otherwise each card is trashed (Library→Trash),
+    /// deriving OnDiscardLibrary just as the sink's TrashCardKind did — the AS-IS reveal-trash IsBeingRevealed
+    /// suppression is the separately-tracked unported gap (design item RD-P6C3-A2), and the sink's revealTrash
+    /// stamp was written to a key with no reader, so behaviour is unchanged.</summary>
     private static async Task StageRevealMovesAsync(
-        EngineContext context, ICardEffect activateClass, IReadOnlyList<CardSource> cards, string mutationKind)
+        EngineContext context, ICardEffect activateClass, IReadOnlyList<CardSource> cards, bool toHand)
     {
         if (cards.Count == 0)
         {
             return;
         }
 
-        HeadlessEntityId sourceId = activateClass.EffectSourceCard.InstanceId;
-        var sink = NewSink(context);
-        foreach (CardSource cs in cards)
+        if (toHand)
         {
-            var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.TargetEntityIdKey] = cs.InstanceId.Value,
-            };
-            if (mutationKind == MatchStateMutationSink.TrashCardKind)
-            {
-                values[MatchStateMutationSink.RevealTrashFlagKey] = true;
-            }
-
-            sink.Apply(new EffectMutation(mutationKind, sourceId, values));
+            await CardObjectController.AddHandCards(cards.ToList(), false, activateClass).ConfigureAwait(false);
         }
-
-        await sink.FlushAsync().ConfigureAwait(false);
+        else
+        {
+            foreach (CardSource cs in cards)
+            {
+                await context.ZoneMover.TrashCardAsync(cs.Owner, cs.InstanceId).ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>The AS-IS remaining-cards routing switch, shared by all three reveal bridges (AS-IS
@@ -656,11 +654,11 @@ public static partial class CardEffectCommons
                 break;
 
             case RemainingCardsPlace.Trash:
-                await StageRevealMovesAsync(context, activateClass, remainingCards, MatchStateMutationSink.TrashCardKind).ConfigureAwait(false);
+                await StageRevealMovesAsync(context, activateClass, remainingCards, toHand: false).ConfigureAwait(false);
                 break;
 
             case RemainingCardsPlace.AddHand:
-                await StageRevealMovesAsync(context, activateClass, remainingCards, MatchStateMutationSink.ReturnToHandKind).ConfigureAwait(false);
+                await StageRevealMovesAsync(context, activateClass, remainingCards, toHand: true).ConfigureAwait(false);
                 break;
 
             case RemainingCardsPlace.DeckTopOrBottom:
@@ -726,15 +724,14 @@ public static partial class CardEffectCommons
             }
         }
 
-        var sink = NewSink(context);
-        foreach (CardSource cs in ordered.Reverse())   // first pick staged LAST -> ends up topmost.
+        // (RDW re-migration off the retired MatchStateMutationSink) the sink's ReturnToDeckTopKind reduced, for
+        // these off-field revealed library cards, to a bare MoveToDeckTopAsync per card (its field-leave / ACE-on-
+        // leave / return-to-deck restriction bits are structural no-ops off the field). First pick staged LAST so
+        // each top-insert stacks it above the previous — first pick ends topmost (AS-IS AddLibraryTopCards reversal).
+        foreach (CardSource cs in ordered.Reverse())
         {
-            sink.Apply(new EffectMutation(
-                MatchStateMutationSink.ReturnToDeckTopKind, activateClass.EffectSourceCard.InstanceId,
-                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cs.InstanceId.Value }));
+            await context.ZoneMover.MoveToDeckTopAsync(cs.Owner, cs.InstanceId).ConfigureAwait(false);
         }
-
-        await sink.FlushAsync().ConfigureAwait(false);
     }
 
     #endregion

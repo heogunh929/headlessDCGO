@@ -1,20 +1,20 @@
 // TEST FIXTURE. Effect-driven DNA Digivolution: DNA-digivolve INTO a hand card ("INTO") by fusing a battle-area
 // permanent ("PERM") with a hand material ("MAT") (AS-IS DNADigivolveWithHandOrTrashCardIntoHandOrTrash).
 // (R7 종점) Re-pointed off the retired invented `DnaFromHandOrTrashActivatedEffect` carrier (+ its bespoke
-// resolver switch arm) onto the AS-IS inline `new ActivateClass()` idiom: the ActivateCoroutine auto-matches an
-// into-card/permanent/material and drives the SAME live `FusionDigivolveHelpers.FuseAsync` the resolver arm
-// composed — resolved by the resolver's generic ActivateICardEffect case.
+// resolver switch arm) onto the AS-IS inline `new ActivateClass()` idiom — resolved by the resolver's generic
+// ActivateICardEffect case.
+// (DIGIVOLVE cluster teardown) The ActivateCoroutine now drives the AS-IS helper itself
+// (CardEffectCommons.DNADigivolveWithHandOrTrashCardIntoHandOrTrash, DNADigivolveEffects.cs:256-452 — the
+// EX6_072 idiom: three predicates + payCost/isWithHandCard/isIntoHandCard + the activate class) instead of the
+// retired substrate `FusionDigivolveHelpers.FuseAsync`, whose whole mechanism that AS-IS helper supersedes
+// (co-eval → materialise the hand material → SelectJogressEffect roots → PlayCardClass.SetJogress → rollback).
+// The card-number predicates keep this fixture's INTO / PERM / MAT selection contract.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 
 using System.Collections;
-using System.Threading;
 using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class TfxDnaFromHand : CEntity_Effect
 {
@@ -33,40 +33,27 @@ public sealed class TfxDnaFromHand : CEntity_Effect
         effects.Add(activateClass);
         return effects;
 
+        // AS-IS predicate trio (EX6_072 idiom): the DNA card to digivolve INTO, the battle-area evo root, and
+        // the hand material that is materialised as the second root.
+        bool IsIntoCard(CardSource cardSource) => cardSource.CardNumber == "INTO";
+
+        bool IsPermanentRoot(Permanent permanent) => permanent.TopCard != null && permanent.TopCard.CardNumber == "PERM";
+
+        bool IsMaterialCard(CardSource cardSource) => cardSource.CardNumber == "MAT";
+
         async Task ActivateCoroutine(Hashtable _hashtable)
         {
-            EngineContext context = card.Context;
-            var reader = (IZoneStateReader)context.ZoneMover;
-            HeadlessPlayerId owner = card.Owner;
-
-            HeadlessEntityId? First(IReadOnlyList<HeadlessEntityId> pool, System.Func<CardSource, bool> condition, HeadlessEntityId exclude)
-            {
-                foreach (HeadlessEntityId id in pool)
-                {
-                    if (id != exclude && condition(new CardSource(context, id, owner, owner)))
-                    {
-                        return id;
-                    }
-                }
-
-                return null;
-            }
-
-            HeadlessEntityId? into = First(reader.GetCards(owner, ChoiceZone.Hand), cs => cs.CardNumber == "INTO", exclude: default);
-            HeadlessEntityId? permanent = First(reader.GetCards(owner, ChoiceZone.BattleArea), cs => cs.CardNumber == "PERM", exclude: default);
-            HeadlessEntityId? material = into is HeadlessEntityId intoId
-                ? First(reader.GetCards(owner, ChoiceZone.Hand), cs => cs.CardNumber == "MAT", exclude: intoId)
-                : null;
-
-            if (into is HeadlessEntityId topId && permanent is HeadlessEntityId permId && material is HeadlessEntityId matId)
-            {
-                // (B-3 tuck reset) DNA/Jogress resets every source of the fused stack (CardController.cs:1509-1512).
-                await FusionDigivolveHelpers.FuseAsync(
-                    context.CardInstanceRepository, context.ZoneMover, topId, ChoiceZone.Hand,
-                    new[] { permId, matId }, gameEventQueue: context.GameEventQueue,
-                    kind: FusionKind.DnaDigivolve, cancellationToken: CancellationToken.None,
-                    context: context).ConfigureAwait(false);
-            }
+            // (B-3 tuck reset) DNA/Jogress resets every source of the fused stack (CardController.cs:1509-1512) —
+            // owned by the jogress arm of PlayCardClass the AS-IS helper drives.
+            await CardEffectCommons.DNADigivolveWithHandOrTrashCardIntoHandOrTrash(
+                IsIntoCard,
+                IsPermanentRoot,
+                IsMaterialCard,
+                true,
+                true,
+                true,
+                activateClass,
+                null).ConfigureAwait(false);
         }
     }
 }

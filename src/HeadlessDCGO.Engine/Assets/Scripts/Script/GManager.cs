@@ -2,6 +2,7 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
 /// (EFFECT-MODEL REBUILD) Headless mirror of the original Unity <c>GManager</c> singleton — the global handle
@@ -26,6 +27,24 @@ public sealed class GManager
     {
         _context = context;
         turnStateMachine = TurnStateMachine.For(context);
+
+        // (isAI restore) AS-IS assigns IsAI in `AwakeCoroutine` (GManager.cs:245-261), the manager's own start-up.
+        // The mirror GManager has no Awake — `instance` constructs the view — so the assignment is mirrored here,
+        // its only construction point. Verified in the original, both assignment sites:
+        //   GManager.cs:250-253  `if (!PhotonNetwork.IsConnected) { IsAI = true; }`
+        //   GManager.cs:255-261  `if (ContinuousController.instance != null) { if (ContinuousController.instance
+        //                         .isAI) { IsAI = true; } }`
+        // Only the second is mirrored: there is no `PhotonNetwork` mirror type (Photon is substrate-stripped) and
+        // no headless notion of "connected", so the first site has no faithful source to read. It is deliberately
+        // NOT approximated as `true` — headless has no Photon session at all, so an `!IsConnected` reading would
+        // latch IsAI true and change every restored branch's live outcome.
+        if (HeadlessDCGO.Engine.Assets.Scripts.Script.ContinuousController.instance != null)
+        {
+            if (HeadlessDCGO.Engine.Assets.Scripts.Script.ContinuousController.instance!.isAI)
+            {
+                IsAI = true;
+            }
+        }
     }
 
     /// <summary>AS-IS <c>GManager.instance</c> — the current match's manager, or null outside any match scope
@@ -33,8 +52,34 @@ public sealed class GManager
     public static GManager? instance =>
         AmbientMatchContext.Current is { } context ? new GManager(context) : null;
 
+    /// <summary>(isAI restore) AS-IS <c>public bool IsAI { get; private set; } = false;</c> (GManager.cs:213) —
+    /// whether this match is against the built-in AI. Assigned in the constructor from the same source AS-IS
+    /// <c>AwakeCoroutine</c> reads (<c>ContinuousController.instance.isAI</c>, GManager.cs:255-261); see the
+    /// constructor for the Photon assignment site that has no mirror source. Nothing headless sets
+    /// <c>ContinuousController.isAI</c>, so this stays false.</summary>
+    public bool IsAI { get; private set; } = false;
+
     /// <summary>AS-IS <c>GManager.instance.turnStateMachine</c> (→ <c>.gameContext</c> / <c>.DoneStartGame</c>).</summary>
     public TurnStateMachine turnStateMachine { get; }
+
+    /// <summary>(isAI restore) AS-IS <c>public Player GetPlayerFromID(int playerID)</c> (GManager.cs:494-506):
+    /// returns whichever of the two seats carries that id, else null. SUBSTRATE: AS-IS compares the int
+    /// <c>Player.PlayerID</c> of the <c>You</c>/<c>Opponent</c> fields (GManager.cs:12/15); the mirror has neither
+    /// (seats are <see cref="HeadlessPlayerId"/> and are read from the turn controller's seat order — the same
+    /// source <c>Player.Enemy</c> uses), so the parameter carries the mirror's seat-identity type and the lookup
+    /// scans the seat order. Same answer shape: the seated player, or null.</summary>
+    public Player? GetPlayerFromID(HeadlessPlayerId playerID)
+    {
+        foreach (HeadlessPlayerId seat in _context.TurnController.Current.PlayerOrder)
+        {
+            if (seat == playerID)
+            {
+                return new Player(_context, playerID);
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>(EFFECT-MODEL REBUILD / P2) AS-IS <c>GManager.autoProcessing</c> (GManager.cs:84, a field) — the
     /// rule/trigger-stack processor. Resolves the match-scoped mirror <see cref="AutoProcessing"/> service
@@ -86,6 +131,14 @@ public sealed class GManager
             return created;
         }
     }
+
+    /// <summary>(SpecialPlay re-migration) AS-IS <c>GManager.selectJogressEffect</c> (GManager.cs:102, a public
+    /// field — THE one <c>SelectJogressEffect</c> component instance on the GManager GameObject). AS-IS callers
+    /// (TurnStateMachine.cs:2203/2346, CardEffectCommons/DNADigivolveEffects.cs:559-570) reach the Jogress /
+    /// DNA-Digivolution pre-play selection through it verbatim. Backed by the same one-instance,
+    /// context-cached policy as <see cref="GetComponent{T}"/>.</summary>
+    public Assets.Scripts.Script.SelectJogressEffect selectJogressEffect =>
+        GetComponent<Assets.Scripts.Script.SelectJogressEffect>();
 
     /// <summary>(EFFECT-MODEL REBUILD / bridge W4) AS-IS <c>GManager.instance.GetComponent&lt;T&gt;()</c> — the
     /// Unity idiom card effects use to reach the singleton selection-flow components living on the GManager
@@ -169,6 +222,14 @@ public sealed class GManager
         {
             // (P6C1) the AS-IS DNA(jogress)-condition picker — full 1:1 mirror (Script/SelectDNACondition.cs).
             created = new Assets.Scripts.Script.SelectDNACondition();
+        }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.SelectJogressEffect))
+        {
+            // (SpecialPlay re-migration) the AS-IS Jogress / DNA-Digivolution pre-play picker
+            // (Script/SelectJogressEffect.cs) — reached AS-IS through the `selectJogressEffect` field above.
+            var selectJogressEffect = new Assets.Scripts.Script.SelectJogressEffect();
+            selectJogressEffect.AttachContext(_context);
+            created = selectJogressEffect;
         }
         else if (typeof(T) == typeof(Assets.Scripts.Script.SelectAttackEffect))
         {

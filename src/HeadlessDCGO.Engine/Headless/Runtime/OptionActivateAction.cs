@@ -4,7 +4,6 @@ using System.Diagnostics.CodeAnalysis;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class OptionActivateAction
@@ -28,122 +27,6 @@ public sealed class OptionActivateAction
             .ToArray();
     }
 
-    public async Task<ActionProcessResult> ProcessAsync(
-        LegalAction action,
-        EngineContext context,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        ArgumentNullException.ThrowIfNull(context);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (!OptionActivateActionPayload.TryRead(action, out OptionActivateActionPayload? payload, out string? error))
-        {
-            return ActionProcessResult.Failure(error ?? "Invalid ActivateOption payload.", BaseMetadata(action));
-        }
-
-        OptionActivateValidation validation = Validate(context, action.PlayerId, payload);
-        if (!validation.IsLegal)
-        {
-            return ActionProcessResult.Illegal(action, validation.Reason, Metadata(action, payload, validation));
-        }
-
-        HeadlessMemoryState previousMemory = context.MemoryController.Current;
-        // F-6.7: wrap the option-cost payment with the Before/AfterPayCost windows.
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
-
-        // (PRIM-P0 B.O.4 #1) resolve [BeforePayCost] one-shot option-cost reductions, then re-resolve. Option cost
-        // uses the PlayCost metric (ResolveOptionCost). CurrentPayCostRoot = Option gates play-intended effects out.
-        int memoryCost = payload.MemoryCost;
-        context.CurrentPayCostRoot = PayCostRoot.Option;
-        try
-        {
-            int beforePayResolved = await ActivatedEffectResolver
-                .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.BeforePayCost, cancellationToken)
-                .ConfigureAwait(false);
-            if (beforePayResolved > 0 &&
-                context.CardInstanceRepository.TryGetInstance(payload.CardId, out CardInstanceRecord? optionInstance) && optionInstance is not null &&
-                context.CardRepository.TryGetCard(optionInstance.DefinitionId, out CardRecord? optionCard) && optionCard is not null)
-            {
-                memoryCost = ResolveOptionCost(context, payload.CardId, optionCard, optionInstance);
-            }
-        }
-        catch (DeferredChoicePendingException)
-        {
-            memoryCost = payload.MemoryCost;
-        }
-        finally
-        {
-            context.CurrentPayCostRoot = PayCostRoot.None;
-        }
-
-        HeadlessMemoryState paidMemory = context.MemoryController.Pay(memoryCost);
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
-        // F-1.7 / (R2-C): fixed cost locked — expire one-shot "until cost is calculated" modifiers atomically
-        // (registry + payer player bucket).
-        EffectDurationExpiry.ExpireFixedCostCalc(context, action.PlayerId);
-        ZoneMoveResult movement = await context.ZoneMover.MoveAsync(
-            new ZoneMoveRequest(
-                action.PlayerId,
-                payload.CardId,
-                ChoiceZone.Hand,
-                ChoiceZone.Trash,
-                FaceUp: true),
-            cancellationToken).ConfigureAwait(false);
-
-        // F-6.6: opening an Option card opens the OnUseOption window (subject = the option card).
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUseOption, actor: action.PlayerId, subject: payload.CardId,
-            extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["cost"] = payload.MemoryCost });
-
-        // G6-002: resolve the option's ported [Main] activated effect (select-and-act / buff) via the
-        // engine's choice provider. Only fall back to the legacy scheduler enqueue when the card has no
-        // ported activated effect (un-ported / bound-effect cards keep the original path).
-        int activated;
-        try
-        {
-            activated = await ActivatedEffectResolver
-                .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.OptionSkill, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (DeferredChoicePendingException ex)
-        {
-            // G7-005/G11-002: the activated effect asked the agent for a choice (interactive provider). The
-            // cost has been paid and the card moved; the choice is registered on the controller. Record the
-            // suspended activation so the next ResolveChoice resumes it WITHOUT re-running this action (no
-            // re-pay) — the resolver replays the agent's answer.
-            context.DeferredActivations.Suspend(payload.CardId, EffectTiming.OptionSkill, action.PlayerId);
-            Dictionary<string, object?> pending = Metadata(action, payload, validation);
-            pending["pendingChoice"] = true;
-            pending["pendingChoiceMessage"] = ex.Message;
-            return ActionProcessResult.Success("Option activated; awaiting choice.", pending);
-        }
-
-        if (activated == 0)
-        {
-            EffectContext effectContext = new(
-                action.PlayerId,
-                action.PlayerId,
-                payload.CardId,
-                payload.CardId,
-                new[] { payload.CardId },
-                Metadata(action, payload, validation));
-            context.EffectScheduler.Enqueue(new EffectRequest(
-                payload.EffectId,
-                action.PlayerId,
-                "OptionActivate",
-                effectContext));
-        }
-
-        Dictionary<string, object?> metadata = Metadata(action, payload, validation);
-        metadata[HeadlessActionParameterKeys.PreviousMemory] = previousMemory.Current;
-        metadata[HeadlessActionParameterKeys.Memory] = paidMemory.Current;
-        metadata["movementEventSequence"] = movement.Event.Sequence;
-        metadata["pendingEffectCount"] = context.EffectScheduler.PendingCount;
-        metadata["totalEnqueuedEffectCount"] = context.EffectScheduler.TotalEnqueuedCount;
-
-        return ActionProcessResult.Success("Option activated.", metadata);
-    }
-
     private LegalAction? CreateLegalActionIfUsable(
         EngineContext context,
         HeadlessPlayerId playerId,
@@ -155,7 +38,7 @@ public sealed class OptionActivateAction
         }
 
         _ = context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance);
-        int memoryCost = ResolveOptionCost(context, cardId, card, instance);
+        int memoryCost = ResolveOptionCost(context, cardId, instance);
         HeadlessEntityId effectId = ResolveEffectId(card);
         OptionActivateActionPayload payload = new(cardId, effectId, memoryCost, SkillIndex: 0);
         OptionActivateValidation validation = Validate(context, playerId, payload);
@@ -222,29 +105,22 @@ public sealed class OptionActivateAction
                 payload.EffectId);
         }
 
-        // (E-3 / AS-IS CardSource.CanNotPlayThisOption regions ①②③, CardSource.cs:184-238) an active
-        // ICanNotPlayCardEffect (player-bucket / field static / the option's own) forbids the play. AS-IS scans
-        // the effect regions BEFORE the color requirement, so this precedes OptionColorRequirement.
-        if (CanNotPlayOptionScan.CanNotPlay(context, playerId, payload.CardId))
+        // (OPTION-GATE re-migration) AS-IS <c>CardSource.CanNotPlayThisOption</c> (CardSource.cs:184-249) in ONE
+        // getter: the three ICanNotPlayCardEffect regions ①②③ FIRST, then the colour requirement
+        // (!MatchColorRequirement). The substrate pair `CanNotPlayOptionScan.CanNotPlay` +
+        // `!OptionColorRequirement.Matches` was exactly that getter split in two (the colour half already
+        // delegated to the mirror getter, DEF-S9); the mirror getter is now called directly, so the AS-IS order
+        // and the AS-IS non-Option early-out are inherited rather than re-implemented. The two split failure
+        // messages collapse into the one AS-IS predicate.
+        if (new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.CardId, playerId, playerId).CanNotPlayThisOption)
         {
             return OptionActivateValidation.Illegal(
-                $"Option card '{payload.CardId}' cannot be played (a 'cannot play Option' effect is active).",
+                $"Option card '{payload.CardId}' cannot be played (a 'cannot play Option' effect is active, or its colour requirement is not met).",
                 instance.DefinitionId,
                 payload.EffectId);
         }
 
-        // (RD-2 / AS-IS CardSource.CanNotPlayThisOption -> !MatchColorRequirement, CardSource.cs:239-245) an
-        // option is playable only if every one of its colors is present on a field/breeding permanent the owner
-        // controls (or an ignore-color effect applies). Checked after the CanNotPlay flag, mirroring AS-IS order.
-        if (!OptionColorRequirement.Matches(context, playerId, payload.CardId))
-        {
-            return OptionActivateValidation.Illegal(
-                $"Option card '{payload.CardId}' does not meet its color requirement.",
-                instance.DefinitionId,
-                payload.EffectId);
-        }
-
-        int cardCost = ResolveOptionCost(context, payload.CardId, card, instance);
+        int cardCost = ResolveOptionCost(context, payload.CardId, instance);
         if (payload.MemoryCost != cardCost)
         {
             return OptionActivateValidation.Illegal(
@@ -312,15 +188,17 @@ public sealed class OptionActivateAction
                 : card.EffectBindingKey);
     }
 
-    // D-8: static option play cost + continuous ±cost modifiers (cannot-reduce replacement honoured).
-    // Used by both legal-action generation and validation so the offered and checked costs match.
-    private static int ResolveOptionCost(EngineContext context, HeadlessEntityId cardId, CardRecord card, CardInstanceRecord? instance)
+    // The option's play cost, used by both legal-action generation and validation so the offered and checked
+    // costs match. (PlayCostHelpers retirement) The invented metadata-modifier pre-fold (PlayCostHelpers
+    // .TryResolveCost: `playCostModifiers` / `fixedPlayCost` metadata read) is RETIRED — AS-IS has no such
+    // stage. AS-IS <c>CardSource.PayingCost(root, targetPermanents)</c> (CardSource.cs:635-658) takes the
+    // PRINTED base cost (<c>_cEntity_Base.PlayCost</c>) straight into GetPayingCostWithBaseCost's
+    // ChangeCostClass fold; an option is played from hand (Root.Hand) with no digivolution target.
+    private static int ResolveOptionCost(EngineContext context, HeadlessEntityId cardId, CardInstanceRecord? instance)
     {
-        int baseCost = PlayCostHelpers.TryResolveCost(card, instance, out int resolved, out _) ? resolved : 0;
-        // (R2-C) single AS-IS orchestrator; an option is played from hand (Root.Hand).
         HeadlessPlayerId owner = instance?.OwnerId ?? default;
         return new CardSource(context, cardId, owner)
-            .GetPayingCostWithBaseCost(baseCost, Assets.Scripts.Script.SelectCardEffect.Root.Hand, targetPermanents: null);
+            .PayingCost(Assets.Scripts.Script.SelectCardEffect.Root.Hand, targetPermanents: null);
     }
 
     private static bool IsOptionLocked(CardInstanceRecord instance, CardRecord card)
@@ -343,32 +221,6 @@ public sealed class OptionActivateAction
             bool value => value,
             string value => bool.TryParse(value, out bool parsed) && parsed,
             _ => false
-        };
-    }
-
-    private static Dictionary<string, object?> Metadata(
-        LegalAction action,
-        OptionActivateActionPayload payload,
-        OptionActivateValidation validation)
-    {
-        Dictionary<string, object?> metadata = BaseMetadata(action);
-        metadata[HeadlessActionParameterKeys.CardId] = payload.CardId.Value;
-        metadata[HeadlessActionParameterKeys.EffectId] = payload.EffectId.Value;
-        metadata[HeadlessActionParameterKeys.MemoryCost] = payload.MemoryCost;
-        metadata[HeadlessActionParameterKeys.SkillIndex] = payload.SkillIndex;
-        metadata[HeadlessActionParameterKeys.FromZone] = ChoiceZone.Hand.ToString();
-        metadata[HeadlessActionParameterKeys.ToZone] = ChoiceZone.Trash.ToString();
-        metadata["cardDefinitionId"] = validation.CardDefinitionId?.Value;
-        return metadata;
-    }
-
-    private static Dictionary<string, object?> BaseMetadata(LegalAction action)
-    {
-        return new Dictionary<string, object?>
-        {
-            [HeadlessActionParameterKeys.ActionId] = action.Id.Value,
-            [HeadlessActionParameterKeys.PlayerId] = action.PlayerId.Value,
-            [HeadlessActionParameterKeys.ActionType] = action.ActionType
         };
     }
 }

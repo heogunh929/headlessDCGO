@@ -19,7 +19,6 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class TfxCappedMemoryThenSelectTrash : CEntity_Effect
@@ -45,19 +44,12 @@ public sealed class TfxCappedMemoryThenSelectTrash : CEntity_Effect
 
                 async Task MemoryCoroutine(Hashtable hashtable)
                 {
-                    // The +2 memory is an IMMEDIATELY-applied mutation. It rides the context-bound (journaled)
-                    // sink Apply so the deferred-choice REPLAY of this completed effect skips the re-application
-                    // (CEntityUseCycle mutation journal — the substrate surface this fixture pins). Raw sink
-                    // AddMemory amount is turn-player-relative; the fixture's owner is the turn player in its
-                    // suites, so +2 == the AS-IS card idiom `card.Owner.AddMemory(2, activateClass)`.
-                    EngineContext context = card.Context;
-                    var sink = new MatchStateMutationSink(
-                        context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-                        context.GameEventQueue, context: context);
-                    sink.Apply(new EffectMutation(
-                        MatchStateMutationSink.AddMemoryKind, card.InstanceId,
-                        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = 2 }));
-                    await sink.FlushAsync();
+                    // The +2 memory is an IMMEDIATELY-applied mutation. (RDW re-migration off the retired
+                    // MatchStateMutationSink) the AS-IS card idiom is `card.Owner.AddMemory(2, activateClass)` — a
+                    // direct Player-extension memory gain (turn-player-relative; the fixture's owner is the turn
+                    // player in its suites, so +2 matches). The deferred-choice REPLAY guard this fixture pins now
+                    // lives in the CEntityUseCycle mutation journal around the effect body, not the sink.
+                    await card.Owner.AddMemory(2, activateClass);
                 }
             }
 

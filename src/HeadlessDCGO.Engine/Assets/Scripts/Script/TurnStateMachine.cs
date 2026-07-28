@@ -137,6 +137,75 @@ public sealed class TurnStateMachine
         }
     }
 
+    /// <summary>AS-IS <c>TurnStateMachine.Init()</c> (:34-297) — the pre-game setup coroutine that runs BEFORE the
+    /// game-state machine (:291 <c>StartCoroutine(GameStateMachine())</c> → :303 <c>StartGame()</c>). Nearly all of
+    /// AS-IS Init is platform/UI: Photon room join + player-name plumbing, the loading screen, memory-gauge and
+    /// brain-storm object Init, BGM. The two RULE-relevant steps are re-housed here 1:1 —
+    /// 「デッキカード生成」 (:233) and 「先攻・後攻の決定」 (:255-283) — so the whole opening runs as ONE AS-IS path:
+    /// Init → CreatePlayerDecks → (GameStateMachine) StartGame → deal → mulligan → security.
+    /// AS-IS :221-228 「乱数列初期化」 (the master client RPCs a shared seed to both clients) is the substrate
+    /// random-seed apply, owned by the match host before this point.</summary>
+    public async Task InitAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_context.TryGetService(out Headless.Runtime.MatchConfig? matchConfig)
+            || matchConfig?.Setup is not { } setup)
+        {
+            // No platform deck data (a hand-seeded scenario / unit fixture placed its cards directly): AS-IS has
+            // no such mode — the Photon path always carries a deck — so there is nothing to create here.
+            return;
+        }
+
+        // AS-IS :232-234 「デッキカード生成」.
+        await CardObjectController
+            .CreatePlayerDecks(_context, setup, matchConfig.PlayerIds, cancellationToken)
+            .ConfigureAwait(false);
+
+        // AS-IS :253-285 「先攻・後攻の決定」. :256 picks the turn player at random over the seats
+        //   (`gameContext.TurnPlayer = gameContext.PlayerFromID(GameRandom.Range(0, 2))`), then :262-283 OVERRIDE it
+        //   from the room custom property `DataBase.FirstPlayerKey` when the platform named a first player — the
+        //   override resolves to `PlayerFromID(playerID).Enemy`, i.e. the named player's OPPONENT becomes the
+        //   pre-switch turn player, so that the :306 SwitchTurnPlayer hands the FIRST turn to the named player.
+        //   Substrate coordinate: the mirror turn controller is initialized in POST-switch coordinates (the pump
+        //   enters ActivePhase directly, with no AS-IS :306 pre-switch), so it is seeded with the FIRST player
+        //   itself rather than the pre-switch opposite. GameRandom.Range ≡ the seeded RandomSource.NextInt.
+        //   The COORDINATE TRANSLATION therefore has to be applied to the drawn VALUE, not only to where it is
+        //   stored: the draw names the PRE-switch turn player, and AS-IS :306 `gameContext.SwitchTurnPlayer()`
+        //   (GameContext.cs:166-181 — "the first seat in `Players` that is not the current TurnPlayer") turns it
+        //   into the seat that actually takes turn 1. That AS-IS switch loop is replayed verbatim below over the
+        //   seat order (`matchConfig.PlayerIds` ≡ AS-IS `gameContext.Players` = [PlayerFromID(0), PlayerFromID(1)],
+        //   GameContext.cs:41-52 — the turn controller keeps this order as PlayerOrder). One NextInt draw, at the
+        //   same point in the stream as AS-IS :256.
+        Headless.Services.HeadlessPlayerId preSwitchTurnPlayerId = matchConfig.PlayerIds[
+            _context.RandomSource.NextInt(0, matchConfig.PlayerIds.Count)];
+
+        Headless.Services.HeadlessPlayerId firstPlayerId = preSwitchTurnPlayerId;
+        foreach (Headless.Services.HeadlessPlayerId seat in matchConfig.PlayerIds)
+        {
+            if (seat != preSwitchTurnPlayerId)
+            {
+                firstPlayerId = seat;
+                break;
+            }
+        }
+
+        // AS-IS :273-283 the NAMED-first-player override assigns the pre-switch turn player as
+        //   `PlayerFromID(playerID).Enemy`, so the :306 switch hands turn 1 to the named player itself — which is
+        //   exactly what the mirror stores here (POST-switch coordinates). Already in agreement; left alone.
+        if (setup.FirstPlayerId is { } namedFirstPlayer)
+        {
+            firstPlayerId = namedFirstPlayer;
+        }
+
+        _context.TurnController.Initialize(matchConfig.PlayerIds, firstPlayerId);
+    }
+
+    /// <summary>AS-IS <c>TurnStateMachine._isRedraw</c> (:340): the per-player mulligan decision the AS-IS
+    /// <c>SetRedraw</c> PunRPC writes and the <c>StartGame</c> body reads back at :448/:455. The RPC round-trip
+    /// collapses into the inline <c>ChooseAsync</c> below (same collapse as the breeding-decision seam), so the
+    /// field never escapes a single <see cref="StartGameAsync"/> call — a plain instance field reproduces :340
+    /// verbatim without needing the isExecuting-style cross-view box.</summary>
+    private bool _isRedraw = false;
+
     /// <summary>AS-IS <c>StartGame()</c> (:341-504): initial hands, mulligan, security.</summary>
     public async Task StartGameAsync(CancellationToken cancellationToken = default)
     {
@@ -144,27 +213,108 @@ public sealed class TurnStateMachine
         //   commandText UI only; the first-player seat is turn-order state owned by the substrate turn-controller
         //   (mirror GameContext.FirstPlayer has no setter). P1/S2-junction: first-player seat on HeadlessTurnState.
 
-        // AS-IS :369-372 draw 5, non-turn-player first.
-        foreach (Player player in gameContext.Players_ForNonTurnPlayer)
+        // ==== COORDINATE TRANSLATION: AS-IS `Players_ForNonTurnPlayer` here ≡ mirror `Players_ForTurnPlayer` ====
+        //   AS-IS runs StartGame in PRE-SWITCH turn coordinates: Init (:262-283) seeds gameContext.TurnPlayer with
+        //   the first player's OPPONENT, :358 therefore reads `FirstPlayer = NonTurnPlayer`, and GameStateMachine
+        //   (:306) does SwitchTurnPlayer at the TOP of every loop iteration — including the first — so the FIRST
+        //   player opens the game. AS-IS's `Players_ForNonTurnPlayer` at :369/:375/:497 thus enumerates
+        //   [FIRST, SECOND]. The mirror pump has no :306 pre-switch (it enters ActivePhaseAsync directly and flips
+        //   at the turn boundary instead), so InitAsync seeds the turn controller with the FIRST player itself —
+        //   POST-switch coordinates — and the same [FIRST, SECOND] list is `Players_ForTurnPlayer`. Same order as
+        //   AS-IS, expressed in the mirror's coordinate; the sibling translation the memory gauge documents at the
+        //   pump's turn boundary. (Reading Players_ForNonTurnPlayer here would deal to the SECOND player first.)
+
+        // AS-IS :369-372 draw 5, first player first.
+        foreach (Player player in gameContext.Players_ForTurnPlayer)
         {
             await new DrawClass(_context, player.PlayerId, 5, null).Draw(cancellationToken).ConfigureAwait(false);
         }
 
-        // AS-IS :374-494 mulligan + :496-501 security 5. The interactive per-player keep/redraw stop is
-        //   externalized to the established choice-pause (design decision-1, "신설 금지"):
-        //   MulliganCoordinator.Begin opens the ChoiceType.Mulligan decision (first player first); the driver
-        //   step-loop pumps MulliganCoordinator.ResolveAsync per player, which applies each redraw (hand → deck
-        //   bottom, shuffle, draw 5) AND deals security (DealSecurityAsync, 5 each) once all have decided — so
-        //   AS-IS :496-501 security is NOT a separate step in the externalized model (coordinator-owned).
-        _context.MulliganCoordinator.Begin(
-            _context.ChoiceController,
-            gameContext.Players_ForNonTurnPlayer.Select(player => player.PlayerId).ToList(),
-            handSize: 5,
-            securitySize: 5);
+        // AS-IS :374-494 マリガン — INLINE, per player, FIRST player first (:375 walks the same list as the deal
+        //   above). The externalised MulliganCoordinator (Begin + per-decision ResolveAsync driven from the action
+        //   processor, which ALSO owned the deferred security deal) is RETIRED: AS-IS runs the whole sequence on
+        //   ONE coroutine stack, and the mirror does the same on the pump stack — each keep/redraw parks the pump
+        //   in place and the body resumes where it stopped.
+        foreach (Player player in gameContext.Players_ForTurnPlayer)
+        {
+            _isRedraw = false;   // AS-IS :377
 
-        // AS-IS :503 `DoneStartGame = true`. Mirror DoneStartGame is a computed getter (phase past None/Setup);
-        //   the AS-IS mutable set-point maps to the controller leaving Setup after the mulligan choice-pause
-        //   resolves, driven by the driver. S2-junction (risk ②): exact set-point = post-security phase transition.
+            // AS-IS :379-444 the DECISION. Four AS-IS branches — the opponent's "is selecting" commandText
+            //   (:381), the local auto/AI coin flip (:386-389 RandomUtility.IsSucceedProbability(0.5f)), the
+            //   local human selectCardPanel (:393-425) and the remote AI's level-3 heuristic (:432-442
+            //   `HandCards.Count(IsDigimon && Level == 3) == 0`) — are all seat-local UI/AI POLICY choosing the
+            //   same boolean. Headless every seat is an agent, so they collapse to ONE inline choice, exactly as
+            //   the breeding-decision and MultipleSkills order picks do: the panel is a pure yes/no (:412
+            //   `_CanTargetCondition: (cardSource) => false` makes every hand card unselectable, so nothing is
+            //   ever picked from RootCardSources), "Mulligan" (:410 EndSelect → SetRedraw true) = select the
+            //   redraw candidate, "Keep Hand" (:409 NotSelect → SetRedraw false) = skip.
+            string message = "Will you mulligan your hand?";   // AS-IS :393
+            // AS-IS :395 `player == gameContext.NonTurnPlayer` ⇒ FIRST. Same COORDINATE TRANSLATION as the two
+            //   Players_ForNonTurnPlayer→Players_ForTurnPlayer loops above: AS-IS StartGame runs PRE-switch, so its
+            //   NonTurnPlayer IS the first player (:358 `gameContext.FirstPlayer = gameContext.NonTurnPlayer`);
+            //   the mirror runs POST-switch, so the first player is `gameContext.TurnPlayer`. Same string for the
+            //   same seat as AS-IS.
+            message += player == gameContext.TurnPlayer
+                ? "\n(You are FIRST)"     // AS-IS :397 (color markup = UI, stripped)
+                : "\n(You are SECOND)";   // AS-IS :402
+
+            Headless.Choices.ChoiceResult mulliganSelection = await _context.ChoiceProvider.ChooseAsync(
+                new Headless.Choices.ChoiceRequest(
+                    Headless.Choices.ChoiceType.Mulligan,
+                    player.PlayerId,
+                    message,
+                    minCount: 0,
+                    maxCount: 1,
+                    canSkip: true,               // AS-IS :417 `_CanNoSelect: () => true`
+                    Headless.Choices.ChoiceZone.Hand,
+                    new[]
+                    {
+                        new Headless.Choices.ChoiceCandidate(
+                            new Headless.Services.HeadlessEntityId("mulligan:redraw"),
+                            "Mulligan (redraw opening hand)",
+                            Headless.Choices.ChoiceZone.Hand,
+                            IsSelectable: true,
+                            ownerId: player.PlayerId),
+                    }),
+                cancellationToken).ConfigureAwait(false);
+
+            // AS-IS :446-448 WaitUntil(HasPlayerSelection) + DequeuePlayerSelection<ValueSelection>().ValueAsBool()
+            //   (null selection → false). Same read as the breeding seam's :789-790 translation.
+            _isRedraw = !mulliganSelection.IsSkipped && mulliganSelection.SelectedIds.Count > 0;
+
+            // AS-IS :450-453 CloseSelectCardPanel / CloseCommandText = UI (stripped).
+
+            if (_isRedraw)   // AS-IS :455
+            {
+                // AS-IS :459-471 destroy the hand HandCard GameObjects = UI (stripped).
+
+                // AS-IS :474 手札のカードを山札の下に加える — the hand goes to the deck BOTTOM. Taken over a
+                //   CLONE (AS-IS `player.HandCards.Clone()`) because the move mutates the hand zone underneath.
+                //   notAddLog:true is AS-IS's own argument (:474); the :476-479 PlayLog append = UI (stripped).
+                await CardObjectController
+                    .AddLibraryBottomCards(player.HandCards.Clone(), true, cancellationToken)
+                    .ConfigureAwait(false);
+
+                // AS-IS :484 シャッフル.
+                await CardObjectController.Shuffle(player, cancellationToken).ConfigureAwait(false);
+
+                // AS-IS :488 5枚引き直す.
+                await new DrawClass(_context, player.PlayerId, 5, null).Draw(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        // AS-IS :496-501 set up security — 5 each, AFTER every player's mulligan decision, from the
+        //   post-mulligan deck, in the same first-player-first order.
+        foreach (Player player in gameContext.Players_ForTurnPlayer)
+        {
+            await new IAddSecurityFromLibrary(_context, player.PlayerId, 5)
+                .AddSecurity(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        // AS-IS :503 `DoneStartGame = true`. Mirror DoneStartGame is a computed getter (phase past None), so the
+        //   AS-IS mutable set-point needs no write here: by the time this returns, the whole opening sequence
+        //   has run on this stack and the pump proceeds straight into the turn loop (AS-IS :303-306).
     }
 
     /// <summary>AS-IS <c>ActivePhase()</c> (:530-648): start-of-turn window, attack pump, unsuspend, bucket resets.</summary>
@@ -621,15 +771,16 @@ public sealed class TurnStateMachine
             // AS-IS :1246-1250 attack.
             else if (AttackingPermanent != null)
             {
-                // AS-IS attackProcess.Attack(AttackingPermanent, DefendingPermanent, null) — mirror seat: the
-                // RD-9 declaration chokepoint (controller DeclareAttack + the mirror Attack :73-253 sequence).
-                Headless.Runtime.AttackDeclarationCommons.Declare(
-                    _context,
+                // AS-IS :1248 attackProcess.Attack(AttackingPermanent, DefendingPermanent, null) — the mirror
+                // AS-IS-shaped overload (controller DeclareAttack + the Attack :73-253 sequence). (DECLARATION
+                // re-migration) the substrate AttackDeclarationCommons.Declare wrapper is retired.
+                await AttackProcess.For(_context).Attack(
                     turnPlayer.PlayerId,
                     AttackingPermanent.InstanceId,
                     gameContext.NonTurnPlayer!.PlayerId,
                     DefendingPermanent?.InstanceId,
-                    isDirectAttack: DefendingPermanent == null);
+                    isDirectAttack: DefendingPermanent == null,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -640,8 +791,8 @@ public sealed class TurnStateMachine
         await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>AS-IS <c>EndPhase()</c> (:3151-3210): end-of-turn bucket reset (P3 re-points to
-    /// <see cref="HeadlessEndTurnCleanupFlow"/>).</summary>
+    /// <summary>AS-IS <c>EndPhase()</c> (:3151-3210): the end-of-turn duration-bucket reset, inline (the
+    /// externalised cleanup flow that used to own :3170-3201 is retired).</summary>
     public async Task EndPhaseAsync(CancellationToken cancellationToken = default)
     {
         AutoProcessing autoProcessing = AutoProcessing.For(_context);
@@ -656,24 +807,60 @@ public sealed class TurnStateMachine
         // AS-IS :3168 auto-processing check.
         await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
 
-        // === AS-IS :3170-3201 end-of-turn bucket reset. (P3 RE-POINT — single owner) HeadlessEndTurnCleanupFlow.Cleanup
-        //     is the established mirror of this whole reset block, and it is the SAME flow the live turn driver calls at
-        //     the turn boundary (MetadataActionProcessor). Delegating here deletes the duplicate bucket-reset body so
-        //     there is one owner. Cleanup owns:
-        //       * AS-IS :3171 `attackProcess.AttackCount = 0`   -> AttackController.ResetTurnAttackState()
-        //       * AS-IS :3177 player.UntilEachTurnEndEffects, :3179 player.UntilCalculateFixedCostEffect,
-        //         :3185 permanent.UntilEachTurnEndEffects, :3191 permanent.UntilOwnerTurnEndEffects,
-        //         :3194 player.UntilOpponentTurnEndEffects, :3196 player.UntilOwnerTurnEndEffects,
-        //         :3200 permanent.UntilOpponentTurnEndEffects   (the ten Until* duration buckets)
-        //       * plus the turn-end continuous-effect duration expiry and the card-metadata turn-end key clears.
-        //     The ending turn = the live turn-controller state (turnPlayer = the player whose turn is ending).
-        new HeadlessEndTurnCleanupFlow().Cleanup(_context, _context.TurnController.Current);
+        // === AS-IS :3170-3201 "Reset status until end of turn" — INLINE, in AS-IS statement order.
+        //     (HeadlessEndTurnCleanupFlow retirement) The externalised cleanup flow that used to own this block is
+        //     RETIRED and its AS-IS-backed body is re-migrated here, its AS-IS home. The flow's two SUBSTRATE-ONLY
+        //     halves are deliberately NOT carried over:
+        //       (a) the card-metadata turn-end key clears ("untilEachTurnEndEffects" / "untilEndTurnEffects" /
+        //           "temporaryPower" / "useCountThisTurn" / … ) — the OLD metadata duration model, whose writers are
+        //           0 since the Player/Permanent bucket stores (PlayerEffectListStore / PermanentEffectListStore)
+        //           became the carriers; the bucket resets below ARE the AS-IS expiry.
+        //       (b) the AddSelfDeleteEffect / burst turn-end marker PROMOTION (…AtTurnEnd -> …AtTurnEndDue), whose
+        //           consumer — the substrate GameFlowProcessor turn-end deletion sweep — no longer exists. AS-IS
+        //           EndPhase has no such promotion. RESOLVED (design item RD-EOT-SELFDELETE, GAMEFLOW re-migration):
+        //           CardEffectCommons.AddSelfDeleteEffect no longer writes a marker at all — it now carries the AS-IS
+        //           body (two permanent.PermanentEffects producers: OnEndTurn ⇒ PermanentEffectFactory.DeleteSelfEffect,
+        //           None ⇒ AddDetailClass), so the self-delete fires through the AS-IS OnEndTurn window.
+        //           The BURST turn-end marker half remains an open design item (RD-EOT-BURSTTRASH) — its writer is
+        //           the burst digivolution path, whose AS-IS carrier is a permanent.UntilEachTurnEndEffects effect
+        //           (AS-IS SelectBurstDigivolutionEffect.cs:249-344).
 
-        // AS-IS :3173 CardEffectCommons.CardPermanenceMap reset — no mirror analog (see ResetMainPhaseParameter);
-        //   absent in Cleanup too. ADAPTATION.
-        // AS-IS :3181 `player.DigivolveCount_ThisTurn = 0` — junction: mirror Player has no DigivolveCount_ThisTurn
-        //   member; the substrate PlayerTurnCounterController owns this per-turn counter (the live driver resets it at
-        //   the turn boundary), so it is NOT part of Cleanup's bucket reset. P1/P3-junction (dormant: no double-reset).
+        // AS-IS :3171 `GManager.instance.attackProcess.AttackCount = 0`. The mirror AttackProcess.AttackCount is a
+        //   read-through of the substrate counter (AttackProcess.cs:100), so the write is the controller reset.
+        _context.AttackController.ResetTurnAttackState();
+
+        // AS-IS :3173 CardEffectCommons.CardPermanenceMap reset — no mirror analog (see ResetMainPhaseParameter).
+        //   ADAPTATION.
+
+        foreach (Player player in gameContext.Players)   // AS-IS :3175
+        {
+            player.UntilEachTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();         // AS-IS :3177
+
+            player.UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();   // AS-IS :3179
+
+            // AS-IS :3181 `player.DigivolveCount_ThisTurn = 0` — junction: mirror Player has no
+            //   DigivolveCount_ThisTurn member; the substrate PlayerTurnCounterController owns this per-turn counter
+            //   (the live driver resets it at the turn boundary). P1/P3-junction (dormant: no double-reset).
+
+            foreach (Permanent permanent in player.GetFieldPermanents())   // AS-IS :3183
+            {
+                permanent.UntilEachTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();   // AS-IS :3185
+            }
+        }
+
+        foreach (Permanent permanent in gameContext.TurnPlayer!.GetFieldPermanents())   // AS-IS :3189
+        {
+            permanent.UntilOwnerTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();   // AS-IS :3191
+        }
+
+        gameContext.NonTurnPlayer!.UntilOpponentTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();   // AS-IS :3194
+
+        gameContext.TurnPlayer!.UntilOwnerTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();   // AS-IS :3196
+
+        foreach (Permanent permanent in gameContext.NonTurnPlayer!.GetFieldPermanents())   // AS-IS :3198
+        {
+            permanent.UntilOpponentTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();   // AS-IS :3200
+        }
 
         // AS-IS :3204-3208 reset per-card use counts. Junction: NOT owned by Cleanup (Cleanup clears the OLD
         //   metadata-key use-count model; the live driver resets the NEW-model per-instance caps at the turn boundary

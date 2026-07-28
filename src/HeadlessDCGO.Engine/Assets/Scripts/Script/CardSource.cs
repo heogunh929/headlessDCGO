@@ -3,7 +3,6 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -77,7 +76,7 @@ public sealed class CardSource
     /// <c>Owner.GetFieldPermanents().Find(p =&gt; p.cardSources.Contains(this))</c>. The AS-IS
     /// <c>cardSources</c> is stack cards ∪ LINK cards, so this card is "part of" a permanent whether it is the
     /// top card, a buried digivolution source, OR a LINK card of that permanent (link cards are tracked in the
-    /// host metadata — <c>LinkHelpers.LinkedCardIdsKey</c>; the same membership <see cref="IsLinked"/> reads).
+    /// host metadata — <c>Permanent.LinkedCardIdsKey</c>; the same membership <see cref="IsLinked"/> reads).
     /// (G-AppF) the link arm is what <c>SelectAppFusionEffect.AddToSources</c> consumes to fold the chosen link
     /// material back under the host. Empty if the card is not in a battle-area permanent.</summary>
     public PermanentView PermanentOfThisCard()
@@ -93,7 +92,7 @@ public sealed class CardSource
 
             // AS-IS cardSources includes the host's LINK cards (a link card's PermanentOfThisCard IS its host).
             if (Context.CardInstanceRepository.TryGetInstance(top, out CardInstanceRecord? host) && host is not null
-                && LinkHelpers.ReadLinkedCardIds(host.Metadata).Contains(InstanceId))
+                && Permanent.ReadLinkedCardIds(host.Metadata).Contains(InstanceId))
             {
                 return new PermanentView(stack);
             }
@@ -101,6 +100,121 @@ public sealed class CardSource
 
         return new PermanentView(DigivolutionStack.Empty);
     }
+
+    #region initialize
+
+    // (REGISTRAR re-migration) Re-homed from the retired substrate `CardEffectRegistrar` into its AS-IS 원가,
+    // `CardSource.Init()` (DCGO/Assets/Scripts/Script/CardSource.cs:345-350). What the registrar actually did,
+    // member by member:
+    //   * `UnregisterCard` — already a no-op shell ((3)-B: the EffectRegistry producer is 0), RETIRED.
+    //   * `card.cEntity_EffectController.InitUseCountThisTurn()` — the AS-IS Init() line, KEPT below.
+    //   * `RegisterOnEnterPlay`'s `cEntity_Effect` attach — REDUNDANT: the registrar only reached it after
+    //     `CardEffectDispatch.TryCreateForCard(def, …)` succeeded, and `CEntity_EffectControllerStore.Create`
+    //     already attaches exactly that dispatch result on first access (P6 stage A). RETIRED.
+    //   * `RegisterOnEnterPlay`'s per-timing `effect.CardEffects(timing, card)` enumeration — KEPT below: it
+    //     registers nothing, but some factories perform their real registration as a CONSTRUCTION side effect
+    //     when the effect list is materialised (e.g. the special-play factories' SpecialPlayRecipeRegistry).
+    //   * `AllTimings` — KEPT below as the enumeration domain of that side-effect pass.
+    // AS-IS `Init()`'s other two lines have no mirror carrier: `SetFace()` is the face stamp every mirror move
+    // performs at its own destination (CardObjectController.AddTrashCard / AddSecurityCard / the zone-move
+    // FaceUp flag), and `SetChangedLocationTime()` fed the AS-IS trigger/activate permanence CACHE, which the
+    // mirror collapsed (permanent identity == instance id — see CardEffectCommons.EnforceLocationCheck, a no-op
+    // mirror for the same reason).
+
+    /// <summary>The timings whose effect lists are materialised when a card gets a fresh play context
+    /// (continuous + passive triggers). Player-activated abilities (<see cref="EffectTiming.OptionSkill"/> /
+    /// <see cref="EffectTiming.SecuritySkill"/>) are excluded.</summary>
+    private static readonly IReadOnlyList<EffectTiming> InitTimings = Array.AsReadOnly(new[]
+    {
+        EffectTiming.None,
+        EffectTiming.OnEnterFieldAnyone,
+        EffectTiming.OnDetermineDoSecurityCheck,
+        EffectTiming.OnUseAttack,
+        EffectTiming.WhenDigivolving,
+        EffectTiming.OnDestroyedAnyone,
+        EffectTiming.OnAllyAttack,
+        EffectTiming.OnBlockAnyone,
+        // (EX8-3) OnEndTurn self-statics (e.g. <Vortex> via VortexSelfEffect).
+        EffectTiming.OnEndTurn,
+        EffectTiming.OnStartTurn,
+        EffectTiming.OnStartMainPhase,
+        EffectTiming.OnEndBattle,
+        EffectTiming.OnDeclaration,
+        EffectTiming.OnTappedAnyone,
+        EffectTiming.OnUnTappedAnyone,
+        EffectTiming.OnCounterTiming,
+        EffectTiming.WhenLinked,
+        EffectTiming.OnLinkCardDiscarded,
+        EffectTiming.OnAddDigivolutionCards,
+        EffectTiming.OnUseOption,
+        EffectTiming.OnDiscardSecurity,
+        EffectTiming.AfterPayCost,
+        EffectTiming.WhenTopCardTrashed,
+        EffectTiming.OnFaceUpSecurityIncreased,
+        EffectTiming.WhenRemoveField,
+        EffectTiming.OnLoseSecurity,
+        EffectTiming.OnDiscardHand,
+        EffectTiming.OnAddHand,
+        EffectTiming.OnDiscardLibrary,
+        EffectTiming.OnAddSecurity,
+        EffectTiming.WhenReturntoHandAnyone,
+        EffectTiming.WhenReturntoLibraryAnyone,
+        EffectTiming.OnSecurityCheck,
+        EffectTiming.OnReturnCardsToHandFromTrash,
+        EffectTiming.OnPermamemtReturnedToHand,
+        EffectTiming.OnRemovedField,
+        EffectTiming.OnLeaveFieldAnyone,
+        EffectTiming.OnReturnCardsToLibraryFromTrash,
+        EffectTiming.OnEndAttack,
+        EffectTiming.OnDigivolutionCardDiscarded,
+        EffectTiming.OnAttackTargetChanged,
+        EffectTiming.OnDigivolutionCardReturnToDeckBottom,
+        EffectTiming.WhenPermanentWouldBeDeleted,
+    });
+
+    /// <summary>1:1 mirror of AS-IS <c>CardSource.Init()</c> (CardSource.cs:345-350) — the "this card got a
+    /// fresh play context" reset every enter-play / re-parent / re-stack site runs: clear its per-turn use
+    /// counts (<c>cEntity_EffectController.InitUseCountThisTurn()</c>), then materialise its effect lists so any
+    /// construction-time registration a factory performs happens for this stint. Returns true when the card has
+    /// a ported effect class (the retired registrar's return contract, preserved for its one value-consuming
+    /// caller).</summary>
+    public bool Init()
+    {
+        cEntity_EffectController.InitUseCountThisTurn();
+
+        CEntity_Effect? effect = cEntity_EffectController.cEntity_Effect;
+        if (effect is null)
+        {
+            return false;
+        }
+
+        foreach (EffectTiming timing in InitTimings)
+        {
+            foreach (ICardEffect cardEffect in effect.CardEffects(timing, this))
+            {
+                _ = cardEffect;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Id-keyed entry point for <see cref="Init()"/> — the shape the enter-play call sites use (they
+    /// hold the instance id + controlling player, not a live view). No-op (false) when the instance is unknown.</summary>
+    public static bool Init(EngineContext context, HeadlessEntityId instanceId, HeadlessPlayerId controller)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (instanceId.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(instanceId, out CardInstanceRecord? instance)
+            || instance is null)
+        {
+            return false;
+        }
+
+        return new CardSource(context, instanceId, controller, instance.OwnerId).Init();
+    }
+
+    #endregion
 
     // ===== (EFFECT-MODEL REBUILD / P2) AS-IS CardSource.EffectList family (CardSource.cs:981-1035) ==========
     // Thin delegation to the per-card-instance controller (cEntity_EffectController.GetCardEffects, ported P1) +
@@ -1156,7 +1270,7 @@ public sealed class CardSource
         }
     }
 
-    /// <summary>The card's printed number (e.g. "BT10-012"), used as the SpecialPlayRecipe key.</summary>
+    /// <summary>The card's printed number (e.g. "BT10-012") — AS-IS <c>CEntity_Base.CardID</c>.</summary>
     public string CardNumber => Definition?.CardNumber ?? string.Empty;
 
     // (C7) type judgements go through CardRecord.IsCardType — AS-IS CardKinds is a LIST, so a dual card
@@ -1398,29 +1512,39 @@ public sealed class CardSource
         Player ownerPlayer = new Player(Context, Owner);
 
         // ===== DigiXros (AS-IS CardSource.cs:670-701) =====
-        // Headless adaptation: AS-IS's `!(!Owner.isYou && GManager.instance.IsAI)` availability guard has no
-        // headless analog (no AI / seat-you distinction); the single-context mirror is always the AS-IS
-        // "not the AI opponent" branch, so the availability early-return is taken unconditionally. On the live
-        // pay path (checkAvailability:false, no DigiXros material selection => playCard != this) the whole
-        // region is a no-op.
+        // (isAI restore) AS-IS's `//AI` availability guard `if (!(!Owner.isYou && GManager.instance.IsAI))`
+        // (CardSource.cs:679) is ported verbatim. Headless `Player.isYou` and `GManager.IsAI` are both false, so
+        // the guard reads `!(true && false)` == true and the early return is taken — which is exactly what the
+        // mirror did unconditionally before this restore. On the live pay path (checkAvailability:false, no
+        // DigiXros material selection => playCard != this) the whole region is a no-op.
         if (!isEvolution)
         {
             if (HasDigiXros)
             {
                 if (ownerPlayer.CanReduceCost(null, this))
                 {
-                    if (checkAvailability)
+                    //AI
+                    if (!(!ownerPlayer.isYou && GManager.instance!.IsAI))
                     {
-                        return 0;
+                        if (checkAvailability)
+                        {
+                            return 0;
+                        }
                     }
 
-                    SelectDigiXrosClass selectDigiXrosClass = GManager.instance.GetComponent<SelectDigiXrosClass>();
-
-                    if (selectDigiXrosClass != null)
+                    // AS-IS :687 — restored with the guard above: AS-IS only reaches the live discount when
+                    // checkAvailability is false (before the restore the unconditional return made the wrapper
+                    // redundant).
+                    if (!checkAvailability)
                     {
-                        if (selectDigiXrosClass.playCard == this)
+                        SelectDigiXrosClass selectDigiXrosClass = GManager.instance.GetComponent<SelectDigiXrosClass>();
+
+                        if (selectDigiXrosClass != null)
                         {
-                            Cost -= selectDigiXrosClass.selectedDigicrossCards.Count * digiXrosCondition.reduceCostPerCard;
+                            if (selectDigiXrosClass.playCard == this)
+                            {
+                                Cost -= selectDigiXrosClass.selectedDigicrossCards.Count * digiXrosCondition.reduceCostPerCard;
+                            }
                         }
                     }
                 }
@@ -1435,7 +1559,8 @@ public sealed class CardSource
         // playCard == this AND selectedAssemblyCards.Count == elementCount (AS-IS :729-730); otherwise no-op.
         // ADAPTATION vs the DigiXros region: the AS-IS `if (checkAvailability) return 0;` early-return is NOT taken
         // for Assembly. Unlike DigiXros (whose availability projection IS the blanket 0), the mirror's Assembly
-        // AVAILABILITY projection lives in the enumeration helper Runtime/PlayCardAction.CreateAssemblyActionIfPlayable,
+        // AVAILABILITY projection lives in the enumeration helper Runtime/HeadlessLegalActionDispatcher
+        // .PlayCardLegalActions (Assembly arm — re-homed there when the invented PlayCardAction.cs was retired),
         // which offers a dedicated Assembly variant at the PRECISE (base - reduceCost) and therefore requires this
         // pipeline to return the FULL base cost under checkAvailability (its STATIC feasibility half
         // TryMatchMaterials / ValidateMaterials computes the material set). Taking the return-0 here would collapse
@@ -1609,7 +1734,7 @@ public sealed class CardSource
     /// <summary>(C9) mirror of AS-IS <c>CardSource.IsLinked</c> (CardSource.cs:2947):
     /// <c>PermanentOfThisCard().LinkedCards.Contains(this)</c> — true while this card is a LINK card of a
     /// battle-area permanent (link cards are tracked separately from digivolution sources:
-    /// <c>LinkHelpers.LinkedCardIdsKey</c>). Evaluated LIVE — breaking the link flips it false.</summary>
+    /// <c>Permanent.LinkedCardIdsKey</c>). Evaluated LIVE — breaking the link flips it false.</summary>
     public bool IsLinked
     {
         get
@@ -1618,7 +1743,7 @@ public sealed class CardSource
             foreach (HeadlessEntityId hostId in zones.GetCards(Owner, ChoiceZone.BattleArea))
             {
                 if (Context.CardInstanceRepository.TryGetInstance(hostId, out CardInstanceRecord? host) && host is not null
-                    && LinkHelpers.ReadLinkedCardIds(host.Metadata).Contains(InstanceId))
+                    && Permanent.ReadLinkedCardIds(host.Metadata).Contains(InstanceId))
                 {
                     return true;
                 }
@@ -1999,7 +2124,9 @@ public sealed class CardSource
     /// first then the IsUpDown() group, clamped <c>Math.Max(0, Cost)</c>. Returns 0 when the card declares no
     /// link condition (AS-IS :3269). SUBSTRATE: the three-region IChangeLinkCostEffect scan + fold is
     /// <see cref="NewModelContinuousScan.FoldLinkCost"/>, unioned onto the legacy linkCostDelta modifier fold by
-    /// <see cref="Headless.Runtime.LinkHelpers.ResolveLinkCost"/> (interface-disjoint — RD-P6B-16); the AS-IS
+    /// <see cref="NewModelContinuousScan.FoldLinkCost"/> called directly here (the legacy linkCostDelta union the
+    /// retired substrate <c>LinkHelpers.ResolveLinkCost</c> wrapper added had ZERO producers — RD-P6B-16 retired,
+    /// BIT-IDENTICAL); the AS-IS
     /// <paramref name="root"/> and <paramref name="targetPermanent"/> are threaded through to
     /// <c>IChangeLinkCostEffect.GetCost</c> / <c>PermanentCondition</c>.
     /// FULLY LIVE (G-Link P2-② resolved, 2026-07-23): the AS-IS players' region (:3294-3302) scans the player's
@@ -2021,7 +2148,7 @@ public sealed class CardSource
             return 0;
         }
 
-        return Headless.Runtime.LinkHelpers.ResolveLinkCost(
+        return NewModelContinuousScan.FoldLinkCost(
             Context, InstanceId, link.cost, targetPermanent?.InstanceId ?? default, root);
     }
 
@@ -2310,17 +2437,19 @@ public sealed class CardSource
     /// <summary>(P6C3) AS-IS <c>CardSource.HasSaveText</c> (CardSource.cs:2181 =
     /// <c>HasText("&lt;Save&gt;")</c>, a printed-text scan). The mirror carries no rules text; the
     /// established mirror carrier of "&lt;Save&gt; is on this card" is the instance <c>hasSave</c> metadata
-    /// flag OR a live Save keyword grant — exactly the pair the live deletion-replacement pipeline gates on
-    /// (<see cref="Headless.Runtime.DeletionReplacementGate.TrySaveAsync"/>).</summary>
+    /// flag OR a live Save keyword grant. (DeletionReplacementGate retirement) the substrate
+    /// <c>HasReplacementKeyword(record, flagKey, keywordName)</c> wrapper is inlined verbatim here — flag read
+    /// OR the new-model continuous scan (<see cref="NewModelContinuousScan.HasSave"/>, the keyword the retired
+    /// <c>ContinuousKeywordGate.Save</c> string dispatched to).</summary>
     public bool HasSaveText =>
         Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? saveRecord) && saveRecord is not null
-        && Headless.Runtime.DeletionReplacementGate.HasReplacementKeyword(
-            saveRecord, Headless.Runtime.DeletionReplacementGate.HasSaveKey, Headless.Runtime.ContinuousKeywordGate.Save);
+        && ((saveRecord.Metadata.TryGetValue("hasSave", out object? hasSaveFlag) && hasSaveFlag is bool saveFlag && saveFlag)
+            || NewModelContinuousScan.HasSave(Context, InstanceId));
 
     // (R1-e boundary) The AS-IS printed-cost engine — CardSource.EvoCosts's BaseEvoCostsFromEntity projection,
     // CostList, PayingCost/GetPayingCostWithBaseCost, GetChangedLinkCost's value fold — is NOT rehoused here: it
     // needs the EvoCost value type + _cEntity_Base.EvoCosts card data and drives the play/digivolve cost pipeline
-    // (PlayCardClass STOP RD-P6C1-2, DigivolutionCostHelpers/LinkHelpers) = R2 몫 (플레이 파이프라인 내부 판정).
+    // (PlayCardClass STOP RD-P6C1-2, digivolution/link cost paths) = R2 몫 (플레이 파이프라인 내부 판정).
     // What R1-e keeps on CardSource is the READ-layer scan portion: the added-requirement scan below
     // (AddedDigivolutionCosts) + IgnoreColorConditionActive + MatchColorRequirement.
 
@@ -2490,13 +2619,20 @@ public sealed class CardSource
     /// definition/number/type-conditioned cost (<see cref="TokenMatch"/> non-null).</summary>
     private sealed record PrintedEvoCost(string? CardColor, int? Level, int MemoryCost, Func<Permanent, bool>? TokenMatch = null);
 
-    /// <summary>The printed digivolution paths of this card — EvolutionCondition tokens first (the G8-001
-    /// "Color@Level(:Cost)" encoding, cost falling back to the printed EvolutionCost), else the
-    /// DigivolutionCostHelpers requirement entries (explicit metadata conditions / the Any-cost record).
-    /// (RD-R3-01) the token parse itself is the SHARED canonical parser
-    /// (<see cref="Headless.Effects.DigivolutionCostHelpers.ParseEvolutionCondition"/>) — the DigivolveAction
-    /// seat's requirement table reads the SAME parse, ending the dual-parser drift review 3 flagged. Token
-    /// order is preserved (AS-IS BaseEvoCostsFromEntity data order).</summary>
+    /// <summary>The printed digivolution paths of this card — the mirror's <c>BaseEvoCostsFromEntity</c>
+    /// (AS-IS <c>CardSource.BaseEvoCostsFromEntity => _cEntity_Base.EvoCosts</c>, CardSource.cs:528: the card
+    /// entity's {CardColor, Level, MemoryCost} data rows). The mirror card data carries those rows as the
+    /// <c>EvolutionCondition</c> string — "Color@Level:Cost" entries joined by ';' (CardBaseEntityLoader) —
+    /// parsed by <see cref="ParsePrintedEvoCosts"/>; a card with no condition rows contributes its single
+    /// printed <c>EvolutionCost</c> (any colour / any level). Token order is preserved (AS-IS
+    /// BaseEvoCostsFromEntity data order).
+    ///
+    /// (DigivolutionCostHelpers retirement) the substrate helper that owned this projection is retired and its
+    /// parse now lives here, at the AS-IS seat, verbatim. Its EXTRA metadata-key requirement scan
+    /// (<c>digivolutionCosts</c> / <c>evolutionCosts</c> / <c>evoCosts</c> / <c>evolutionConditions</c>) is NOT
+    /// carried over — producer 0: the loader writes <c>evolutionConditions</c> only together with
+    /// <c>EvolutionCondition</c> (so it was reachable only from the branch that never ran it), and nothing in
+    /// the engine writes the other three keys.</summary>
     private List<PrintedEvoCost> PrintedEvoCosts()
     {
         var costs = new List<PrintedEvoCost>();
@@ -2507,29 +2643,88 @@ public sealed class CardSource
 
         if (!string.IsNullOrWhiteSpace(definition.EvolutionCondition))
         {
-            foreach (Headless.Effects.DigivolutionCostRequirement requirement in
-                Headless.Effects.DigivolutionCostHelpers.ParseEvolutionCondition(definition.EvolutionCondition, definition.EvolutionCost))
-            {
-                if (requirement.TargetIdentity is { } identity)
-                {
-                    // definition / card-number / card-type condition token — identity gate on the live top card.
-                    costs.Add(new PrintedEvoCost(null, null, requirement.MemoryCost,
-                        targetPermanent => targetPermanent.TopCard is { } top
-                            && (string.Equals(identity, top.Definition?.Id.Value, StringComparison.Ordinal)
-                                || string.Equals(identity, top.Definition?.CardNumber, StringComparison.OrdinalIgnoreCase)
-                                || string.Equals(identity, top.Definition?.CardType, StringComparison.OrdinalIgnoreCase))));
-                    continue;
-                }
+            return ParsePrintedEvoCosts(definition.EvolutionCondition, definition.EvolutionCost);
+        }
 
-                costs.Add(new PrintedEvoCost(requirement.TargetColor, requirement.TargetLevel, requirement.MemoryCost));
-            }
+        if (definition.EvolutionCost.HasValue)
+        {
+            costs.Add(new PrintedEvoCost(null, null, definition.EvolutionCost.Value));
+        }
 
+        return costs;
+    }
+
+    /// <summary>The EvolutionCondition token parser (verbatim from the retired
+    /// <c>DigivolutionCostHelpers.ParseEvolutionCondition</c>): tokens split on <c>, ; |</c>; an optional
+    /// <c>definition:</c> / <c>from:</c> prefix is stripped; <c>Color@Level(:Cost)</c> yields a colour+level
+    /// row whose cost falls back to the printed <paramref name="printedEvolutionCost"/> (?? 0) when the
+    /// <c>:Cost</c> suffix is absent; any other token is an identity condition gated on the target's live top
+    /// card (definition id Ordinal OR card number OrdinalIgnoreCase OR card type OrdinalIgnoreCase). A token
+    /// whose resolved cost (or level) is negative is dropped — observably identical to AS-IS, where such a
+    /// path exists but is filtered by <see cref="CostList"/>'s <c>&gt;= 0</c> gate and so is never
+    /// payable.</summary>
+    private static List<PrintedEvoCost> ParsePrintedEvoCosts(string? evolutionCondition, int? printedEvolutionCost)
+    {
+        var costs = new List<PrintedEvoCost>();
+        if (string.IsNullOrWhiteSpace(evolutionCondition))
+        {
             return costs;
         }
 
-        foreach (Headless.Effects.DigivolutionCostRequirement requirement in Headless.Effects.DigivolutionCostHelpers.ReadRequirements(definition))
+        string[] tokens = evolutionCondition
+            .Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (string rawToken in tokens)
         {
-            costs.Add(new PrintedEvoCost(requirement.TargetColor, requirement.TargetLevel, requirement.MemoryCost));
+            string token = rawToken;
+            if (token.StartsWith("definition:", StringComparison.OrdinalIgnoreCase))
+            {
+                token = token["definition:".Length..];
+            }
+            else if (token.StartsWith("from:", StringComparison.OrdinalIgnoreCase))
+            {
+                token = token["from:".Length..];
+            }
+
+            int at = token.IndexOf('@');
+            if (at > 0 && at < token.Length - 1)
+            {
+                string color = token[..at].Trim();
+                string rest = token[(at + 1)..];
+                int colon = rest.IndexOf(':');
+                string levelText = (colon >= 0 ? rest[..colon] : rest).Trim();
+                int cost = colon >= 0 && int.TryParse(rest[(colon + 1)..].Trim(), out int tokenCost)
+                    ? tokenCost
+                    : printedEvolutionCost ?? 0;
+                if (int.TryParse(levelText, out int level) && color.Length > 0)
+                {
+                    if (cost >= 0 && level >= 0)
+                    {
+                        costs.Add(new PrintedEvoCost(color, level, cost));
+                    }
+
+                    continue;
+                }
+            }
+
+            if (printedEvolutionCost is null or >= 0)
+            {
+                int identityCost = printedEvolutionCost ?? 0;
+                string identity = token.Trim();
+                if (identity.Length == 0)
+                {
+                    // The retired helper normalised a whitespace identity to null, which fell through to an
+                    // unconditional {null colour, null level} row — kept 1:1.
+                    costs.Add(new PrintedEvoCost(null, null, identityCost));
+                    continue;
+                }
+
+                // definition / card-number / card-type condition token — identity gate on the live top card.
+                costs.Add(new PrintedEvoCost(null, null, identityCost,
+                    targetPermanent => targetPermanent.TopCard is { } top
+                        && (string.Equals(identity, top.Definition?.Id.Value, StringComparison.Ordinal)
+                            || string.Equals(identity, top.Definition?.CardNumber, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(identity, top.Definition?.CardType, StringComparison.OrdinalIgnoreCase))));
+            }
         }
 
         return costs;
@@ -2688,7 +2883,7 @@ public sealed class AssemblyCondition
 
 /// <summary>(W6-L) 1:1 mirror of AS-IS <c>LinkCondition</c> (CardSource.cs:4286): "this card may LINK onto
 /// an owner battle-area Digimon matching <c>digimonCondition</c>, paying <c>cost</c> memory". LinkDP is NOT
-/// declared here — it is per-card data (definition metadata <c>linkDP</c>, folded by LinkHelpers).</summary>
+/// declared here — it is per-card data (definition metadata <c>linkDP</c>, folded by the Permanent link store).</summary>
 public sealed class LinkCondition
 {
     public LinkCondition(Func<Permanent, bool> digimonCondition, int cost)

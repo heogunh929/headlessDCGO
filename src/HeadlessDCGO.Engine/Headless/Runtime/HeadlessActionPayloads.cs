@@ -184,55 +184,156 @@ public sealed record SecurityActionPayload(HeadlessEntityId CardId, bool FaceUp 
     }
 }
 
-public sealed record EffectActionPayload(
-    HeadlessEntityId EffectId,
-    string Timing,
-    HeadlessEntityId SourceEntityId)
+/// <summary>The Digivolve intent packet (card + digivolution target + resolved memory cost). Re-homed here from
+/// the retired <c>Headless/Runtime/DigivolveAction.cs</c> when that invented action class was torn down: the
+/// packet itself is pure substrate (the agent-facing LegalAction parameter shape the TurnFlowDriver converts to
+/// the AS-IS <c>PlayCardAction(cardIndex, targetFrameID, …)</c>), so it lives with the other action payloads.
+/// The retired class's <c>TryRead</c> half went with its only consumer (<c>DigivolveAction.ProcessAsync</c>,
+/// retired — digivolve is pump-only and routes through <c>PlayCardClass.PlayCard()</c>).</summary>
+/// <summary>(PLAYCARD-PAYLOAD re-migration) The PlayCard action payload, re-homed VERBATIM from the retired
+/// substrate <c>PlayCardAction.cs</c> into this file — the live substrate holder for action payload records
+/// (<see cref="DigivolveActionPayload"/> / <see cref="AttackActionPayload"/> / … ). It is pure action-parameter
+/// transport (no game rule), so it has no AS-IS 원가; the re-housing precedent is
+/// <c>Headless/Services/ZoneMoveMetadataKeys.cs</c>. Parameter keys and wire values are unchanged.</summary>
+public sealed record PlayCardActionPayload(
+    HeadlessEntityId CardId,
+    int MemoryCost,
+    ChoiceZone FromZone,
+    ChoiceZone ToZone)
 {
-    public static EffectActionPayload Create(
-        HeadlessEntityId effectId,
-        string timing = "Manual",
-        HeadlessEntityId? sourceEntityId = null)
-    {
-        return new EffectActionPayload(effectId, timing, sourceEntityId ?? effectId);
-    }
+    /// <summary>(AD1-A) parameter key carrying the Assembly material ids (comma-joined, element order).</summary>
+    public const string AssemblyMaterialsKey = "assemblyMaterials";
+
+    /// <summary>(AD1-A) the Assembly materials this play consumes from the OWNER'S TRASH (empty = a normal
+    /// play). AS-IS folds Assembly into the ordinary play flow (CardController.cs:753) — headless it is the
+    /// same PlayCard action parameterized with the chosen full material set.</summary>
+    public IReadOnlyList<HeadlessEntityId> AssemblyMaterials { get; init; } = Array.Empty<HeadlessEntityId>();
 
     public IReadOnlyDictionary<string, object?> ToParameters()
     {
-        return new Dictionary<string, object?>
+        var parameters = new Dictionary<string, object?>
         {
-            [HeadlessActionParameterKeys.EffectId] = EffectId,
-            [HeadlessActionParameterKeys.Timing] = Timing,
-            [HeadlessActionParameterKeys.SourceEntityId] = SourceEntityId
+            [HeadlessActionParameterKeys.CardId] = CardId,
+            [HeadlessActionParameterKeys.MemoryCost] = MemoryCost,
+            [HeadlessActionParameterKeys.FromZone] = FromZone,
+            [HeadlessActionParameterKeys.ToZone] = ToZone
         };
+        if (AssemblyMaterials.Count > 0)
+        {
+            parameters[AssemblyMaterialsKey] = string.Join(",", AssemblyMaterials.Select(m => m.Value));
+        }
+
+        return parameters;
     }
 
     public static bool TryRead(
         LegalAction action,
-        [NotNullWhen(true)] out EffectActionPayload? payload,
+        [NotNullWhen(true)] out PlayCardActionPayload? payload,
         out string? error)
     {
         if (!HeadlessActionPayloadReader.TryReadEntityId(
                 action,
-                HeadlessActionParameterKeys.EffectId,
-                out HeadlessEntityId effectId,
+                HeadlessActionParameterKeys.CardId,
+                out HeadlessEntityId cardId,
                 out error))
         {
             payload = null;
             return false;
         }
 
-        string timing = HeadlessActionPayloadReader.ReadStringOrDefault(
-            action,
-            HeadlessActionParameterKeys.Timing,
-            "Manual");
-        HeadlessEntityId sourceEntityId = HeadlessActionPayloadReader.ReadEntityIdOrDefault(
-            action,
-            HeadlessActionParameterKeys.SourceEntityId,
-            action.Id);
+        if (!TryReadInt(action.Parameters, HeadlessActionParameterKeys.MemoryCost, out int memoryCost))
+        {
+            payload = null;
+            error = $"Missing action parameter: {HeadlessActionParameterKeys.MemoryCost}.";
+            return false;
+        }
 
-        payload = new EffectActionPayload(effectId, timing, sourceEntityId);
+        ChoiceZone fromZone = HeadlessActionPayloadReader.ReadZoneOrDefault(
+            action,
+            HeadlessActionParameterKeys.FromZone,
+            ChoiceZone.Hand);
+        ChoiceZone toZone = HeadlessActionPayloadReader.ReadZoneOrDefault(
+            action,
+            HeadlessActionParameterKeys.ToZone,
+            ChoiceZone.BattleArea);
+
+        IReadOnlyList<HeadlessEntityId> assemblyMaterials = Array.Empty<HeadlessEntityId>();
+        if (action.Parameters.TryGetValue(AssemblyMaterialsKey, out object? rawMaterials) &&
+            rawMaterials?.ToString() is { Length: > 0 } materialsValue)
+        {
+            assemblyMaterials = materialsValue
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(id => new HeadlessEntityId(id))
+                .ToArray();
+        }
+
+        payload = new PlayCardActionPayload(cardId, memoryCost, fromZone, toZone) { AssemblyMaterials = assemblyMaterials };
+        error = null;
         return true;
+    }
+
+    private static bool TryReadInt(
+        IReadOnlyDictionary<string, object?> parameters,
+        string key,
+        out int value)
+    {
+        if (!parameters.TryGetValue(key, out object? rawValue) || rawValue is null)
+        {
+            value = default;
+            return false;
+        }
+
+        if (rawValue is int intValue)
+        {
+            value = intValue;
+            return true;
+        }
+
+        if (rawValue is long longValue &&
+            longValue >= int.MinValue &&
+            longValue <= int.MaxValue)
+        {
+            value = (int)longValue;
+            return true;
+        }
+
+        if (rawValue is string stringValue && int.TryParse(stringValue, out int parsedValue))
+        {
+            value = parsedValue;
+            return true;
+        }
+
+        value = default;
+        return false;
+    }
+}
+
+public sealed record DigivolveActionPayload(
+    HeadlessEntityId CardId,
+    HeadlessEntityId TargetCardId,
+    int MemoryCost)
+{
+    /// <summary>(W6-F) parameter key carrying the App-Fusion link material (the host's LINK card that is
+    /// consumed into the fused stack's sources — AS-IS selectAppFusionEffect.AddToSources).</summary>
+    public const string AppFusionLinkCardKey = "appFusionLinkCard";
+
+    /// <summary>(W6-F) the App-Fusion link material; empty = a normal digivolution.</summary>
+    public HeadlessEntityId AppFusionLinkCardId { get; init; }
+
+    public IReadOnlyDictionary<string, object?> ToParameters()
+    {
+        var parameters = new Dictionary<string, object?>
+        {
+            [HeadlessActionParameterKeys.CardId] = CardId,
+            [HeadlessActionParameterKeys.TargetCardId] = TargetCardId,
+            [HeadlessActionParameterKeys.MemoryCost] = MemoryCost
+        };
+        if (!AppFusionLinkCardId.IsEmpty)
+        {
+            parameters[AppFusionLinkCardKey] = AppFusionLinkCardId.Value;
+        }
+
+        return parameters;
     }
 }
 

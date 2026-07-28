@@ -28,7 +28,7 @@
 //                                              (TurnStateMachine.EndGame mirror lands at goal 6).
 //  2 TrashNonDigimonPermanentProcess (:409) -> NEW 1:1 (was entirely missing headless-side): breeding
 //                                              non-Digimon -> DiscardEvoRoots + direct trash (NOT a destroy).
-//  3 TrashNoDPPermanentProcess (:439)       -> DELEGATED to GameFlowProcessor.StateBasedDeletionSweepAsync
+//  3 TrashNoDPPermanentProcess (:439)       -> NEW 1:1 whole-board pass (DirectTrashPermanentAsync).
 //  4 DigimonLackDPProcess (:469)            -> (one integrated scan: no-DP trash + DP<=0 destroy + parked
 //                                              would-be-deleted finalize). The sweep is the VERIFIED D-1/D-2
 //                                              batch-semantics carrier; splitting it back into the AS-IS
@@ -71,7 +71,6 @@ using Commons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Card
 public sealed class AutoProcessing
 {
     private readonly EngineContext _context;
-    private readonly DeletionReplacementTiming _deletionReplacement = new();
 
     private AutoProcessing(EngineContext context)
     {
@@ -348,14 +347,14 @@ public sealed class AutoProcessing
             //DP不足処理
             progressed |= await DigimonLackDPProcess(cancellationToken).ConfigureAwait(false);
 
-            // (substrate) a stage-3/4 destroy may have DEFERRED a would-be-deleted replacement decision — the
-            // AS-IS coroutine opens that window synchronously inside Destroy(); headless opens the choice and
-            // parks. Pause here so the owner decides BEFORE the next pass's sweep would finalize the death.
-            if (_deletionReplacement.RequestChoice(_context))
-            {
-                IsRuleProcessing = false;
-                return true;
-            }
+            // (DeletionReplacementTiming retirement) The substrate re-entrant would-be-deleted window gate that
+            // used to sit here is RETIRED. AS-IS resolves a would-be-deleted replacement INLINE in the deletion
+            // path itself, and the mirror now does the same: DestroyPermanentsClass.Destroy() marks
+            // willBeRemoveField on the whole batch, opens the PRE cut-in windows
+            // (StackSkillInfos(WhenPermanentWouldBeDeleted) → the printed/granted Evade·Barrier·Fragment·
+            // Scapegoat·Decoy ActivateClass, whose *Process clears willBeRemoveField), then fixes the survivors
+            // (CardController.cs:5971/:5983/:6008). AS-IS RuleProcess has no such gate — this was a substrate
+            // park-and-resume seam for a window that no longer parks here.
 
             //Battle as Tamer
             progressed |= BattleWithoutDigimon();
@@ -454,12 +453,13 @@ public sealed class AutoProcessing
         }
         #endregion
 
-        // (substrate extension — see header) a DECIDED deferred deletion awaiting its finalize sweep. AS-IS
-        // resolves would-be-deleted windows synchronously inside stage 4, so this state cannot outlive its pass.
-        if (Headless.Runtime.GameFlowProcessor.HasStateBasedSweepWork(_context))
-        {
-            return true;
-        }
+        // (GAMEFLOW re-migration) The substrate extension `GameFlowProcessor.HasStateBasedSweepWork(_context)`
+        // that stood here is RETIRED, not re-homed. It reported one state only: a DECIDED deferred deletion
+        // parked by `MatchStateMutationSink` awaiting a later finalize sweep, gated through
+        // `DeletionReplacementTiming` — BOTH of those substrate types are retired, and the would-be-deleted
+        // window is now resolved INLINE by the mirror `DestroyPermanentsClass.Destroy()` (CardController.cs:5958+)
+        // exactly as AS-IS does, so no deletion outlives its own rule pass. AS-IS `DoRuleProcess()` (:319-380)
+        // has no such check; this restores the predicate list to the AS-IS eight regions.
 
         return false;
     }
@@ -467,9 +467,14 @@ public sealed class AutoProcessing
     // ===== Each rule processing (AS-IS :383-567) ================================================================
 
     #region Game end processing
-    // AS-IS :386-405 — first losing player ends the game (enemy wins; both losing = draw). The IsLose scan +
-    // winner resolution is the X-02 TerminalEvaluator (its doc: "mirrors Unity AS-IS AutoProcessing reading
-    // Player.IsLose"); the terminal write is the TurnStateMachine.EndGame substrate half (goal 6).
+    // AS-IS :386-405 — the FIRST losing player (seat order) ends the game: its enemy wins unless the enemy is
+    // ALSO losing, in which case EndGame(null) = a DRAW.
+    // (TERMINAL re-migration) The substrate `TerminalEvaluator.Evaluate(_context)` that produced this verdict is
+    // RETIRED, not re-homed: it built a throwaway `MatchState`/`PlayerZoneAdapter`/`PlayerRuleAdapter` triple
+    // purely to read back the SAME `PlayerStatusController.IsLose` flags this method already has, then named a
+    // winner unconditionally so the both-lose case had to be re-checked here anyway. The AS-IS scan (below) is a
+    // two-line foreach over `gameContext.Players`. The terminal WRITE stays on the established substrate sink
+    // (AS-IS `TurnStateMachine.EndGame(winner, false)` — the mirror keeps the outcome on RuleQueryService).
     private bool EndGameProcess()
     {
         if (_context.RuleQueryService.IsTerminal())
@@ -477,37 +482,40 @@ public sealed class AutoProcessing
             return false;
         }
 
-        PlayerTerminalCheck? check = TerminalEvaluator.Evaluate(_context);
-        if (check is null || !check.IsTerminal)
+        foreach (HeadlessPlayerId playerId in Players())   // AS-IS :388 gameContext.Players
         {
-            return false;
-        }
-
-        // AS-IS :392-400 — the loser's enemy wins ONLY when the enemy is not ALSO losing; both losing in the
-        // same pass is a DRAW (EndGame(null)). (Adversarial review P1-1: TerminalEvaluator names a winner
-        // unconditionally, so the both-lose case must be re-checked here.)
-        bool bothLose = check.WinnerPlayerId is { } winner && !winner.IsEmpty
-            && _context.PlayerStatusController.IsLose(winner);
-
-        if (_context.RuleQueryService is ITerminalOutcomeSink outcomeSink)
-        {
-            if (bothLose)
+            if (!_context.PlayerStatusController.IsLose(playerId))   // AS-IS :390 player.IsLose
             {
-                outcomeSink.SetTerminalOutcome(null, isDraw: true, "Both players lose — draw.");
+                continue;
             }
-            else
+
+            HeadlessPlayerId? enemyId = new Player(_context, playerId).Enemy?.PlayerId;
+
+            // AS-IS :392-400 — EndGame(player.Enemy, false) when the enemy is not ALSO losing, else EndGame(null).
+            bool bothLose = enemyId is not { } enemy || enemy.IsEmpty || _context.PlayerStatusController.IsLose(enemy);
+
+            if (_context.RuleQueryService is ITerminalOutcomeSink outcomeSink)
             {
-                outcomeSink.SetTerminalOutcome(check.WinnerPlayerId, isDraw: false, check.Message);
+                if (bothLose)
+                {
+                    outcomeSink.SetTerminalOutcome(null, isDraw: true, "Both players lose — draw.");
+                }
+                else
+                {
+                    outcomeSink.SetTerminalOutcome(enemyId, isDraw: false, $"Player {playerId} is marked as lose.");
+                }
             }
-        }
-        else if (_context.RuleQueryService is ITerminalStateController terminalController)
-        {
-            terminalController.SetTerminal(true);
+            else if (_context.RuleQueryService is ITerminalStateController terminalController)
+            {
+                terminalController.SetTerminal(true);
+            }
+
+            _context.LogSink.Info(
+                $"[AutoProcessing] EndGameProcess terminal: PlayerLoseFlag winner={(bothLose ? null : enemyId?.Value)} loser={playerId.Value}.");
+            return true;   // AS-IS :402 yield break
         }
 
-        _context.LogSink.Info(
-            $"[AutoProcessing] EndGameProcess terminal: {check.Reason} winner={check.WinnerPlayerId?.Value} loser={check.LosingPlayerId?.Value}.");
-        return true;
+        return false;
     }
     #endregion
 
@@ -573,14 +581,32 @@ public sealed class AutoProcessing
 
     #region Digimon DP shortage handling
     // AS-IS :469-484 — every DP<=0 Digimon dies in ONE DestroyPermanentsClass batch ({"DPZero", true}).
-    // DELEGATED: GameFlowProcessor.StateBasedDeletionSweepAsync is the verified carrier — one scan, one
-    // lazily-allocated dp-zero batch id (= the AS-IS single-batch StackSkillInfos), plus the parked
-    // would-be-deleted finalizes with the D-1/D-2 batch semantics intact. Splitting those back into the
-    // AS-IS separate whole-board passes is design item R2-P2-4 (DestroyPermanentsClass mirror, goal 3/7).
+    // (GAMEFLOW re-migration; design item R2-P2-4 RESOLVED) This used to delegate to the substrate
+    // `GameFlowProcessor.StateBasedDeletionSweepAsync`, which folded the AS-IS whole-board DP-zero pass together
+    // with the sink's parked deferred-deletion finalizes into ONE interleaved scan. Both of that helper's
+    // collaborators are retired (`MatchStateMutationSink` = the deferred-deletion producer,
+    // `DeletionReplacementTiming` = the park gate) and the mirror `DestroyPermanentsClass` (CardController.cs:5958+)
+    // now carries the AS-IS pipeline — PRE cut-in windows, survivor fixing, POST windows, record-parameters,
+    // per-permanent trash — INLINE, so the AS-IS body ports 1:1 with no sweep left to fold in.
     private async Task<bool> DigimonLackDPProcess(CancellationToken cancellationToken)
     {
-        return await Headless.Runtime.GameFlowProcessor
-            .StateBasedDeletionSweepAsync(_context, cancellationToken).ConfigureAwait(false);
+        List<Permanent> LackPowerPermanents = PlayersForTurnPlayer()
+            .SelectMany(player => GetBattleAreaPermanents(player).Where(IsDigimonLackDP))
+            .ToList();
+
+        if (LackPowerPermanents.Count >= 1)
+        {
+            Hashtable hashtable = new Hashtable()
+            {
+                { "DPZero", true },
+            };
+
+            var destroyPermanents = new DestroyPermanentsClass(LackPowerPermanents, hashtable);
+            await destroyPermanents.Destroy(cancellationToken).ConfigureAwait(false);
+            return destroyPermanents.DestroyedPermanents.Count >= 1;
+        }
+
+        return false;
     }
     #endregion
 
@@ -705,12 +731,15 @@ public sealed class AutoProcessing
     private async Task DirectTrashPermanentAsync(Permanent permanent, ChoiceZone zone, CancellationToken cancellationToken)
     {
         // AS-IS permanent.DiscardEvoRoots(): every non-top stack card (digivolution sources) to the trash.
-        await DeletionSourceTrash.TrashEvoSourcesAsync(
-            _context.CardInstanceRepository, _context.ZoneMover, permanent.InstanceId, gameEventQueue: null, cancellationToken,
-            _context.MemoryController, _context.TurnController.Current.TurnPlayerId).ConfigureAwait(false);
+        // (DELETION-SOURCE re-migration) the substrate `DeletionSourceTrash.TrashEvoSourcesAsync` delegation is
+        // replaced by the AS-IS call itself — the mirror `Permanent.DiscardEvoRoots` now carries that body.
+        await permanent.DiscardEvoRoots(cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        // Not a deletion: bindings drop, but no post-deletion keyword snapshot (nothing may respond).
-        CardLeavePlayCleanup.OnLeftPlay(permanent.InstanceId);
+        // Not a deletion: no post-deletion keyword snapshot (nothing may respond). (LEAVE-PLAY re-migration)
+        // The substrate `CardLeavePlayCleanup.OnLeftPlay` call that stood here is RETIRED — it had been an empty
+        // no-op since the (3-B) registry-binding-drop retirement (EffectRegistry producer 0), and AS-IS has no
+        // such seam: leaving the field ends a card's effects implicitly because the live continuous scan only
+        // walks on-field permanents.
         await _context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(permanent.OwnerId, permanent.InstanceId, zone, ChoiceZone.Trash),
             cancellationToken).ConfigureAwait(false);
@@ -1298,46 +1327,11 @@ public sealed class AutoProcessing
 
     #endregion
 
-    #region Resume suspended windows (batch W1b)
-
-    // (R3-W1b batch W1b) Drain-level resume of the SUSPENDED MultipleSkills chain, DEEPEST-FIRST. The window's
-    // loop position lives on the C# call stack (turn/non-turn split, while(true) pass loop, cut-in recursion via
-    // nested TriggeredSkillProcess); a WindowChoicePendingException / DeferredChoicePendingException unwinds that
-    // stack, so the SURVIVING chain is the pool's still-IsUsing instances (each externalised its own cursor on the
-    // continuation). A suspend can nest — a parent pick's TriggeredSkillProcess spawned a child window that
-    // suspended — so the DEEPEST in-use instance (executingMultipleSkills) must resume first; when it completes,
-    // the enclosing TriggeredSkillProcess TAIL (StackSkillInfos(null, AfterEffectsActivate), AutoProcessing.cs:597
-    // — the line the unwind skipped) is re-run for ITS OWNING drain (the AutoProcessing that spawned it,
-    // MultipleSkills.OwningAutoProcessing), and then the next-outer instance resumes at its own pass head (AS-IS:
-    // the parent's remaining steps after the child call ARE "loop to pass head", MultipleSkills.cs:405-421). Each
-    // ResumeAsync may RE-suspend (the pending exception propagates out — the seam re-parks and a later call
-    // re-enters the same chain, idempotently). LIVE since the R3-C2 flip: the window loop drives real windows, so an
-    // in-use instance exists whenever a window suspends for an agent choice; the seam-2 ResolveChoice path calls this
-    // to resume the suspended chain. It is a no-op only while the pool is genuinely idle (no suspended window).
-    //
-    // OWNERSHIP: the tail runs on `deepest.OwningAutoProcessing` (the drain that owns this window), not necessarily
-    // `this`. For the main-stack triggered recursion every instance's owning drain IS the main AutoProcessing (its
-    // pool), so a two-deep chain replays two tails on it (AS-IS: the child's D1 tail then the parent's D0 tail).
-    // The play-pipeline CUT-IN pool (autoProcessing_CutIn) is a separate instance whose stack is empty in every
-    // currently-exercised scenario (design §5.5 / batch W1 note), so cross-pool chains do not arise here.
-    public async Task ResumeSuspendedWindowsAsync(CancellationToken cancellationToken = default)
-    {
-        while (executingMultipleSkills is { } deepest)
-        {
-            AutoProcessing owningDrain = deepest.OwningAutoProcessing;
-
-            await deepest.ResumeAsync(cancellationToken).ConfigureAwait(false);
-
-            // AS-IS TriggeredSkillProcess tail (AutoProcessing.cs:597) that followed the completed
-            // ActivateMultipleSkills — never reached on the original unwound drain, replayed here.
-            if (owningDrain != null)
-            {
-                await owningDrain.StackSkillInfos(null, EffectTiming.AfterEffectsActivate).ConfigureAwait(false);
-            }
-        }
-    }
-
-    #endregion
+    // (window inline re-migration) The externalised drain-level ResumeSuspendedWindowsAsync is RETIRED: AS-IS
+    // AutoProcessing has no resume/continuation. A window choice now suspends INLINE on the pump gate
+    // (MultipleSkills.ChooseOrderIndexAsync -> ChoiceProvider.ChooseAsync), which holds the window's whole C#
+    // stack (two-pass split, while(true) pass loop, cut-in recursion) in place across the agent turn and resumes
+    // it when the answer is deposited — so there is no unwound chain to re-drive.
 
     #region List of effects already achieved
 

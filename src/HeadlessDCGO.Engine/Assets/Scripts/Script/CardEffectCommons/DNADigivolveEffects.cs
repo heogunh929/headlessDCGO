@@ -11,19 +11,33 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Services;
 
 public static partial class CardEffectCommons
 {
     #region DNA digivolve permanents into a hand/trash card (AS-IS DNADigivolveEffects.cs:458)
 
-    /// <summary>(BRIDGE W3) AS-IS <c>DNADigivolvePermanentsIntoHandOrTrashCard</c> — AS-IS-signature overload;
-    /// the substrate overload is already param-for-param (bridge map: "near-perfect 1:1, best delegation
-    /// candidate of the whole set"). Delegates translated per the established rules
-    /// (<c>Func&lt;CardSource,IEnumerator&gt;</c>→<c>Func&lt;CardSource,Task&gt;</c>,
-    /// <c>Func&lt;IEnumerator&gt;</c>→<c>Func&lt;Task&gt;</c>). BEHAVIOUR NUANCE (design item RD-W3-6, from the
-    /// substrate's own doc): the substrate discards <paramref name="payCost"/> at runtime (predicate-form DNA
-    /// is treated as cost-0; cost is carried by a DNA recipe instead) — the parameter is threaded through to
-    /// the substrate unchanged (no wrapper-side drop) so the behaviour is centralised where it is documented.</summary>
+    /// <summary>AS-IS <c>DNADigivolvePermanentsIntoHandOrTrashCard</c> (DNADigivolveEffects.cs:458-624), 1:1.
+    /// (SpecialPlay re-migration) This body REPLACES the monolith's invented <c>CardSource</c>-form substrate
+    /// overload, whose recipe currency was the deleted <c>SpecialPlayRecipeRegistry</c> /
+    /// <c>SpecialPlayAction</c> pair: the AS-IS flow is (1) pick the DNA card out of the hand/trash, (2) let
+    /// <see cref="SelectJogressEffect.SelectDigivolutionRoots"/> pick the two battle-area evo roots against the
+    /// card's OWN <c>jogressCondition</c> (declared by AddJogressConditionClass), (3) play it with
+    /// <c>PlayCardClass.SetJogress</c>. SUBSTRATE (established, per this file's header): IEnumerator→Task,
+    /// StartCoroutine(X)→await X, lone `yield return null` body→Task.CompletedTask, `.Some`→`.Any`,
+    /// `.Map`→`.Select`, `owner` (AS-IS Player) → `new Player(context, ownerId)`.
+    /// STRIPPED: the AS-IS `SetJogressEvoRootsController` + `photonView.RPC(SetJogressEvoRootsFrameIDs)` +
+    /// `WaitUntil(HasPlayerSelection)` + `DequeuePlayerSelection&lt;PermanentSelection&gt;` round trip is the
+    /// NETWORK echo of the pick just made locally (MultipleSkills.cs:364 / OptionalSkill.cs:12 precedent) —
+    /// the mirror consumes the locally-captured `_jogressEvoRootsFrameIDs` directly; `ShowCardEffect` and
+    /// `commandText` are UI. AS-IS QUIRKS KEPT: the local <c>CanJogressCondition</c> is declared and never
+    /// used; the <paramref name="payCost"/> parameter is likewise never read (AS-IS hardcodes
+    /// <c>isPayCost: true</c> / <c>payCost: true</c> at both use sites); <paramref name="isOptional"/> is
+    /// likewise never read (AS-IS hardcodes <c>canNoSelect: true</c> on the root pick and passes
+    /// <c>canNoSelect: isOptional</c> only on the hand/trash pick).
+    /// SOLE DEVIATION: AS-IS's under-2-Digimon early exit calls <c>failedProcess()</c> UNGUARDED (an NRE when
+    /// the caller passed none — both live callers do); the mirror null-guards it rather than reproduce a crash.</summary>
     public static async Task DNADigivolvePermanentsIntoHandOrTrashCard(
         Func<CardSource, bool> canSelectDNACardCondition,
         bool payCost,
@@ -41,9 +55,157 @@ public static partial class CardEffectCommons
             return;
         }
 
-        await DNADigivolvePermanentsIntoHandOrTrashCard(
-            canSelectDNACardCondition, payCost, isHand, activateClass.EffectSourceCard,
-            permanentConditions, successProcess, ignoreSelection, failedProcess, isOptional).ConfigureAwait(false);
+        _ = payCost;
+
+        EngineContext context = activateClass.EffectSourceCard.Context;
+        Player owner = new Player(context, activateClass.EffectSourceCard.Owner);
+        CardSource dnaTarget = null;
+
+        const int DnaPermanentCount = 2;
+
+        Task SelectCardCoroutine(CardSource cardSource)
+        {
+            dnaTarget = cardSource;
+
+            return Task.CompletedTask;
+        }
+
+        // AS-IS :481-485 — declared, never referenced (kept verbatim per the no-simplification rule).
+        bool CanJogressCondition(CardSource cardSource)
+        {
+            return (canSelectDNACardCondition == null || canSelectDNACardCondition(cardSource))
+                && cardSource.CanPlayJogress(true);
+        }
+
+        if (owner.GetBattleAreaDigimons().Count < DnaPermanentCount)
+        {
+            // AS-IS :489 `StartCoroutine(failedProcess())` — null-guarded, see the summary's SOLE DEVIATION.
+            if (failedProcess != null)
+            {
+                await failedProcess().ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        int maxCount = 1;
+
+        if (ignoreSelection)
+        {
+            dnaTarget = activateClass.EffectSourceCard;
+        }
+        else if (isHand && owner.HandCards.Any(canSelectDNACardCondition))
+        {
+            SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+
+            selectHandEffect.SetUp(
+                selectPlayer: owner.PlayerId,
+                canTargetCondition: canSelectDNACardCondition,
+                canTargetCondition_ByPreSelecetedList: null,
+                canEndSelectCondition: null,
+                maxCount: maxCount,
+                canNoSelect: isOptional,
+                canEndNotMax: false,
+                isShowOpponent: true,
+                selectCardCoroutine: SelectCardCoroutine,
+                afterSelectCardCoroutine: null,
+                mode: SelectHandEffect.Mode.Custom,
+                cardEffect: activateClass);
+
+            selectHandEffect.SetUpCustomMessage("Select 1 card to DNA digivolve.", "The opponent is selecting 1 card to DNA digivolve.");
+            selectHandEffect.SetNotShowCard();
+
+            await selectHandEffect.Activate().ConfigureAwait(false);
+        }
+        else if (!isHand && owner.TrashCards.Any(canSelectDNACardCondition))
+        {
+            SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+            selectCardEffect.SetUp(
+                canTargetCondition: canSelectDNACardCondition,
+                canTargetCondition_ByPreSelecetedList: null,
+                canEndSelectCondition: null,
+                canNoSelect: () => isOptional,
+                selectCardCoroutine: SelectCardCoroutine,
+                afterSelectCardCoroutine: null,
+                message: "Select 1 card to digivolve.",
+                maxCount: maxCount,
+                canEndNotMax: false,
+                isShowOpponent: true,
+                mode: SelectCardEffect.Mode.Custom,
+                root: SelectCardEffect.Root.Trash,
+                customRootCardList: null,
+                canLookReverseCard: true,
+                selectPlayer: owner.PlayerId,
+                cardEffect: activateClass);
+
+            selectCardEffect.SetUpCustomMessage("Select 1 card to DNA digivolve.", "The opponent is selecting 1 card to DNA digivolve.");
+            selectCardEffect.SetUpCustomMessage_ShowCard("Selected Card");
+
+            await selectCardEffect.Activate().ConfigureAwait(false);
+        }
+
+        bool processSuccessful = false;
+        if (dnaTarget != null)
+        {
+            // AS-IS :551-553 `SetJogressEvoRootsController` component + :572 `photonView.RPC` = network echo (stripped).
+            int[] _jogressEvoRootsFrameIDs = new int[0];
+
+            SelectJogressEffect selectJogressEffect = GManager.instance.selectJogressEffect;
+
+            selectJogressEffect.SetUp_SelectDigivolutionRoots
+                                        (card: dnaTarget,
+                                        isLocal: true,
+                                        isPayCost: true,
+                                        canNoSelect: true,
+                                        endSelectCoroutine_SelectDigivolutionRoots: EndSelectCoroutine_SelectDigivolutionRoots,
+                                        noSelectCoroutine: null);
+
+            if (permanentConditions != null)
+                selectJogressEffect.SetUpCustomPermanentConditions(permanentConditions);
+
+            await selectJogressEffect.SelectDigivolutionRoots().ConfigureAwait(false);
+
+            Task EndSelectCoroutine_SelectDigivolutionRoots(List<Permanent> permanents)
+            {
+                if (permanents.Count == DnaPermanentCount)
+                {
+                    _jogressEvoRootsFrameIDs = permanents.Distinct().ToArray().Select(permanent => permanent.PermanentFrame.FrameID).ToArray();
+                }
+
+                return Task.CompletedTask;
+            }
+
+            // AS-IS :575-580 `WaitUntil(HasPlayerSelection)` + `DequeuePlayerSelection<PermanentSelection>()`
+            // = the network echo of the frame ids just captured locally (stripped, see the summary).
+            if (_jogressEvoRootsFrameIDs.Length == DnaPermanentCount)
+            {
+                // AS-IS :584 `ShowCardEffect(... "Played Card" ...)` = UI (stripped).
+                PlayCardClass playCard = new PlayCardClass(
+                    cardSources: new List<CardSource>() { dnaTarget },
+                    hashtable: CardEffectHashtable(activateClass),
+                    payCost: true,
+                    targetPermanent: null,
+                    isTapped: false,
+                    root: isHand ? SelectCardEffect.Root.Hand : SelectCardEffect.Root.Trash,
+                    activateETB: true);
+
+                playCard.SetJogress(_jogressEvoRootsFrameIDs);
+
+                await playCard.PlayCard().ConfigureAwait(false);
+
+                processSuccessful = IsExistOnBattleArea(dnaTarget);
+            }
+        }
+
+        if (processSuccessful && successProcess != null)
+        {
+            await successProcess(dnaTarget).ConfigureAwait(false);
+        }
+        else if (!processSuccessful && failedProcess != null)
+        {
+            await failedProcess().ConfigureAwait(false);
+        }
     }
 
     #endregion

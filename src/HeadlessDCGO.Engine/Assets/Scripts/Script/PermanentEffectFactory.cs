@@ -3,7 +3,6 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;

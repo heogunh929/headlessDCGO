@@ -42,14 +42,13 @@ public sealed class DcgoMatch
         ITraceSink? traceSink = null,
         IActionProcessor? actionProcessor = null,
         IActionLegality? actionLegality = null,
-        GameFlowProcessor? gameFlowProcessor = null,
         MatchEventLog? eventLog = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         Context = context;
         Context.AttachMatch(this);
         _traceSink = traceSink ?? new NullTraceSink();
-        _gameLoop = new HeadlessGameLoop(context, _traceSink, actionProcessor, gameFlowProcessor);
+        _gameLoop = new HeadlessGameLoop(context, _traceSink, actionProcessor);
         _actionLegality = actionLegality;
         _eventLog = eventLog; // (L4) 매치 사건 JSONL 소비자 — 초기 배치 존 이동부터 커서로 수집.
         _eventLog?.Attach(context);
@@ -134,11 +133,6 @@ public sealed class DcgoMatch
         ArgumentNullException.ThrowIfNull(config);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (IsPumpDriven)
-        {
-            config = NormalizeForPump(config);
-        }
-
         _config = config.Validate();
         _isInitialized = true;
         _isTerminal = false;
@@ -147,8 +141,7 @@ public sealed class DcgoMatch
         _eventSequence = 0;
         _gameLoop.Reset();
         ApplyRandomSeed(config.RandomSeed);
-        MatchSetupResult? setupResult = await ApplySetupAsync(_config, cancellationToken).ConfigureAwait(false);
-        Context.TurnController.Initialize(config.PlayerIds, setupResult?.FirstPlayerId);
+        await ApplyGameStartAsync(cancellationToken).ConfigureAwait(false);
         Context.MemoryController.Initialize(
             config.InitialMemory,
             config.MinimumMemory,
@@ -163,8 +156,8 @@ public sealed class DcgoMatch
                 ["randomSeed"] = config.RandomSeed,
                 ["deterministicChoices"] = config.UseDeterministicChoices,
                 ["initialMemory"] = config.InitialMemory,
-                ["setupApplied"] = setupResult is not null,
-                ["firstPlayerId"] = setupResult?.FirstPlayerId.Value
+                ["setupApplied"] = _config.Setup is not null,
+                ["firstPlayerId"] = Context.TurnController.Current.TurnPlayerId?.Value
             });
 
         _traceSink.Record(
@@ -195,8 +188,7 @@ public sealed class DcgoMatch
         _eventSequence = 0;
         _gameLoop.Reset();
         ApplyRandomSeed(_config.RandomSeed);
-        MatchSetupResult? setupResult = await ApplySetupAsync(_config, cancellationToken).ConfigureAwait(false);
-        Context.TurnController.Initialize(_config.PlayerIds, setupResult?.FirstPlayerId);
+        await ApplyGameStartAsync(cancellationToken).ConfigureAwait(false);
         Context.MemoryController.Initialize(
             _config.InitialMemory,
             _config.MinimumMemory,
@@ -207,8 +199,8 @@ public sealed class DcgoMatch
             "Match reset.",
             new Dictionary<string, object?>
             {
-                ["setupApplied"] = setupResult is not null,
-                ["firstPlayerId"] = setupResult?.FirstPlayerId.Value
+                ["setupApplied"] = _config.Setup is not null,
+                ["firstPlayerId"] = Context.TurnController.Current.TurnPlayerId?.Value
             });
         _traceSink.Record("runtime", "Match reset.");
 
@@ -645,53 +637,45 @@ public sealed class DcgoMatch
     }
 
     /// <summary>
-    /// (R4 S3c-d1) A pump-driven match OWNS the AS-IS game start — TurnStateMachine.StartGameAsync draws
-    /// the opening hands, runs the mulligan and deals security. The OLD MatchSetupFlow must therefore seed
-    /// DECKS ONLY: hand/security deals and the setup-level (N-5) mulligan are forced OFF. Deck seeding,
-    /// shuffle flags and the first-player pick are kept as configured.
+    /// Drives the AS-IS game start. <c>TurnStateMachine.Init</c> (:34-297) is the match bootstrap — it creates and
+    /// shuffles the decks (:233 CardObjectController.CreatePlayerDecks) and decides first/second (:255-283) — and
+    /// only then starts the game-state machine (:291), which runs StartGame (:341-504: opening hands, mulligan,
+    /// security). This method is that bootstrap; the TurnFlowPump is that game-state machine.
+    ///
+    /// (MatchSetup re-migration) The OLD <c>MatchSetupFlow</c> / <c>MatchSetupResult</c> / <c>ApplySetupAsync</c>
+    /// are RETIRED: the flow duplicated StartGame's hand+security deal, which is why a pump-driven match needed the
+    /// <c>NormalizeForPump</c> hack to force <c>InitialHandSize</c>/<c>InitialSecuritySize</c>/<c>EnableMulligan</c>
+    /// off and prevent a DOUBLE deal. With the deal living only in StartGameAsync there is nothing to suppress, so
+    /// the hack and the three flags are gone. The config's deck data reaches CreatePlayerDecks by registering the
+    /// <see cref="MatchConfig"/> on the context, which InitAsync reads at the seam where AS-IS reads the Photon
+    /// custom property.
     /// </summary>
-    private static MatchConfig NormalizeForPump(MatchConfig config)
+    private async Task ApplyGameStartAsync(CancellationToken cancellationToken)
     {
-        if (config.Setup is not { } setup)
-        {
-            return config;
-        }
+        // Make the platform deck data reachable by the AS-IS CreatePlayerDecks seam.
+        Context.RegisterService(_config);
 
-        return config with
-        {
-            Setup = setup with
-            {
-                InitialHandSize = 0,
-                InitialSecuritySize = 0,
-                EnableMulligan = false
-            }
-        };
-    }
-
-    private async Task<MatchSetupResult?> ApplySetupAsync(
-        MatchConfig config,
-        CancellationToken cancellationToken)
-    {
-        if (config.Setup is null)
-        {
-            return null;
-        }
-
-        MatchSetupResult result = await new MatchSetupFlow()
-            .ApplyAsync(Context, config.PlayerIds, config.Setup, cancellationToken)
+        using AmbientMatchContext.Scope scope = AmbientMatchContext.Enter(Context);
+        await Assets.Scripts.Script.CardEffectCommons.TurnStateMachine
+            .For(Context)
+            .InitAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        if (_config.Setup is null)
+        {
+            // AS-IS always carries a deck; a hand-seeded fixture supplies none, so only the seat order is known.
+            Context.TurnController.Initialize(_config.PlayerIds);
+            return;
+        }
 
         _traceSink.Record(
             "setup",
             "Match setup applied.",
             new Dictionary<string, object?>
             {
-                ["firstPlayerId"] = result.FirstPlayerId.Value,
-                ["setupTurnPlayerId"] = result.SetupTurnPlayerId.Value,
-                ["playerCount"] = result.Players.Count
+                ["firstPlayerId"] = Context.TurnController.Current.TurnPlayerId?.Value,
+                ["playerCount"] = _config.PlayerIds.Count
             });
-
-        return result;
     }
 
     private void EnsureInitialized()

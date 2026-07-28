@@ -9,7 +9,6 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using System;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public static partial class CardEffectCommons

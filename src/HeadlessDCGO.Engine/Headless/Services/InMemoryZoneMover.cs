@@ -1,7 +1,6 @@
 namespace HeadlessDCGO.Engine.Headless.Services;
 
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 
 public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessMatchStateResettable
@@ -99,25 +98,15 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         return Task.CompletedTask;
     }
 
-    // (F1-Tier1 OnAddHand) the batch/cause metadata threaded onto a ->Hand CardMoved so the OnAddHand activated
-    // bridge collapses one effect's multi-card add to a single fire (batch id) and its CanTriggerOnHandAdded gate
-    // reads the causing effect's source card (cause id, the AS-IS CardEffect). Null when neither is supplied.
+    // (sink re-migration / RDW) The former F1-Tier1 OnAddHand batch/cause stamp is RETIRED: it fed the
+    // never-built WindowResolverWiring.CollectActivatedBridgeTriggers collapse (no live reader of
+    // addHandBatchId / addHandCauseEffectId anywhere), so it was a dead write. The batch/cause params are
+    // kept on the zone-mover surface (callers still compute them) but no longer stamped — always null.
     private static Dictionary<string, object?>? BuildAddHandMetadata(long? addHandBatchId, HeadlessEntityId? causeEffectId)
     {
-        Dictionary<string, object?>? metadata = null;
-        if (addHandBatchId is long batch)
-        {
-            (metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
-                [Effects.MatchStateMutationSink.AddHandBatchIdKey] = batch;
-        }
-
-        if (causeEffectId is { IsEmpty: false } cause)
-        {
-            (metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
-                [Effects.MatchStateMutationSink.AddHandCauseEffectIdKey] = cause.Value;
-        }
-
-        return metadata;
+        _ = addHandBatchId;
+        _ = causeEffectId;
+        return null;
     }
 
     public Task AddToTrashAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default)
@@ -145,28 +134,15 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         // derives no source-zone discard timing, exactly as before.
         ChoiceZone fromZone = FindZoneOf(playerId, cardId) ?? ChoiceZone.None;
 
-        Dictionary<string, object?>? metadata = null;
-        if (discardBatchId is long batch)
-        {
-            (metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
-                [Effects.MatchStateMutationSink.DiscardBatchIdKey] = batch;
-        }
+        // (sink re-migration / RDW) The discard batch/cause + reveal-trash stamps are RETIRED — all three keys
+        // (discardBatchId / discardCauseEffectId / revealTrash) had no live reader (the OnDiscard* activated-bridge
+        // collapse consumer was never built, and the reveal-suppression gate reads the SEPARATE, still-unported
+        // "isBeingRevealed" flag — design item RD-P6C3-A2 — not "revealTrash"). Params kept, no longer stamped.
+        _ = discardBatchId;
+        _ = causeEffectId;
+        _ = isRevealTrash;
 
-        if (causeEffectId is { IsEmpty: false } cause)
-        {
-            (metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
-                [Effects.MatchStateMutationSink.DiscardCauseEffectIdKey] = cause.Value;
-        }
-
-        // (F1 reveal-remainder) mirror the AS-IS IsBeingRevealed=true at the trash moment so the
-        // OnDiscardLibrary gate (CanTriggerWhenDiscardLibrary) filters this discard out (WhenDiscardLibrary.cs:23-26).
-        if (isRevealTrash)
-        {
-            (metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
-                [Effects.MatchStateMutationSink.RevealTrashFlagKey] = true;
-        }
-
-        MoveCard(new ZoneMoveRequest(playerId, cardId, fromZone, ChoiceZone.Trash, Metadata: metadata));
+        MoveCard(new ZoneMoveRequest(playerId, cardId, fromZone, ChoiceZone.Trash, Metadata: null));
         return Task.CompletedTask;
     }
 
@@ -194,20 +170,13 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         return Task.CompletedTask;
     }
 
-    // (F1-Tier1 OnAddSecurity P2-1) the shared-counter per-card add-security id threaded onto a ->Security
-    // CardMoved so the OnAddSecurity activated bridge sequences co-drained per-card triggers in ascending add
-    // order. Null (a context-less bare add) leaves the move unstamped (the bridge reader falls back to Sequence).
+    // (sink re-migration / RDW) The F1-Tier1 OnAddSecurity per-card add id stamp is RETIRED — addSecurityBatchId
+    // had no live reader (the OnAddSecurity activated-bridge sequencing consumer was never built). Param kept on
+    // the surface (callers still compute it) but no longer stamped — always null.
     private static Dictionary<string, object?>? BuildAddSecurityMetadata(long? addSecurityBatchId)
     {
-        if (addSecurityBatchId is not long batch)
-        {
-            return null;
-        }
-
-        return new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [Effects.MatchStateMutationSink.AddSecurityBatchIdKey] = batch,
-        };
+        _ = addSecurityBatchId;
+        return null;
     }
 
     public Task MoveToDeckTopAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default)
@@ -292,31 +261,17 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         List<HeadlessEntityId> trash = GetZone(playerId, ChoiceZone.Trash);
         List<HeadlessEntityId> trashedCards = new();
 
-        // (F1-M1 P1-1) all N cards of this ONE IDestroySecurity/IReduceSecurity call share ONE security-loss
-        // batch id (AS-IS: one StackSkillInfos(OnLoseSecurity) broadcast for the whole trash), so the activated
-        // bridge collapses the N CardMoved events to a single OnLoseSecurity fire per reactor. (F1-Tier1) the same
-        // move ALSO derives OnDiscardSecurity (Security->Trash), whose collapse reuses this security-loss id and
-        // whose CardEffect!=null gate reads the CAUSE effect id stamped here — a non-effect security loss (attack
-        // security-CHECK reveal, a bare zone move with neither id) fails that gate, matching AS-IS's IDestroySecurity-
-        // only OnDiscardSecurity emit.
-        Dictionary<string, object?>? moveMetadata = null;
-        if (securityLossBatchId is long batch)
-        {
-            (moveMetadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
-                [Effects.MatchStateMutationSink.SecurityLossBatchIdKey] = batch;
-        }
-
-        if (causeEffectId is { IsEmpty: false } cause)
-        {
-            (moveMetadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
-                [Effects.MatchStateMutationSink.DiscardCauseEffectIdKey] = cause.Value;
-        }
+        // (sink re-migration / RDW) The F1-M1 security-loss batch id + cause stamp is RETIRED — both keys
+        // (securityLossBatchId / discardCauseEffectId) had no live reader (the OnLoseSecurity / OnDiscardSecurity
+        // activated-bridge collapse consumer was never built). Params kept, no longer stamped.
+        _ = securityLossBatchId;
+        _ = causeEffectId;
 
         for (int index = 0; index < count && security.Count > 0; index++)
         {
             int securityIndex = fromTop ? 0 : security.Count - 1;
             HeadlessEntityId cardId = security[securityIndex];
-            MoveCard(new ZoneMoveRequest(playerId, cardId, ChoiceZone.Security, ChoiceZone.Trash, Metadata: moveMetadata));
+            MoveCard(new ZoneMoveRequest(playerId, cardId, ChoiceZone.Security, ChoiceZone.Trash, Metadata: null));
             trashedCards.Add(cardId);
         }
 

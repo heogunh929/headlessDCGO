@@ -9,7 +9,6 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEff
 
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -108,14 +107,14 @@ public sealed class MindLinkClass
         // (B-3 tuck reset) the tucked Tamer AND its carried sources reset their per-turn use counts — AS-IS
         // RemoveField Init()-resets the WHOLE leaving stack (CardObjectController.cs:546-553) before the tuck
         // (PlacePermanentToDigivolutionCards, CardController.cs:3093).
-        await DigivolutionStackHelpers.AddSourcesBottomAsync(
+        await Permanent.AddSourcesBottomAsync(
             _context.CardInstanceRepository, _context.ZoneMover, selectedDigimonId, new[] { tamerId },
             ChoiceZone.BattleArea, cancellationToken, context: _context,
             // (F1-Tier2 OnAddDigivolutionCards) MindLink places the Tamer under a Digimon via
             // IPlacePermanentToDigivolutionCards -> AddDigivolutionCardsBottom (skip=false), so it fires. AS-IS cause is
             // the MindLink activateClass's source; MindLink is the Tamer's own effect, so tamerId is that source.
             gameEventQueue: _context.GameEventQueue, causeSourceId: tamerId).ConfigureAwait(false);
-        DigivolutionStackHelpers.MoveSourcesBottom(
+        Permanent.MoveSourcesBottom(
             _context.CardInstanceRepository, tamerId, selectedDigimonId, int.MaxValue, context: _context);
         // (③-B) The registry drop of the tucked Tamer's bindings is RETIRED — the EffectRegistry producer is 0, so
         // it was a dead write; the live continuous scan is over on-field permanents, and the tucked Tamer is now a

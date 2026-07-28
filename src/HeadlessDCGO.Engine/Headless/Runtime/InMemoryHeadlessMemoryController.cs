@@ -1,6 +1,15 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
-// TODO: Replace this clamp-only tracker with real memory handoff and cost handling.
+// Memory state tracker. Clamp [-10,10] mirrors AS-IS MemoryObject.cs:141-148. Cost handling is live
+// (CanPay/Pay, consumed by DigivolveAction/PlayCardAction). Turn handoff is the external
+// unconditional negation Set(-Current) at TurnFlowPump.cs:323.
+// Sign model: this is a handoff-negation SINGLE-value model (Current is always the CURRENT turn player's
+// memory; the flip is TurnFlowPump:323). AS-IS Player.MaxMemoryCost (Player.cs:1127) is a PlayerID-absolute
+// model (Abs(10-M)/Abs(-10-M)). These are EQUIVALENT: Player.MemoryForPlayer applies the turn-relative sign
+// (TurnPlayerId==PlayerId ? Current : -Current), so MemoryForPlayer(P0)=-M / (P1)=+M and
+// MaxMemoryCost=|MemoryForPlayer+10| reproduces BOTH AS-IS branches for BOTH players at every step (verified
+// by stepwise trace 2026-07-24). CanPay's `cost <= Current+10` is the turn player's |MemoryForPlayer+10|;
+// non-turn-player affordability is read via Player.MaxMemoryCost, which covers both seats.
 public sealed class InMemoryHeadlessMemoryController : IHeadlessMemoryController
 {
     private int _minimum = -10;

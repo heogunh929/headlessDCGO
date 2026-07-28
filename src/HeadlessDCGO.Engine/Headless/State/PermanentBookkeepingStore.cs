@@ -12,7 +12,7 @@
 //              (a re-played card must NOT see the bookkeeping of its previous life);
 //  * PERSIST — the AS-IS object survives a top swap (digivolve: the executor's AddCardSource / the digivolve
 //              action; de-digivolve/ArmorPurge: the under-card promote) = ReKey(oldTop, newTop) at the ops that
-//              own a top swap (DigivolveAction.AttachTargetAsSource callers / DeDigivolveHelpers' promotes);
+//              own a top swap (the digivolve AttachTargetAsSource callers / ArmorPurgeTopAsync promotes);
 //  * DIE     — the permanent leaves the field (the AS-IS object is dropped) = Reset(topId) as the top card
 //              LEAVES a field zone.
 //

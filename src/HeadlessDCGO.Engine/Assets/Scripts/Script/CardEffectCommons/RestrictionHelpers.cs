@@ -1,9 +1,17 @@
+// ============================================================================
+// ⛔ DELETION-TARGET · DO-NOT-REFERENCE
+// 원장(docs/audit/filelist/merged_files_no_cards.csv): 삭제대상여부=Y · 결함여부=Y
+// 분류: 미러발명(AS-IS 무대응)
+// 미러 원가(재이관 대상): (미확정)
+// 이 파일은 AS-IS 원본에 동일-경로 대응이 없는 오배치/발명 코드다.
+// 규칙 로직은 위 미러 원가로 재이관 후 이 파일은 삭제 예정.
+// 서브에이전트/포팅 작업 시: 이 파일의 심볼을 참조·모방·확장하지 말 것.
+// ============================================================================
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using System.Collections.ObjectModel;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
-using HeadlessDCGO.Engine.Headless.Effects;
 
 public enum CannotRestrictionKind
 {
@@ -308,8 +316,7 @@ public static class RestrictionHelpers
     public static IReadOnlyList<CannotRestriction> ReadRestrictions(
         CardRecord? card = null,
         CardInstanceRecord? instance = null,
-        CardInstanceState? state = null,
-        IEnumerable<EffectRequest>? effectRequests = null)
+        CardInstanceState? state = null)
     {
         var restrictions = new List<CannotRestriction>();
         if (card is not null)
@@ -326,14 +333,6 @@ public static class RestrictionHelpers
         {
             restrictions.AddRange(ReadRestrictionsFromValues(state.Modifiers));
             restrictions.AddRange(ReadRestrictionsFromFlags(state.Flags));
-        }
-
-        if (effectRequests is not null)
-        {
-            foreach (EffectRequest request in effectRequests)
-            {
-                restrictions.AddRange(ReadRestrictionsFromValues(request.Context.Values, request.EffectId));
-            }
         }
 
         return restrictions

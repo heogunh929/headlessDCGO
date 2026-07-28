@@ -24,6 +24,7 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.PlayerSelection;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -83,11 +84,16 @@ public sealed class SelectCountEffect
     // (PlayCardClass.SelectCost, CardController.cs:534-566): the full SetUp overload + SetCandidates/
     // SetPreferMin/SetIsDigivolutionCost + the driving Activate coroutine (AS-IS SelectCountEffect.cs:11-186,
     // IEnumerator→Task). Substrate translations only, per the W4 Select* convention (SelectPermanentEffect):
-    // Player→HeadlessPlayerId, Func<int,IEnumerator>→Func<int,Task>, the Photon RPC/command-panel/AI/auto-min
-    // presentation branches (:113-160) collapse into ONE ChoiceProvider request (the provider is the decider;
-    // preferMin/isDigivolutionCost are kept as state exactly as AS-IS stores them), the target-permanent
-    // orange-outline block (:64-75/:176-183) is UI (stripped). The pre-existing deterministic members above
-    // (BuildRequest/ReadSelectedCount, MIG7) stay for their consumers.
+    // Player→HeadlessPlayerId, Func<int,IEnumerator>→Func<int,Task>, the target-permanent orange-outline block
+    // (:64-75/:176-183) is UI (stripped). The pre-existing deterministic members above (BuildRequest/
+    // ReadSelectedCount, MIG7) stay for their consumers.
+    //
+    // (isAI restore) The AS-IS three-way presentation split at :113-160 — owner + autoMaxCardCount/
+    // autoMinDigivolutionCost shortcut / owner + command panel / opponent + IsAI / opponent + banner — is now
+    // mirrored branch-for-branch, with SetCount (:185) ported too. Only the panel/banner ARMS are stripped as
+    // UI: their delivery is the ChoiceProvider request standing in for the AS-IS :163 WaitUntil. Both
+    // `Player.isYou` and `GManager.IsAI` are false headless, so the live path is always the opponent + banner
+    // arm ⇒ the provider request, exactly as before this restore.
     // ================================================================================================
 
     private EngineContext? _context;
@@ -147,9 +153,10 @@ public sealed class SelectCountEffect
     /// <summary>(P6C1) AS-IS <c>Activate</c> (SelectCountEffect.cs:60-186), IEnumerator→Task. Candidate
     /// construction is verbatim (:77-104): 0..MaxCount skipping 0 unless CanNoSelect, replaced wholesale by
     /// SetCandidates when given, then Distinct+ascending. A single candidate auto-resolves (:107-111, the AS-IS
-    /// direct SetCount). Multiple candidates ask the match ChoiceProvider (the AS-IS :113-160 owner-UI /
-    /// auto-min / AI presentation split all funnel into the same ValueSelection — headless-side the provider IS
-    /// that decider). Then <c>_selectedCount</c> is stored and the AS-IS SelectCountCoroutine continuation runs
+    /// direct SetCount). Multiple candidates run the AS-IS three-way isYou/IsAI split (:113-160) verbatim; the
+    /// two arms that AS-IS leaves to a person (the owner command panel, the opponent banner) queue nothing, so
+    /// the ChoiceProvider request standing in for the AS-IS :163 WaitUntil supplies the value. Then
+    /// <c>_selectedCount</c> is dequeued (:165-166) and the AS-IS SelectCountCoroutine continuation runs
     /// (:170-173).</summary>
     public async Task Activate()
     {
@@ -190,22 +197,78 @@ public sealed class SelectCountEffect
 
             if (candidates.Count >= 1)
             {
+                EngineContext context = _context
+                    ?? HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Current
+                    ?? throw new InvalidOperationException(
+                        "SelectCountEffect.Activate needs a live match context — resolve the component " +
+                        "through GManager.GetComponent<SelectCountEffect>() or call inside a match scope.");
+
+                // SUBSTRATE: the restored branches read the process-global `GManager.instance` (IsAI, the
+                // GetPlayerFromID inside SetCount) the way AS-IS does; the mirror resolves that from
+                // AmbientMatchContext, so scope the match for the rest of the method (a caller already in the
+                // same scope re-enters harmlessly) — the CardSource.GetPayingCostWithBaseCost idiom.
+                using HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Scope _matchScope =
+                    HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context);
+
+                // AS-IS `_selectPlayer` is a `Player`; the mirror stores the seat id (the Select* convention), so
+                // the AS-IS `_selectPlayer.isYou` / `.HasPlayerSelection()` / `.DequeuePlayerSelection<>()` member
+                // reads go through the Player view of that seat (the established `new Player(Context, id)` idiom).
+                Player selectPlayer = new Player(context, _selectPlayer);
+
                 if (candidates.Count == 1)
                 {
-                    // AS-IS :107-111 SetCount(_selectPlayer.PlayerID, candidates[0]) — direct resolution.
-                    _selectedCount = candidates[0];
+                    // AS-IS :107-111.
+                    SetCount(_selectPlayer, candidates[0]);
                 }
+
                 else
                 {
-                    // AS-IS :113-160: the owner command-panel buttons / autoMin(autoMax) shortcut / AI branch —
-                    // one labelled count pick; _preferMin/_isDigivolutionCost stay available to policy
-                    // providers as AS-IS stores them.
-                    EngineContext context = _context
-                        ?? HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Current
-                        ?? throw new InvalidOperationException(
-                            "SelectCountEffect.Activate needs a live match context — resolve the component " +
-                            "through GManager.GetComponent<SelectCountEffect>() or call inside a match scope.");
+                    if (selectPlayer.isYou)
+                    {
+                        if ((!_isDigivolutionCost && ContinuousController.instance!.autoMaxCardCount && !_preferMin)
+                        || (_isDigivolutionCost && ContinuousController.instance!.autoMinDigivolutionCost && _preferMin))
+                        {
+                            int preferedNumber = _preferMin ? candidates.Min() : candidates.Max();
+                            // AS-IS :123 `photonView.RPC("SetCount", RpcTarget.All, _selectPlayer.PlayerID,
+                            // preferedNumber)` — Photon dispatch translated to the direct call, same arguments.
+                            SetCount(_selectPlayer, preferedNumber);
+                        }
 
+                        else
+                        {
+                            // AS-IS :127-145: commandText.OpenCommandText(_messageForOwner) + one
+                            // Command_SelectCommand button per candidate, each firing the same SetCount RPC =
+                            // UI (stripped) — the pick arrives through the ChoiceProvider request below, which
+                            // stands in for the AS-IS :163 WaitUntil.
+                        }
+                    }
+
+                    else
+                    {
+                        #region AIモード
+                        if (GManager.instance!.IsAI)
+                        {
+                            int preferedNumber = _preferMin ? candidates.Min() : candidates.Max();
+                            SetCount(_selectPlayer, preferedNumber);
+                        }
+                        #endregion
+
+                        else
+                        {
+                            // AS-IS :156-159 commandText.OpenCommandText(_messageForEnemy) — the opponent's
+                            // waiting banner = UI (stripped).
+                        }
+                    }
+                }
+
+                // AS-IS :163 `yield return new WaitUntil(() => _selectPlayer.HasPlayerSelection());` — the AS-IS
+                // coroutine blocks until a ValueSelection is queued by one of the branches above. The mirror's
+                // ChoiceProvider request IS that delivery (the W4 Select* convention), so it is issued exactly
+                // when no branch already queued one, i.e. on the two AS-IS arms that wait for a person (the owner
+                // command panel :127-145 and the opponent banner :156-159). _preferMin/_isDigivolutionCost stay
+                // available to policy providers as AS-IS stores them.
+                if (!selectPlayer.HasPlayerSelection())
+                {
                     ChoiceRequest request = EffectChoiceHelpers.CreateCountRequest(
                         _selectPlayer,
                         string.IsNullOrEmpty(_messageForOwner) ? _message : _messageForOwner,
@@ -216,8 +279,18 @@ public sealed class SelectCountEffect
 
                     ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
 
-                    // AS-IS :165-166 `_selectedCount = valueSelection != null ? valueSelection.ValueAsInt() : 0`.
-                    _selectedCount = result.SelectedCount ?? 0;
+                    SetCount(_selectPlayer, result.SelectedCount ?? 0);
+                }
+
+                // AS-IS :165-166 `_selectedCount = valueSelection != null ? valueSelection.ValueAsInt() : 0`.
+                // The HasPlayerSelection guard has no AS-IS counterpart: AS-IS's WaitUntil cannot fall through
+                // with an empty queue, whereas headless SetCount's AS-IS null-seat early return (or a skipped
+                // provider result) can leave it empty — the guard keeps the AS-IS "absent selection ⇒ 0" answer
+                // instead of throwing on an empty dequeue.
+                if (selectPlayer.HasPlayerSelection())
+                {
+                    ValueSelection? valueSelection = selectPlayer.DequeuePlayerSelection<ValueSelection>();
+                    _selectedCount = valueSelection != null ? valueSelection.ValueAsInt() : 0;
                 }
 
                 // AS-IS :167-168 commandText close = UI (stripped).
@@ -230,6 +303,26 @@ public sealed class SelectCountEffect
 
             // AS-IS :176-183 outline restore = UI (stripped).
         }
+    }
+
+    /// <summary>(isAI restore) AS-IS <c>[PunRPC] public void SetCount(int playerID, int selectedCount)</c>
+    /// (SelectCountEffect.cs:185-196): look the seat up and queue a <see cref="ValueSelection"/> on it, which is
+    /// what the <c>Activate</c> WaitUntil above consumes. Body ported 1:1 (the AS-IS null-seat early return
+    /// included). SUBSTRATE: the first parameter carries the mirror's seat-identity type — AS-IS callers pass the
+    /// int <c>Player.PlayerID</c> (Player.cs:738) and the mirror has no int seat index (see
+    /// <c>GManager.GetPlayerFromID</c>); the parameter name, order and count are unchanged. <c>[PunRPC]</c> is
+    /// Photon substrate (stripped) — AS-IS's own <c>photonView.RPC("SetCount", …)</c> dispatch is translated to a
+    /// direct call with the same arguments.</summary>
+    public void SetCount(HeadlessPlayerId playerID, int selectedCount)
+    {
+        Player? selectionPlayer = GManager.instance!.GetPlayerFromID(playerID);
+
+        if (selectionPlayer == null)
+        {
+            return;
+        }
+
+        selectionPlayer.QueuePlayerSelection(new ValueSelection(selectedCount));
     }
 
     /// <summary>(P6C1) AS-IS <c>_selectedCount</c> read (the count Activate resolved).</summary>

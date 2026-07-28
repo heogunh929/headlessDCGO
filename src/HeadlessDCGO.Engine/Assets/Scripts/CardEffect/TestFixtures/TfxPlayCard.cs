@@ -13,11 +13,11 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class TfxPlayCard : CEntity_Effect
@@ -48,21 +48,18 @@ public sealed class TfxPlayCard : CEntity_Effect
                     }
 
                     EngineContext context = card.Context;
-                    // AS-IS play routes through PlayCardClass.PlayCard() via the PlayCardKind sink handler
-                    // (MatchStateMutationSink.ApplyPlayCard). Cost-free play of the pre-selected top-library card.
-                    var sink = new MatchStateMutationSink(
-                        context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
-                        context.GameEventQueue, context: context);
-                    sink.Apply(new EffectMutation(
-                        MatchStateMutationSink.PlayCardKind,
-                        card.InstanceId,
-                        new Dictionary<string, object?>(StringComparer.Ordinal)
-                        {
-                            [MatchStateMutationSink.TargetEntityIdKey] = targetCardId.Value,
-                            [MatchStateMutationSink.FromZoneKey] = ChoiceZone.Library.ToString(),
-                        }));
-
-                    await sink.FlushAsync();
+                    // (RDW re-migration off the retired MatchStateMutationSink) AS-IS cost-free play of the pre-
+                    // selected top-library card via the direct `new PlayCardClass(...).PlayCard()` mirror (the same
+                    // call the sink's PlayCardKind handler wrapped): payCost:false, root:Library, cause = the driving
+                    // ActivateClass threaded through CardEffectHashtable, activateETB:true (ETB effects fire on play).
+                    await new PlayCardClass(
+                        cardSources: new List<CardSource> { new CardSource(context, targetCardId, card.Owner, card.Owner) },
+                        hashtable: CardEffectCommons.CardEffectHashtable(activateClass),
+                        payCost: false,
+                        targetPermanent: null,
+                        isTapped: false,
+                        root: SelectCardEffect.Root.Library,
+                        activateETB: true).PlayCard();
                 }
             }
         }

@@ -160,11 +160,6 @@ public sealed class HeadlessSmokeSuite(
                 Expectation: HeadlessSmokeScenarios.ResolveSeededCardChoiceExpectation(),
                 EnvironmentOptions: playerOnePerspective),
             new HeadlessSmokeSuiteCase(
-                Name: "enqueue-and-resolve-effect",
-                Scenario: HeadlessSmokeScenarios.EnqueueAndResolveEffect(),
-                Expectation: HeadlessSmokeScenarios.EnqueueAndResolveEffectExpectation(),
-                EnvironmentOptions: playerOnePerspective),
-            new HeadlessSmokeSuiteCase(
                 Name: "advance-phase-to-draw",
                 Scenario: HeadlessSmokeScenarios.AdvancePhaseToDraw(),
                 Expectation: HeadlessSmokeScenarios.AdvancePhaseToDrawExpectation(),

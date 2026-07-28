@@ -52,11 +52,6 @@ public sealed record PlayerState
             : Array.Empty<HeadlessEntityId>();
     }
 
-    public ZoneState GetZoneState(ChoiceZone zone)
-    {
-        return ZoneState.Create(zone, GetZone(zone));
-    }
-
     public PlayerState SetMemory(int memory)
     {
         return this with { Memory = memory };
@@ -81,12 +76,6 @@ public sealed record PlayerState
         Dictionary<ChoiceZone, IReadOnlyList<HeadlessEntityId>> zones = MutableZones();
         zones[zone] = Array.AsReadOnly(cardIds.ToArray());
         return this with { Zones = zones };
-    }
-
-    public PlayerState WithZone(ZoneState zoneState)
-    {
-        ArgumentNullException.ThrowIfNull(zoneState);
-        return WithZone(zoneState.Id.Value, zoneState.CardIds);
     }
 
     public PlayerState RemoveFromZone(ChoiceZone zone, HeadlessEntityId cardId)
@@ -137,14 +126,27 @@ public sealed record PlayerState
             .OrderBy(pair => pair.Key.ToString(), StringComparer.Ordinal)
             .Select(pair =>
             {
-                ZoneStateView view = ZoneState
-                    .Create(pair.Key, pair.Value)
-                    .ToView(isOwner, revealAll);
+                ChoiceZone zone = pair.Key;
+                IReadOnlyList<HeadlessEntityId> cardIds = pair.Value;
+
+                // AS-IS face-down convention (Player.cs / SecurityObject render): the deck (Library), Hand,
+                // Security, and DigiEgg deck (DigitamaLibrary) are face-down by default; the deck / security /
+                // digitama stacks stay secret even from their OWNER (only the Hand is visible to its owner).
+                bool defaultHidden = zone is ChoiceZone.Library
+                    or ChoiceZone.Hand
+                    or ChoiceZone.Security
+                    or ChoiceZone.DigitamaLibrary;
+                bool secretFromOwner = zone is ChoiceZone.Library
+                    or ChoiceZone.Security
+                    or ChoiceZone.DigitamaLibrary;
+                bool ownerCanSee = isOwner && !secretFromOwner;
+                bool isHidden = !revealAll && defaultHidden && !ownerCanSee;
+
                 return new PlayerZoneView(
-                    view.Id.Value,
-                    view.Count,
-                    view.CardIds,
-                    view.IsHidden);
+                    zone,
+                    cardIds.Count,
+                    isHidden ? Array.Empty<HeadlessEntityId>() : cardIds,
+                    isHidden);
             })
             .ToArray();
 

@@ -1,8 +1,8 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+using HeadlessDCGO.Engine.Assets.Scripts.Script.PlayerSelection;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -36,6 +36,75 @@ public sealed class Player
     public EngineContext Context { get; }
 
     public HeadlessPlayerId PlayerId { get; }
+
+    // (design item PLAYER-EQUALITY) AS-IS `Player : MonoBehaviour` (Player.cs:12) is a per-seat SINGLETON
+    // (GameContext.You / GameContext.Opponent, GameContext.cs:63-64; PlayerFromID returns one of those two,
+    // :147-160), so every AS-IS `==`/`!=`/`Contains`/`Equals` on Player is reference identity ≡ SEAT identity
+    // (GameContext.NonTurnPlayer :82-99 and SwitchTurnPlayer :166-181 are both built on `player != TurnPlayer`).
+    // The mirror Player is a lightweight VIEW reconstructed on every access (GameContext.TurnPlayer /
+    // NonTurnPlayer / Players allocate a fresh instance per get), so without value equality every such
+    // comparison is reference-unequal and silently always-false. Identity = the SEAT (PlayerId) within the same
+    // match (Context) — the same idiom as the sibling view CardSource (CardSource.cs:55-63).
+    public override bool Equals(object? obj) =>
+        obj is Player other && PlayerId.Equals(other.PlayerId) && ReferenceEquals(Context, other.Context);
+
+    public override int GetHashCode() => PlayerId.GetHashCode();
+
+    public static bool operator ==(Player? left, Player? right) =>
+        left is null ? right is null : left.Equals(right);
+
+    public static bool operator !=(Player? left, Player? right) => !(left == right);
+
+    #region Selection Queue
+
+    // (isAI restore) AS-IS Player.cs:192-215 `#region Selection Queue`, ported 1:1 so the AS-IS selection
+    // transport (`Set*ForPlayer` / `SelectCountEffect.SetCount` -> QueuePlayerSelection -> the coroutine's
+    // WaitUntil(HasPlayerSelection) + DequeuePlayerSelection<T>) reads verbatim in the mirror.
+    // SUBSTRATE: AS-IS the queue is a plain instance field on the persistent `Player` MonoBehaviour
+    // (Player.cs:193); the mirror Player is a transient per-access view, so the live queue is held per
+    // (EngineContext, PlayerId) by PlayerSelectionQueueStore — the same pattern as the sibling
+    // PlayerEffectListStore in this file.
+
+    Queue<IPlayerSelection> _playerSelectionQueue => PlayerSelectionQueueStore.Get(Context, PlayerId);
+
+    /// <summary>AS-IS <c>Player.QueuePlayerSelection(IPlayerSelection)</c> (Player.cs:195-198).</summary>
+    public void QueuePlayerSelection(IPlayerSelection selection)
+    {
+        _playerSelectionQueue.Enqueue(selection);
+    }
+
+    /// <summary>AS-IS <c>Player.DequeuePlayerSelection&lt;T&gt;()</c> (Player.cs:200-210): dequeues one entry and
+    /// returns null when it is not a <typeparamref name="T"/> (AS-IS logs a warning there — Debug.LogWarning is
+    /// Unity logging, stripped).</summary>
+    public T? DequeuePlayerSelection<T>() where T : class, IPlayerSelection
+    {
+        IPlayerSelection playerSelection = _playerSelectionQueue.Dequeue();
+        if (playerSelection is not T)
+        {
+            return null;
+        }
+
+        return playerSelection as T;
+    }
+
+    /// <summary>AS-IS <c>Player.HasPlayerSelection()</c> (Player.cs:212-215).</summary>
+    public bool HasPlayerSelection()
+    {
+        return _playerSelectionQueue.Count > 0;
+    }
+
+    #endregion
+
+    #region このプレイヤーがあなたかどうか
+
+    /// <summary>(isAI restore) AS-IS <c>[Header("このプレイヤーがあなたかどうか")] public bool isYou;</c>
+    /// (Player.cs:527-529) — "is this player YOU", a PLAIN field the original never computes: it is assigned by
+    /// the Unity match setup on the local client's seat. Nothing headless assigns it, so it stays false for both
+    /// seats, which is the intended state (the mirror has no local-client seat). It is mirrored as a plain field
+    /// so the AS-IS `isYou` branches read verbatim.</summary>
+    public bool isYou;
+
+    #endregion
 
     /// <summary>(MIG5) AS-IS <c>Player.Enemy</c> (Player.cs:742-768): the OTHER seated player, or null when THIS
     /// player is not seated or no other seat exists (AS-IS's own null fallthrough). Reads the seat order —
@@ -469,8 +538,8 @@ public sealed class Player
     /// AS-IS-literal <c>ICannotAddSecurityEffect</c> LIVE scan over <c>Players_ForTurnPlayer</c>'s field permanents'
     /// + own player-scope <c>EffectList(None)</c>, <c>CanUse(null)</c>-gated, calling
     /// <c>cannotAddSecurity(this = the gaining player, cardEffect)</c>. The AS-IS <c>IsSecurityLooking</c> guard
-    /// (:1471) has no live headless reader (pre-existing design item MIG3-SECURITYLOOKING); it is delegated to
-    /// <see cref="Assets.Scripts.Script.SecurityRuleGateSeam.CanAddSecurity"/> as before (stubbed true). The
+    /// (:1471) is delegated to <see cref="Assets.Scripts.Script.SecurityRuleGateSeam.CanAddSecurity"/>, which since
+    /// fidelity defect C reads the live <see cref="GameContext.IsSecurityLooking"/> carrier (was stubbed true). The
     /// causing effect is reconstructed from <paramref name="causeEffectSourceId"/> (the CardEffectCondition reads
     /// only its source card). Was a bare stub with no restriction scan; the factory now produces the kind-class
     /// <c>CannotAddSecurityClass</c> (no ToBinding) so this live scan is the sole reader.</summary>
@@ -509,9 +578,11 @@ public sealed class Player
         return true;
     }
 
-    /// <summary>(MIG5) AS-IS <c>Player.CanReduceSecurity()</c> (Player.cs:1521-1529): delegates to the mirror
-    /// <see cref="Assets.Scripts.Script.SecurityRuleGateSeam.CanReduceSecurity"/> (stubbed true, pre-existing
-    /// design item MIG3-CANREDUCESECURITY).</summary>
+    /// <summary>(MIG5; fidelity defect C) AS-IS <c>Player.CanReduceSecurity()</c> (Player.cs:1521-1529) — the WHOLE
+    /// AS-IS body is <c>if (gameContext.IsSecurityLooking) return false; return true;</c> (AS-IS has no
+    /// <c>ICannotReduceSecurityEffect</c>), hosted in the mirror
+    /// <see cref="Assets.Scripts.Script.SecurityRuleGateSeam.CanReduceSecurity"/> (was stubbed true; now the real
+    /// guard — design item MIG3-CANREDUCESECURITY retired).</summary>
     public bool CanReduceSecurity() =>
         Assets.Scripts.Script.SecurityRuleGateSeam.CanReduceSecurity(Context, PlayerId);
 
@@ -956,6 +1027,25 @@ internal static class PlayerEffectListStore
     {
         ArgumentNullException.ThrowIfNull(context);
         return ByContext.GetOrCreateValue(context).GetOrAdd(playerId, static _ => new PlayerEffectLists());
+    }
+}
+
+/// <summary>(isAI restore) Match-scoped backing for the AS-IS <see cref="Player"/> selection queue
+/// (<c>Queue&lt;IPlayerSelection&gt; _playerSelectionQueue</c>, Player.cs:193 — a plain instance field on the
+/// persistent AS-IS Player). The mirror Player is a transient view, so the live queue lives here keyed by
+/// (EngineContext, PlayerId) — the same substrate pattern as <see cref="PlayerEffectListStore"/> above. Each
+/// seat's queue is created lazily and empty, matching the AS-IS field initialiser.</summary>
+internal static class PlayerSelectionQueueStore
+{
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<
+        EngineContext,
+        System.Collections.Concurrent.ConcurrentDictionary<HeadlessPlayerId, Queue<PlayerSelection.IPlayerSelection>>> ByContext = new();
+
+    public static Queue<PlayerSelection.IPlayerSelection> Get(EngineContext context, HeadlessPlayerId playerId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return ByContext.GetOrCreateValue(context)
+            .GetOrAdd(playerId, static _ => new Queue<PlayerSelection.IPlayerSelection>());
     }
 }
 

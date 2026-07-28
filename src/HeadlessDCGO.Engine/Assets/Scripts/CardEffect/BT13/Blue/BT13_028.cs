@@ -34,7 +34,6 @@ using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -332,16 +331,7 @@ public sealed class BT13_028 : CEntity_Effect
                             // (IsExistOnBattleArea || IsExistOnBreedingAreaDigimon); these were selected FROM the
                             // trash (Root.Trash), so the on-field filter removes them all — a structural no-op here,
                             // but wired 1:1 (a field card in the return list would take the penalty).
-                            List<CardSource> overflowCards = cardSources.FindAll(cs =>
-                                CardEffectCommons.IsExistOnBattleArea(cs) || CardEffectCommons.IsExistOnBreedingAreaDigimon(cs));
-                            if (overflowCards.Count > 0)
-                            {
-                                DeletionSourceTrash.ApplyAceOverflow(
-                                    card.Context.CardInstanceRepository,
-                                    overflowCards.ConvertAll(cs => cs.InstanceId),
-                                    card.Context.MemoryController,
-                                    card.Context.TurnController.Current.TurnPlayerId);
-                            }
+                            await new AceOverflowClass(cardSources).Overflow();
 
                             // AS-IS AddLibraryBottomCards(:867-874) opens the trash-return window (isFromTrash always
                             // true here) BEFORE the physical move — the explicit

@@ -5,7 +5,6 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // (P4 ACTIVATED t
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -452,7 +451,7 @@ public static partial class CardEffectFactory
     /// kind-class <see cref="CardEffects.ImmuneFromDeDigivolveClass"/> (an <c>IImmuneFromDeDigivolveEffect</c>, no
     /// <c>ToBinding</c>) at <see cref="EffectTiming.None"/>; the LIVE consumer is the AS-IS-literal getter
     /// <c>Permanent.ImmuneFromDeDigivolve()</c> (scans every field permanent's <c>EffectList(None)</c> for a usable
-    /// <c>IImmuneFromDeDigivolveEffect</c>) reached uniformly through <c>DeDigivolveHelpers.IsDeDigivolveImmune</c>
+    /// <c>IImmuneFromDeDigivolveEffect</c>) reached uniformly through <c>Permanent.ImmuneFromDeDigivolve</c>
     /// (CardController / ActivatedEffects / the mutation sink). AS-IS construction idiom mirrored (EX8_043):
     /// SetUpICardEffect + SetUpImmuneFromDeDigivolveClass(PermanentCondition) — the class declares no ToBinding, so
     /// nothing registers the old <c>CannotBeDeDigivolvedKey</c> binding (registry production stops here).</summary>
@@ -1553,10 +1552,14 @@ public static partial class CardEffectFactory
         return changeCardNamesClass;
     }
 
-    // ===== (PRIM-W5) special plays — DigiXros / Blast / Blast-DNA =====================================
-    // The card DECLARES its recipe (SpecialPlayRecipeRegistry, keyed by card number); SpecialPlayAction then
-    // offers/executes the fusion or free digivolve. These factories register the recipe and return a no-op
-    // marker for the card's effect list.
+    // ===== special plays — DigiXros / Blast / Blast-DNA ==============================================
+    // (SpecialPlay re-migration) The card DECLARES its recipe the AS-IS way: an AddDigiXrosConditionClass /
+    // AddJogressConditionClass / AddBurstDigivolutionConditionClass / AddAppFusionConditionClass effect in its
+    // OWN effect list, which CardSource surfaces (DigiXrosConditionOf / JogressConditionOf /
+    // BurstDigivolutionConditionOf / AppFusionConditionOf) for SelectDigiXrosClass / SelectJogressEffect /
+    // SelectBurstDigivolutionEffect / SelectAppFusionEffect to consume. The former side-registry currency
+    // (SpecialPlayRecipeRegistry keyed by card number + a BareCauseEffect no-op effect-list occupant) and its
+    // driver SpecialPlayAction are DELETED — the factories below return the real AS-IS condition classes.
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:784 DigiXrosEffectFromNames. Replaces
     // the old mirror-invented SpecialPlayRecipeRegistry version. Verbatim.
@@ -1581,67 +1584,23 @@ public static partial class CardEffectFactory
         }
     }
 
-    /// <summary>(PRIM-W5) DigiXros with ARBITRARY per-material predicates — the faithful form of the AS-IS
-    /// <c>AddDigiXrosConditionClass</c> whose <c>getDigiXrosCondition</c> returns
-    /// <c>DigiXrosConditionElement(CanSelectCardCondition, label)</c> per material. Each
-    /// <paramref name="materials"/> slot carries the original's <c>CanSelectCardCondition</c> predicate 1:1.</summary>
-    public static ICardEffect DigiXrosEffect(CardSource card, int costReduction, params SpecialPlayMaterial[] materials)
-    {
-        SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(SpecialPlayKind.DigiXros, materials, MemoryCost: 0));
-        return BareCauseEffect.For((CardSource?)null);  // (④) inert effect-list occupant; recipe lives in SpecialPlayRecipeRegistry (Register above)
-    }
-
-    /// <summary>(PRIM special-play) DigiXros whose material slots may ALSO be satisfied by cards from the TRASH
-    /// (up to <paramref name="maxTrashCount"/>) and/or a Tamer's digivolution sources (up to
-    /// <paramref name="maxUnderTamerCount"/>) — AS-IS <c>AddMaxTrashCountDigiXrosClass</c> /
-    /// <c>maxTamerDigivolutionCardsCount</c>, whose <c>getMaxTrashCount</c> Func is threaded 1:1 (evaluated per
-    /// play). Pass null (or a Func returning 0) for a source not allowed.</summary>
-    public static ICardEffect DigiXrosWithExtraMaterialsEffect(
-        CardSource card, int costReduction,
-        Func<CardSource, int>? maxTrashCount, Func<CardSource, int>? maxUnderTamerCount,
-        params SpecialPlayMaterial[] materials)
-    {
-        SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(
-            SpecialPlayKind.DigiXros, materials, MemoryCost: 0, Condition: null,
-            MaxTrashCount: maxTrashCount, MaxUnderTamerCount: maxUnderTamerCount));
-        return BareCauseEffect.For((CardSource?)null);  // (④) inert effect-list occupant; recipe lives in SpecialPlayRecipeRegistry (Register above)
-    }
-
-    /// <summary>A material slot matched by card name (the name-equality subset of a DigiXros condition).</summary>
-    public static SpecialPlayMaterial MaterialByName(string name) =>
-        new(cs => cs.EqualsCardName(name), name);
-
-    private static IReadOnlyList<SpecialPlayMaterial> NameMaterials(IEnumerable<string> names) =>
-        names.Select(MaterialByName).ToArray();
+    // (SpecialPlay re-migration) DELETED with the SpecialPlayRecipeRegistry currency — every one of these
+    // registered a side-table recipe and returned an INERT `BareCauseEffect.For(null)` effect-list occupant,
+    // which is not how AS-IS declares a special play (the card adds the real condition class to its own effect
+    // list). Callers: none in the card corpus — the only ones were the Tfx fixtures, now re-shaped to the AS-IS
+    // idiom (BT18_065 / EX4_062 / BT25_104 exemplars):
+    //   * DigiXrosEffect / DigiXrosWithExtraMaterialsEffect -> `new AddDigiXrosConditionClass()` +
+    //     `SetUpAddDigiXrosConditionClass(getDigiXrosCondition)` (+ `AddMaxTrashCountDigiXrosClass` /
+    //     `AddMaxUnderTamerCountDigiXrosClass` for the trash / under-Tamer material extensions).
+    //   * MaterialByName / NameMaterials -> `DigiXrosConditionElement(CardCondition, label)` (or
+    //     CardEffectCommons.GetDigiXrosConditionsFromNames, which DigiXrosEffectFromNames above already uses).
+    //   * BurstDigivolveEffect -> `new AddBurstDigivolutionConditionClass()` +
+    //     `SetUpAddBurstDigivolutionConditionClass(getBurstDigivolutionCondition)`.
+    //   * JogressEffectFromNames / JogressEffect -> GetJogressConditionClass below (AS-IS :752, verbatim).
 
     // (P4 KeyWord slice) BlastDigivolveEffect moved to KeyWordEffects/BlastDigivolution.cs (AS-IS 1:1)
 
-    /// <summary>(PRIM special-play) AS-IS Burst Digivolution (<c>BurstDigivolutionCondition</c>): this hand card
-    /// digivolves onto a target battle-area Digimon (<paramref name="digimonCondition"/>) while a matching Tamer
-    /// (<paramref name="tamerCondition"/>) is returned to the hand, paying <paramref name="cost"/>. The target is
-    /// the recipe material; the Tamer is matched + bounced by the action.</summary>
-    public static ICardEffect BurstDigivolveEffect(
-        CardSource card, Func<CardSource, bool> digimonCondition, Func<CardSource, bool> tamerCondition,
-        int cost = 0, Func<bool>? condition = null)
-    {
-        ArgumentNullException.ThrowIfNull(digimonCondition);
-        ArgumentNullException.ThrowIfNull(tamerCondition);
-        var target = new SpecialPlayMaterial(digimonCondition, "Burst target Digimon");
-        SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(
-            SpecialPlayKind.Burst, new[] { target }, MemoryCost: cost, Condition: condition, TamerCondition: tamerCondition));
-        return BareCauseEffect.For((CardSource?)null);  // (④) inert effect-list occupant; recipe lives in SpecialPlayRecipeRegistry (Register above)
-    }
-
     // (P4 KeyWord slice) BlastDNADigivolveEffect moved to KeyWordEffects/BlastDNADigivolution.cs (AS-IS 1:1)
-
-    /// <summary>(PRIM-W5) <c>AddJogressConditionClass</c> equivalent — declares this card's Jogress (DNA
-    /// digivolve) recipe: the two material names that fuse under it (SpecialPlayKind.DnaDigivolve). Translate
-    /// the AS-IS <c>GetJogress</c> callback's material names into <paramref name="names"/>.</summary>
-    public static ICardEffect JogressEffectFromNames(CardSource card, Func<bool>? condition, params string[] names)
-    {
-        SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(SpecialPlayKind.DnaDigivolve, NameMaterials(names), MemoryCost: 0, Condition: condition));
-        return BareCauseEffect.For((CardSource?)null);  // (④) inert effect-list occupant; recipe lives in SpecialPlayRecipeRegistry (Register above)
-    }
 
     /// <summary>(Jogress by levels) AS-IS <c>AddJogressLevelsClass</c> — makes THIS card count as extra level(s)
     /// when it is a Jogress / DNA-Digivolution material (e.g. "Also treated as level 6 for DNA Digivolution").
@@ -1660,16 +1619,9 @@ public static partial class CardEffectFactory
     }
 
     // (R7 종점) invented factory `DnaDigivolveFromHandOrTrashEffect` DELETED with its body
-    // `DnaFromHandOrTrashActivatedEffect` — the effect-driven DNA digivolution (auto-match then
-    // FusionDigivolveHelpers.FuseAsync) is the AS-IS inline `new ActivateClass()` coroutine (TfxDnaFromHand idiom).
-
-    /// <summary>(PRIM-W5) Jogress with ARBITRARY per-material predicates (faithful form of
-    /// <c>AddJogressConditionClass</c>'s <c>GetJogress</c>).</summary>
-    public static ICardEffect JogressEffect(CardSource card, Func<bool>? condition, params SpecialPlayMaterial[] materials)
-    {
-        SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(SpecialPlayKind.DnaDigivolve, materials, MemoryCost: 0, Condition: condition));
-        return BareCauseEffect.For((CardSource?)null);  // (④) inert effect-list occupant; recipe lives in SpecialPlayRecipeRegistry (Register above)
-    }
+    // `DnaFromHandOrTrashActivatedEffect` — the effect-driven DNA digivolution is the AS-IS inline
+    // `new ActivateClass()` coroutine over CardEffectCommons.DNADigivolveWithHandOrTrashCardIntoHandOrTrash
+    // (EX6_072 / TfxDnaFromHand idiom).
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:752 GetJogressConditionClass. Replaces
     // the old mirror-invented JogressEffect/AsMaterial version. Verbatim (canUseCondition is Func<Hashtable,bool>).

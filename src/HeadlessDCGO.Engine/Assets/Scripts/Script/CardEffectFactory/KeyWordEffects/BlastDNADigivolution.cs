@@ -24,9 +24,10 @@
 //     (BT17_095 idiom). This factory is latent (no live card caller); the construction smoke test exercises it.
 //     docs/audit/rebuild_p6_cluster1_notes.md.
 // Replaces the monolith's invented BlastDNADigivolveEffect.
-// (P6C1 FINDING, logged in the notes doc: tests/G9-048.SpecialPlay.Tests expects this factory to register a
-// SpecialPlayRecipe (the pre-P4 monolith behavior); the AS-IS-verbatim factory returns an ActivateClass and
-// registers nothing — that test's anchor moved, NOT a cluster-1 build item.)
+// (P6C1 FINDING, logged in the notes doc: tests/G9-048.SpecialPlay.Tests expected this factory to register a
+// side-table recipe (the pre-P4 monolith behavior); the AS-IS-verbatim factory returns an ActivateClass and
+// registers nothing — that test's anchor moved, NOT a cluster-1 build item. The side table itself is now
+// deleted with the whole SpecialPlay recipe/driver invention, so the expectation is moot.)
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 

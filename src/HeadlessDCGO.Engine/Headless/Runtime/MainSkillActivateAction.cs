@@ -4,7 +4,6 @@ using System.Diagnostics.CodeAnalysis;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.EffectTiming;
 
@@ -12,26 +11,18 @@ using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 /// (B-2 / P1-5) The main-phase "declare a battle-area permanent's [Main] activated skill" action — AS-IS
 /// <c>TurnStateMachine.SetActSkill</c> (TurnStateMachine.cs:3061, permanent + skill index) feeding the
 /// declarative branch of the main loop (TurnStateMachine.cs:1174-1195): a usable <c>OnDeclaration</c>
-/// <c>ActivateICardEffect</c> chosen by the ACTIVE player is resolved. Legal moves are gated by
-/// <see cref="ActivatedEffectResolver.CanDeclareAt"/> (AS-IS <c>Permanent.CanDeclareSkillList</c> → <c>CanUse</c>,
-/// cap included), and the effect is resolved through the shared <see cref="ActivatedEffectResolver.ResolveAsync"/>.
+/// <c>ActivateICardEffect</c> chosen by the ACTIVE player is resolved. Legal moves are gated by the AS-IS
+/// <c>Permanent.CanDeclareSkill()</c> / <c>CardSource.CanDeclareSkill</c> accessors (see
+/// <c>CanDeclareSkill</c> below); the EXECUTION half is the pump (TurnFlowDriver -> the AS-IS SetActSkill /
+/// SetActCardSkill packets -> the main-loop declaration branch), so this class is legal-moves-only.
 ///
-/// Per-turn accounting (B-1 rework, 2026-07-11): AS-IS registers the use BEFORE anything else in the
-/// declaration branch — before even the optional prompt (TurnStateMachine.cs:1183-1186), so DECLINING a
-/// declared capped optional skill leaves its use consumed. This action passes <c>declarative: true</c> to the
-/// resolver, whose uniform case then consumes before the optional prompt (a non-declarative resolution
-/// consumes after the optional accept, mirroring ICardEffect.cs:1117-1124). Refund is a PER-CARD opt-in
-/// (<c>ActivatedEffect.RefundWhenNotExecuted</c>, the AS-IS explicit <c>if (!executed) RemoveUse()</c> cards) —
-/// never a default. Suspend/resume safety comes from the OnceFlags uniform-cycle transaction (staged consumes
-/// replay across the resume), NOT from any consume re-ordering.
-///
-/// Before this action existed, <c>OnDeclaration</c> was resolved only through the attack-declaration proxy
-/// stopgap in <see cref="AttackPermanentAction"/> (now removed) — this is its real home.
+/// Per-turn accounting: AS-IS registers the use BEFORE anything else in the declaration branch — before even
+/// the optional prompt (TurnStateMachine.cs:1183-1186), so DECLINING a declared capped optional skill leaves
+/// its use consumed. That ordering lives in the AS-IS declaration branch the pump runs, not here.
 ///
 /// Scope note (design item B2-05): one action is offered per permanent, resolving that permanent's OnDeclaration
 /// skill(s). No ported card carries more than one OnDeclaration skill, so a per-skill-index selector (AS-IS
-/// SetActSkill's skillIndex) is unnecessary for the current pool; it becomes needed only when a multi-[Main]-skill
-/// card is ported, which also needs per-index resolution the resolver does not yet expose.
+/// SetActSkill's skillIndex) is unnecessary for the current pool.
 /// </summary>
 public sealed class MainSkillActivateAction
 {
@@ -53,114 +44,46 @@ public sealed class MainSkillActivateAction
             return Array.Empty<LegalAction>();
         }
 
+        // SUBSTRATE: the AS-IS CanDeclareSkill scans (EffectList -> CanUse -> CheckEffectDisabledClass) read
+        // game state through the process-global GManager.instance; the mirror resolves that from
+        // AmbientMatchContext, so scope the match for the whole enumeration (a caller already in the same
+        // scope re-enters harmlessly) — same idiom as NewModelContinuousScan's public entry points.
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+
         return DeclarableZones
-            .SelectMany(zone => zoneReader.GetCards(playerId, zone))
-            .Where(cardId => ActivatedEffectResolver.CanDeclareAt(context, cardId, playerId, EffectTiming.OnDeclaration))
-            .Select(cardId => HeadlessActionFactory.ActivateMain(playerId, cardId, ResolveEffectId(context, cardId)))
+            .SelectMany(zone => zoneReader.GetCards(playerId, zone).Select(cardId => (Zone: zone, CardId: cardId)))
+            .Where(entry => CanDeclareSkill(context, entry.Zone, entry.CardId, playerId))
+            .Select(entry => HeadlessActionFactory.ActivateMain(playerId, entry.CardId, ResolveEffectId(context, entry.CardId)))
             .OrderBy(action => action.Id.Value, StringComparer.Ordinal)
             .ToArray();
     }
 
-    public async Task<ActionProcessResult> ProcessAsync(
-        LegalAction action,
+    /// <summary>AS-IS <c>TurnStateMachine.CanSelect</c> (TurnStateMachine.cs:917/925/929): a FIELD permanent
+    /// offers a declarable [Main] skill through <c>Permanent.CanDeclareSkill()</c> (:917); a HAND (:925) or
+    /// TRASH (:929) card through <c>CardSource.CanDeclareSkill</c>. (ActivatedEffectResolver retirement) the
+    /// substrate <c>CanDeclareAt</c> gate is replaced by these two AS-IS accessors, which the mirror already
+    /// carries verbatim — both are <c>EffectList(OnDeclaration)</c> filtered to <c>ActivateICardEffect</c> with
+    /// a live <c>CanUse(null)</c>, i.e. exactly the gate the substrate helper re-implemented.</summary>
+    private static bool CanDeclareSkill(
         EngineContext context,
-        CancellationToken cancellationToken = default)
+        ChoiceZone zone,
+        HeadlessEntityId cardId,
+        HeadlessPlayerId playerId)
     {
-        ArgumentNullException.ThrowIfNull(action);
-        ArgumentNullException.ThrowIfNull(context);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (!MainSkillActivateActionPayload.TryRead(action, out MainSkillActivateActionPayload? payload, out string? error))
-        {
-            return ActionProcessResult.Failure(error ?? "Invalid ActivateMain payload.", BaseMetadata(action));
-        }
-
-        MainSkillActivateValidation validation = Validate(context, action.PlayerId, payload);
-        if (!validation.IsLegal)
-        {
-            return ActionProcessResult.Illegal(action, validation.Reason, Metadata(action, payload, validation));
-        }
-
-        try
-        {
-            // declarative: the AS-IS main-loop declaration registers the per-turn use BEFORE the optional prompt
-            // (TurnStateMachine.cs:1183-1186) — declining a declared capped skill leaves the cap consumed.
-            int resolved = await ActivatedEffectResolver
-                .ResolveAsync(context, payload.PermanentId, action.PlayerId, EffectTiming.OnDeclaration, cancellationToken, declarative: true)
-                .ConfigureAwait(false);
-
-            Dictionary<string, object?> metadata = Metadata(action, payload, validation);
-            metadata["resolvedEffectCount"] = resolved;
-            return ActionProcessResult.Success("Main skill declared.", metadata);
-        }
-        catch (DeferredChoicePendingException ex)
-        {
-            // The [Main] skill's body asked the agent for a choice (interactive provider). The originating action
-            // has committed (nothing to re-pay — the cost lives in the body), so record the suspended activation
-            // and let the next ResolveChoice resume it via the generic re-resolve path
-            // (MetadataActionProcessor.ResolveChoiceAsync → ResolveAsync with this timing), WITHOUT re-running here.
-            context.DeferredActivations.Suspend(payload.PermanentId, EffectTiming.OnDeclaration, action.PlayerId, declarative: true);
-            Dictionary<string, object?> pending = Metadata(action, payload, validation);
-            pending["pendingChoice"] = true;
-            pending["pendingChoiceMessage"] = ex.Message;
-            return ActionProcessResult.Success("Main skill declared; awaiting choice.", pending);
-        }
+        return zone == ChoiceZone.BattleArea
+            ? new Permanent(context, cardId, playerId).CanDeclareSkill()
+            : new CardSource(context, cardId, playerId).CanDeclareSkill;
     }
 
-    private static MainSkillActivateValidation Validate(
-        EngineContext context,
-        HeadlessPlayerId playerId,
-        MainSkillActivateActionPayload payload)
-    {
-        if (playerId.IsEmpty)
-        {
-            return MainSkillActivateValidation.Illegal("Player id must not be empty.");
-        }
-
-        if (payload.SkillIndex < 0)
-        {
-            return MainSkillActivateValidation.Illegal("Main skill index must not be negative.");
-        }
-
-        if (!context.CardInstanceRepository.TryGetInstance(payload.PermanentId, out CardInstanceRecord? instance) ||
-            instance is null)
-        {
-            return MainSkillActivateValidation.Illegal($"Card instance '{payload.PermanentId}' was not found.");
-        }
-
-        if (instance.OwnerId != playerId)
-        {
-            return MainSkillActivateValidation.Illegal(
-                $"Card instance '{payload.PermanentId}' is owned by player '{instance.OwnerId}', not player '{playerId}'.",
-                instance.DefinitionId);
-        }
-
-        if (context.ZoneMover is not IZoneStateReader zoneReader)
-        {
-            return MainSkillActivateValidation.Illegal("Zone mover does not expose readable zone state.", instance.DefinitionId);
-        }
-
-        // (RD-EXT1-01) the declared card must live in one of the AS-IS declarable origins (battle area / hand /
-        // trash — TurnStateMachine.CanSelect), not the battle area alone.
-        if (!DeclarableZones.Any(zone => zoneReader.GetCards(playerId, zone).Contains(payload.PermanentId)))
-        {
-            return MainSkillActivateValidation.Illegal(
-                $"Card '{payload.PermanentId}' is not in a declarable zone (battle area / hand / trash) of player '{playerId}'.",
-                instance.DefinitionId);
-        }
-
-        // Re-check the declare gate (AS-IS main loop re-tests CanUse before running) — keeps a capped-out or
-        // no-longer-usable [Main] skill inside the legality boundary rather than deferring to a silent no-op.
-        if (!ActivatedEffectResolver.CanDeclareAt(context, payload.PermanentId, playerId, EffectTiming.OnDeclaration))
-        {
-            return MainSkillActivateValidation.Illegal(
-                $"Permanent '{payload.PermanentId}' has no usable [Main] declared skill.",
-                instance.DefinitionId,
-                payload.EffectId);
-        }
-
-        return MainSkillActivateValidation.Legal(instance.DefinitionId, payload.EffectId);
-    }
+    // (ActivatedEffectResolver retirement) ProcessAsync + Validate are RETIRED. ActivateMain is PUMP-ONLY:
+    // MetadataActionProcessor rejects it outright ("routes through TurnFlowDriver to the mirror main-skill
+    // activation") and TurnFlowDriver.NormalizedActivateMain queues the AS-IS packet instead —
+    // ActivatePermanentAction(permanentIndex, skillIndex) / ActivateCardAction(cardIndex, skillIndex) ->
+    // TurnStateMachine.SetActSkill / SetActCardSkill (:3050-3082) -> the AS-IS main-loop declaration branch
+    // (:1174-1195) -> AutoProcessing.ActivateEffectProcess. That is the AS-IS direct activation, so this class
+    // now only produces the legal-move table (GetLegalActions, above). The per-turn-use ordering note and the
+    // DeferredActivations suspend/resume that lived here belong to the AS-IS declaration branch and the pump's
+    // in-place choice parking respectively — neither needs an action-processor shim.
 
     private static HeadlessEntityId ResolveEffectId(EngineContext context, HeadlessEntityId permanentId)
     {
@@ -172,28 +95,6 @@ public sealed class MainSkillActivateAction
         return new HeadlessEntityId($"{permanentId.Value}:declaration");
     }
 
-    private static Dictionary<string, object?> Metadata(
-        LegalAction action,
-        MainSkillActivateActionPayload payload,
-        MainSkillActivateValidation validation)
-    {
-        Dictionary<string, object?> metadata = BaseMetadata(action);
-        metadata[HeadlessActionParameterKeys.CardId] = payload.PermanentId.Value;
-        metadata[HeadlessActionParameterKeys.EffectId] = payload.EffectId.Value;
-        metadata[HeadlessActionParameterKeys.SkillIndex] = payload.SkillIndex;
-        metadata["cardDefinitionId"] = validation.CardDefinitionId?.Value;
-        return metadata;
-    }
-
-    private static Dictionary<string, object?> BaseMetadata(LegalAction action)
-    {
-        return new Dictionary<string, object?>
-        {
-            [HeadlessActionParameterKeys.ActionId] = action.Id.Value,
-            [HeadlessActionParameterKeys.PlayerId] = action.PlayerId.Value,
-            [HeadlessActionParameterKeys.ActionType] = action.ActionType
-        };
-    }
 }
 
 public sealed record MainSkillActivateActionPayload(
@@ -271,27 +172,5 @@ public sealed record MainSkillActivateActionPayload(
                 value = default;
                 return false;
         }
-    }
-}
-
-public sealed record MainSkillActivateValidation(
-    bool IsLegal,
-    string Reason,
-    HeadlessEntityId? CardDefinitionId,
-    HeadlessEntityId? EffectId)
-{
-    public static MainSkillActivateValidation Legal(
-        HeadlessEntityId cardDefinitionId,
-        HeadlessEntityId effectId)
-    {
-        return new MainSkillActivateValidation(true, string.Empty, cardDefinitionId, effectId);
-    }
-
-    public static MainSkillActivateValidation Illegal(
-        string reason,
-        HeadlessEntityId? cardDefinitionId = null,
-        HeadlessEntityId? effectId = null)
-    {
-        return new MainSkillActivateValidation(false, reason ?? string.Empty, cardDefinitionId, effectId);
     }
 }

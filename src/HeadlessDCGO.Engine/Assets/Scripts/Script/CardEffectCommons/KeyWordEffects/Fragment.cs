@@ -3,7 +3,7 @@
 // `Permanent.CanBeDestroyedBySkill` (Permanent.cs:3035, same gap as Decoy), so the AS-IS body is portable
 // verbatim (design item RD-P6C2-3 closed). FragmentProcess was already fully ported: its own selection
 // (SelectCardEffect) + trash of the resulting list maps directly onto the verified substrate primitive
-// DigivolutionStackHelpers.TrashSpecificSourcesAsync, whose own doc header cites
+// Permanent.TrashSpecificSourcesAsync, whose own doc header cites
 // "AS-IS ITrashDigivolutionCards(permanent, selectedCards, …)" as its exact behavioural model.
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
@@ -74,7 +74,7 @@ public static partial class CardEffectCommons
         }
 
         Headless.Bridge.EngineContext context = permanent.TopCard.Context;
-        await DigivolutionStackHelpers.TrashSpecificSourcesAsync(
+        await Permanent.TrashSpecificSourcesAsync(
             context.CardInstanceRepository, context.ZoneMover, permanent.InstanceId,
             selectedCards.Select(cs => cs.InstanceId).ToList(),
             gameEventQueue: context.GameEventQueue,

@@ -1,8 +1,10 @@
 // TEST FIXTURE (not a real card). A dispatch-discoverable CEntity_Effect that declares a DigiXros recipe
-// via CardEffectFactory.DigiXrosEffectFromNames — used by tests/G9-049 to verify the on-demand recipe
-// registration in SpecialPlayAction.GetLegalActions (a hand card's special play becomes discoverable even
-// though its declaration only runs when considered). No real card has the number "TfxDigiXros", so this is
-// inert in actual play.
+// the AS-IS way, via CardEffectFactory.DigiXrosEffectFromNames — which returns an AddDigiXrosConditionClass
+// into the card's OWN effect list (AS-IS CardEffectFactory.cs:784), read back through
+// CardSource.DigiXrosConditionOf() and consumed by SelectDigiXrosClass on the ordinary PlayCard entry.
+// (SpecialPlay re-migration: the former note here described the deleted SpecialPlayAction.GetLegalActions
+// on-demand registration — that invented driver and its side registry are gone.) No real card has the
+// number "TfxDigiXros", so this is inert in actual play.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 

@@ -13,7 +13,6 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using System;
 using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.State;
 
 public static partial class CardEffectCommons

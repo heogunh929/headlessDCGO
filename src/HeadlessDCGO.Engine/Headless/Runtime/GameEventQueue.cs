@@ -3,11 +3,11 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
-/// Single drainable source of <see cref="GameEvent"/>s for auto-processing trigger collection
-/// (issue X-05). Mirrors Unity AS-IS <c>AutoProcessing.StackSkillInfos</c>, which inspects game
-/// state changes to stack timing skills: the common loop (<see cref="GameFlowProcessor"/>) drains
-/// this queue every auto-process pass and feeds each event to
-/// <see cref="HeadlessDCGO.Engine.Headless.Effects.AutoProcessingTriggerCollector"/>.
+/// Single drainable source of <see cref="GameEvent"/>s. NOTE (TriggerEventEmitter retirement): the substrate
+/// event-queue trigger-collection model this once fed — the deleted <c>GameFlowProcessor</c> drain +
+/// <c>AutoProcessingTriggerCollector</c> — is gone; all trigger windows now fire via the AS-IS
+/// <c>AutoProcessing.StackSkillInfos</c> inline. No live producer publishes trigger events here anymore; the
+/// queue is retained only as substrate plumbing (EngineContext property, diagnostics).
 ///
 /// Two population paths:
 /// <list type="bullet">

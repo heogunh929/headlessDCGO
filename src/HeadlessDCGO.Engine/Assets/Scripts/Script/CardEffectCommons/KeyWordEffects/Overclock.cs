@@ -7,7 +7,6 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
     using System.Collections.Generic;
     using System.Threading.Tasks;
     using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-    using HeadlessDCGO.Engine.Headless.Effects;
 
     public static partial class CardEffectCommons
     {
@@ -69,7 +68,7 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
         /// provides <c>Permanent.CanAttack</c>; the AS-IS <c>SelectAttackEffect</c> (no mirror class) is the
         /// established <c>EffectDrivenAttack</c> substrate (AS-IS <c>SetWithoutTap</c> + canAttackPlayer:()=&gt;true
         /// + defenderCondition:_=&gt;false == the withoutTap/player-only offer), the same offer the live
-        /// end-of-turn path (<see cref="Headless.Runtime.OverclockEffect"/>) makes. Structure/order verbatim
+        /// end-of-turn path (the retired substrate <c>OverclockEffect</c>) made. Structure/order verbatim
         /// with AS-IS; substrate translations only.</summary>
         public static async Task OverclockProcess(string trait, CardSource cardSource, ICardEffect activateClass)
         {
