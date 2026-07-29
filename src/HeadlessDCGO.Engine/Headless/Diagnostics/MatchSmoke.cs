@@ -18,7 +18,7 @@ internal sealed class SilentContext : SynchronizationContext
 
 public static class MatchSmoke
 {
-    public static int Run(int matches)
+    public static int Run(int matches, string deckCode = "ST1")
     {
         SynchronizationContext.SetSynchronizationContext(new SilentContext());
         TextWriter real = Console.Out;
@@ -32,7 +32,7 @@ public static class MatchSmoke
         for (int i = 0; i < matches; i++)
         {
             Console.SetOut(TextWriter.Null);          // AS-IS 로그 억제
-            (bool ok, string where, int tick) = RunOne(cards, seed: i + 1);
+            (bool ok, string where, int tick) = RunOne(cards, seed: i + 1, deckCode);
             Console.SetOut(real);
 
             if (ok) { completed++; ticks.Add(tick); }
@@ -52,13 +52,13 @@ public static class MatchSmoke
         return completed == matches ? 0 : 1;
     }
 
-    private static (bool, string, int) RunOne(CEntity_Base[] cards, int seed)
+    private static (bool, string, int) RunOne(CEntity_Base[] cards, int seed, string deckCode)
     {
         HeadlessScene scene = new();
 
         try
         {
-            return RunToCompletion(scene, cards, seed);
+            return RunToCompletion(scene, cards, seed, deckCode);
         }
         finally
         {
@@ -66,10 +66,13 @@ public static class MatchSmoke
         }
     }
 
-    private static (bool, string, int) RunToCompletion(HeadlessScene scene, CEntity_Base[] cards, int seed)
+    private static (bool, string, int) RunToCompletion(HeadlessScene scene, CEntity_Base[] cards, int seed, string deckCode)
     {
         scene.Build();
-        scene.SupplyGameData(cards, "ST1");
+
+        // "ST1" = 양석 AS-IS 기본 경로(상대석은 무작위 샘플덱 폴백), "ST1:ST2" = You석 ST1, 상대석 ST2.
+        string[] pair = deckCode.Split(':', 2);
+        scene.SupplyGameData(cards, pair[0], pair.Length > 1 ? pair[1] : null);
         scene.RunLifecycle();
 
         CoroutineDriver driver = new();
@@ -78,7 +81,11 @@ public static class MatchSmoke
         MethodInfo? awake = typeof(GManager).GetMethod("AwakeCoroutine", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
         if (awake?.Invoke(GManager.instance, null) is IEnumerator routine) driver.Start(routine);
 
-        RandomVirtualPlayer player = new(seed);
+        // 좌석별 정책 인스턴스 — 양석 isYou=true 자기대전 배선(HeadlessScene 참조). 시드 분리로 두 좌석의
+        // 무작위 스트림이 서로 독립.
+        RandomVirtualPlayer you = new(seed * 2) { Seat = GManager.instance?.You };
+        RandomVirtualPlayer opponent = new(seed * 2 + 1) { Seat = GManager.instance?.Opponent };
+        RandomVirtualPlayer[] seats = { you, opponent };
         string last = ""; int stableFrom = 0;
 
         for (int tick = 1; tick <= 100_000; tick++)
@@ -91,8 +98,11 @@ public static class MatchSmoke
                 return (false, $"예외 {r.GetType().Name} @ {Trim(frame)}", tick);
             }
 
-            player.Waits = driver.PendingWaits.ToArray();
-            player.Answer();
+            foreach (RandomVirtualPlayer seat in seats)
+            {
+                seat.Waits = driver.PendingWaits.ToArray();
+                seat.Answer();
+            }
 
             if (GManager.instance?.turnStateMachine?.endGame == true) return (true, "", tick);
 
@@ -105,7 +115,8 @@ public static class MatchSmoke
                 string frames = string.Join(" + ", driver.Describe()
                     .Where(d => !d.Contains("LoadingObject"))
                     .Select(d => d.Split("  ")[1].Replace("+<", ".").Split(">d__")[0]));
-                string un = player.Unhandled.Count > 0 ? $" 미대응[{string.Join(",", player.Unhandled)}]" : "";
+                string[] unhandled = seats.SelectMany(s => s.Unhandled).Distinct().ToArray();
+                string un = unhandled.Length > 0 ? $" 미대응[{string.Join(",", unhandled)}]" : "";
                 if (frames.Length == 0)
                 {
                     string trail = string.Join("\n      ", driver.Removals

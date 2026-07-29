@@ -303,8 +303,16 @@ public sealed class HeadlessScene
         Track(ManagerObject.AddComponent<SelectDNACondition>());
         Track(ManagerObject.AddComponent<OptionalSkill>());
 
+        // BOTH seats get isYou=true — the self-play wiring (user decision 2026-07-29). `isYou` is what routes
+        // a seat between "ask the local human" and "the built-in AI answers itself" (`IsAI && !isYou`,
+        // TurnStateMachine.cs:990); with both true, every question on either seat reaches the choice channels
+        // and both seats act through QueueMainPhaseAction. Censused before flipping — all 80 AS-IS readers in
+        // docs/audit/isyou_census.md; the one real rule-surface change is DELIBERATE: the AI seat's cost-
+        // reduction handicap (CardSource.cs:679/:714/:783, the AS-IS `//AI` branches) lifts, so both seats
+        // play by the human rule surface. `GManager.You`/`Opponent` identity is wired by name below and does
+        // not depend on this flag.
         YouObject = BuildPlayer("You", isYou: true);
-        OpponentObject = BuildPlayer("Opponent", isYou: false);
+        OpponentObject = BuildPlayer("Opponent", isYou: true);
 
         // GManager.You / .Opponent are inspector links in the original scene. They are NOT discoverable by the
         // run-and-see loop that produced UnguardedPlayerFields: leave them null and the failure surfaces inside
@@ -342,7 +350,7 @@ public sealed class HeadlessScene
     /// <c>getCardEntityByCardID</c> searches with <c>First</c>) and the deck to play
     /// (<c>ContinuousController.BattleDeckData</c>, which <c>CardObjectController.DeckRecipie</c> reads on the
     /// vs-AI path). Call after <see cref="Build"/> and before <see cref="RunLifecycle"/>.</summary>
-    public void SupplyGameData(CEntity_Base[] cards, string deckCode)
+    public void SupplyGameData(CEntity_Base[] cards, string deckCode, string? opponentDeckCode = null)
     {
         ArgumentNullException.ThrowIfNull(cards);
 
@@ -350,6 +358,19 @@ public sealed class HeadlessScene
         continuous.CardList = cards;
         continuous.SortedCardList = cards;
         continuous.BattleDeckData = DataLoading.StarterDeckCatalog.Build(deckCode, cards);
+
+        // The OPPONENT seat's deck takes a different AS-IS route: `DeckRecipie` gives the non-master seat a
+        // `RandomDeck` drawn from `ContinuousController.DeckDatas` — the owner's saved deck collection — and
+        // only when that is empty does it fall back to a random 50-card sample of the whole card list
+        // (CardObjectController.cs:22-92). Supplying a one-deck collection makes the opponent play exactly
+        // that deck through the unmodified AS-IS pick. Omitted, the AS-IS fallback stands: a random pile.
+        if (opponentDeckCode is not null)
+        {
+            continuous.DeckDatas = new List<DeckData>
+            {
+                DataLoading.StarterDeckCatalog.Build(opponentDeckCode, cards),
+            };
+        }
 
         // The original decides vs-AI in the MENU: `SelectBattleMode` sets `ContinuousController.isAI`
         // (SelectBattleMode.cs:134) and `GManager.AwakeCoroutine` copies it into `GManager.IsAI`

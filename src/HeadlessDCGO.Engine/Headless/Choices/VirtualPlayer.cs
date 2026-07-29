@@ -82,6 +82,15 @@ public abstract class VirtualPlayer
     /// <summary>The waits the scheduler is currently parked on. Set by the caller each tick.</summary>
     public IReadOnlyCollection<CustomYieldInstruction> Waits { get; set; } = Array.Empty<CustomYieldInstruction>();
 
+    /// <summary>The seat this player answers for, or null to answer for every seat. With both scene seats
+    /// wired isYou=true (self-play — see Headless/Bootstrap/HeadlessScene.cs), one instance per seat keeps
+    /// each policy's random stream its own. The SelectCardPanel path stays unfiltered: the panel carries no
+    /// owner, and its click callbacks were bound by the seat that opened it, so any instance's click answers
+    /// the right seat.</summary>
+    public Player? Seat { get; set; }
+
+    private bool Mine(Player? seat) => Seat is null || ReferenceEquals(seat, Seat);
+
     /// <summary>Selectors seen parked that this seam has no channel for. A named gap, not a silent hang.</summary>
     public HashSet<string> Unhandled { get; } = new(StringComparer.Ordinal);
 
@@ -98,7 +107,7 @@ public abstract class VirtualPlayer
         // A pending click target: the engine parked after storing the action on the object.
         foreach (Player? seat in new[] { GManager.instance?.You, GManager.instance?.Opponent })
         {
-            if (seat?.OnClickHatchObjectAction is null)
+            if (seat?.OnClickHatchObjectAction is null || !Mine(seat))
             {
                 continue;
             }
@@ -106,10 +115,31 @@ public abstract class VirtualPlayer
             return DecideHatch(seat, new ChoicePrompt(nameof(Player), $"{seat.name}: hatch?"));
         }
 
+        // The OTHER breeding ask — moving the raised digimon out. `BreedingPhase` stores this click on the
+        // breeding permanent's CARD, not the player (`fieldPermanentCard.AddClickTarget(… SendShouldHatch)`,
+        // TurnStateMachine.cs:756). `OnClickAction` is also how main-phase UI wiring hangs its click targets,
+        // which a virtual player deliberately does NOT click — so this only answers when the phase is
+        // Breeding and the card is the turn seat's own breeding-area permanent. Invoking the stored action is
+        // the click: `FieldPermanentCard.OnClick` only adds a mouse-button check in between
+        // (FieldPermanentCard.cs:261-269).
+        if (GManager.instance?.turnStateMachine?.gameContext is { TurnPhase: GameContext.phase.Breeding } breeding
+            && breeding.TurnPlayer is { } breeder && Mine(breeder)
+            && !breeder.HasPlayerSelection()
+            && breeder.GetBreedingAreaPermanents() is { Count: > 0 } raised
+            && raised[0].ShowingPermanentCard is { OnClickAction: not null } moveTarget)
+        {
+            return DecideMove(breeder, moveTarget, new ChoicePrompt(nameof(FieldPermanentCard), $"{breeder.name}: move?"));
+        }
+
         // A parked selection wait: identify it from the predicate closure and answer through its channel.
         foreach (CustomYieldInstruction wait in Waits)
         {
             if (SelectionChannels.Identify(wait) is not { } pending)
+            {
+                continue;
+            }
+
+            if (!Mine(pending.Seat))
             {
                 continue;
             }
@@ -131,7 +161,7 @@ public abstract class VirtualPlayer
 
         // The main phase asks for an ACTION, not an answer. It is recognisable by the turn player having no
         // queued action while the phase is Main.
-        if (PendingMainPhase() is { } actor)
+        if (PendingMainPhase() is { } actor && Mine(actor))
         {
             return Act(actor, new ChoicePrompt("MainPhase", $"{actor.name}: act?"));
         }
@@ -169,6 +199,17 @@ public abstract class VirtualPlayer
     {
         Record(prompt);
         seat.OnClickHatchObject();
+
+        return true;
+    }
+
+    /// <summary>Answers the breeding-move prompt. The default takes the move, for the same reason
+    /// <see cref="DecideHatch"/> takes the hatch: the AS-IS registers no "no" callback — a human declines by
+    /// advancing the phase, which a smoke policy has no reason to do.</summary>
+    protected virtual bool DecideMove(Player seat, FieldPermanentCard card, ChoicePrompt prompt)
+    {
+        Record(prompt);
+        card.OnClickAction!.Invoke(card);
 
         return true;
     }
