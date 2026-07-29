@@ -364,7 +364,19 @@ public sealed class CoroutineDriver
         {
             IEnumerator top = routine.Stack.Peek();
 
-            if (!top.MoveNext())
+            bool advanced = top.MoveNext();
+
+            // A ROUTINE CAN STOP ITSELF WHILE IT IS EXECUTING. `TurnStateMachine.EndGame` calls
+            // `StopAllCoroutines()` on three objects (TurnStateMachine.cs:3349-3351) from inside the attack
+            // coroutine that is running right now, and Kill empties this very stack under us. Unity's routine
+            // simply ends there; the frames must not be touched afterwards. Without this check the next line
+            // popped an emptied stack and threw `InvalidOperationException: Stack empty`.
+            if (routine.Stack.Count == 0 || !ReferenceEquals(routine.Stack.Peek(), top))
+            {
+                return advanced;
+            }
+
+            if (!advanced)
             {
                 routine.Stack.Pop();
 

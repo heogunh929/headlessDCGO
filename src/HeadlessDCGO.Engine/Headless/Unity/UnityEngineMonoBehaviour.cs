@@ -27,10 +27,15 @@
 //                                   which runs inline and throws if the routine tries to park. No mirror file
 //                                   calls either shape today.
 //
+// CANCELLATION IS REAL (2026-07-29, roadmap step 2.3 — this header previously said it was not)
+//     StopCoroutine(Coroutine/IEnumerator)  Raises `Stopped`; the driver unwinds that routine. The AS-IS engine
+//                                           ends its own `while (true)` animations this way.
+//     StopAllCoroutines()                   Ends every routine started on THIS component. `TurnStateMachine.
+//                                           EndGame` uses it to halt the match; see the member's own docs for
+//                                           the loop that never terminates without it.
+//     StopCoroutine(string)                 Still inert — there is no name-to-routine registry here.
+//
 // MEMBERS THAT ARE DECLARATIONS DOING NOTHING
-//     StopCoroutine / StopAllCoroutines   The driver owns the routine stack; there is no registry of running
-//                                         routines to cancel. Whether cancellation is reproduced at all is
-//                                         roadmap step 2.3.
 //     Invoke / CancelInvoke               A delayed message needs a frame clock. There is none.
 //
 // INHERITED, AND REAL (2026-07-29). MonoBehaviour now sits on the AS-IS hierarchy
@@ -75,6 +80,9 @@ public class MonoBehaviour : Behaviour
     }
 
     private readonly List<Coroutine> _running = new();
+
+    /// <summary>[계측 2026-07-29] 판당 메모리 조사용. 이 컴포넌트가 지금까지 시작한 코루틴 핸들 수.
+    /// 조사 종료 후 제거 대상.</summary>
 
     /// <summary>Unity STOPS every coroutine a component started when its GameObject is deactivated, and the
     /// AS-IS code relies on that: `LoadingObject` starts `SetLoadingText`, a `while (true)` loop, and never
@@ -151,9 +159,24 @@ public class MonoBehaviour : Behaviour
     {
     }
 
-    public void StopAllCoroutines()
-    {
-    }
+    /// <summary>Unity <c>StopAllCoroutines</c> — ends every coroutine THIS component started. REAL WORK, and
+    /// load-bearing: it is what ends the match.
+    ///
+    /// `TurnStateMachine.EndGame` calls it on the state machine, GManager and ContinuousController
+    /// (TurnStateMachine.cs:3349-3351) after setting `endGame = true` (:3325). The AS-IS attack loop
+    /// `while (attackProcess.ActiveAttack())` (TurnStateMachine.cs:938) has NO `endGame` guard — unlike the
+    /// loops enclosing it at :936 and :972 — precisely because this call is what stops it. And it CANNOT
+    /// terminate on its own: `AttackProcess.DetermineAttackOutcome` reaches game end at AttackProcess.cs:425
+    /// and `yield break`s WITHOUT advancing `State` from `Battle`, so `ActiveAttack()` (:37) stays true
+    /// forever.
+    ///
+    /// Left as a no-op the match therefore never ends: :938 re-enters `DetermineAttackOutcome`, which calls
+    /// `EndGame` again, which starts another `BattleBGM.FadeOut` coroutine (:3353) — the schedule grows without
+    /// bound and every tick gets slower. Measured 2026-07-29: RSS to 12.3GB, no match ever completing.
+    ///
+    /// Same mechanism as <see cref="StopRunningCoroutines"/>, which GameObject deactivation already uses; Unity
+    /// scopes both to the coroutines this component started.</summary>
+    public void StopAllCoroutines() => StopRunningCoroutines();
 
     /// <summary>Raised by <see cref="StopCoroutine(Coroutine)"/>. The scheduler subscribes and drops the
     /// routine.</summary>
