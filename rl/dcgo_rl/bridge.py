@@ -66,11 +66,18 @@ class BridgeClient:
             cmd += ["--log-level", log_level]
         if event_log:
             cmd += ["--event-log", event_log]
+        # 호스트 stderr는 기본 폐기하되, DCGO_HOST_STDERR=<path>면 추기 리다이렉트 — 호스트 내부
+        # 예외 스택(프로토콜 error에는 message만 실림)의 유일한 회수 경로다.
+        import os
+
+        stderr_path = os.environ.get("DCGO_HOST_STDERR")
+        stderr_target = open(stderr_path, "a") if stderr_path else subprocess.DEVNULL
+
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=stderr_target,
             text=True,
             bufsize=1,
             cwd=str(repo_root()),

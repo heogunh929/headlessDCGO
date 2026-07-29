@@ -39,6 +39,7 @@ def main() -> None:
     parser.add_argument("--n-envs", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--eval-matches", type=int, default=120)
+    parser.add_argument("--eval-jobs", type=int, default=6, help="평가 병렬 워커 수 (워커당 호스트 1개, RL 워커=6)")
     parser.add_argument("--recipes", nargs="*", default=None,
                         help="덱 레시피 파일들(내부 JSON/외부 텍스트). 비면 starter:ST1 vs ST2 고정")
     parser.add_argument("--out", type=str, default="../runs/l0-pump")
@@ -116,6 +117,7 @@ def main() -> None:
         n_matches=args.eval_matches,
         experiment_seed=args.seed + 777,
         deck_provider=(load_recipe_pool(recipe_paths) if recipe_paths else None),
+        n_jobs=args.eval_jobs,
     )
     lo, hi = eval_report["ci95"]
     print(f"eval vs random: {eval_report['winrate']:.1%} "

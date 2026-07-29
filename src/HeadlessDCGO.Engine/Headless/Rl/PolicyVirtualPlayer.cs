@@ -45,24 +45,38 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
         GameContext context = GManager.instance!.turnStateMachine.gameContext;
 
         List<int> playable = new();
-
-        for (int i = 0; i < actor.HandCards.Count && i < RlSchema.MaxHand; i++)
-        {
-            if (actor.HandCards[i].CanPlayFromHandDuringMainPhase)
-            {
-                playable.Add(i);
-            }
-        }
-
-        List<Permanent> field = actor.GetFieldPermanents();
         List<int> attackers = new();
 
-        for (int j = 0; j < field.Count && j < RlSchema.MaxField; j++)
+        // AS-IS 술어는 전이 중의 과도 상태에서 스스로 NRE할 수 있다 — 실측 2026-07-29:
+        // `CanPlayFromHandDuringMainPhase`(:143)가 프레임 없는 배틀에어리어 퍼머넌트(파괴/이동 도중)를
+        // 밟으면 `CanPlayCardTargetFrame`(:1118)에서 터진다. AS-IS 자체 AI도 같은 호출을 하는 잠재
+        // 취약점이라(R7) 미러는 손대지 않고, 이 틱의 포획을 미룬다 — 과도 상태는 다음 틱이면 지나가고,
+        // 지속되면 stall/step_cap 안전망이 매치를 정리한다.
+        try
         {
-            if (field[j].CanAttack(null))
+            for (int i = 0; i < actor.HandCards.Count && i < RlSchema.MaxHand; i++)
             {
-                attackers.Add(j);
+                if (actor.HandCards[i].CanPlayFromHandDuringMainPhase)
+                {
+                    playable.Add(i);
+                }
             }
+
+            List<Permanent> field = actor.GetFieldPermanents();
+
+            for (int j = 0; j < field.Count && j < RlSchema.MaxField; j++)
+            {
+                if (field[j].CanAttack(null))
+                {
+                    attackers.Add(j);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Host?.Overflows.Add($"transient:{ex.GetType().Name}@MainPhase(다음 틱 재시도)");
+
+            return false;
         }
 
         Pending = new DecisionPoint
