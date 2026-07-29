@@ -32,7 +32,7 @@ public static class MatchSmoke
         for (int i = 0; i < matches; i++)
         {
             Console.SetOut(TextWriter.Null);          // AS-IS 로그 억제
-            (bool ok, string where, int tick) = RunOne(cards);
+            (bool ok, string where, int tick) = RunOne(cards, seed: i + 1);
             Console.SetOut(real);
 
             if (ok) { completed++; ticks.Add(tick); }
@@ -52,13 +52,13 @@ public static class MatchSmoke
         return completed == matches ? 0 : 1;
     }
 
-    private static (bool, string, int) RunOne(CEntity_Base[] cards)
+    private static (bool, string, int) RunOne(CEntity_Base[] cards, int seed)
     {
         HeadlessScene scene = new();
 
         try
         {
-            return RunToCompletion(scene, cards);
+            return RunToCompletion(scene, cards, seed);
         }
         finally
         {
@@ -66,7 +66,7 @@ public static class MatchSmoke
         }
     }
 
-    private static (bool, string, int) RunToCompletion(HeadlessScene scene, CEntity_Base[] cards)
+    private static (bool, string, int) RunToCompletion(HeadlessScene scene, CEntity_Base[] cards, int seed)
     {
         scene.Build();
         scene.SupplyGameData(cards, "ST1");
@@ -78,7 +78,7 @@ public static class MatchSmoke
         MethodInfo? awake = typeof(GManager).GetMethod("AwakeCoroutine", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
         if (awake?.Invoke(GManager.instance, null) is IEnumerator routine) driver.Start(routine);
 
-        AlwaysDeclineVirtualPlayer player = new();
+        RandomVirtualPlayer player = new(seed);
         string last = ""; int stableFrom = 0;
 
         for (int tick = 1; tick <= 100_000; tick++)
