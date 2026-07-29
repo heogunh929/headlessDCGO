@@ -35,10 +35,14 @@
 //   `WaitForSeconds(t)`          There is no clock; it completes on the next tick. 161 sites, all presentation
 //                                pacing. The STATE SEQUENCE is unchanged, only the wall-clock gap disappears.
 //   EXCEPTIONS                   Unity swallows an exception thrown inside a coroutine: it logs, kills that
-//                                routine, and lets everything else continue. This driver PROPAGATES, because a
-//                                rule that throws is a defect we want to see. If an AS-IS path is later found
-//                                to DEPEND on Unity's swallowing, that dependency gets recorded rather than
-//                                silently emulated.
+//                                coroutine, and lets everything else continue. This driver REPRODUCES that —
+//                                LOUDLY (stderr + `Swallowed` census) — because an AS-IS path was found that
+//                                depends on it: `DestroyPermanentsClass.Destroy` (CardController.cs:3848-3852)
+//                                passes a null `TopCard` into `AddTrashCard` (guards at :3826·:3837, none at
+//                                :3848) → NRE that Unity swallows; propagating aborted ~1% of matches
+//                                (measured 2026-07-30, seed 1055 deterministic witness). Kill scope matches
+//                                Unity: the throwing coroutine only — top frame down to its own StartCoroutine
+//                                boundary; parents parked on the dead child resume next tick.
 //
 // WHERE THE PLAYER GETS TO DECIDE. When a whole tick passes with no routine making progress, the engine is
 // waiting for something outside itself. Measured across the AS-IS tree, the predicate waits that can be in
@@ -294,6 +298,7 @@ public sealed class CoroutineDriver
     {
         ArgumentNullException.ThrowIfNull(routine);
 
+
         _pending.Add(routine);
     }
 
@@ -314,8 +319,26 @@ public sealed class CoroutineDriver
         // Snapshot: a routine may start others, and those wait for the next tick exactly as in Unity.
         foreach (Routine routine in _routines.ToArray())
         {
-            if (StepOnce(routine))
+            try
             {
+                if (StepOnce(routine))
+                {
+                    progressed = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Exception root = ex;
+                while (root is System.Reflection.TargetInvocationException { InnerException: not null } wrapped) root = wrapped.InnerException!;
+
+                // Unity swallows a coroutine exception: logs it, kills THAT coroutine, everything else
+                // continues — and the AS-IS depends on it (first witness: DestroyPermanentsClass.Destroy,
+                // CardController.cs:3848-3852 passes a null TopCard into AddTrashCard → NRE; :3826·:3837
+                // guard the same value, :3848 does not. AS-IS 자체 가드 누락 = R7, 재현 대상).
+                // 시끄럽게 재현한다: stderr + Swallowed 집계 — 조용한 삼킴은 결함 은폐다.
+                Console.Error.WriteLine($"[coroutine-exception] tick={Ticks} 삼킴(Unity 등가) root={routine.Root}: {root}");
+                Swallowed.Add(root.GetType().Name);
+                UnwindThrownCoroutine(routine);
                 progressed = true;
             }
         }
@@ -333,7 +356,37 @@ public sealed class CoroutineDriver
             progressed = true;
         }
 
+        // Unity applies Destroy at end of frame; one tick is one frame. AS-IS iteration relies on the
+        // hierarchy staying intact until here — see UnityEngine.Object.Destroy.
+        UnityEngine.Object.FlushPendingDestroys();
+
         return progressed;
+    }
+
+    /// <summary>Exceptions swallowed per Unity's coroutine semantics (type names, in order). A non-empty
+    /// list is a defect census, not noise — hosts surface it.</summary>
+    public List<string> Swallowed { get; } = new();
+
+    /// <summary>Kills only the coroutine that threw, as Unity does. The throwing coroutine is the top frame
+    /// down through the nearest StartCoroutine boundary (a frame with its own handle) — bare-enumerator
+    /// frames belong to the SAME Unity coroutine and die with it. Frames below the boundary were parked on
+    /// `yield return StartCoroutine(child)`; the child "ended", so they resume next tick — Unity's exact
+    /// behaviour when a nested coroutine dies to an exception.</summary>
+    private void UnwindThrownCoroutine(Routine routine)
+    {
+        while (routine.Stack.Count > 0)
+        {
+            IEnumerator frame = routine.Stack.Pop();
+            bool ownCoroutine = _handles.ContainsKey(frame);
+            ReleaseHandleFor(frame);
+
+            if (ownCoroutine && routine.Stack.Count > 0)
+            {
+                break;   // 던진 코루틴의 자기 프레임까지 걷어냈다 — 부모가 다음 틱 재개
+            }
+        }
+
+        routine.Waiting = null;
     }
 
     /// <summary>Ticks until every routine finishes, nothing can advance, or the budget runs out.</summary>

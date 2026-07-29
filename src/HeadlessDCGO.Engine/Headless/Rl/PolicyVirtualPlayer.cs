@@ -118,16 +118,28 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
             return true;
         }
 
-        // 씬 기본 상태의 패널은 activeSelf=true지만 열린 게 아니다 — 진짜 ask는 OpenSelectCardPanel이
-        // NotSelect 콜백을 배선했을 때뿐(그 전의 클릭은 랜덤 좌석 시절에도 헛클릭이었다).
-        if (Field(panel, "_onClickNotSelectButtonAction") is null
-            || GManager.instance?.turnStateMachine?.gameContext is null)
+        // 씬 기본 상태의 패널은 activeSelf=true지만 열린 게 아니다. 이전 게이트(NotSelect 콜백 배선 여부)는
+        // 틀렸다: 표준 오버로드(SelectCardPanel.cs:81→:83)가 콜백을 null로 넘기므로, 그 경로의 진짜 ask를
+        // 영원히 스킵해 스톨이 됐다(실측 2026-07-30, bridge_smoke 시드 2 `stall:Selection`). 진짜 ask의
+        // 신호는 패널 자신의 OpenSelectCardPanel 코루틴이 `WaitWhile(() => !_isEndSelection)`(:169)에
+        // 파킹된 것이다 — 그 람다는 this만 캡처하므로 Predicate.Target == panel. 빌드 중의
+        // `() => scrollRect.content.childCount > 0`(:251, OpenSelectCardPanelCoroutine)도 this를 캡처하므로
+        // 컴파일러 생성 메서드명(<선언 메서드>b__…)으로 가른다 — SelectionChannels.Identify와 같은 방식.
+        bool awaitingEndSelection = Waits.Any(wait => wait is WaitWhile waitWhile
+            && ReferenceEquals(waitWhile.Predicate.Target, panel)
+            && waitWhile.Predicate.Method.Name.StartsWith("<OpenSelectCardPanel>b__", StringComparison.Ordinal));
+
+        if (!awaitingEndSelection || GManager.instance?.turnStateMachine?.gameContext is null)
         {
             return true;
         }
 
         // The panel's own wired card copies are the candidates; NotSelect/EndSelect are NULL/YES.
-        List<HandCard> wired = panel.GetComponentsInChildren<HandCard>()
+        // 후보는 패널 자신의 장부(_handCards)에서 읽는다 — AS-IS의 클릭·판정 루프(CheckSelection·
+        // OnClickHandCard)가 걷는 그 목록이다. GetComponentsInChildren은 헤드리스에서 후보를 놓친다:
+        // ScrollRect 심의 content가 독립 루트라 패널 계층 탐색이 닿지 않는다(UnityEngineUI.cs:391) —
+        // 실측 2026-07-30 bridge_smoke 시드 3·5 stall(진화원 선택 패널, 후보 1인데 wired=0).
+        List<HandCard> wired = (Field(panel, "_handCards") as List<HandCard> ?? new())
             .Where(card => card.OnClickAction is not null).ToList();
 
         if (Seat is null)
@@ -231,13 +243,16 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
         };
     }
 
-    private DecisionPoint? CaptureCommand(PendingSelection pending)
+    /// <summary>Active command buttons on the shared SelectCommandPanel — the surface where wired
+    /// selections put their "End Selection" affordance (SelectPermanentEffect.cs:486-489,
+    /// SelectHandEffect.cs:372-375) and UserSelectionManager its commands.</summary>
+    private static List<SelectCommand> CommandButtons()
     {
-        SelectCommandPanel? panel = GManager.instance!.selectCommandPanel;
+        SelectCommandPanel? panel = GManager.instance?.selectCommandPanel;
 
         if (panel is null || !panel.gameObject.activeSelf)
         {
-            return null;
+            return new List<SelectCommand>();
         }
 
         List<SelectCommand> buttons = new();
@@ -250,9 +265,16 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
             }
         }
 
+        return buttons;
+    }
+
+    private DecisionPoint? CaptureCommand(PendingSelection pending)
+    {
+        List<SelectCommand> buttons = CommandButtons();
+
         if (buttons.Count == 0)
         {
-            return null;    // 버튼이 아직 안 만들어진 틱 — 다음 틱 재시도
+            return null;    // 패널 비활성 또는 버튼이 아직 안 만들어진 틱 — 다음 틱 재시도
         }
 
         NoteOverflow("command", buttons.Count);
@@ -293,6 +315,15 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
             Seat = pending.Seat,
             // 부분 선택이 이미 쌓였으면 빈-답(no-select)은 선택기 내부 상태와 어긋난다 — 시작 전에만 허용.
             NullLegal = canNoSelect && selected == 0,
+            // AS-IS의 완료 경로는 둘이다: 자동 종료(checkBeforeEndingSelection=false && !_canNoSelect &&
+            // !_canEndNotMax && count==max, SelectHandEffect.cs:312-317) 또는 selectCommandPanel의
+            // "End Selection" 버튼(:372-375). 후자를 YES로 노출하지 않으면 자동 종료가 안 걸리는 선택은
+            // 완료 채널이 없어 토글(재클릭=해제) 무한루프가 된다 — 실측 2026-07-30, step_cap 34%의 원인.
+            // 판정은 버튼 실체가 아니라 패널 activeSelf로 한다: CheckEndSelect가 CanEndSelect면
+            // SetUpCommandButton(동기 SetActive(true), SelectCommandPanel.cs:24-25), 아니면 Off(동기
+            // SetActive(false), :101) — 버튼 Instantiate는 코루틴이 1~2틱 뒤에 하므로 버튼 유무로 재면
+            // 재포획이 항상 앞서 YES가 영원히 닫힌다(실측: 수리 전후 트래젝토리 동일).
+            YesLegal = GManager.instance.selectCommandPanel?.gameObject.activeSelf == true,
             SelectedCount = selected,
             HandSlots = slots,
         };
@@ -320,6 +351,9 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
             Kind = DecisionKind.Selection,
             Seat = pending.Seat,
             NullLegal = canNoSelect && selected == 0,
+            // "End Selection" 버튼 = 완료 채널, 판정은 패널 activeSelf — CaptureWiredHand의 YES 주석 참조
+            // (같은 AS-IS 구조, SelectPermanentEffect.cs:466-473 자동 종료 · :486-489 버튼).
+            YesLegal = GManager.instance.selectCommandPanel?.gameObject.activeSelf == true,
             SelectedCount = selected,
             MyFieldSlots = mine,
             FoeFieldSlots = theirs,
@@ -607,6 +641,22 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
 
     private void ApplyWiredSelection(DecisionPoint point, int lane)
     {
+        if (lane == RlSchema.LaneYes)
+        {
+            // 선택 완료: selectCommandPanel의 "End Selection" 버튼 클릭(사람과 같은 표면).
+            // 버튼 코루틴 지연으로 사라진 틱이면 no-op — 같은 질문이 다음 틱 재포획된다.
+            {
+            }
+            if (CommandButtons() is { Count: > 0 } buttons)
+            {
+                buttons[0].OnClick();
+            }
+
+            _pendingSelection = null;
+
+            return;
+        }
+
         if (lane == RlSchema.LaneNull)
         {
             // no-select: 해당 선택기의 최소 응답(빈 선택)이 곧 no-select 채널이다.

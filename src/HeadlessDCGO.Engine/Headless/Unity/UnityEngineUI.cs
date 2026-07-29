@@ -377,7 +377,16 @@ namespace UnityEngine.UI
         }
     }
 
-    /// <summary>Unity <c>ScrollRect</c>. Nothing scrolls.</summary>
+    /// <summary>Unity <c>ScrollRect</c>. Nothing scrolls.
+    ///
+    /// KNOWN GAP — content/viewport are ORPHAN roots, not descendants of the ScrollRect's GameObject
+    /// (a scene authored in Unity would parent them). Direct access (`scrollRect.content.childCount`,
+    /// `GetChild`) works; what does NOT work is reaching content's children by walking the hierarchy from
+    /// an ancestor (`panel.GetComponentsInChildren&lt;T&gt;()` misses them — measured 2026-07-30, the
+    /// SelectCardPanel candidate-card stall; the substrate reads the panel's own `_handCards` instead).
+    /// AS-IS hierarchy walks are 2 sites (DropArea·BreakGlass), both presentation, neither over scroll
+    /// content [census 2026-07-30]. Left unparented deliberately: parenting would put the panel into the
+    /// cards' `activeInHierarchy` chain — a real-work member — changing behaviour no consumer asked for.</summary>
     public class ScrollRect : UIBehaviour
     {
         public sealed class ScrollRectEvent : UnityEvent<Vector2>

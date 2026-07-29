@@ -154,6 +154,10 @@ public sealed class RlMatchHost
                 Exception root = ex;
                 while (root is TargetInvocationException { InnerException: not null } wrapped) root = wrapped.InnerException!;
 
+                // 스택은 stderr로 — 프로토콜(stdout)엔 사유 타입만 나가므로, 여기 안 남기면 abort는
+                // 재현 없이 진단 불가다(실측 2026-07-30: 본학습 NRE 2판이 타입명만 남아 원점 소실).
+                Console.Error.WriteLine($"[abort] tick={_tick} {root}");
+
                 return Finish(null, $"aborted:{root.GetType().Name}", draw: true);
             }
 
@@ -242,6 +246,12 @@ public sealed class RlMatchHost
 
     private ResultMessage Finish(int? winner, string reason, bool draw)
     {
+        // Unity 등가로 삼킨 코루틴 예외는 결함 census다 — note 표면으로 올린다(조용한 삼킴 금지).
+        foreach (string swallowed in _driver?.Swallowed ?? Enumerable.Empty<string>())
+        {
+            Overflows.Add($"swallowed:{swallowed}");
+        }
+
         int turns = TurnNumber();
         TearDown();
 

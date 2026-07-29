@@ -79,35 +79,51 @@ namespace ExitGames.Client.Photon
     }
 
     /// <summary>Photon <c>Protocol</c> — serialisation helpers reached unqualified through
-    /// <c>using ExitGames.Client.Photon;</c>. Nothing is serialised.</summary>
+    /// <c>using ExitGames.Client.Photon;</c>. REAL round-trip (big-endian, Photon wire order).</summary>
     public static class Protocol
     {
         /// <summary>Photon's byte-stream (de)serialisers, as the AS-IS action payloads use them
         /// (`Protocol.Serialize(value, bytes, ref index)` / `Protocol.Deserialize(out value, bytes, ref index)`).
-        /// The RPC path they feed is not dispatched (see Headless/Unity/PhotonPunBehaviours.cs), so these move
-        /// the offset and nothing else.</summary>
-        public static void Serialize(int value, byte[] target, ref int targetOffset) => targetOffset += 4;
+        /// These MUST actually serialise: `TurnStateMachine.QueueMainPhaseAction` sends every virtual-player
+        /// main-phase action through `photonView.RPC(...)` → local dispatch → `GamePacketFactory.Create(bytes)`
+        /// → `action.Deserialize(bytes)`. A no-op here zeroes every action field, so every play collapses to
+        /// `SetPlayCard(0, 0, ...)` — ActiveCardList[0] onto frame 0, an unvalidated self-evolution loop
+        /// (measured 2026-07-30, seed-819 argmax lock).</summary>
+        public static void Serialize(int value, byte[] target, ref int targetOffset)
+        {
+            target[targetOffset++] = (byte)(value >> 24);
+            target[targetOffset++] = (byte)(value >> 16);
+            target[targetOffset++] = (byte)(value >> 8);
+            target[targetOffset++] = (byte)value;
+        }
 
-        public static void Serialize(short value, byte[] target, ref int targetOffset) => targetOffset += 2;
+        public static void Serialize(short value, byte[] target, ref int targetOffset)
+        {
+            target[targetOffset++] = (byte)(value >> 8);
+            target[targetOffset++] = (byte)value;
+        }
 
-        public static void Serialize(float value, byte[] target, ref int targetOffset) => targetOffset += 4;
+        public static void Serialize(float value, byte[] target, ref int targetOffset)
+        {
+            Serialize(System.BitConverter.SingleToInt32Bits(value), target, ref targetOffset);
+        }
 
         public static void Deserialize(out int value, byte[] source, ref int offset)
         {
-            value = 0;
+            value = (source[offset] << 24) | (source[offset + 1] << 16) | (source[offset + 2] << 8) | source[offset + 3];
             offset += 4;
         }
 
         public static void Deserialize(out short value, byte[] source, ref int offset)
         {
-            value = 0;
+            value = (short)((source[offset] << 8) | source[offset + 1]);
             offset += 2;
         }
 
         public static void Deserialize(out float value, byte[] source, ref int offset)
         {
-            value = 0f;
-            offset += 4;
+            Deserialize(out int bits, source, ref offset);
+            value = System.BitConverter.Int32BitsToSingle(bits);
         }
     }
 }

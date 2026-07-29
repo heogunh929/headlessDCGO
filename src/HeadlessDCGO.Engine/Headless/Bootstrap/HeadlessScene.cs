@@ -436,6 +436,9 @@ public sealed class HeadlessScene
     /// last (1.2GB for match 1, 5.7GB by match 10).</summary>
     public void Teardown()
     {
+        // 틱 사이에 죽은 매치가 남긴 미적용 Destroy — 다음 매치로 넘기지 않는다.
+        Object.FlushPendingDestroys();
+
         GameObject[] scene = GameObject.Registry.ToArray();
         GameObject.Registry.Clear();
 

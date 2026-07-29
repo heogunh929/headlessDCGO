@@ -82,15 +82,48 @@ namespace UnityEngine
         public static T Instantiate<T>(T original, Vector3 position, Quaternion rotation, Transform? parent)
             where T : Object => Instantiate(original, parent);
 
-        /// <summary>Unity <c>Object.Destroy</c>. Detach + REAL release, as Unity frees a destroyed object at
-        /// end of frame: the whole subtree is marked destroyed, unregistered from the teardown census
-        /// (GameObject.Registry — holding destroyed objects there until teardown was the in-match accumulator
-        /// behind the 22:36-22:40 OOMs), and its components' coroutines stop (Unity stops a destroyed
-        /// object's coroutines). Static-anchor purge runs so a destroyed subscriber (FieldPermanentCard's
-        /// never-unsubscribed GManager events) cannot pin the freed graph until teardown. A Component target
-        /// removes just that component, as Unity does. The game's own destruction flow
-        /// (<c>DestroyPermanentsClass</c>) is AS-IS logic and untouched.</summary>
+        /// <summary>Unity <c>Object.Destroy</c>. QUEUES the release for end of the current driver tick, as
+        /// Unity applies destruction at end of frame. The deferral is load-bearing, not cosmetic: AS-IS
+        /// iteration relies on the hierarchy staying intact until the frame ends —
+        /// `SelectCommandPanel.cs:45-48` runs `for (i &lt; childCount) Destroy(GetChild(i))` then parks on
+        /// `WaitWhile(childCount &gt; 0)`; a synchronous detach slides the indices, every other child
+        /// survives, and the wait never ends (measured 2026-07-30: End-Selection button never rebuilt →
+        /// wired-selection loops, step_cap 34%). The release itself is REAL (see
+        /// <see cref="FlushPendingDestroys"/>) — per-tick, so the in-match memory release behind the
+        /// 22:36-22:40 OOM repair is preserved.</summary>
         public static void Destroy(Object? target)
+        {
+            if (target is null)
+            {
+                return;
+            }
+
+            _pendingDestroys.Add(target);
+        }
+
+        private static readonly List<Object> _pendingDestroys = new();
+
+        /// <summary>Applies this frame's queued destroys — called by <c>CoroutineDriver.Tick()</c> at end of
+        /// tick (Unity's end-of-frame) and by scene teardown as a backstop. Index-based: applying one destroy
+        /// never enqueues another today, but growth during the walk must not throw.</summary>
+        public static void FlushPendingDestroys()
+        {
+            for (int i = 0; i < _pendingDestroys.Count; i++)
+            {
+                ApplyDestroy(_pendingDestroys[i]);
+            }
+
+            _pendingDestroys.Clear();
+        }
+
+        /// <summary>Detach + REAL release: the whole subtree is marked destroyed, unregistered from the
+        /// teardown census (GameObject.Registry — holding destroyed objects there until teardown was the
+        /// in-match accumulator behind the 22:36-22:40 OOMs), and its components' coroutines stop (Unity
+        /// stops a destroyed object's coroutines). Static-anchor purge runs so a destroyed subscriber
+        /// (FieldPermanentCard's never-unsubscribed GManager events) cannot pin the freed graph until
+        /// teardown. A Component target removes just that component, as Unity does. The game's own
+        /// destruction flow (<c>DestroyPermanentsClass</c>) is AS-IS logic and untouched.</summary>
+        private static void ApplyDestroy(Object? target)
         {
             if (target is Component component && target is not GameObject)
             {
@@ -134,7 +167,8 @@ namespace UnityEngine
 
         public static void Destroy(Object? target, float delay) => Destroy(target);
 
-        public static void DestroyImmediate(Object? target) => Destroy(target);
+        /// <summary>Unity <c>DestroyImmediate</c> applies NOW, not at end of frame — that is its contract.</summary>
+        public static void DestroyImmediate(Object? target) => ApplyDestroy(target);
 
         /// <summary>Unity <c>Object.DontDestroyOnLoad</c>. There are no scenes to survive.</summary>
         public static void DontDestroyOnLoad(Object? target)
