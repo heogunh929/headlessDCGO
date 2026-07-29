@@ -109,7 +109,10 @@ namespace UnityEngine
 
             if (type == typeof(GameObject))
             {
-                return new GameObject(original.name);
+                GameObject copy = new(original.name);
+                InstantiatedObject?.Invoke(copy);
+
+                return copy;
             }
 
             object created = Activator.CreateInstance(type)
@@ -120,11 +123,23 @@ namespace UnityEngine
 
             if (createdObject is Component component)
             {
-                _ = component.gameObject;   // materialise the host GameObject
+                _ = component.gameObject;   // materialise the host GameObject, which raises HostCreated
+                Instantiated?.Invoke(component);
             }
 
             return createdObject;
         }
+
+        /// <summary>Raised for every component produced by <see cref="Instantiate{T}(T)"/>. The scene
+        /// subscribes so a copy gets the widget components and inspector slots the ORIGINAL PREFAB carried —
+        /// a Unity prefab is a fully built object, and `Instantiate` here can only construct a bare one.
+        /// `CardObjectController.CreateCardSource` depends on it: the line after `Instantiate` is
+        /// `cardSource.cEntity_EffectController.AddCardEffect(...)`, unguarded.</summary>
+        public static event Action<Component>? Instantiated;
+
+        /// <summary>Raised for a GameObject produced by <see cref="Instantiate{T}(T)"/>. Same purpose as
+        /// <see cref="Instantiated"/>: a prefab copy is a fully built object, and this one is not.</summary>
+        public static event Action<GameObject>? InstantiatedObject;
 
         private static GameObject? HostOf(Object? target) => target switch
         {
@@ -364,43 +379,82 @@ namespace Photon.Pun
     using ExitGames.Client.Photon;
     using UnityEngine;
 
-    /// <summary>Photon <c>PhotonNetwork</c>. There is no client — <see cref="IsConnected"/> is false and stays
-    /// false, and nothing connects, joins or sends.</summary>
+    /// <summary>Photon <c>PhotonNetwork</c> — a LOCAL SINGLE-PROCESS ROOM.
+    ///
+    /// The AS-IS engine runs even its vs-AI matches inside a Photon room: `TurnStateMachine.Init()` connects,
+    /// joins a lobby, creates a room and waits on `IsConnectedAndReady` / `InLobby` / `InRoom` before the game
+    /// starts. A shim that reports "never connected" leaves those waits unsatisfiable and the match never
+    /// begins, so this one reports a room that is always there — two seats, both local.
+    ///
+    /// WHY THAT IS FAITHFUL AND NOT A SKIP. The AS-IS code path is executed in full: it connects, it joins, it
+    /// creates, and every predicate it waits on is answered. What is not reproduced is the NETWORK — there is
+    /// no server, no latency and no second process. For this engine that costs nothing measurable: every one
+    /// of the 32 `photonView.RPC` sites targets `RpcTarget.All`, which in a single process is one local call
+    /// (and RPC dispatch itself is still unimplemented and throws — see
+    /// Headless/Unity/PhotonPunBehaviours.cs).
+    ///
+    /// SEATS. `LocalPlayer` is actor 1 and master; the opponent is actor 2. `CardObjectController.DeckRecipie`
+    /// splits decks by comparing against the master player, so the two must be distinguishable.</summary>
     public static class PhotonNetwork
     {
-        public static bool IsConnected => false;
-        public static bool InRoom => false;
-        public static bool IsMasterClient => false;
-        public static bool OfflineMode { get; set; }
+        private static readonly Realtime.Player Master = new()
+        {
+            ActorNumber = 1, NickName = "You", IsLocal = true, IsMasterClient = true, UserId = "local-1",
+        };
+
+        private static readonly Realtime.Player Guest = new()
+        {
+            ActorNumber = 2, NickName = "Opponent", IsLocal = false, IsMasterClient = false, UserId = "local-2",
+        };
+
+        private static readonly Realtime.Room LocalRoom = CreateLocalRoom();
+
+        // Always connected, always in a lobby, always in the room: the AS-IS waits are satisfiable from the
+        // first tick, which is what lets Init() proceed.
+        public static bool IsConnected => true;
+        public static bool IsConnectedAndReady => true;
+        public static bool InLobby => true;
+        public static bool InRoom => true;
+        public static bool IsMasterClient => true;
+        public static bool OfflineMode { get; set; } = true;
         public static bool AutomaticallySyncScene { get; set; }
         public static string GameVersion { get; set; } = string.Empty;
-        public static string NickName { get; set; } = string.Empty;
-        public static Realtime.Room? CurrentRoom => null;
-        public static Realtime.Player? LocalPlayer => null;
-        public static Realtime.Player[] PlayerList => System.Array.Empty<Realtime.Player>();
-        public static int CountOfPlayers => 0;
+        public static string NickName { get; set; } = "You";
+        public static string CloudRegion => "local";
+        public static Realtime.Room CurrentRoom => LocalRoom;
+        public static Realtime.Player LocalPlayer => Master;
+        public static Realtime.Player MasterClient => Master;
+        public static Realtime.Player[] PlayerList => new[] { Master, Guest };
+        public static int CountOfPlayers => 2;
+        public static LoadBalancingClient NetworkingClient { get; } = new();
+        public static ServerSettings PhotonServerSettings { get; } = new();
+        public static Realtime.ClientState NetworkClientState => Realtime.ClientState.Joined;
+        public static Realtime.DisconnectCause DisconnectedCause => Realtime.DisconnectCause.None;
         public static double Time => 0d;
         public static int ServerTimestamp => 0;
 
-        public static bool ConnectUsingSettings() => false;
+        // The connect/join/create calls succeed immediately; the state above never changes.
+        public static bool ConnectUsingSettings() => true;
+
+        public static bool ConnectToRegion(string region) => true;
 
         public static bool Disconnect() => false;
 
-        public static bool JoinLobby() => false;
+        public static bool JoinLobby() => true;
 
-        public static bool LeaveLobby() => false;
+        public static bool LeaveLobby() => true;
 
-        public static bool JoinRoom(string roomName) => false;
+        public static bool JoinRoom(string roomName) => true;
 
-        public static bool JoinRandomRoom() => false;
+        public static bool JoinRandomRoom() => true;
 
         public static bool CreateRoom(
             string? roomName,
             Realtime.RoomOptions? roomOptions = null,
             object? typedLobby = null,
-            string[]? expectedUsers = null) => false;
+            string[]? expectedUsers = null) => true;
 
-        public static bool LeaveRoom(bool becomeInactive = true) => false;
+        public static bool LeaveRoom(bool becomeInactive = true) => true;
 
         public static void LoadLevel(string levelName)
         {
@@ -420,22 +474,33 @@ namespace Photon.Pun
         {
         }
 
-        public static bool InLobby => false;
-        public static bool IsConnectedAndReady => false;
-        public static string CloudRegion => string.Empty;
-        public static Realtime.Player? MasterClient => null;
-        public static LoadBalancingClient? NetworkingClient => null;
-        public static Realtime.ClientState NetworkClientState => Realtime.ClientState.Disconnected;
-        public static Realtime.DisconnectCause DisconnectedCause => Realtime.DisconnectCause.None;
-        public static ServerSettings? PhotonServerSettings => null;
+        public static void RemoveCallbackTarget(object target)
+        {
+        }
 
-        public static bool ConnectToRegion(string region) => false;
+        public static void AddCallbackTarget(object target)
+        {
+        }
+
+        private static Realtime.Room CreateLocalRoom()
+        {
+            Realtime.Room room = new()
+            {
+                Name = "local", MaxPlayers = 2, PlayerCount = 2, IsOpen = true, IsVisible = false,
+                MasterClientId = 1,
+            };
+
+            room.Players[Master.ActorNumber] = Master;
+            room.Players[Guest.ActorNumber] = Guest;
+
+            return room;
+        }
     }
 
-    /// <summary>Photon <c>LoadBalancingClient</c>. There is no client.</summary>
+    /// <summary>Photon <c>LoadBalancingClient</c>. There is no client; the state mirrors the local room.</summary>
     public sealed class LoadBalancingClient
     {
-        public Realtime.ClientState State => Realtime.ClientState.Disconnected;
+        public Realtime.ClientState State => Realtime.ClientState.Joined;
         public Realtime.DisconnectCause DisconnectedCause => Realtime.DisconnectCause.None;
         public string AppId { get; set; } = string.Empty;
     }

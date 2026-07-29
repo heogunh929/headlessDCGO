@@ -97,8 +97,10 @@ public sealed class ExecuteAlwaysAttribute : Attribute
 {
 }
 
-/// <summary>Unity <c>[RuntimeInitializeOnLoadMethod]</c>. Unity calls the marked method during player startup.
-/// There is no player loop here, so NOTHING CALLS IT — see the roadmap's step 2.1 (lifecycle).</summary>
+/// <summary>Unity <c>[RuntimeInitializeOnLoadMethod]</c>. Unity calls the marked method during player startup;
+/// here <see cref="Headless.Bootstrap.HeadlessScene"/> does, in Build(). NOT editor bookkeeping —
+/// `PacketRegistration.RegisterAll` registers the MainPhaseAction packet types, without which the first action
+/// a player takes throws.</summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 public sealed class RuntimeInitializeOnLoadMethodAttribute : Attribute
 {

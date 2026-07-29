@@ -113,6 +113,7 @@ public class Component : Object
             {
                 _gameObject = new GameObject(GetType().Name);
                 _gameObject.Attach(this);
+                HostCreated?.Invoke(_gameObject);
             }
 
             return _gameObject;
@@ -123,6 +124,11 @@ public class Component : Object
     public Transform transform => gameObject.transform;
 
     internal void BindTo(GameObject owner) => _gameObject = owner;
+
+    /// <summary>Raised when a component materialises its own host GameObject because nothing attached it.
+    /// The scene subscribes so such a host gets the same widget components a prefab would have carried — see
+    /// Headless/Bootstrap/HeadlessScene.cs.</summary>
+    public static event Action<GameObject>? HostCreated;
 
     /// <summary>Unity <c>Component.GetComponent&lt;T&gt;()</c>. Searches the owning GameObject.</summary>
     public T? GetComponent<T>() where T : class => gameObject.GetComponent<T>();
@@ -293,8 +299,28 @@ public sealed class GameObject : Object
         }
     }
 
-    /// <summary>Unity <c>GameObject.SetActive(bool)</c>.</summary>
-    public void SetActive(bool value) => activeSelf = value;
+    /// <summary>Unity <c>GameObject.SetActive(bool)</c>. Deactivating also STOPS the coroutines this object's
+    /// components started, as Unity does — see MonoBehaviour.StopRunningCoroutines for why the AS-IS code
+    /// depends on it.</summary>
+    public void SetActive(bool value)
+    {
+        activeSelf = value;
+
+        if (value)
+        {
+            return;
+        }
+
+        foreach (Component component in _components.ToArray())
+        {
+            if (component is MonoBehaviour behaviour && behaviour.HasRunningCoroutines)
+            {
+                Deactivations.Add($"{name} / {component.GetType().Name}");
+            }
+
+            (component as MonoBehaviour)?.StopRunningCoroutines();
+        }
+    }
 
     /// <summary>Unity <c>GameObject.layer</c> / <c>CompareTag</c>. There is no layer or tag system; measured
     /// readers are the out-of-scope `Opening` file.</summary>
@@ -368,6 +394,13 @@ public sealed class GameObject : Object
     /// <summary>Unity <c>GameObject.Find</c>. There is no scene graph to search; measured callers are
     /// out-of-scope UI (`ColorDropdownController`).</summary>
     public static GameObject? Find(string name) => null;
+
+    /// <summary>Objects whose deactivation stopped running coroutines, for diagnosis.</summary>
+    public static List<string> Deactivations { get; } = new();
+
+    /// <summary>The components on this object. Exposed for PUN's RPC resolution, which reflects over the
+    /// view's GameObject exactly as PUN does — see Headless/Unity/PhotonPunBehaviours.cs.</summary>
+    public IReadOnlyList<Component> Components => _components;
 
     internal void Attach(Component component)
     {

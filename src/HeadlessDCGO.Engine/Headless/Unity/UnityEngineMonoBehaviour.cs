@@ -67,8 +67,40 @@ public class MonoBehaviour : Behaviour
     {
         ArgumentNullException.ThrowIfNull(routine);
 
-        return new Coroutine(routine);
+        Coroutine handle = new(routine);
+        _running.Add(handle);
+        Started?.Invoke(handle);
+
+        return handle;
     }
+
+    private readonly List<Coroutine> _running = new();
+
+    /// <summary>Unity STOPS every coroutine a component started when its GameObject is deactivated, and the
+    /// AS-IS code relies on that: `LoadingObject` starts `SetLoadingText`, a `while (true)` loop, and never
+    /// keeps its handle — only `moveAgumonCoroutine` is stored and stopped explicitly (LoadingObject.cs:44,96).
+    /// The text loop ends in the original solely because `Off()` deactivates the object. Without this rule the
+    /// loop runs forever and the scheduler never reports the engine as waiting.</summary>
+    internal bool HasRunningCoroutines => _running.Count > 0;
+
+    internal void StopRunningCoroutines()
+    {
+        foreach (Coroutine handle in _running.ToArray())
+        {
+            Stopped?.Invoke(handle.Routine);
+        }
+
+        _running.Clear();
+    }
+
+    /// <summary>Raised for every StartCoroutine. The scheduler subscribes and admits the routine as an
+    /// independent one, which is what makes the FIRE-AND-FORGET shape `StartCoroutine(x);` work — 153 AS-IS
+    /// sites discard the handle, so nothing would ever advance those routines otherwise.
+    ///
+    /// The `yield return StartCoroutine(x)` shape (15,833 sites) hands the SAME handle to the parent, and the
+    /// scheduler recognises a handle it already owns: the parent still waits for the child, and the child is
+    /// not advanced twice. See Headless/Coroutines/CoroutineDriver.cs.</summary>
+    public static event Action<Coroutine>? Started;
 
     /// <summary>Unity <c>MonoBehaviour.StartCoroutine(string)</c>. Unity looks the method up BY NAME on this
     /// component and starts it; if no such method exists it logs and does nothing. Reproduced faithfully,
@@ -93,17 +125,28 @@ public class MonoBehaviour : Behaviour
 
     public Coroutine? StartCoroutine(string methodName, object value) => StartCoroutine(methodName);
 
-    /// <summary>Unity <c>StopCoroutine</c>/<c>StopAllCoroutines</c>. DECLARATIONS DOING NOTHING — the driver
-    /// owns the routine stack and there is no registry of running routines to cancel. Roadmap step 2.3 decides
-    /// whether cancellation is reproduced at all.</summary>
+    /// <summary>Unity <c>StopCoroutine</c>. Kills a running routine. REAL WORK — the AS-IS engine relies on
+    /// it to end its own infinite loops: `LoadingObject.EndLoading` stops the walking-Agumon animation
+    /// (LoadingObject.cs:96), which is a `while (true)`. A no-op here leaves that routine spinning forever and
+    /// the scheduler never goes idle.</summary>
     public void StopCoroutine(Coroutine? routine)
     {
+        if (routine is not null)
+        {
+            Stopped?.Invoke(routine.Routine);
+        }
     }
 
     public void StopCoroutine(IEnumerator? routine)
     {
+        if (routine is not null)
+        {
+            Stopped?.Invoke(routine);
+        }
     }
 
+    /// <summary>The string form resolves the method by name, as Unity does, and stops nothing if it finds no
+    /// running routine — there is no name-to-routine registry here.</summary>
     public void StopCoroutine(string methodName)
     {
     }
@@ -111,6 +154,10 @@ public class MonoBehaviour : Behaviour
     public void StopAllCoroutines()
     {
     }
+
+    /// <summary>Raised by <see cref="StopCoroutine(Coroutine)"/>. The scheduler subscribes and drops the
+    /// routine.</summary>
+    public static event Action<IEnumerator>? Stopped;
 
     /// <summary>Unity <c>Invoke</c> — a delayed message. There is no frame clock; nothing schedules.</summary>
     public void Invoke(string methodName, float time)

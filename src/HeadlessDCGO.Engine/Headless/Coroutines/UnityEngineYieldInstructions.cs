@@ -89,6 +89,11 @@ public sealed class WaitUntil : CustomYieldInstruction
 {
     private readonly Func<bool> _predicate;
 
+    /// <summary>The predicate itself. The headless substrate reads it to identify WHICH question the engine is
+    /// waiting on — see Headless/Choices/VirtualPlayer.cs. Unity keeps it private; nothing in the AS-IS
+    /// sources touches this.</summary>
+    public Func<bool> Predicate => _predicate;
+
     public WaitUntil(Func<bool> predicate)
     {
         _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
@@ -101,6 +106,9 @@ public sealed class WaitUntil : CustomYieldInstruction
 public sealed class WaitWhile : CustomYieldInstruction
 {
     private readonly Func<bool> _predicate;
+
+    /// <summary>The predicate itself; see <see cref="WaitUntil.Predicate"/>.</summary>
+    public Func<bool> Predicate => _predicate;
 
     public WaitWhile(Func<bool> predicate)
     {

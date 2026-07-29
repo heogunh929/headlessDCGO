@@ -10,20 +10,40 @@
 // shine — none of that exists here. The tween extension methods return an inert handle so that
 // `transform.DOScale(...).SetEase(...)` chains still compile and evaluate to something.
 //
-// A NOTE ON TWEEN COMPLETION. The AS-IS presentation layer waits on tweens with the pattern
-//     sequence.AppendCallback(() => end = true); sequence.Play(); yield return new WaitWhile(() => !end);
-// Those 33 sites are all inside `Effects.cs`, which was measured to change NO rule state (zero touches of
-// hand/trash/library/security/permanents/memory/suspend; the single apparent one is commented out). An inert
-// tween therefore leaves `end` false, so any such wait would hang. `Play()` here consequently RUNS the
-// registered callbacks immediately — the animation is skipped, and the waiter is released at once. That is a
-// deliberate headless decision, recorded here rather than hidden: the visual delay disappears, the state
-// sequence does not change.
+// WHEN A TWEEN COMPLETES, AND WHY IT MATTERS. `Play()` SCHEDULES; the tween completes on the NEXT TICK, and
+// getting this wrong breaks the engine in two opposite ways.
+//
+//   Too late (never)     The AS-IS pacing idiom is
+//                            sequence.AppendCallback(() => end = true); sequence.Play();
+//                            yield return new WaitWhile(() => !end);
+//                        33 such sites in `Effects.cs`. An inert tween leaves `end` false forever.
+//
+//   Too early (on Play)  `Effects.CreateFieldPermanentCardEffect` drops a card from z = -30 to z = 0 and then
+//                        writes
+//                            sequence.Play();
+//                            while (Mathf.Abs(localPosition.z - (-0.2f)) < 1) yield return null;
+//                        In Unity that check runs BEFORE the tween has moved anything: z is still -30,
+//                        |-30 + 0.2| = 29.8, the condition is false and the loop is SKIPPED. Complete on
+//                        Play() instead and z is already 0, |0 + 0.2| = 0.2 < 1, and the loop never exits.
+//                        (This shim did exactly that, and it looked like an AS-IS bug until measured.)
+//
+// So completion is deferred by one tick: creation enqueues, and the coroutine driver drains the queue at each
+// tick boundary — the closest thing here to Unity's "the tween updates on the next frame". The animation's
+// DURATION still disappears; only its ordering relative to the caller's next statement is preserved, and that
+// ordering is what the AS-IS code reads.
+//
+// AUTOPLAY. DOTween starts a tween as soon as it is created; `Play()` only matters after a `Pause()`. The
+// AS-IS code relies on that — of 52 `DOTween.Sequence()` sites, 17 never call `Play()` and simply wait
+// (`CardObjectController.AddHandCard` builds its draw animation and goes straight to
+// `yield return new WaitWhile(() => !end)`). Requiring an explicit Play here left those waiting forever, so a
+// tween schedules itself on creation.
 // ============================================================================================================
 
 namespace DG.Tweening
 {
 
     using System;
+    using System.Collections.Generic;
     using UnityEngine;
 
     /// <summary>DOTween <c>Ease</c>. Carried so ease arguments compile.</summary>
@@ -65,7 +85,10 @@ namespace DG.Tweening
     {
         private readonly System.Collections.Generic.List<Action> _callbacks = new();
 
-        public bool IsPlaying { get; private set; }
+        /// <summary>DOTween autoplays: a tween runs from the moment it exists. See the file header.</summary>
+        public Tween() => Pending.Enqueue(this);
+
+        public bool IsPlaying { get; private set; } = true;
 
         public Tween SetEase(Ease ease) => this;
 
@@ -103,17 +126,38 @@ namespace DG.Tweening
             return this;
         }
 
-        /// <summary>Runs every registered completion callback IMMEDIATELY. See the file header — a waiter blocked
-        /// on `WaitWhile(() => !end)` must be released, and there is no frame loop to release it later.</summary>
+        /// <summary>Schedules the tween. It completes on the NEXT tick, not now — see the file header for the
+        /// AS-IS loop that depends on the value being UNCHANGED on the statement after Play().</summary>
         public virtual Tween Play()
         {
-            IsPlaying = true;
-            Complete();
+            if (!IsPlaying)
+            {
+                IsPlaying = true;
+                Pending.Enqueue(this);
+            }
 
             return this;
         }
 
-        public Tween Pause() => this;
+        /// <summary>Tweens waiting for their tick. Drained by
+        /// <see cref="HeadlessDCGO.Engine.Headless.Coroutines.CoroutineDriver"/>.</summary>
+        internal static readonly Queue<Tween> Pending = new();
+
+        /// <summary>Completes every scheduled tween. Called once per tick by the driver.</summary>
+        public static void AdvanceScheduled()
+        {
+            while (Pending.Count > 0)
+            {
+                Pending.Dequeue().Complete();
+            }
+        }
+
+        public Tween Pause()
+        {
+            IsPlaying = false;
+
+            return this;
+        }
 
         public Tween Kill(bool complete = false)
         {
@@ -149,9 +193,24 @@ namespace DG.Tweening
     /// <see cref="Tween.Play"/> in the order they were appended.</summary>
     public sealed class Sequence : Tween
     {
-        public Sequence Append(Tween tween) => this;
+        /// <summary>Appended tweens are not scheduled, but their completion callbacks must still run: the
+        /// AS-IS pacing idiom is `sequence.Append(x).AppendCallback(() => end = true); sequence.Play();
+        /// yield return new WaitWhile(() => !end);` and a swallowed callback hangs that wait forever
+        /// (`LoadingObject.EndLoading`, LoadingObject.cs:104-110). Chaining them here keeps Play() releasing
+        /// every waiter.</summary>
+        public Sequence Append(Tween tween)
+        {
+            OnComplete(() => tween.Complete());
 
-        public Sequence Join(Tween tween) => this;
+            return this;
+        }
+
+        public Sequence Join(Tween tween)
+        {
+            OnComplete(() => tween.Complete());
+
+            return this;
+        }
 
         public Sequence Insert(float atPosition, Tween tween) => this;
 
@@ -174,13 +233,33 @@ namespace DG.Tweening
     {
         public static Sequence Sequence() => new();
 
-        public static Tween To(Func<float> getter, Action<float> setter, float endValue, float duration) => new();
+        /// <summary>DOTween <c>To</c> — interpolates a value over time. The interpolation is skipped, but the
+        /// SETTER STILL RUNS WITH THE END VALUE, because the AS-IS code waits on the RESULT, not on the tween:
+        ///     sequence.Append(DOTween.To(() =&gt; handCard.transform.localScale, x =&gt; … = x, Vector3.zero, .22f));
+        ///     while (handCard != null) { if (handCard.transform.localScale.x &gt; 0.2f) yield return null; else break; }
+        /// (Effects.cs:113-135). A tween that never assigns leaves the scale at 1 and that loop never exits.
+        /// Jumping to the end value is the headless equivalent of the animation having finished.</summary>
+        public static Tween To(Func<float> getter, Action<float> setter, float endValue, float duration)
+            => Assign(setter, endValue);
 
-        public static Tween To(Func<Vector3> getter, Action<Vector3> setter, Vector3 endValue, float duration) => new();
+        public static Tween To(Func<Vector3> getter, Action<Vector3> setter, Vector3 endValue, float duration)
+            => Assign(setter, endValue);
 
-        public static Tween To(Func<Vector2> getter, Action<Vector2> setter, Vector2 endValue, float duration) => new();
+        public static Tween To(Func<Vector2> getter, Action<Vector2> setter, Vector2 endValue, float duration)
+            => Assign(setter, endValue);
 
-        public static Tween To(Func<Color> getter, Action<Color> setter, Color endValue, float duration) => new();
+        public static Tween To(Func<Color> getter, Action<Color> setter, Color endValue, float duration)
+            => Assign(setter, endValue);
+
+        /// <summary>The assignment happens when the tween is COMPLETED, not when it is created — a tween that
+        /// is built but never played must not change anything, as in DOTween.</summary>
+        private static Tween Assign<T>(Action<T> setter, T endValue)
+        {
+            Tween tween = new();
+            tween.OnComplete(() => setter(endValue));
+
+            return tween;
+        }
 
         public static void Kill(object target, bool complete = false)
         {

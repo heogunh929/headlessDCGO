@@ -262,9 +262,26 @@ public sealed class AudioSource : Behaviour
     }
 }
 
-/// <summary>Unity <c>Animator</c> / <c>RuntimeAnimatorController</c>. Nothing animates.</summary>
+/// <summary>Unity <c>Animator</c>. Nothing animates — with ONE exception that is load-bearing.
+///
+/// THE CLOSE EVENT. The AS-IS UI closes itself through the animator, not through code:
+///     anim.SetInteger("Close", 1);                                    // start the close clip
+///     yield return new WaitWhile(() => this.gameObject.activeSelf);   // wait for it to finish
+/// and the clip's ANIMATION EVENT calls `Off()`, which deactivates the object. Nothing in the sources calls
+/// `Off()` — measured: zero call sites for `LoadingObject.Off`. The clips are `.anim` assets, so without them
+/// that wait never ends and the engine stops there. It is not only presentation: `LoadingObject`,
+/// `CommandText`, `ShowTurnPlayerObject` and `ShowPhaseNotificationObject` gate real progress this way
+/// (44 `SetInteger("Close", …)` sites, 13 `public void Off()` methods).
+///
+/// So this shim fires that event immediately: `SetInteger("Close", 1)` invokes `Off()` on this GameObject.
+/// The clip's DURATION disappears; the state transition it drives does not. `SetInteger("Close", 0)` — the
+/// open direction — needs nothing, because the sources do the opening themselves before setting it.</summary>
 public sealed class Animator : Behaviour
 {
+    /// <summary>Objects whose close was requested but that carry no <c>Off()</c>. A silent miss here means a
+    /// wait that never ends, so the misses are collected rather than ignored.</summary>
+    public static List<string> UnhandledCloses { get; } = new();
+
     public RuntimeAnimatorController? runtimeAnimatorController { get; set; }
     public float speed { get; set; } = 1f;
 
@@ -280,8 +297,41 @@ public sealed class Animator : Behaviour
     {
     }
 
+    /// <summary>See the class summary: <c>("Close", 1)</c> runs the close clip's animation event now.</summary>
     public void SetInteger(string name, int value)
     {
+        if (!string.Equals(name, "Close", StringComparison.Ordinal) || value != 1)
+        {
+            return;
+        }
+
+        // The animator is not always on the object that owns the close. `LoadingObject` holds its Animator on
+        // a CHILD (the field is literally named `anim`) while `Off()` lives on `LoadingObject` itself — Unity's
+        // animation events can target a component anywhere the clip's importer was pointed at. Walk this
+        // object first, then up the parents.
+        for (Transform? node = transform; node is not null; node = node.parent)
+        {
+            foreach (Component component in node.gameObject.Components)
+            {
+                System.Reflection.MethodInfo? off = component.GetType().GetMethod(
+                    "Off",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public,
+                    null,
+                    Type.EmptyTypes,
+                    null);
+
+                if (off is null)
+                {
+                    continue;
+                }
+
+                off.Invoke(component, null);
+
+                return;
+            }
+        }
+
+        UnhandledCloses.Add(gameObject.name);
     }
 
     public void SetFloat(string name, float value)

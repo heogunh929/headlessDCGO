@@ -190,10 +190,17 @@ namespace UnityEngine.EventSystems
         EndDrag = 10,
     }
 
-    /// <summary>Unity <c>EventSystem</c>. There is no event system.</summary>
+    /// <summary>Unity <c>EventSystem</c>. Nothing here routes input — but the OBJECT has to exist, because the
+    /// AS-IS code dereferences <c>EventSystem.current</c> without a null check. `TurnStateMachine.EndGame`
+    /// (TurnStateMachine.cs:3345) moves keyboard focus onto the result panel that way, and a null `current`
+    /// threw there on every single match. In the real scene an EventSystem component is always present, so
+    /// returning null was the divergence; this hands back a live one that ignores what it is told.</summary>
     public sealed class EventSystem : UIBehaviour
     {
-        public static EventSystem? current => null;
+        private static EventSystem? _current;
+
+        public static EventSystem? current =>
+            _current ??= new GameObject("EventSystem").AddComponent<EventSystem>();
 
         public GameObject? currentSelectedGameObject => null;
 
@@ -377,8 +384,20 @@ namespace UnityEngine.UI
         {
         }
 
-        public RectTransform? content { get; set; }
-        public RectTransform? viewport { get; set; }
+        /// <summary>Unity's ScrollRect always has a content RectTransform — the scene could not be authored
+        /// without one, and the AS-IS sources walk it unguarded (`CheckCardPanel.cs:410`
+        /// `scrollRect.content.childCount`). Created with the widget for the same reason
+        /// <see cref="GameObject.transform"/> is: an absent one is a state the original never has.</summary>
+        public RectTransform content { get; set; } = NewChildRect("Content");
+
+        public RectTransform viewport { get; set; } = NewChildRect("Viewport");
+
+        private static RectTransform NewChildRect(string name)
+        {
+            GameObject holder = new(name);
+
+            return holder.AddComponent<RectTransform>();
+        }
         public bool horizontal { get; set; } = true;
         public bool vertical { get; set; } = true;
         public Vector2 normalizedPosition { get; set; }

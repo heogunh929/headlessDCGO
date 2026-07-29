@@ -47,33 +47,77 @@ public class PhotonView : UnityEngine.Component
     /// <summary>Photon <c>PhotonView.ViewID</c>. There is no view registry; the id is held, not allocated.</summary>
     public int ViewID { get; set; }
 
-    /// <summary>Photon <c>PhotonView.RPC</c>. DECLARED BUT NOT IMPLEMENTED — it throws.
-    /// The AS-IS sources call this at 32 sites, all with <c>RpcTarget.All</c>, which in a single process is
-    /// equivalent to invoking the target method locally once. Doing that dispatch is roadmap step 2.6; until
-    /// then this throws rather than return quietly, so a rule path that reaches it FAILS LOUDLY instead of
-    /// silently dropping a message. The declaration exists only because the AS-IS call sites must compile.</summary>
-    public void RPC(string methodName, RpcTarget target, params object[] parameters) =>
-        throw new NotSupportedException(
-            $"RPC('{methodName}') is not dispatched: there is no Photon client and local dispatch is not " +
-            "implemented yet (roadmap step 2.6). See Headless/Unity/PhotonPunBehaviours.cs.");
+    /// <summary>Photon <c>PhotonView.RPC</c> — LOCAL DISPATCH.
+    ///
+    /// In PUN this sends <paramref name="methodName"/> to the peers named by <paramref name="target"/>, and
+    /// each peer invokes its own <c>[PunRPC]</c>-marked method by reflection. Measured across the AS-IS tree,
+    /// ALL 32 call sites use <c>RpcTarget.All</c> — sender included — and this process is the only peer, so
+    /// "send to everyone" is exactly "invoke it here, once".
+    ///
+    /// That is what this does: it finds the <c>[PunRPC]</c> method on the components of this view's GameObject
+    /// and calls it. The engine depends on the call actually happening — `TurnStateMachine.Init()` seeds the
+    /// shared RNG with `RPC("SetRandom", RpcTarget.All, …)` and then waits on `DoneSetRandom`, which only the
+    /// RPC body sets.
+    ///
+    /// WHAT IS NOT REPRODUCED: serialisation, ordering across a network, and any target other than All. A
+    /// target this process cannot satisfy throws rather than dropping the message silently.</summary>
+    public void RPC(string methodName, RpcTarget target, params object[] parameters)
+    {
+        if (target is not RpcTarget.All and not RpcTarget.AllBuffered and not RpcTarget.AllViaServer
+            and not RpcTarget.AllBufferedViaServer and not RpcTarget.MasterClient)
+        {
+            throw new NotSupportedException(
+                $"RPC('{methodName}') targets {target}, which excludes this peer. The headless process is the "
+                + "only peer, so there is nobody else to send to. See Headless/Unity/PhotonPunBehaviours.cs.");
+        }
+
+        Invoke(methodName, parameters);
+    }
 
     public void RPC(string methodName, Realtime.Player targetPlayer, params object[] parameters) =>
-        RPC(methodName, RpcTarget.All, parameters);
-}
+        Invoke(methodName, parameters);
 
-/// <summary>Photon <c>Photon.Pun.MonoBehaviourPun</c> — a MonoBehaviour with a cached <see cref="PhotonView"/>.
+    private void Invoke(string methodName, object[] parameters)
+    {
+        foreach (UnityEngine.Component component in gameObject.Components)
+        {
+            System.Reflection.MethodInfo? method = component.GetType().GetMethod(
+                methodName,
+                System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.Public
+                    | System.Reflection.BindingFlags.NonPublic);
+
+            if (method is null || !method.IsDefined(typeof(PunRPCAttribute), inherit: true))
+            {
+                continue;
+            }
+
+            method.Invoke(component, parameters);
+
+            return;
+        }
+
+        throw new MissingMethodException(
+            $"No [PunRPC] method named '{methodName}' on {gameObject.name}. PUN resolves RPCs by reflection "
+            + "over the view's GameObject, so the target must live on the same object as the PhotonView.");
+    }
+}
 /// This declaration exists so mirror files can carry the AS-IS class declaration verbatim; it carries no Photon
 /// behaviour.</summary>
 public class MonoBehaviourPun : MonoBehaviour
 {
     /// <summary>Photon <c>MonoBehaviourPun.photonView</c> — in PUN, the view component cached off this
-    /// GameObject. Headless there is no GameObject and no Photon client, so this cannot be answered: it throws
-    /// instead of returning a stand-in that would read as a live view. Lower-case to match the AS-IS spelling
-    /// at the call sites.</summary>
+    /// GameObject. That is what this returns, adding one if the object does not carry it yet, exactly as PUN's
+    /// own accessor caches its lookup. The view dispatches RPCs locally (see <see cref="PhotonView.RPC"/>).
+    ///
+    /// It used to throw, on the reasoning that a stand-in would read as a live Photon view. That was wrong
+    /// once RPC dispatch existed: the AS-IS engine sends its own decisions through this property —
+    /// `TurnStateMachine.StartGame`'s mulligan answer is `photonView.RPC("SetRedraw", RpcTarget.All, …)` —
+    /// so throwing here blocks the game, and the honest object to return is the local view.
+    ///
+    /// Lower-case to match the AS-IS spelling at the call sites.</summary>
     public PhotonView photonView =>
-        throw new NotSupportedException(
-            "There is no Photon client in the headless process, so there is no PhotonView. See " +
-            "Headless/Unity/PhotonPunBehaviours.cs.");
+        gameObject.GetComponent<PhotonView>() ?? gameObject.AddComponent<PhotonView>();
 }
 
 /// <summary>Photon <c>Photon.Pun.MonoBehaviourPunCallbacks</c> — in PUN, a <see cref="MonoBehaviourPun"/> that
