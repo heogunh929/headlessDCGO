@@ -1,7 +1,32 @@
-// Source: Assets/Scripts/CardEffect/ST19/Yellow/ST19_07.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST19.Yellow
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections.Generic;
+
+namespace DCGO.CardEffects.ST19
+{
+    public class ST19_07 : CEntity_Effect
+    {
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+        {
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+            #region Jamming
+
+            if (timing == EffectTiming.None)
+            {
+                cardEffects.Add(CardEffectFactory.JammingSelfStaticEffect(isInheritedEffect: false, card: card, condition: null));
+            }
+
+            #endregion
+
+            #region Barrier - ESS
+
+            if (timing == EffectTiming.WhenPermanentWouldBeDeleted)
+            {
+                cardEffects.Add(CardEffectFactory.BarrierSelfEffect(isInheritedEffect: true, card: card, condition: null));
+            }
+
+            #endregion
+
+            return cardEffects;
+        }
+    }
+}

@@ -1,22 +1,12 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Fragment.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Fragment.cs factory partial.
-// ADAPTATION: card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card); coroutine
-// `IEnumerator ActivateCoroutine` (pure delegation) -> non-async `Task ActivateCoroutine`.
-// Replaces the monolith's invented FragmentSelfEffect.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public partial class CardEffectFactory
 {
     #region Trigger effect of [Fragment] on oneself
     public static ActivateClass FragmentSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition, int trashValue, string effectName, string effectDiscription, ICardEffect rootCardEffect = null)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+        Permanent targetPermanent = card.PermanentOfThisCard();
 
         bool CanUseCondition()
         {
@@ -45,7 +35,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect(effectName, CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, effectDiscription);
-        activateClass.SetHashString($"Fragment_{card.CardNumber}" + (isInheritedEffect ? "_inherited" : ""));
+        activateClass.SetHashString($"Fragment_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
         activateClass.SetIsInheritedEffect(isInheritedEffect);
 
         if (rootCardEffect != null)
@@ -84,7 +74,7 @@ public partial class CardEffectFactory
             return false;
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
             return CardEffectCommons.FragmentProcess(activateClass, targetPermanent, trashValue);
         }

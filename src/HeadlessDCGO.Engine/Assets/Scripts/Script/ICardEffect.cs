@@ -1,57 +1,14 @@
-// Source: DCGO/Assets/Scripts/Script/ICardEffect.cs
-// (EFFECT-MODEL REBUILD / FOUNDATION) 1:1 mirror of the original abstract `ICardEffect` — every ported card
-// effect class (CardEffectCommons/CardEffectFactory.*) ultimately derives from this. Same method order and
-// region layout as AS-IS so upstream DCGO2 diffs apply mechanically; only Unity/coroutine plumbing is replaced.
-//
-// Namespace: placed in `...Script.CardEffectCommons` (NOT `...Script`, where the AS-IS file itself lives) so it
-// sits alongside the already-ported foundation types it depends on verbatim: CardSource, Permanent, GManager,
-// CardEffectCommons (Hashtable builders), CheckEffectDisabledClass (this goal), CalculateOrder (C3-folded into
-// this file, its AS-IS home ICardEffect.cs:940 — see bottom) and EffectDuration (already at
-// Headless.Effects.EffectDuration — NOT redefined here; both AS-IS enums already exist on the mirror with a
-// 1:1 value set, so this file only *references* them, per the FOUNDATION brief). The (much larger) mirror
-// `EffectTiming` enum already lives at CardEffectCommons/EffectTiming.cs and is likewise referenced, not
-// redefined.
-//
-// ADAPTATIONS (translation-rule call-outs, see also docs/audit/rebuild_p1_missing.md):
-//   (1) CardSource.cEntity_EffectController / CheckEffectDisabledClass.isDisabled / GManager.instance /
-//       CardEffectCommons.*Hashtable builders / EffectList are referenced VERBATIM even where the mirror member
-//       does not exist yet (per the FOUNDATION brief: reference, do not stub-replace) — see MISSING.md.
-//   (2) AS-IS `CardSource.PermanentOfThisCard()` returns a `Permanent` (or null); the mirror `CardSource`
-//       method of the same name returns a `PermanentView` (a read-only Stack projection with `.TopInstanceId` /
-//       `.IsEmpty`, not `.TopCard/.IsDigimon/.LinkedCards`). `ResolvePermanentOfThisCard` below is the single
-//       adaptation point: it reads the PermanentView and, when non-empty, constructs the REAL mirror `Permanent`
-//       (CardEffectCommons/Permanent.cs, ctor `(EngineContext, HeadlessEntityId, HeadlessPlayerId)`) over the
-//       same top-card id, so the rest of this file's ported logic reads the AS-IS `Permanent` surface
-//       (`.TopCard`, `.IsDigimon`, `.LinkedCards`) unmodified. AS-IS `new Permanent(new List<CardSource>{card})`
-//       (a transient single-card permanent, e.g. IsOnDeletion:810) ports to
-//       `new Permanent(card.Context, card.InstanceId, card.Owner)` — the mirror ctor's closest analog (see
-//       IsOnDeletion below).
-//   (3) DESIGN ITEM CARDSOURCE-EQUALITY: AS-IS relies on stable per-card object identity for `==`/`!=`
-//       comparisons between `CardSource`/`Permanent` instances (CanActivate, IsSameEffect). The mirror
-//       `CardSource`/`Permanent` are lightweight views constructed fresh on every access (e.g. `Permanent.TopCard`
-//       returns `new(...)` each call) and neither overrides `Equals`/`GetHashCode`, so `==`/`!=` is REFERENCE
-//       equality here — two views of the same live card will compare unequal. Ported verbatim (no invented
-//       equality override — that is a cross-cutting foundation decision out of this file's scope); flagged in
-//       MISSING.md.
-//   (4) UnityAction/UnityAction<T> -> System.Action/System.Action<T>; IEnumerator gate methods stay synchronous
-//       bool/property (CanTrigger/CanActivate/CanUse/IsSameEffect/IsOnPlay/IsWhenDigivolving/IsOnDeletion/
-//       IsOnAttack); `ActivateICardEffect.Activate` becomes `Task Activate(Hashtable)`; the
-//       ActivateICardEffectExtensionClass coroutines become `async Task`, UI stripped (see that class's header).
-//   (5) Debug.Log / PlayLog.OnAddLog -> stripped per the FOUNDATION brief.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Threading.Tasks;
+using UnityEngine;
+using UnityEngine.Events;
 
-/// <summary>AS-IS <c>ICardEffect</c> (DCGO ICardEffect.cs:8) — the base class every card effect derives from.</summary>
+//Card Effect
 public abstract class ICardEffect
 {
     #region Set up effect
 
-    // AS-IS ICardEffect.cs:12-41.
     public void SetUpICardEffect(string effectName, Func<Hashtable, bool> canUseCondition, CardSource card)
     {
         SetEffectSourceCard(card);
@@ -87,7 +44,6 @@ public abstract class ICardEffect
 
     #region The source card of this effect
 
-    // AS-IS ICardEffect.cs:47-72.
     CardSource _effectSourceCard = null;
 
     public CardSource EffectSourceCard
@@ -96,8 +52,6 @@ public abstract class ICardEffect
         {
             if (EffectSourcePermanent != null)
             {
-                // AS-IS: `EffectSourcePermanent.TopCard != null` — the mirror `Permanent.TopCard` is a
-                // freshly-constructed CardSource (never null itself); the null-guard is preserved structurally.
                 if (EffectSourcePermanent.TopCard != null)
                 {
                     return EffectSourcePermanent.TopCard;
@@ -119,7 +73,6 @@ public abstract class ICardEffect
 
     #region The source permanent of this effect
 
-    // AS-IS ICardEffect.cs:74-89.
     private Permanent _effectSourcePermanent = null;
 
     public Permanent EffectSourcePermanent
@@ -137,7 +90,6 @@ public abstract class ICardEffect
 
     #region Maximum number of times this effect can be used in a turn
 
-    // AS-IS ICardEffect.cs:91-112.
     int _maxCountPerTurn = 114514;
 
     public int MaxCountPerTurn
@@ -161,7 +113,6 @@ public abstract class ICardEffect
 
     #region Effect name
 
-    // AS-IS ICardEffect.cs:114-139.
     string _effectName = "";
 
     public string EffectName
@@ -189,7 +140,6 @@ public abstract class ICardEffect
 
     #region Effect Target, used to display a detail of what card triggered this / will be targetted by the effect if performed
 
-    // AS-IS ICardEffect.cs:141-159.
     Func<Hashtable, List<Permanent>> _effectTargets = null;
 
     public Func<Hashtable, List<Permanent>> EffectTargets
@@ -210,7 +160,6 @@ public abstract class ICardEffect
 
     #region Effect discription
 
-    // AS-IS ICardEffect.cs:161-186.
     string _effectDiscription = "";
 
     public string EffectDiscription
@@ -238,7 +187,6 @@ public abstract class ICardEffect
 
     #region Hash value for identification of same effects
 
-    // AS-IS ICardEffect.cs:188-213.
     string _hashString = "";
 
     public string HashString
@@ -266,16 +214,15 @@ public abstract class ICardEffect
 
     #region Callbacks when this effect is executed
 
-    // AS-IS ICardEffect.cs:215-230. UnityAction -> System.Action.
-    Action _onProcessCallbuck = null;
+    UnityAction _onProcessCallbuck = null;
 
-    public Action OnProcessCallbuck
+    public UnityAction OnProcessCallbuck
     {
         get { return _onProcessCallbuck; }
         private set { _onProcessCallbuck = value; }
     }
 
-    public void SetOnProcessCallbuck(Action onProcessCallbuck)
+    public void SetOnProcessCallbuck(UnityAction onProcessCallbuck)
     {
         OnProcessCallbuck = onProcessCallbuck;
     }
@@ -284,7 +231,6 @@ public abstract class ICardEffect
 
     #region Effect giving this effect
 
-    // AS-IS ICardEffect.cs:232-247.
     ICardEffect _rootCardEffect = null;
 
     public ICardEffect RootCardEffect
@@ -304,7 +250,6 @@ public abstract class ICardEffect
 
     #region Condition for which this triggering effect triggers, this static effect applies or this declarative effect can be declared
 
-    // AS-IS ICardEffect.cs:253-266.
     Func<Hashtable, bool> _canUseCondition = null;
 
     public Func<Hashtable, bool> CanUseCondition
@@ -322,7 +267,6 @@ public abstract class ICardEffect
 
     #region Condition for which this triggering effect activates
 
-    // AS-IS ICardEffect.cs:270-283.
     Func<Hashtable, bool> _canActivateCondition = null;
 
     public Func<Hashtable, bool> CanActivateCondition
@@ -340,7 +284,6 @@ public abstract class ICardEffect
 
     #region Override IsOptional with a function
 
-    // AS-IS ICardEffect.cs:287-299.
     Func<Hashtable, bool> _isOptionalFunction = null;
     public bool IsSkippableCondition(Hashtable hashtable)
     {
@@ -357,7 +300,6 @@ public abstract class ICardEffect
 
     #region If effect is skippable for effects that remove the extra click with isOptional false
 
-    // AS-IS ICardEffect.cs:303-315.
     bool _isSkippable = false;
 
     public bool IsSkippable(Hashtable hashtable)
@@ -374,14 +316,10 @@ public abstract class ICardEffect
 
     #region Whether this triggering effect triggers
 
-    // AS-IS ICardEffect.cs:319-358.
     public bool CanTrigger(Hashtable hashtable)
     {
         #region Effects not available before the start of the game
 
-        // AS-IS: GManager.instance / .turnStateMachine / .turnStateMachine.gameContext / .DoneStartGame —
-        // MISSING.md: GManager.instance.turnStateMachine.gameContext (present on mirror TurnStateMachine, but
-        // the AS-IS null-guard chain is preserved verbatim below).
         if (GManager.instance != null)
         {
             if (GManager.instance.turnStateMachine != null)
@@ -400,8 +338,6 @@ public abstract class ICardEffect
 
         #region Effect availability determined by the maximum number of times it can be used in a turn
 
-        // MISSING.md: CardSource.cEntity_EffectController (this goal ports the controller type + a `CardSource`
-        // accessor addition — see CEntity_EffectController.cs / CardSource.cs edit).
         if (EffectSourceCard.cEntity_EffectController.isOverMaxCountPerTurn(this, MaxCountPerTurn))
         {
             return false;
@@ -425,7 +361,6 @@ public abstract class ICardEffect
 
     #region Whether this triggering effect activates
 
-    // AS-IS ICardEffect.cs:364-457.
     public bool CanActivate(Hashtable hashtable)
     {
         #region Effect availability determined by the maximum number of times it can be used in a turn
@@ -448,36 +383,29 @@ public abstract class ICardEffect
 
         #region Determination of availability for Inheritated/Linked Effect
 
-        // ADAPTATION (2): AS-IS reads `EffectSourceCard.PermanentOfThisCard()` (a `Permanent`) directly; the
-        // mirror accessor returns a `PermanentView`. `ResolvePermanentOfThisCard` bridges to the real mirror
-        // `Permanent` (see file header) so `.TopCard`/`.IsDigimon`/`.LinkedCards` below read the AS-IS surface.
         if (this is ActivateICardEffect)
         {
             if (EffectSourceCard != null)
             {
-                Permanent permanentOfThisCard = ResolvePermanentOfThisCard(EffectSourceCard);
-
-                if (permanentOfThisCard != null && !IsOnDeletion)
+                if (EffectSourceCard.PermanentOfThisCard() != null && !IsOnDeletion)
                 {
                     if (IsInheritedEffect || IsLinkedEffect)
                     {
-                        // DESIGN ITEM CARDSOURCE-EQUALITY (3): `==` here is reference equality on freshly
-                        // constructed CardSource views, not AS-IS per-card identity.
-                        if (EffectSourceCard == permanentOfThisCard.TopCard)
+                        if (EffectSourceCard == EffectSourceCard.PermanentOfThisCard().TopCard)
                             return false;
 
                         if (EffectSourceCard.IsFlipped)
                             return false;
 
-                        if (!permanentOfThisCard.IsDigimon)
+                        if (!EffectSourceCard.PermanentOfThisCard().IsDigimon)
                             return false;
 
-                        if (IsLinkedEffect && !permanentOfThisCard.LinkedCards.Contains(EffectSourceCard))
+                        if (IsLinkedEffect && !EffectSourceCard.PermanentOfThisCard().LinkedCards.Contains(EffectSourceCard))
                             return false;
                     }
                     else
                     {
-                        if (EffectSourceCard != permanentOfThisCard.TopCard)
+                        if (EffectSourceCard != EffectSourceCard.PermanentOfThisCard().TopCard)
                         {
                             return false;
                         }
@@ -509,11 +437,10 @@ public abstract class ICardEffect
                 {
                     if (EffectSourceCard != null)
                     {
-                        Permanent currentPermanent = ResolvePermanentOfThisCard(EffectSourceCard);
+                        Permanent currentPermanent = EffectSourceCard.PermanentOfThisCard();
 
                         if (currentPermanent != null)
                         {
-                            // DESIGN ITEM CARDSOURCE-EQUALITY (3).
                             if (currentPermanent != PermanentWhenTriggered)
                             {
                                 return false;
@@ -529,27 +456,10 @@ public abstract class ICardEffect
         return true;
     }
 
-    // ADAPTATION (2): the bridge point from `CardSource.PermanentOfThisCard()` (PermanentView) to the
-    // real mirror `Permanent`. Returns null when the card is not on a battle-area permanent (AS-IS null).
-    // `internal` (not `private`): every other FOUNDATION file with the same AS-IS
-    // `card.PermanentOfThisCard()` idiom (CEntity_EffectController.GetCardEffects) reuses this one bridge
-    // rather than duplicating it — see PERMANENT-PERMANENTVIEW-DUALITY in docs/audit/rebuild_p1_missing.md.
-    internal static Permanent ResolvePermanentOfThisCard(CardSource card)
-    {
-        PermanentView view = card.PermanentOfThisCard();
-        if (view == null || view.IsEmpty)
-        {
-            return null;
-        }
-
-        return new Permanent(card.Context, view.TopInstanceId, card.Owner);
-    }
-
     #endregion
 
     #region Whether this static effect applies , or this declarative effect can be declared
 
-    // AS-IS ICardEffect.cs:463-473.
     public bool CanUse(Hashtable hashtable)
     {
         if (!CanTrigger(hashtable) || !CanActivate(hashtable))
@@ -568,7 +478,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is an optional effect
 
-    // AS-IS ICardEffect.cs:481-494.
     bool _isOptional = false;
 
     public bool IsOptional
@@ -586,7 +495,6 @@ public abstract class ICardEffect
 
     #region Whether to use this optional effect
 
-    // AS-IS ICardEffect.cs:498-511.
     bool _useOptional = false;
 
     public bool UseOptional
@@ -604,7 +512,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is a declarative effect
 
-    // AS-IS ICardEffect.cs:515-528.
     bool _isDeclarative = false;
 
     public bool IsDeclarative
@@ -622,7 +529,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is an Inherited Effect
 
-    // AS-IS ICardEffect.cs:532-545.
     bool _isInheritedEffect = false;
 
     public bool IsInheritedEffect
@@ -640,7 +546,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is an Linked Effect
 
-    // AS-IS ICardEffect.cs:549-562.
     bool _isLinkededEffect = false;
 
     public bool IsLinkedEffect
@@ -658,7 +563,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is an Security Effect
 
-    // AS-IS ICardEffect.cs:566-579.
     bool _isSecurityEffect = false;
 
     public bool IsSecurityEffect
@@ -676,7 +580,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is an Counter Effect
 
-    // AS-IS ICardEffect.cs:583-596.
     bool _isCounterEffect = false;
 
     public bool IsCounterEffect
@@ -694,7 +597,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is Digimon's effect
 
-    // AS-IS ICardEffect.cs:600-613.
     bool _isDigimonEffect = false;
 
     public bool IsDigimonEffect
@@ -712,7 +614,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is Tamer's effect
 
-    // AS-IS ICardEffect.cs:617-630.
     bool _isTamerEffect = false;
 
     public bool IsTamerEffect
@@ -730,7 +631,6 @@ public abstract class ICardEffect
 
     #region Whether this is specifically an Option Card effect, overriding anything settign it as a Digimon or Tamer effect
 
-    // AS-IS ICardEffect.cs:634-647.
     bool _isOptionEffect = false;
 
     public bool IsOptionEffect
@@ -748,7 +648,6 @@ public abstract class ICardEffect
 
     #region How many times this effect can activate per chain
 
-    // AS-IS ICardEffect.cs:651-664.
     int _chainActivations = -1;
 
     public int ChainActivations
@@ -766,7 +665,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is carried out in the background
 
-    // AS-IS ICardEffect.cs:668-681.
     bool _isBackgroundProcess = false;
 
     public bool IsBackgroundProcess
@@ -784,7 +682,6 @@ public abstract class ICardEffect
 
     #region Whether this effect should be displayed in the UI
 
-    // AS-IS ICardEffect.cs:685-698.
     bool _isNotShowUI = false;
 
     public bool IsNotShowUI
@@ -802,7 +699,6 @@ public abstract class ICardEffect
 
     #region When this effect was activated for comparison
 
-    // AS-IS ICardEffect.cs:702-721.
     DateTime _activatedTime = DateTime.MinValue;
 
     public DateTime ActivatedTime
@@ -832,7 +728,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is disabled
 
-    // AS-IS ICardEffect.cs:731-737. This goal ports CheckEffectDisabledClass (see CheckEffectDisabledClass.cs).
     public bool IsDisabled
     {
         get
@@ -845,8 +740,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is [On Play] effect
 
-    // AS-IS ICardEffect.cs:743-766. Debug.Log stripped (rule: Debug.Log/PlayLog -> strip).
-    // MISSING.md: CardEffectCommons.OnPlayCheckHashtableOfCard(CardSource) (DCGO HashtableSetting.cs:213).
     public bool IsOnPlay
     {
         get
@@ -855,11 +748,11 @@ public abstract class ICardEffect
             {
                 if (!string.IsNullOrEmpty(EffectDiscription))
                 {
-                    // AS-IS ICardEffect.cs:751: Debug.Log($"Effect Description: ...") — UI/log (stripped).
+                    Debug.Log($"Effect Description: {EffectDiscription.StartsWith("[On Play]")}");
                     if (EffectDiscription.StartsWith("[On Play]"))
                     {
                         Hashtable hashtable = CardEffectCommons.OnPlayCheckHashtableOfCard(EffectSourceCard);
-                        // AS-IS ICardEffect.cs:755: Debug.Log($"Can Trigger: ...") — UI/log (stripped).
+                        Debug.Log($"Can Trigger: {CanTrigger(hashtable)}");
                         if (CanTrigger(hashtable))
                         {
                             return true;
@@ -876,8 +769,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is [When Digivolving] effect
 
-    // AS-IS ICardEffect.cs:772-794.
-    // MISSING.md: CardEffectCommons.WhenDigivolvingCheckHashtableOfCard(CardSource) (DCGO HashtableSetting.cs:232).
     public bool IsWhenDigivolving
     {
         get
@@ -906,9 +797,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is [On Deletion] effect
 
-    // AS-IS ICardEffect.cs:800-824.
-    // MISSING.md: CardEffectCommons.OnDeletionHashtable(List<Permanent>, ICardEffect, IBattle, bool)
-    // (DCGO HashtableSetting.cs:85); IBattle has no mirror type yet.
     public bool IsOnDeletion
     {
         get
@@ -919,13 +807,7 @@ public abstract class ICardEffect
                 {
                     if (EffectDiscription.StartsWith("[On Deletion]"))
                     {
-                        // ADAPTATION (2): AS-IS `EffectSourceCard.PermanentOfThisCard() ?? new Permanent(new
-                        // List<CardSource>() { EffectSourceCard })` (ICardEffect.cs:810) — the mirror
-                        // `PermanentOfThisCard()` returns a `PermanentView`; bridge via `ResolvePermanentOfThisCard`
-                        // and fall back to the mirror ctor's transient single-card analog
-                        // `new Permanent(card.Context, card.InstanceId, card.Owner)` when off-field.
-                        Permanent effectPermanent = ResolvePermanentOfThisCard(EffectSourceCard)
-                            ?? new Permanent(EffectSourceCard.Context, EffectSourceCard.InstanceId, EffectSourceCard.Owner);
+                        Permanent effectPermanent = EffectSourceCard.PermanentOfThisCard() ?? new Permanent(new List<CardSource>() { EffectSourceCard });
 
                         Hashtable hashtable = CardEffectCommons.OnDeletionHashtable(new List<Permanent>() { effectPermanent }, null, null, false);
 
@@ -945,8 +827,6 @@ public abstract class ICardEffect
 
     #region Whether this effect is [On Attack] effect
 
-    // AS-IS ICardEffect.cs:830-852.
-    // MISSING.md: CardEffectCommons.OnAttackCheckHashtableOfCard(CardSource, ICardEffect) (DCGO HashtableSetting.cs:299).
     public bool IsOnAttack
     {
         get
@@ -977,7 +857,6 @@ public abstract class ICardEffect
 
     #region Whether the target effect is the same as this effect
 
-    // AS-IS ICardEffect.cs:860-933.
     public bool IsSameEffect(ICardEffect cardEffect)
     {
         if (cardEffect != null)
@@ -991,7 +870,6 @@ public abstract class ICardEffect
             {
                 if (this.EffectSourceCard != null)
                 {
-                    // DESIGN ITEM CARDSOURCE-EQUALITY (3): `==` on CardSource is reference equality here.
                     if (cardEffect.EffectSourceCard == this.EffectSourceCard)
                     {
                         if (HasSameHashString() && HasSameRootCardEffect())
@@ -1057,15 +935,21 @@ public abstract class ICardEffect
     #endregion
 }
 
-// AS-IS ICardEffect.cs:938-965 (`CalculateOrder` / `EffectDuration` enum regions): CalculateOrder is C3-folded
-// into this file (its AS-IS home; see the enum at the bottom). EffectDuration is defined HERE at its AS-IS home
-// (ICardEffect.cs:951-963): the former substrate housing Headless.Effects.EffectDuration was flagged in its own
-// header as a re-migration target ("미러 원가(재이관 대상): ICardEffect.cs:953"), now retired — this is its 1:1
-// port back into the mirror ICardEffect.cs, per mirror-into-AS-IS-file.
+#region Calculation order
+
+public enum CalculateOrder
+{
+    UpValue,
+    DownValue,
+    UpToConstant,
+    UpDownValue,
+    DownToConstant,
+}
+
+#endregion
 
 #region Effect Duration
 
-// AS-IS ICardEffect.cs:951-963 (1:1).
 public enum EffectDuration
 {
     UntilEachTurnEnd,
@@ -1080,50 +964,94 @@ public enum EffectDuration
 
 #endregion
 
-// AS-IS ICardEffect.cs:967-1032 (`EffectTiming` enum, 65 values): already ported at
-// CardEffectCommons/EffectTiming.cs with every AS-IS member name preserved (string-equal to
-// TriggerTimings/EffectTimings.ToTriggerName) — referenced, not redefined here.
+#region Timing of effect triggers
+
+public enum EffectTiming
+{
+    None,
+    OnUseOption,
+    OnDeclaration,
+    OnEnterFieldAnyone,
+    OnGetDamage,
+    OptionSkill,
+    OnDestroyedAnyone,
+    WhenDigisorption,
+    WhenRemoveField,
+    WhenPermanentWouldBeDeleted,
+    WhenReturntoLibraryAnyone,
+    WhenReturntoHandAnyone,
+    WhenUntapAnyone,
+    OnEndAttackPhase,
+    OnEndTurn,
+    OnStartTurn,
+    OnEndMainPhase,
+    OnDraw,
+    OnAddHand,
+    OnLoseSecurity,
+    OnAddSecurity,
+    OnUseDigiburst,
+    OnDiscardHand,
+    OnDiscardSecurity,
+    OnDiscardLibrary,
+    OnKnockOut,
+    OnMove,
+    OnEndCoinToss,
+    OnUseAttack,
+    OnTappedAnyone,
+    OnUnTappedAnyone,
+    OnAddDigivolutionCards,
+    OnAllyAttack,
+    OnCounterTiming,
+    OnBlockAnyone,
+    OnSecurityCheck,
+    OnAttackTargetChanged,
+    OnEndBlockDesignation,
+    SecuritySkill,
+    OnStartMainPhase,
+    OnStartBattle,
+    OnEndBattle,
+    OnDetermineDoSecurityCheck,
+    OnEndAttack,
+    BeforePayCost,
+    AfterPayCost,
+    OnDigivolutionCardDiscarded,
+    OnDigivolutionCardReturnToDeckBottom,
+    OnReturnCardsToLibraryFromTrash,
+    OnPermamemtReturnedToHand,
+    OnReturnCardsToHandFromTrash,
+    AfterEffectsActivate,
+    WhenWouldDigivolutionCardDiscarded,
+    WhenWouldLink,
+    WhenLinked,
+    WhenTopCardTrashed,
+    RulesTiming,
+    OnRemovedField,
+    OnLinkCardDiscarded,
+    OnFaceUpSecurityIncreased,
+    OnLeaveFieldAnyone
+}
+
+#endregion
 
 #region card effect that processes
 
-/// <summary>AS-IS <c>ActivateICardEffect</c> (ICardEffect.cs:1038-1044). <c>IEnumerator Activate(Hashtable)</c>
-/// -> <c>Task Activate(Hashtable)</c> (async gate methods stay sync; only the activation body is async).</summary>
 public interface ActivateICardEffect
 {
-    Task Activate(Hashtable hash);
+    IEnumerator Activate(Hashtable hash);
 
     public Permanent PermanentWhenTriggered { get; set; }
     public CardSource TopCardWhenTriggered { get; set; }
 }
 
-/// <summary>AS-IS <c>ActivateICardEffectExtensionClass</c> (ICardEffect.cs:1046-1289). The original coroutines
-/// are ~90% Unity UI (ShowActivateCardEffectDiscription, outline/highlight toggling, WaitForSeconds,
-/// FieldPermanentCard/HandCard/TrashHandCard visuals) driven by `ContinuousController.instance.StartCoroutine`.
-/// Per the FOUNDATION brief only the game-logic skeleton is ported as `async Task`:
-///   - the Optional -> Effect -> Execute call ORDER (Activate_Optional_Effect_Execute / Activate_Effect_Execute);
-///   - OnProcessCallbuck invoke + clear (Activate_Execute);
-///   - AddUse/RemoveUse (the per-turn use-count registration this goal wires to CEntity_EffectController);
-///   - the final StackSkillInfos(AfterEffectsActivate) + RuleProcess calls (Activate_Effect_Execute tail).
-/// Every stripped UI statement is left as a `// AS-IS <line>: UI (stripped)` comment IN POSITION so the method
-/// body's shape still lines up with the original for diffing. `ContinuousController.instance.StartCoroutine(X)`
-/// -> `await X` throughout (the coroutine-runner Unity dependency the async/await translation replaces).
-/// `UnityAction`/`UnityAction&lt;T&gt;` -> `System.Action`/`System.Action&lt;T&gt;`.
-/// MISSING.md: every `GManager.instance.GetComponent&lt;X&gt;()` call below (OptionalSkill/Effects) — referenced
-/// verbatim per the FOUNDATION brief (GManager members not yet on the mirror), not stub-replaced.
-/// MISSING.md: `GManager.instance.autoProcessing` (AttackProcess/AutoProcessing GManager fields, GManager.cs:84/99).</summary>
 public static class ActivateICardEffectExtensionClass
 {
     #region Optional
 
-    // AS-IS ICardEffect.cs:1050-1056.
-    public static async Task Activate_Optional(this ActivateICardEffect activateICardEffect, Hashtable hash)
+    public static IEnumerator Activate_Optional(this ActivateICardEffect activateICardEffect, Hashtable hash)
     {
         if (((ICardEffect)activateICardEffect).IsOptional)
         {
-            // MISSING.md: GManager.instance.GetComponent<OptionalSkill>().SelectOptional(ICardEffect, Hashtable)
-            // (DCGO ICardEffect.cs:1054) — the player's yes/no prompt for an optional effect; game logic, not
-            // pure UI, so referenced verbatim rather than stripped.
-            await GManager.instance.GetComponent<OptionalSkill>().SelectOptional((ICardEffect)activateICardEffect, hash);
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<OptionalSkill>().SelectOptional((ICardEffect)activateICardEffect, hash));
         }
     }
 
@@ -1131,23 +1059,61 @@ public static class ActivateICardEffectExtensionClass
 
     #region Effect
 
-    // AS-IS ICardEffect.cs:1062-1110. This method is entirely presentation (description text, per-zone
-    // "play the skill animation" dispatch, a fixed WaitForSeconds) — no state mutation — so it is stripped in
-    // full per the FOUNDATION brief, leaving the method as a documented no-op placeholder in position.
-    public static async Task Activate_Effect(this ActivateICardEffect activateICardEffect)
+    public static IEnumerator Activate_Effect(this ActivateICardEffect activateICardEffect)
     {
-        // AS-IS ICardEffect.cs:1064-1109: UI (stripped) — ShowActivateCardEffectDiscription +
-        // ActivateFieldPokemonSkillEffect / ActivateHandCardSkillEffect / ActivateTrashCardSkillEffect /
-        // ActivateExecutingCardSkillEffect dispatch by zone, + WaitForSeconds(0.4f). No game-state mutation.
-        await Task.CompletedTask;
+        CardSource card = ((ICardEffect)activateICardEffect).EffectSourceCard;
+
+        if (card != null)
+        {
+            ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowActivateCardEffectDiscription((ICardEffect)activateICardEffect));
+
+            Permanent permanent = card.PermanentOfThisCard();
+
+            if (permanent != null)
+            {
+                if (permanent.ShowingPermanentCard != null)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ActivateFieldPokemonSkillEffect(permanent, (ICardEffect)activateICardEffect));
+                }
+            }
+            else if (card.Owner.HandCards.Contains(card))
+            {
+                if (card.ShowingHandCard != null)
+                {
+                    bool showEffect = false;
+
+                    if (!string.IsNullOrEmpty(((ICardEffect)activateICardEffect).EffectDiscription))
+                    {
+                        if (((ICardEffect)activateICardEffect).EffectDiscription.Contains("[Hand]"))
+                        {
+                            showEffect = true;
+                        }
+                    }
+
+                    if (showEffect)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ActivateHandCardSkillEffect(card, (ICardEffect)activateICardEffect));
+                    }
+                }
+            }
+            else if (CardEffectCommons.IsExistOnTrash(card))
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ActivateTrashCardSkillEffect((ICardEffect)activateICardEffect));
+            }
+            else if (card.Owner.ExecutingCards.Contains(card))
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ActivateExecutingCardSkillEffect(card, (ICardEffect)activateICardEffect));
+            }
+
+            yield return new WaitForSeconds(0.4f);
+        }
     }
 
     #endregion
 
     #region Processing
 
-    // AS-IS ICardEffect.cs:1116-1126.
-    public static async Task Activate_Execute(this ActivateICardEffect activateICardEffect, Hashtable hash)
+    public static IEnumerator Activate_Execute(this ActivateICardEffect activateICardEffect, Hashtable hash)
     {
         if (((ICardEffect)activateICardEffect).UseOptional || !((ICardEffect)activateICardEffect).IsOptional)
         {
@@ -1155,7 +1121,7 @@ public static class ActivateICardEffectExtensionClass
             ((ICardEffect)activateICardEffect).SetOnProcessCallbuck(null);
 
             //Handling Effect
-            await activateICardEffect.Activate(hash);
+            yield return ContinuousController.instance.StartCoroutine(activateICardEffect.Activate(hash));
         }
     }
 
@@ -1163,30 +1129,70 @@ public static class ActivateICardEffectExtensionClass
 
     #region Optional→ Effect → Processing
 
-    // AS-IS ICardEffect.cs:1132-1237.
-    public static async Task Activate_Optional_Effect_Execute(this ActivateICardEffect activateICardEffect, Hashtable hash, bool isCheckOptional = true, Action<ICardEffect> useEffectCallback = null)
+    public static IEnumerator Activate_Optional_Effect_Execute(this ActivateICardEffect activateICardEffect, Hashtable hash, bool isCheckOptional = true, UnityAction<ICardEffect> useEffectCallback = null)
     {
         CardSource card = ((ICardEffect)activateICardEffect).EffectSourceCard;
+        FieldPermanentCard fieldPermanentCard = null;
+        HandCard handCard = null;
 
-        // AS-IS ICardEffect.cs:1135-1152: UI (stripped) — resolves `fieldPermanentCard`/`handCard` display
-        // handles purely to drive outline/highlight visuals below (also stripped).
+        if (card != null)
+        {
+            if (card.PermanentOfThisCard() != null)
+            {
+                fieldPermanentCard = card.PermanentOfThisCard().ShowingPermanentCard;
+            }
+
+            if (card.Owner.HandCards.Contains(card))
+            {
+                if (card.ShowingHandCard != null)
+                {
+                    handCard = card.ShowingHandCard;
+                }
+            }
+        }
 
         bool oldIsExecuting = GManager.instance.turnStateMachine.isExecuting;
 
         GManager.instance.turnStateMachine.isExecuting = true;
 
-        // AS-IS ICardEffect.cs:1158-1185: UI (stripped) — fieldPermanentCard.OnSelectEffect/Outline_Select/
-        // SetOrangeOutline; handCard.Outline_Select/SetOrangeOutline (owner-only "[Hand]" effect highlight).
-        // AS-IS ICardEffect.cs:1186/1189: Debug.Log (stripped).
+        if (fieldPermanentCard != null)
+        {
+            fieldPermanentCard.OnSelectEffect(1.1f);
+            fieldPermanentCard.Outline_Select.gameObject.SetActive(true);
+            fieldPermanentCard.SetOrangeOutline();
+        }
 
+        if (handCard != null)
+        {
+            if (card.Owner.isYou)
+            {
+                bool isHandEffect = false;
+
+                if (!string.IsNullOrEmpty(((ICardEffect)activateICardEffect).EffectDiscription))
+                {
+                    if (((ICardEffect)activateICardEffect).EffectDiscription.Contains("[Hand]"))
+                    {
+                        isHandEffect = true;
+                    }
+                }
+
+                if (isHandEffect)
+                {
+                    handCard.Outline_Select.SetActive(true);
+                    handCard.SetOrangeOutline();
+                }
+            }
+        }
+        UnityEngine.Debug.Log($"Activate_Optional_Effect_Execute: {(activateICardEffect is ICardEffect)}");
         if (activateICardEffect is ICardEffect)
         {
+            UnityEngine.Debug.Log($"Activate_Optional_Effect_Execute: {((ICardEffect)activateICardEffect).EffectSourceCard.BaseENGCardNameFromEntity}");
             //Optional effect activation selection
             if (((ICardEffect)activateICardEffect).IsOptional)
             {
                 if (isCheckOptional)
                 {
-                    await Activate_Optional(activateICardEffect, hash);
+                    yield return ContinuousController.instance.StartCoroutine(Activate_Optional(activateICardEffect, hash));
                 }
                 else
                 {
@@ -1195,15 +1201,34 @@ public static class ActivateICardEffectExtensionClass
             }
 
             //Optional effect activation selection → cost → processing
-            await Activate_Effect_Execute(activateICardEffect, hash, useEffectCallback);
+            yield return ContinuousController.instance.StartCoroutine(Activate_Effect_Execute(activateICardEffect, hash, useEffectCallback));
         }
 
-        // AS-IS ICardEffect.cs:1207-1211: UI (stripped) — `player.TrashHandCard.gameObject.SetActive(false)` /
-        // `.IsExecuting = false` for every player (Photon trash-hand-card display reset).
-        // AS-IS ICardEffect.cs:1213: UI (stripped) — `yield return new WaitForSeconds(Time.deltaTime * 2)`.
-        // AS-IS ICardEffect.cs:1215-1231: UI (stripped) — OffUsingSkillEffect/OffSkillName/RemoveSelectEffect on
-        // the source's field permanent card, and on every field permanent card of the card's owner.
-        // AS-IS ICardEffect.cs:1228-1230: UI (stripped) — handCard.Outline_Select off.
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+        {
+            player.TrashHandCard.gameObject.SetActive(false);
+            player.TrashHandCard.IsExecuting = false;
+        }
+
+        yield return new WaitForSeconds(Time.deltaTime * 2);
+
+        if (fieldPermanentCard != null)
+        {
+            fieldPermanentCard.OffUsingSkillEffect();
+            fieldPermanentCard.OffSkillName();
+            fieldPermanentCard.RemoveSelectEffect();
+        }
+
+        foreach (FieldPermanentCard fieldPokemonCard in card.Owner.FieldPermanentObjects)
+        {
+            fieldPokemonCard.OffUsingSkillEffect();
+            fieldPokemonCard.OffSkillName();
+        }
+
+        if (handCard != null)
+        {
+            handCard.Outline_Select.SetActive(false);
+        }
 
         if (card != null)
         {
@@ -1214,240 +1239,53 @@ public static class ActivateICardEffectExtensionClass
     #endregion
 
     #region remove a usage of an X Per Turn
-
-    // AS-IS ICardEffect.cs:1242-1246.
     public static void RemoveUse(this ActivateICardEffect activateICardEffect)
     {
         ((ICardEffect)activateICardEffect).EffectSourceCard.cEntity_EffectController.RemoveUseEffectThisTurn((ICardEffect)activateICardEffect);
     }
-
     #endregion
 
     #region add a usage of an X Per Turn
-
-    // AS-IS ICardEffect.cs:1249-1253.
     public static void AddUse(this ActivateICardEffect activateICardEffect)
     {
         ((ICardEffect)activateICardEffect).EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn((ICardEffect)activateICardEffect);
     }
-
     #endregion
 
     #region Effect → Processing
 
-    // AS-IS ICardEffect.cs:1257-1286.
-    public static async Task Activate_Effect_Execute(this ActivateICardEffect activateICardEffect, Hashtable hash, Action<ICardEffect> useEffectCallback)
+    public static IEnumerator Activate_Effect_Execute(this ActivateICardEffect activateICardEffect, Hashtable hash, UnityAction<ICardEffect> useEffectCallback)
     {
         //cost → effect processing
         if (((ICardEffect)activateICardEffect).UseOptional || !((ICardEffect)activateICardEffect).IsOptional)
         {
             useEffectCallback?.Invoke((ICardEffect)activateICardEffect);
 
-            // AS-IS ICardEffect.cs:1264: Debug.Log (stripped).
+            Debug.Log($"{((ICardEffect)activateICardEffect).EffectName} was used");
 
             #region Add log
 
-            // AS-IS ICardEffect.cs:1266-1275: PlayLog.OnAddLog (stripped).
+            CardSource card = ((ICardEffect)activateICardEffect).EffectSourceCard;
+
+            if (card != null)
+            {
+                PlayLog.OnAddLog?.Invoke($"\nEffect:\n{card.BaseENGCardNameFromEntity}({card.CardID})\n\"{((ICardEffect)activateICardEffect).EffectName}\"\n");
+            }
 
             #endregion
 
             //effect
-            await Activate_Effect(activateICardEffect);
+            yield return ContinuousController.instance.StartCoroutine(Activate_Effect(activateICardEffect));
 
-            await Activate_Execute(activateICardEffect, hash);
+            yield return ContinuousController.instance.StartCoroutine(Activate_Execute(activateICardEffect, hash));
         }
 
-        // MISSING.md: GManager.instance.autoProcessing.StackSkillInfos(ICardEffect, EffectTiming) /
-        // .RuleProcess() (DCGO ICardEffect.cs:1283/1285) — referenced verbatim per the FOUNDATION brief.
-        await GManager.instance.autoProcessing.StackSkillInfos(null, EffectTiming.AfterEffectsActivate);
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(null, EffectTiming.AfterEffectsActivate));
 
-        await GManager.instance.autoProcessing.RuleProcess();
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.RuleProcess());
     }
 
     #endregion
 }
 
 #endregion
-
-// (C2 REHOUSED fold) AS-IS home of the EffectTiming enum is this file (ICardEffect.cs:969); the mirror
-// previously split it into a separate CardEffectCommons/EffectTiming.cs. Folded back verbatim.
-/// <summary>
-/// Headless mirror of the original (large) <c>EffectTiming</c> enum. Only the timings used by ported
-/// cards are listed; grow this as cards require new ones. <see cref="None"/> is the original's marker for
-/// always-on continuous / static effects (registered once while the card is in play).
-/// </summary>
-public enum EffectTiming
-{
-    None = 0,
-    OnEnterFieldAnyone,
-    OnDetermineDoSecurityCheck,
-    OnUseAttack,
-    WhenDigivolving,
-    OnDestroyedAnyone,
-    OnAllyAttack,
-    OnBlockAnyone,
-    OnEndTurn,
-    OnStartTurn,
-
-    // Player-activated abilities (NOT auto-registered on enter-play; activation flow is Wave 3).
-    OptionSkill,
-    SecuritySkill,
-
-    // (EX8_074 Stage 1) "When this card would be played" — the original BeforePayCost timing. Engine-level
-    // string trigger `TriggerTimings.BeforePayCost` already fires in PlayCardAction; this enum value lets a
-    // ported card return BeforePayCost effects. The interactive pre-payment cost-reduction WINDOW that
-    // consumes them is a later stage (PlayCardAction's cost is currently locked at action-generation time).
-    BeforePayCost,
-    // (PRIM-W4 WhenMovingClass) mirrors the original EffectTiming.OnMove — fires when a Digimon is promoted
-    // out of the breeding area (CV-A4). ToTriggerName -> "OnMove" matches the engine's TriggerTimings.OnMove
-    // emit. Appended at the end to keep existing enum ordinals stable.
-    OnMove,
-
-    // (PRIM-P0-timing) High-volume card-facing timings from ALL_CARD_PRIMITIVE_BACKLOG P0. Each enum name
-    // is string-equal to an emitted TriggerTimings value (ToTriggerName -> ToString()); appended at the end
-    // to keep existing ordinals stable.
-    //   OnStartMainPhase — main-phase entry (emit exists: MetadataActionProcessor OnStartMainPhase). 222 cards.
-    //   OnEndBattle      — after battle resolved/deletions applied (emit exists: BattleResolver). 84 cards.
-    //   OnDeclaration    — attack declared; new emit added alongside OnAttack/OnAllyAttack. 298 cards.
-    OnStartMainPhase,
-    OnEndBattle,
-    OnDeclaration,
-
-    // (PRIM-P0-timing batch 2) Timings ALREADY emitted by the engine (verified emit sites) that only lacked
-    // a card-facing enum member. Each name is string-equal to its emitted TriggerTimings value. Pure enum
-    // additions against existing emits (same low-risk shape as OnEndBattle) — collection/resolution reuse the
-    // generic path. "...Anyone" board timings are self-scoped here (cross-card broadcast is a per-card
-    // follow-up via TriggerTimings.BroadcastTimings, as with the existing OnBlockAnyone).
-    //   OnTappedAnyone 139 · OnCounterTiming 111 · WhenLinked 64 · OnAddDigivolutionCards 50 · OnUseOption 30
-    //   OnUnTappedAnyone 29 · OnDiscardSecurity 14 · OnLinkCardDiscarded 7 · AfterPayCost 7 · WhenTopCardTrashed 3
-    //   OnFaceUpSecurityIncreased 1
-    OnTappedAnyone,
-    OnUnTappedAnyone,
-    OnCounterTiming,
-    WhenLinked,
-    OnLinkCardDiscarded,
-    OnAddDigivolutionCards,
-    OnUseOption,
-    OnDiscardSecurity,
-    AfterPayCost,
-    WhenTopCardTrashed,
-    OnFaceUpSecurityIncreased,
-
-    // (PRIM-P0-timing batch 3a) Timings already DERIVED from CardMoved zone transitions (or the SecurityCheck
-    // event) by TriggerTimingMap.Derive — already available, no emit needed, only a card-facing enum member.
-    // Same low-risk shape as batch 2; the derivation is existing engine behavior exercised by the suite.
-    //   WhenRemoveField 164 · OnLoseSecurity 73 · OnDiscardHand 34 · OnAddHand 21 · OnDiscardLibrary 20
-    //   OnAddSecurity 14 · WhenReturntoHandAnyone 9 · WhenReturntoLibraryAnyone 9 · OnSecurityCheck 9
-    //   OnReturnCardsToHandFromTrash 2 · OnPermamemtReturnedToHand 2 (sic) · OnRemovedField 2 ·
-    //   OnLeaveFieldAnyone 1 · OnReturnCardsToLibraryFromTrash 1
-    WhenRemoveField,
-    OnLoseSecurity,
-    OnDiscardHand,
-    OnAddHand,
-    OnDiscardLibrary,
-    OnAddSecurity,
-    WhenReturntoHandAnyone,
-    WhenReturntoLibraryAnyone,
-    OnSecurityCheck,
-    OnReturnCardsToHandFromTrash,
-    OnPermamemtReturnedToHand,
-    OnRemovedField,
-    OnLeaveFieldAnyone,
-    OnReturnCardsToLibraryFromTrash,
-
-    // (PRIM-P0-timing batch 3b) OnEndAttack (80 cards): end of a single attack. Already collected by
-    // EndAttackTriggerHook (keys on "OnEndAttack") at AttackPipeline.AdvanceEndAttackAsync — enum-only add.
-    OnEndAttack,
-
-    // (PRIM-P0-timing batch 3b) new emit sites added:
-    //   OnDigivolutionCardDiscarded 53 — source (under) card trashed by an effect (Permanent stack mutations).
-    //   OnAttackTargetChanged 31 — attack defender switched by raid/block (RaidAttackSwitch/BlockTiming).
-    // Both are broadcast (see TriggerTimings.BroadcastTimings) to mirror the AS-IS global StackSkillInfos.
-    OnDigivolutionCardDiscarded,
-    OnAttackTargetChanged,
-    //   OnDigivolutionCardReturnToDeckBottom — a Digimon's digivolution cards returned to the deck (c-remediation,
-    //   AS-IS ReturnToLibraryBottomDigivolutionCardsClass). Broadcast; emitted by Permanent.
-    OnDigivolutionCardReturnToDeckBottom,
-
-    // (PRIM-P0-timing batch 4) The would-be-deleted replacement/prevention window (206 cards). A card
-    // registered here surfaces as a PRE option in the existing DeletionReplacementTiming synchronous window;
-    // activating it prevents/replaces the deletion. See docs/porting/when_permanent_would_be_deleted_design.md.
-    WhenPermanentWouldBeDeleted,
-
-    // (F1-M0-1) Bridge-expansion enum reconciliation — the 9 AS-IS EffectTiming members (ICardEffect.cs:969)
-    // that had NO headless enum member yet, appended AT THE END to keep every existing ordinal stable
-    // (serialization/binding regression point #6). Each name is string-equal to its AS-IS enum member so
-    // EffectTimings.ToTriggerName (== ToString()) matches the emitted TriggerTimings value. These are pure
-    // placeholders: none is registered in ActivatedBridgeTimings' sets and none has an emit wired for the
-    // bridge, so NO new trigger window opens (behavior-neutral). The activated-bridge wiring per timing is the
-    // per-timing F-1 milestones (M1+). The 6 AS-IS DEAD timings (OnEndAttackPhase/OnEndBlockDesignation/
-    // OnEndCoinToss/OnEndMainPhase/OnGetDamage/OnKnockOut — AS-IS never emits them and no card reacts) are
-    // deliberately NOT added — they stay inert.
-    AfterEffectsActivate,
-    OnDraw,
-    OnStartBattle,
-    OnUseDigiburst,
-    RulesTiming,
-    WhenDigisorption,
-    WhenUntapAnyone,
-    WhenWouldDigivolutionCardDiscarded,
-    WhenWouldLink,
-
-    // (F1-DEAD) The 6 AS-IS DEAD timings — declared in the AS-IS EffectTiming enum (ICardEffect.cs:975/984/987/
-    // 996/998/1008) but NEVER stacked/gated there and reacted to by ZERO cards (verified true-scan: each name
-    // appears ONLY at its enum declaration in DCGO/, no StackSkillInfos/GetSkillInfos/gate). Appended AT THE END
-    // (ordinal-stable, regression point #6). Each name is string-equal to its AS-IS enum member so
-    // EffectTimings.ToTriggerName (== ToString()) matches the emitted TriggerTimings value. Included per the
-    // uniform-wiring principle (a missing call-site is not a skip reason): the enum slot + set classification +
-    // emit wiring (where a source exists) are prebuilt so the infra is symmetric with the live timings. They are
-    // behavior-neutral (0 cards react), so no regression can arise; the activated bridge only ever produces a
-    // marker for a TEST FIXTURE (F1-DeadTimingInfra). Emit status per timing (see ActivatedBridgeTimings /
-    // TriggerTimings comments):
-    //   OnEndAttackPhase / OnEndMainPhase — queue-emitted (PassAction.cs:28-29); Boundary set opens the bridge.
-    //   OnKnockOut  — emitted via a SYNC window (BattleResolver.ResolveKnockOutWindowAsync), NOT the GameEventQueue,
-    //                 so the activated bridge never sees it: SubjectScoped registration is LATENT (design item
-    //                 F1-DEAD-KNOCKOUT). It does NOT alter the C-4 vestigial phase-1 window (that path uses its own
-    //                 AutoProcessingTriggerCollector, never ActivatedBridgeTimings), so no double-fire with
-    //                 OnDestroyedAnyone (a distinct timing).
-    //   OnEndCoinToss / OnGetDamage / OnEndBlockDesignation — NO emit source exists in headless (no coin-toss /
-    //                 damage / block-designation pipeline). Set classification is a LATENT placeholder; emit is a
-    //                 design item (F1-DEAD-COINTOSS / F1-DEAD-DAMAGE / F1-DEAD-BLOCKDESIGNATION) — do NOT invent the
-    //                 pipeline.
-    OnEndAttackPhase,
-    OnEndBlockDesignation,
-    OnEndCoinToss,
-    OnEndMainPhase,
-    OnGetDamage,
-    OnKnockOut,
-}
-
-
-/// <summary>The headless <see cref="EffectTiming"/> mirror values are named after the engine trigger
-/// strings (the "...Anyone" forms used by <c>TriggerTimings</c> / <c>GetEffectsForTiming</c>), so the
-/// engine timing string is just the enum name.</summary>
-public static class EffectTimings
-{
-    public static string ToTriggerName(EffectTiming timing) => timing.ToString();
-}
-
-// (C3 REHOUSED fold) AS-IS home of the CalculateOrder enum is this file (ICardEffect.cs:940); the mirror
-// previously split it into CardEffectCommons/ModifierHelpers.cs. Folded back verbatim (same namespace, so the
-// NumericModifier pipeline in ModifierHelpers.cs references it unchanged). Precedent: C2 EffectTiming fold.
-/// <summary>
-/// Mirror of AS-IS <c>CalculateOrder</c> (ICardEffect.cs). AS-IS orders the "Change Security Attack" and
-/// "Change Link Max" effects into three tiers applied strictly in this sequence — UpToConstant, then
-/// UpDownValue, then DownToConstant (Permanent.cs:1872-1930 for SAttack, 975-1000 for LinkMax) — while the DP
-/// path uses a separate boolean isUpDown 2-group split (not this enum). Only the three tiers above are bucketed
-/// by the AS-IS switch; <see cref="UpValue"/>/<see cref="DownValue"/> have no switch case and are therefore
-/// collected-but-never-applied (dropped). Every current SAttack/LinkMax producer emits <see cref="UpDownValue"/>
-/// (both factories hardcode it), so this tiering is behaviourally inert for additive deltas today; it exists so
-/// a future non-additive (cap-style) port can set its tier and fold in the correct order.
-/// </summary>
-public enum CalculateOrder
-{
-    UpValue = 0,
-    DownValue = 1,
-    UpToConstant = 2,
-    UpDownValue = 3,
-    DownToConstant = 4,
-}

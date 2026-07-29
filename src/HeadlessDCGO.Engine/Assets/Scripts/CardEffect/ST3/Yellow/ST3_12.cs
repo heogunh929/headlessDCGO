@@ -1,13 +1,12 @@
-// 1:1 mirror of the original ST3_12 (ST3/Yellow) — a Tamer.
-//   [All Turns] During your opponent's turn, your Security Digimon get +2000 DP.
-//     -> ChangeSecurityDigimonCardDPStaticEffect (continuous, owner Security-zone Digimon, opponent-turn condition)
-//   [Security] Play this Tamer.  -> PlaySelfTamerSecurityEffect (security-skill flow, Wave 3 — deferred)
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST3.Yellow;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class ST3_12 : CEntity_Effect
+public class ST3_12 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -22,7 +21,14 @@ public sealed class ST3_12 : CEntity_Effect
 
             bool Condition()
             {
-                return CardEffectCommons.IsExistOnBattleArea(card) && CardEffectCommons.IsOpponentTurn(card);
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOpponentTurn(card))
+                    {
+                        return true;
+                    }
+                }
+                return false;
             }
 
             cardEffects.Add(CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(

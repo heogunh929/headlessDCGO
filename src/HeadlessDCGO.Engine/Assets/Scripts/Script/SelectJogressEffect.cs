@@ -1,51 +1,18 @@
-// Source: DCGO/Assets/Scripts/Script/SelectJogressEffect.cs (428 lines)
-// (SpecialPlay re-migration) Mirror of the AS-IS SelectJogressEffect component — the Jogress / DNA-Digivolution
-// pre-play selection flow the play pipeline reaches through GManager.instance.selectJogressEffect (AS-IS
-// TurnStateMachine.cs:2203/2346 and CardEffectCommons/DNADigivolveEffects.cs:559-570).
-//
-// This file REPLACES the former "left intentionally bodiless" note: the substrate DNA path it deferred to
-// (Headless/Runtime/SpecialPlayAction.cs + SpecialPlayRecipeRegistry, an off-AS-IS invention) is deleted, and
-// its rule logic re-migrates HERE, its AS-IS home. The card DECLARES its recipe with AddJogressConditionClass
-// (CardSource.jogressCondition -> the mirror JogressConditionOf() accessor); this component CONSUMES it.
-//
-// Substrate translations only (bigbang §5), sibling-for-sibling with SelectBurstDigivolutionEffect.cs:
-//   * IEnumerator -> Task; `yield return ContinuousController.instance.StartCoroutine(X)` -> `await X`;
-//     a lone `yield return null` callback body -> `Task.CompletedTask`.
-//   * `_card.jogressCondition` -> `_card.JogressConditionOf()` (the P6C1 accessor; AS-IS home CardSource.cs is
-//     another remediation cluster's file, relocation design item RD-P6C1-9).
-//   * AS-IS card-less `CardEffectCommons.MatchConditionPermanentCount(cond)` (global scan) -> the sole mirror
-//     overload `MatchConditionPermanentCount(card, cond)` (KeyWordEffects/Save.cs header: any live card is the
-//     scan's context handle).
-//   * `_card.Owner` (AS-IS Player) -> HeadlessPlayerId + its `GetBattleAreaDigimons()` extension (Player.cs),
-//     except SelectDNACondition.SetUp which takes the mirror `Player` -> `new Player(context, _card.Owner)`.
-//   * `GManager.instance.selectCardPanel.OpenSelectCardPanel` two-option method panel -> ModeChoice
-//     (the ESTABLISHED adaptation, SelectAppFusionEffect / SelectBurstDigivolutionEffect.SelectWheterToBurst;
-//     SelectedIndex empty = no-select).
-//   * `permanent.ShowingPermanentCard.SetPermanentIndexText/OffPermanentIndexText` = UI (stripped) — the
-//     selection-order badge drawn on the already-picked evo roots, no rule effect.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
-
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
 
-// (SelectDigiXrosClass.cs:50 convention) the AS-IS `CardEffectCommons.X` call shape needs an alias here: from
-// inside namespace ...Script the bare name `CardEffectCommons` binds to the NAMESPACE, not the static class.
-using Commons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
-
-public class SelectJogressEffect
+public class SelectJogressEffect : MonoBehaviour
 {
-    // AS-IS :9-23.
-    public void SetUp_SelectWheterToJogress(
-        CardSource card,
+    public void SetUp_SelectWheterToJogress
+        (CardSource card,
         CardSource evoRoot,
         bool canNoSelect,
-        Func<Task> endSelectCoroutine_Digivolve,
-        Func<Task> endSelectCoroutine_Jogress,
-        Func<Task> noSelectCoroutine)
+        Func<IEnumerator> endSelectCoroutine_Digivolve,
+        Func<IEnumerator> endSelectCoroutine_Jogress,
+        Func<IEnumerator> noSelectCoroutine)
     {
         _card = card;
         _evoRoot = evoRoot;
@@ -55,14 +22,13 @@ public class SelectJogressEffect
         _noSelectCoroutine = noSelectCoroutine;
     }
 
-    // AS-IS :25-41.
-    public void SetUp_SelectDigivolutionRoots(
-        CardSource card,
+    public void SetUp_SelectDigivolutionRoots
+        (CardSource card,
         bool isLocal,
         bool isPayCost,
         bool canNoSelect,
-        Func<List<Permanent>, Task> endSelectCoroutine_SelectDigivolutionRoots,
-        Func<Task> noSelectCoroutine)
+        Func<List<Permanent>, IEnumerator> endSelectCoroutine_SelectDigivolutionRoots,
+        Func<IEnumerator> noSelectCoroutine)
     {
         _card = card;
         _isLocal = isLocal;
@@ -74,34 +40,23 @@ public class SelectJogressEffect
         _customPermanentConditions = null;
     }
 
-    // AS-IS :43-46.
     public void SetUpCustomPermanentConditions(Func<Permanent, bool>[] customPermanentConditions)
     {
         _customPermanentConditions = customPermanentConditions.CloneArray();
     }
 
-    // AS-IS :48-58.
     CardSource _card = null;
     CardSource _evoRoot = null;
     bool _isLocal = false;
 
     bool _isPayCost = false;
     bool _canNoSelect = false;
-    Func<Task> _endSelectCoroutine_Digivolve = null;
-    Func<Task> _endSelectCoroutine_Jogress = null;
-    Func<List<Permanent>, Task> _endSelectCoroutine_SelectDigivolutionRoots = null;
-    Func<Task> _noSelectCoroutine = null;
+    Func<IEnumerator> _endSelectCoroutine_Digivolve = null;
+    Func<IEnumerator> _endSelectCoroutine_Jogress = null;
+    Func<List<Permanent>, IEnumerator> _endSelectCoroutine_SelectDigivolutionRoots = null;
+    Func<IEnumerator> _noSelectCoroutine = null;
     Func<Permanent, bool>[] _customPermanentConditions = null;
-
-    private EngineContext? _context;
-
-    /// <summary>Match-context injection (mirrors SelectBurstDigivolutionEffect.AttachContext).</summary>
-    public void AttachContext(EngineContext context) => _context = context;
-
-    private EngineContext RequireContext() => _context ?? _card?.Context ?? AmbientMatchContext.Require();
-
-    // AS-IS :59-138.
-    public async Task SelectWheterToJogress()
+    public IEnumerator SelectWheterToJogress()
     {
         if (_card != null)
         {
@@ -111,20 +66,15 @@ public class SelectJogressEffect
 
                 List<Permanent> anotherEvoRootPermanentCandidates = new List<Permanent>();
 
-                // `_evoRoot.PermanentOfThisCard()` (AS-IS Permanent) -> the established PermanentView bridge
-                // `ICardEffect.ResolvePermanentOfThisCard` (CEntity_EffectController.cs:83 / AutoProcessing.cs:875).
-                Permanent evoRootPermanent = ICardEffect.ResolvePermanentOfThisCard(_evoRoot);
-
                 foreach (Permanent permanent in _card.Owner.GetBattleAreaDigimons())
                 {
-                    if (permanent != evoRootPermanent)
+                    if (permanent != _evoRoot.PermanentOfThisCard())
                     {
                         if (_card.CanJogressFromTargetPermanent(permanent, false))
                         {
-                            if (_card.CanJogressFromTargetPermanents(new List<Permanent>() { evoRootPermanent, permanent }, false))
+                            if (_card.CanJogressFromTargetPermanents(new List<Permanent>() { _evoRoot.PermanentOfThisCard(), permanent }, false))
                             {
-                                // AS-IS `TopCard.CardID` = CEntity_Base.CardID = the PRINTED card id -> CardNumber.
-                                if (anotherEvoRootPermanentCandidates.Count((permanent1) => permanent1.TopCard.CardNumber == permanent.TopCard.CardNumber) == 0)
+                                if (anotherEvoRootPermanentCandidates.Count((permanent1) => permanent1.TopCard.CardID == permanent.TopCard.CardID) == 0)
                                 {
                                     anotherEvoRootPermanentCandidates.Add(permanent);
                                 }
@@ -138,50 +88,39 @@ public class SelectJogressEffect
                     anotherEvoRootCard = anotherEvoRootPermanentCandidates[0].TopCard;
                 }
 
-                // AS-IS :91-105 OpenSelectCardPanel two-option ("Normal Digivolution" / "DNA Digivollution")
-                // -> ModeChoice (the established adaptation). The AS-IS `evoRootsArray`
-                // ({_evoRoot} / {_evoRoot, anotherEvoRootCard}) is the panel's evo-root PREVIEW artwork — UI
-                // only; `anotherEvoRootCard` is computed above verbatim because that computation is AS-IS.
-                _ = anotherEvoRootCard;
+                yield return StartCoroutine(GManager.instance.selectCardPanel.OpenSelectCardPanel(
+                            Message: "With which method would you like to Digivolve?",
+                            RootCardSources: new List<CardSource>() { _card, _card },
+                            _CanTargetCondition: (cardSource) => true,
+                            _CanTargetCondition_ByPreSelecetedList: null,
+                            _CanEndSelectCondition: null,
+                            _MaxCount: 1,
+                            _CanEndNotMax: false,
+                            _CanNoSelect: () => _canNoSelect,
+                            CanLookReverseCard: true,
+                            skillInfos: null,
+                            root: SelectCardEffect.Root.None,
+                            isCenter: true,
+                            evoRootsArray: new CardSource[][] { new CardSource[] { _evoRoot }, new CardSource[] { _evoRoot, anotherEvoRootCard } },
+                            titleStrings: new List<string>() { "Normal Digivolution", "<color=#FF633E>DNA</color> Digivollution" }));
 
-                EngineContext context = RequireContext();
-                var candidates = new List<ChoiceCandidate>
+                if (GManager.instance.selectCardPanel.SelectedIndex.Count > 0)
                 {
-                    new ChoiceCandidate(new HeadlessEntityId("jogressDigivolution#0"), "Normal Digivolution", ChoiceZone.BattleArea, IsSelectable: true, ownerId: _card.Owner),
-                    new ChoiceCandidate(new HeadlessEntityId("jogressDigivolution#1"), "DNA Digivollution", ChoiceZone.BattleArea, IsSelectable: true, ownerId: _card.Owner),
-                };
-                var request = new ChoiceRequest(
-                    ChoiceType.ModeChoice, _card.Owner, "With which method would you like to Digivolve?",
-                    minCount: _canNoSelect ? 0 : 1, maxCount: 1, canSkip: _canNoSelect, ChoiceZone.BattleArea, candidates);
-                ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
-
-                int selectedIndex = -1;
-                if (!result.IsSkipped && result.SelectedIds.Count > 0)
-                {
-                    string[] parts = result.SelectedIds[0].Value.Split('#');
-                    if (int.TryParse(parts.Length > 1 ? parts[1] : null, out int picked))
-                    {
-                        selectedIndex = picked;
-                    }
-                }
-
-                if (selectedIndex >= 0)
-                {
-                    int index = selectedIndex;
+                    int index = GManager.instance.selectCardPanel.SelectedIndex[0];
 
                     switch (index)
                     {
                         case 0:
                             if (_endSelectCoroutine_Digivolve != null)
                             {
-                                await _endSelectCoroutine_Digivolve().ConfigureAwait(false);
+                                yield return ContinuousController.instance.StartCoroutine(_endSelectCoroutine_Digivolve());
                             }
                             break;
 
                         case 1:
                             if (_endSelectCoroutine_Jogress != null)
                             {
-                                await _endSelectCoroutine_Jogress().ConfigureAwait(false);
+                                yield return ContinuousController.instance.StartCoroutine(_endSelectCoroutine_Jogress());
                             }
                             break;
                     }
@@ -191,15 +130,13 @@ public class SelectJogressEffect
                 {
                     if (_noSelectCoroutine != null)
                     {
-                        await _noSelectCoroutine().ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(_noSelectCoroutine());
                     }
                 }
             }
         }
     }
-
-    // AS-IS :139-427.
-    public async Task SelectDigivolutionRoots()
+    public IEnumerator SelectDigivolutionRoots()
     {
         bool active = false;
         SelectPermanentEffect selectPermanentEffect = null;
@@ -208,13 +145,13 @@ public class SelectJogressEffect
         {
             if (_card.CanPlayJogress(_isPayCost))
             {
-                if (_card.JogressConditionOf().Count > 0)
+                if (_card.jogressCondition.Count > 0)
                 {
-                    foreach (JogressCondition dnaCondition in _card.JogressConditionOf())
+                    foreach (JogressCondition dnaCondition in _card.jogressCondition)
                     {
-                        if (dnaCondition != null)
+                        if(dnaCondition != null)
                         {
-                            if (dnaCondition.elements.Length == 2)
+                            if(dnaCondition.elements.Length == 2)
                             {
                                 if (GManager.instance != null)
                                 {
@@ -244,34 +181,35 @@ public class SelectJogressEffect
         if (active)
         {
             List<Permanent> selectedEvoRoots = new List<Permanent>();
-            JogressCondition selectedDNA = _card.JogressConditionOf()[0];
+            JogressCondition selectedDNA = _card.jogressCondition[0];
 
-            if (_card.JogressConditionOf().Count > 1)
+            if (_card.jogressCondition.Count > 1)
             {
                 #region select DNA condition
                 SelectDNACondition selectDNACondition = GManager.instance.GetComponent<SelectDNACondition>();
-                selectDNACondition.SetUp(new Player(_card.Context, _card.Owner), _card, SelectDNA, _isLocal);
+                selectDNACondition.SetUp(_card.Owner, _card, SelectDNA, _isLocal);
 
-                await selectDNACondition.Activate().ConfigureAwait(false);
+                yield return ContinuousController.instance.StartCoroutine(selectDNACondition.Activate());
 
-                Task SelectDNA(int dnaSelection)
+                IEnumerator SelectDNA(int dnaSelection)
                 {
-                    selectedDNA = _card.JogressConditionOf()[dnaSelection];
+                    selectedDNA = _card.jogressCondition[dnaSelection];
 
-                    return Task.CompletedTask;
+                    yield return null;
                 }
                 #endregion
             }
 
+            
             for (int i = 0; i < selectedDNA.elements.Length; i++)
             {
                 JogressConditionElement element = selectedDNA.elements[i];
 
                 bool CanSelectPermanentCondition(Permanent permanent)
                 {
-                    if (Commons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, _card))
+                    if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, _card))
                     {
-                        if (!_card.CanNotEvolve(permanent))
+                        if(!_card.CanNotEvolve(permanent))
                         {
                             if (!selectedEvoRoots.Contains(permanent))
                             {
@@ -405,7 +343,7 @@ public class SelectJogressEffect
                     return false;
                 }
 
-                int maxCount = Math.Min(1, Commons.MatchConditionPermanentCount(_card, CanSelectPermanentCondition));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                 Permanent selectedPermanent = null;
 
@@ -431,13 +369,13 @@ public class SelectJogressEffect
                         selectPermanentEffect.SetIsLocal();
                     }
 
-                    await selectPermanentEffect.Activate().ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
                         selectedPermanent = permanent;
 
-                        return Task.CompletedTask;
+                        yield return null;
                     }
                 }
 
@@ -450,8 +388,10 @@ public class SelectJogressEffect
                 {
                     selectedEvoRoots.Add(selectedPermanent);
 
-                    // AS-IS :391-394 `permanent.ShowingPermanentCard.SetPermanentIndexText(selectedEvoRoots)`
-                    // = the selection-order badge = UI (stripped).
+                    foreach (Permanent permanent in selectedEvoRoots)
+                    {
+                        permanent.ShowingPermanentCard.SetPermanentIndexText(selectedEvoRoots);
+                    }
                 }
             }
 
@@ -460,7 +400,7 @@ public class SelectJogressEffect
             {
                 if (_noSelectCoroutine != null)
                 {
-                    await _noSelectCoroutine().ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(_noSelectCoroutine());
                 }
             }
 
@@ -469,11 +409,20 @@ public class SelectJogressEffect
             {
                 if (_endSelectCoroutine_SelectDigivolutionRoots != null)
                 {
-                    await _endSelectCoroutine_SelectDigivolutionRoots(selectedEvoRoots).ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(_endSelectCoroutine_SelectDigivolutionRoots(selectedEvoRoots));
                 }
             }
 
-            // AS-IS :416-425 `OffPermanentIndexText()` over every battle-area Digimon = UI (stripped).
+            foreach (Permanent permanent in _card.Owner.GetBattleAreaDigimons())
+            {
+                if (permanent != null)
+                {
+                    if (permanent.ShowingPermanentCard != null)
+                    {
+                        permanent.ShowingPermanentCard.OffPermanentIndexText();
+                    }
+                }
+            }
         }
     }
 }

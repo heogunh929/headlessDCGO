@@ -1,25 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ChangeDP.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice: continuous DP) 1:1 mirror of the AS-IS ChangeDP.cs factory
-// partial. Returns the ported ChangeDPClass kind-class (CardEffects/ChangeDPClass.cs). Replaces the monolith's
-// old ContinuousSelfModifierEffect/PlayerScopeModifierEffect-based ChangeSelfDPStaticEffect/ChangeDPStaticEffect.
-//
-// File at the AS-IS path Script/CardEffectFactory/ChangeDP.cs; namespace ...CardEffectCommons (the canonical
-// CardEffectFactory partial class's namespace) so it merges into the same `partial class CardEffectFactory`.
-//
-// ADAPTATIONS (substrate only; logic verbatim):
-//   (1) card.PermanentOfThisCard() returns a PermanentView on the mirror, not a Permanent → bridge via
-//       ICardEffect.ResolvePermanentOfThisCard(card) (ICardEffect.cs).
-//   (2) AS-IS permanent.TopCard.CanNotBeAffected(ICardEffect) → the mirror CardSource.CanNotBeAffected takes the
-//       cause effect's source-card instance id (goal-5 surface), so pass changeDPClass.EffectSourceCard?.InstanceId.
-//   `permanent == targetPermanent` now works: mirror Permanent has instance-id value equality (CARDSOURCE-EQUALITY).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-using System;
 using System.Collections;
 using System.Collections.Generic;
+using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ChangeDPClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -45,7 +28,7 @@ public partial class CardEffectFactory
         }
 
         return ChangeTargetDPStaticEffect(
-            targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card),  // ADAPTATION (1): PermanentView -> Permanent bridge
+            targetPermanent: card.PermanentOfThisCard(),
             changeValue: changeValue,
             isInheritedEffect: isInheritedEffect,
             card: card,
@@ -140,7 +123,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(changeDPClass))  // ADAPTATION (2)
+                if (!permanent.TopCard.CanNotBeAffected(changeDPClass))
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {

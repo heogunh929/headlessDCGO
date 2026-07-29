@@ -1,26 +1,95 @@
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST6;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class ST6_12 : CEntity_Effect
+public class ST6_12 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var effects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
+
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            // [When Digivolving] Up to 2 of your Digimon gain <Retaliation> until the end of your opponent's next turn.
-            // The original uses OnEnterFieldAnyone with a CanTriggerWhenDigivolving guard — port as WhenDigivolving timing.
-            // The effect is a triggered activated effect (gain Retaliation to up to 2 own Digimon).
-            // Since headless bridge covers [When Digivolving] (WhenDigivolving) for activated effects, return SelectAndBuffSAttackEffect
-            // is not correct (Retaliation is a keyword, not DP/S-Attack). The headless has no factory for "gain keyword to scoped set".
-            // STOP: no factory for "grant Retaliation keyword to up to 2 own Digimon until end of opponent's next turn".
-            // The primitive exists for player-scope keyword grants (RetaliationStaticEffect), but not for selecting specific permanents
-            // and granting a keyword with a custom duration (UntilOpponentTurnEnd). The original uses a custom SelectPermanentEffect
-            // with GainRetaliation(targetPermanent, effectDuration, activateClass) — no headless equivalent.
-            // STOP: no factory for "select up to 2 own Digimon and grant Retaliation until end of opponent's next turn".
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Your 2 Digimon gain Retaliation", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[When Digivolving] Up to 2 of your Digimon gain <Retaliation> (When this Digimon is deleted after losing a battle, delete the Digimon it was battling) until the end of your opponent's next turn.";
+            }
+
+            bool CanSelectPermanentCondition(Permanent permanent)
+            {
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
+                {
+                    int maxCount = Math.Min(2, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
+
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectPermanentCondition,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: CanEndSelectCondition,
+                        maxCount: maxCount,
+                        canNoSelect: false,
+                        canEndNotMax: true,
+                        selectPermanentCoroutine: SelectPermanentCoroutine,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Custom,
+                        cardEffect: activateClass);
+
+                    selectPermanentEffect.SetUpCustomMessage("Select Digimon that will get Retaliation.", "The opponent is selecting Digimon that will get Retaliation.");
+
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+
+                    bool CanEndSelectCondition(List<Permanent> permanents)
+                    {
+                        if (CardEffectCommons.HasNoElement(permanents))
+                        {
+                            return false;
+                        }
+
+                        return true;
+                    }
+
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainRetaliation(targetPermanent: permanent, effectDuration: EffectDuration.UntilOpponentTurnEnd, activateClass: activateClass));
+                    }
+                }
+            }
         }
-        return effects;
+
+        return cardEffects;
     }
 }

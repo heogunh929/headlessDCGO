@@ -1,305 +1,894 @@
-// Mirrored from DCGO/Assets/Scripts/Script/FieldPermanentCard.cs (894 lines).
-// NO-OP PRESENTATION SEAM for substrate root S1 (phase A1). The AS-IS `FieldPermanentCard` is the on-board card
-// widget for one Permanent (image, DP/level/evo-root labels, blocker/link/suspend markers, outline, command
-// panel, click + drag targets). Verified: every body only reads its `ThisPermanent` and writes Unity components
-// — the widget is a VIEW (`SetPermanentData`/`ShowPermanentData` copy permanent state onto the UI, never back).
-// Mirror logic anchors that were deleted and target this type: ICardEffect.cs:1178 (`OnSelectEffect` /
-// `Outline_Select` / `SetOrangeOutline`), SelectJogressEffect.cs:24/476 and CardController.cs:3667
-// (`SetPermanentIndexText` / `OffPermanentIndexText`). This file re-creates the type only; no call site is
-// restored here.
-//
-// SIGNATURE CHANGES (rule 4 — no Unity types):
-//   - `IEnumerator ShowAddDigivolutionCardEffect()` -> `Task ShowAddDigivolutionCardEffect()`;
-//   - `public Image Outline_Select` / `CardImage` / `EvoRootCountBackground` / `LinkIcon` -> `public object?`;
-//   - `public GameObject BlockerEffect` / `Collider` / `LinkedObject` / `Parent` / `UsingSkillEffect` /
-//     `TapObject` / `SummonSicknessObject` / `WillEvolutionObject` / `WillBeDeletedObject` /
-//     `WillBeDeckBounceObject` / `WillBeHandBounceObject` / `WillRemoveFieldObject` / `WillUntapObject`
-//     -> `public object?`;
-//   - `public Text EnergyCountText` / `SkillNameText` / `DPText` / `EvoRootCountText` / `DirectStrikeText` and
-//     `public TextMeshProUGUI LevelText` / `permanentIndexText` -> `public object?`;
-//   - `public Animator anim` -> `public object?`;
-//   - `public ParticleSystem addDigivolutionCardsEffect` -> `public object?`;
-//   - `public List<Image> DPBackground_color` -> `public List<object?>`;
-//   - `public UnityAction<FieldPermanentCard> OnClickAction` -> `public Action<FieldPermanentCard>?` and
-//     `AddClickTarget(UnityAction<FieldPermanentCard>)` -> `AddClickTarget(Action<FieldPermanentCard>)`
-//     (System.Action is the exact neutral equivalent of UnityEngine.Events.UnityAction);
-//   - `public UnityAction<FieldPermanentCard> OnBeginDragAction { get; set; }` ->
-//     `public Action<FieldPermanentCard>? OnBeginDragAction { get; set; }`;
-//   - `PointerDown/PointerUp/PointerExit(BaseEventData eventData)` -> the `BaseEventData` PARAMETER IS DROPPED
-//     (Unity event-system payload; no neutral equivalent, and rule 4 forbids adding a Unity shim);
-//   - `TextCardColorMaterial.public Material material` -> DROPPED field (see omissions).
-//   Every widget handle above is a live scene object in the original, so headless it is always null (rule 2).
-//
-// OMITTED MEMBERS:
-//   - `public Vector3 StartScale { get; set; }` (:67) and `public Vector3 GetLocalCanvasPosition()` (:835):
-//     both are Vector3-valued and the substrate has no neutral vector type — a value member cannot be kept
-//     without inventing one.
-//   - `public CommandPanel fieldUnitCommandPanel` (:33): no `CommandPanel` mirror type exists (the parameter-
-//     less `CloseCommandPanel()` that drives it IS mirrored).
-//   - `public UnityAction<FieldPermanentCard, List<DropArea>> OnDragAction` / `OnEndDragAction` (:853-854) and
-//     `AddDragTarget(...)` (:863): no `DropArea` mirror type exists (drag/drop is Unity input plumbing). The
-//     parameterless `RemoveDragTarget` / `OnBeginDrag` / `OnDrag` / `OnEndDrag` ARE mirrored.
-//   - `TextCardColorMaterial.material` (`UnityEngine.Material`, :891): no neutral equivalent; the class and its
-//     `CardColor cardColor` field are mirrored.
-//   - private Unity-internal members: `Awake()`, `LateUpdate()`, `DestroyCoroutine()`, `SetTransformRotation`,
-//     `SetCardIsFlipped`, `_frameCount`/`_updateFrame`, `_pressing`/`_requiredTime`/`_validPressTime`.
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
+﻿using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.UI;
+using DG.Tweening;
+using UnityEngine.EventSystems;
+using TMPro;
+using System;
+using System.Diagnostics;
 
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-/// <summary>Headless no-op stand-in for the AS-IS <c>FieldPermanentCard</c> board widget. Member names, order
-/// and parameter lists mirror DCGO/Assets/Scripts/Script/FieldPermanentCard.cs; all behaviour is stripped.
-/// </summary>
-public class FieldPermanentCard
+public class FieldPermanentCard : MonoBehaviour
 {
-    /// <summary>AS-IS <c>public Image Outline_Select</c> (FieldPermanentCard.cs:15) — the selection outline.
-    /// </summary>
-    public object? Outline_Select;
+    [Header("選択状態アウトライン")]
+    public Image Outline_Select;
 
-    /// <summary>AS-IS <c>public Image CardImage</c> (:18).</summary>
-    public object? CardImage;
+    [Header("カード画像")]
+    public Image CardImage;
 
-    /// <summary>AS-IS <c>public GameObject BlockerEffect</c> (:21).</summary>
-    public object? BlockerEffect;
+    [Header("ブロッカーエフェクト")]
+    public GameObject BlockerEffect;
 
-    /// <summary>AS-IS <c>public Text EnergyCountText</c> (:24).</summary>
-    public object? EnergyCountText;
+    [Header("エナジー個数Text")]
+    public Text EnergyCountText;
 
-    /// <summary>AS-IS <c>public GameObject Collider</c> (:27) — the click hit-box.</summary>
-    public object? Collider;
+    [Header("コライダー")]
+    public GameObject Collider;
 
-    /// <summary>AS-IS <c>public Animator anim</c> (:30).</summary>
-    public object? anim;
+    [Header("アニメーター")]
+    public Animator anim;
 
-    /// <summary>AS-IS <c>public Text SkillNameText</c> (:36).</summary>
-    public object? SkillNameText;
+    [Header("コマンドパネル")]
+    public CommandPanel fieldUnitCommandPanel;
 
-    /// <summary>AS-IS <c>public Text DPText</c> (:39).</summary>
-    public object? DPText;
+    [Header("スキル名Text")]
+    public Text SkillNameText;
 
-    /// <summary>AS-IS <c>public List&lt;Image&gt; DPBackground_color</c> (:42).</summary>
-    public List<object?> DPBackground_color = new List<object?>();
+    [Header("DPテキスト")]
+    public Text DPText;
 
-    /// <summary>AS-IS <c>public Text EvoRootCountText</c> (:45).</summary>
-    public object? EvoRootCountText;
+    [Header("DP枠")]
+    public List<Image> DPBackground_color = new List<Image>();
 
-    /// <summary>AS-IS <c>public Image EvoRootCountBackground</c> (:48).</summary>
-    public object? EvoRootCountBackground;
+    [Header("進化元枚テキスト")]
+    public Text EvoRootCountText;
 
-    /// <summary>AS-IS <c>public TextMeshProUGUI LevelText</c> (:51).</summary>
-    public object? LevelText;
+    [Header("進化元枚枠")]
+    public Image EvoRootCountBackground;
 
-    /// <summary>AS-IS <c>public GameObject LinkedObject</c> (:54).</summary>
-    public object? LinkedObject;
+    [Header("レベルテキスト")]
+    public TextMeshProUGUI LevelText;
 
-    /// <summary>AS-IS <c>public Image LinkIcon</c> (:55).</summary>
-    public object? LinkIcon;
+    [Header("Link Elements")]
+    public GameObject LinkedObject;
+    public Image LinkIcon;
 
-    /// <summary>AS-IS <c>public GameObject Parent</c> (:58).</summary>
-    public object? Parent;
+    [Header("表示親")]
+    public GameObject Parent;
 
-    /// <summary>AS-IS <c>public GameObject UsingSkillEffect</c> (:61).</summary>
-    public object? UsingSkillEffect;
+    [Header("スキル使用エフェクト")]
+    public GameObject UsingSkillEffect;
 
-    /// <summary>AS-IS <c>public ParticleSystem addDigivolutionCardsEffect</c> (:64).</summary>
-    public object? addDigivolutionCardsEffect;
+    [Header("進化元追加エフェクト")]
+    public ParticleSystem addDigivolutionCardsEffect;
 
-    /// <summary>AS-IS <c>public TextMeshProUGUI permanentIndexText</c> (:70) — the jogress selection-order
-    /// badge.</summary>
-    public object? permanentIndexText;
+    //初期スケール
+    public Vector3 StartScale { get; set; }
 
-    /// <summary>AS-IS <c>public GameObject TapObject</c> (:73).</summary>
-    public object? TapObject;
+    [Header("パーマネント番号テキスト")]
+    public TextMeshProUGUI permanentIndexText;
 
-    /// <summary>AS-IS <c>public Text DirectStrikeText</c> (:76).</summary>
-    public object? DirectStrikeText;
+    [Header("タップオブジェクト")]
+    public GameObject TapObject;
 
-    /// <summary>AS-IS <c>public GameObject SummonSicknessObject</c> (:79).</summary>
-    public object? SummonSicknessObject;
+    [Header("ダメージテキスト")]
+    public Text DirectStrikeText;
 
-    /// <summary>AS-IS <c>public GameObject WillEvolutionObject</c> (:82).</summary>
-    public object? WillEvolutionObject;
+    [Header("召喚酔い")]
+    public GameObject SummonSicknessObject;
 
-    /// <summary>AS-IS <c>public GameObject WillBeDeletedObject</c> (:85).</summary>
-    public object? WillBeDeletedObject;
+    [Header("進化予定オブジェクト")]
+    public GameObject WillEvolutionObject;
 
-    /// <summary>AS-IS <c>public GameObject WillBeDeckBounceObject</c> (:88).</summary>
-    public object? WillBeDeckBounceObject;
+    [Header("消滅予定オブジェクト")]
+    public GameObject WillBeDeletedObject;
 
-    /// <summary>AS-IS <c>public GameObject WillBeHandBounceObject</c> (:91).</summary>
-    public object? WillBeHandBounceObject;
+    [Header("デッキバウンス予定オブジェクト")]
+    public GameObject WillBeDeckBounceObject;
 
-    /// <summary>AS-IS <c>public GameObject WillRemoveFieldObject</c> (:94).</summary>
-    public object? WillRemoveFieldObject;
+    [Header("手札バウンス予定オブジェクト")]
+    public GameObject WillBeHandBounceObject;
 
-    /// <summary>AS-IS <c>public GameObject WillUntapObject</c> (:97).</summary>
-    public object? WillUntapObject;
+    [Header("場を離れる予定オブジェクト")]
+    public GameObject WillRemoveFieldObject;
 
-    /// <summary>AS-IS <c>public List&lt;TextCardColorMaterial&gt; textCardColorMaterials</c> (:99) — the
-    /// per-colour text material table.</summary>
+    [Header("アンタップ予定オブジェクト")]
+    public GameObject WillUntapObject;
+
     public List<TextCardColorMaterial> textCardColorMaterials = new List<TextCardColorMaterial>();
 
-    /// <summary>AS-IS <c>public UnityAction&lt;FieldPermanentCard&gt; OnClickAction</c> (:101).</summary>
-    public Action<FieldPermanentCard>? OnClickAction;
-
-    /// <summary>AS-IS <c>public Permanent ThisPermanent { get; set; }</c> (:102) — the permanent this widget
-    /// draws. Plain state in the original; mirrored as plain state.</summary>
-    public Permanent? ThisPermanent { get; set; }
-
-    /// <summary>AS-IS <c>public bool IsEffectPlaying { get; set; }</c> (:103) — set while an animation on this
-    /// widget is running.</summary>
+    public UnityAction<FieldPermanentCard> OnClickAction;
+    public Permanent ThisPermanent { get; set; }
     public bool IsEffectPlaying { get; set; }
+    private void Awake()
+    {
+        RemoveSelectEffect();
 
-    /// <summary>AS-IS <c>IEnumerator ShowAddDigivolutionCardEffect()</c> (:179).</summary>
-    public Task ShowAddDigivolutionCardEffect() => Task.CompletedTask;
+        CloseCommandPanel();
 
-    /// <summary>AS-IS <c>OffPermanentIndexText()</c> (:190) — hides the jogress order badge.</summary>
+        Outline_Select.gameObject.SetActive(false);
+
+        OffUsingSkillEffect();
+
+        OffSkillName();
+
+        if (BlockerEffect != null)
+        {
+            BlockerEffect.gameObject.SetActive(false);
+        }
+
+        if (EvoRootCountText != null)
+        {
+            EvoRootCountText.transform.parent.gameObject.SetActive(false);
+        }
+
+        if (LinkedObject != null)
+        {
+            LinkedObject.SetActive(false);
+        }
+
+        if (DirectStrikeText != null)
+        {
+            DirectStrikeText.transform.parent.parent.gameObject.SetActive(true);
+            DirectStrikeText.transform.parent.gameObject.SetActive(false);
+        }
+
+        if (SummonSicknessObject != null)
+        {
+            SummonSicknessObject.gameObject.SetActive(false);
+        }
+
+        if (WillEvolutionObject != null)
+        {
+            WillEvolutionObject.SetActive(false);
+        }
+
+        if (WillBeDeletedObject != null)
+        {
+            WillBeDeletedObject.SetActive(false);
+        }
+
+        if (WillBeDeckBounceObject != null)
+        {
+            WillBeDeckBounceObject.SetActive(false);
+        }
+
+        if (WillBeHandBounceObject != null)
+        {
+            WillBeHandBounceObject.SetActive(false);
+        }
+
+        if (WillRemoveFieldObject != null)
+        {
+            WillRemoveFieldObject.SetActive(false);
+        }
+
+        if (WillUntapObject != null)
+        {
+            WillUntapObject.SetActive(false);
+        }
+
+        OffPermanentIndexText();
+        
+        //Events
+        GManager.OnReverseOpponentsCardsChanged += SetTransformRotation;
+        GManager.OnCardFlippedChanged += SetCardIsFlipped;
+    }
+
+    public IEnumerator ShowAddDigivolutionCardEffect()
+    {
+        if (addDigivolutionCardsEffect != null)
+        {
+            addDigivolutionCardsEffect.gameObject.SetActive(true);
+            addDigivolutionCardsEffect.Play();
+        }
+
+        yield return new WaitForSeconds(0.1f);
+    }
+
     public void OffPermanentIndexText()
     {
+        if (permanentIndexText != null)
+        {
+            permanentIndexText.transform.parent.gameObject.SetActive(false);
+        }
     }
 
-    /// <summary>AS-IS <c>SetPermanentIndexText(List&lt;Permanent&gt;)</c> (:198) — writes this permanent's
-    /// 1-based position in the picked-roots list onto the badge.</summary>
     public void SetPermanentIndexText(List<Permanent> permanents)
     {
+        if (permanentIndexText != null)
+        {
+            if (ThisPermanent != null)
+            {
+                if (ThisPermanent.TopCard != null)
+                {
+                    int index = permanents.IndexOf(ThisPermanent) + 1;
+
+                    permanentIndexText.transform.parent.parent.gameObject.SetActive(true);
+                    permanentIndexText.transform.parent.gameObject.SetActive(true);
+                    permanentIndexText.text = $"{index}";
+                }
+            }
+        }
+    }
+    void RotateSkillNameText()
+    {
+        SkillNameText.transform.parent.localRotation = Quaternion.Euler(0, 0, -1 * this.transform.localRotation.eulerAngles.z);
     }
 
-    /// <summary>AS-IS <c>OnSkillName(ICardEffect)</c> (:220) — shows the firing effect's name strip.</summary>
     public void OnSkillName(ICardEffect cardEffect)
     {
-    }
+        if (SkillNameText != null && ThisPermanent != null)
+        {
+            RotateSkillNameText();
 
-    /// <summary>AS-IS <c>OffSkillName()</c> (:230).</summary>
+            SkillNameText.transform.parent.gameObject.SetActive(true);
+            SkillNameText.text = cardEffect.EffectName;
+        }
+    }
     public void OffSkillName()
     {
+        if (SkillNameText != null)
+        {
+            SkillNameText.transform.parent.gameObject.SetActive(false);
+        }
     }
 
-    /// <summary>AS-IS <c>OffUsingSkillEffect()</c> (:238).</summary>
     public void OffUsingSkillEffect()
     {
+        if (UsingSkillEffect != null)
+        {
+            UsingSkillEffect.SetActive(false);
+        }
     }
 
-    /// <summary>AS-IS <c>OnUsingSkillEffect()</c> (:246).</summary>
     public void OnUsingSkillEffect()
     {
+        if (UsingSkillEffect != null)
+        {
+            UsingSkillEffect.SetActive(true);
+        }
     }
 
-    /// <summary>AS-IS <c>OnClick()</c> (:261) — invokes the stored click callback. Headless nothing is stored.
-    /// </summary>
+    float _validPressTime = 0.5f;
+    float _requiredTime = 0.0f;
+    bool _pressing = false;
+
+    #region Processing on click
+
+    #region Processing when clicked
     public void OnClick()
     {
+        if (ThisPermanent != null)
+        {
+            if (ThisPermanent.TopCard != null)
+            {
+                if (Input.GetMouseButtonUp(0))
+                {
+                    OnClickAction?.Invoke(this);
+                }
+
+                else if (Input.GetMouseButtonUp(1))
+                {
+                    OnRightClicked();
+                }
+            }
+        }
     }
 
-    /// <summary>AS-IS <c>AddClickTarget(UnityAction&lt;FieldPermanentCard&gt;)</c> (:290).</summary>
-    public void AddClickTarget(Action<FieldPermanentCard> _OnClickAction)
+    void OnRightClicked()
     {
+        if (!ThisPermanent.TopCard.IsFlipped || ThisPermanent.TopCard.Owner.isYou)
+        {
+            GManager.instance.pokemonDetail.OpenUnitDetail(ThisPermanent);
+        }
     }
+    #endregion
 
-    /// <summary>AS-IS <c>RemoveClickTarget()</c> (:297).</summary>
+    #region Added processing when clicked
+    public void AddClickTarget(UnityAction<FieldPermanentCard> _OnClickAction)
+    {
+        OnClickAction = _OnClickAction;
+    }
+    #endregion
+
+    #region Delete the process when clicked
     public void RemoveClickTarget()
     {
+        OnClickAction = null;
     }
+    #endregion
+    #endregion
 
-    /// <summary>AS-IS <c>SetPermanentData(Permanent, bool)</c> (:305) — binds a permanent to this widget and
-    /// redraws it. View-only: it copies permanent state onto the UI, never back.</summary>
+    #region Set permanent data
     public void SetPermanentData(Permanent permanent, bool updateIsTapped)
     {
+        ThisPermanent = permanent;
+
+        SetTransformRotation();
+        SetCardIsFlipped();
+        ShowPermanentData(updateIsTapped);
+    }
+    #endregion
+
+    #region Reflect permanent data on UI
+    bool _oldTurnSuspendedCards = false;
+
+    void SetTransformRotation()
+    {
+        if (ThisPermanent == null)
+            return;
+
+        if (ThisPermanent.TopCard == null)
+            return;
+
+        if (ThisPermanent.TopCard.Owner.isYou)
+            return;
+
+        if (ContinuousController.instance == null)
+            return;
+
+
+        if (ContinuousController.instance.reverseOpponentsCards)
+            Parent.transform.localRotation = Quaternion.Euler(new Vector3(0, 0, 180));
+        else
+            Parent.transform.localRotation = Quaternion.Euler(new Vector3(0, 0, 0));
     }
 
-    /// <summary>AS-IS <c>ShowPermanentData(bool)</c> (:435) — the redraw pass (DP/level/markers/outline).
-    /// </summary>
+    async void SetCardIsFlipped()
+    {
+        if (ThisPermanent == null)
+            return;
+
+        if (ThisPermanent.TopCard == null)
+            return;
+
+        if (ContinuousController.instance == null)
+            return;
+
+        if (CardImage == null)
+            return;
+
+        // card image
+        if (ThisPermanent.TopCard.IsFlipped)
+        {
+            if (CardImage.sprite != ContinuousController.instance.ReverseCard)
+                CardImage.sprite = ContinuousController.instance.ReverseCard;
+        }
+
+        else
+        {
+            CardImage.sprite = await ThisPermanent.TopCard.GetCardSprite();
+        }
+
+        CardImage.gameObject.SetActive(true);
+    }
+
+    void SetCardSuspended(bool updateIsTapped)
+    {
+        if (ThisPermanent == null)
+            return;
+
+        if (ThisPermanent.TopCard == null)
+            return;
+
+        if (ContinuousController.instance == null)
+            return;
+
+        if (ThisPermanent.IsSuspended)
+        {
+            if (TapObject != null)
+                TapObject.SetActive(true);
+
+            if (updateIsTapped)
+            {
+                bool turnSuspendedCards = ContinuousController.instance != null && ContinuousController.instance.turnSuspendedCards;
+
+                if (anim != null)
+                {
+                    if (ThisPermanent.OldIsSuspended != ThisPermanent.IsSuspended || _oldTurnSuspendedCards != turnSuspendedCards)
+                    {
+                        ThisPermanent.OldIsSuspended = ThisPermanent.IsSuspended;
+                        _oldTurnSuspendedCards = turnSuspendedCards;
+
+                        if (turnSuspendedCards)
+                        {
+                            if (anim.GetInteger("Tap") != 1)
+                                anim.SetInteger("Tap", 1);
+                        }
+
+                        else
+                        {
+                            if (anim.GetInteger("Tap") != -1)
+                                anim.SetInteger("Tap", -1);
+                        }
+                    }
+                }
+            }
+        }
+
+        else
+        {
+            if (TapObject != null)
+                TapObject.SetActive(false);
+
+            if (ContinuousController.instance != null)
+            {
+                if (ContinuousController.instance.turnSuspendedCards)
+                {
+                    if (ThisPermanent.OldIsSuspended != ThisPermanent.IsSuspended)
+                    {
+                        ThisPermanent.OldIsSuspended = ThisPermanent.IsSuspended;
+
+                        if (anim != null)
+                        {
+                            if (anim.GetInteger("Tap") != -1)
+                                anim.SetInteger("Tap", -1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     public void ShowPermanentData(bool updateIsTapped)
     {
+        if (ThisPermanent == null)
+        {
+            return;
+        }
+
+        if (ThisPermanent.TopCard != null)
+        {
+            SetCardSuspended(updateIsTapped);
+
+
+            if (ThisPermanent.TopCard.IsFlipped)
+            {
+                DPText.transform.parent.gameObject.SetActive(false);
+                LevelText.transform.parent.gameObject.SetActive(false);
+                EvoRootCountText.transform.parent.gameObject.SetActive(false);
+                LinkedObject.SetActive(false);
+                return;
+            }
+
+            //DP
+            if (ThisPermanent.IsDigimon)
+            {
+                int DP = ThisPermanent.DP;
+
+                if (DP >= 0)
+                {
+                    DPText.transform.parent.gameObject.SetActive(true);
+
+                    if (DPText.text != DP.ToString())
+                        DPText.text = DP.ToString();
+
+                    for (int i = 0; i < DPBackground_color.Count; i++)
+                    {
+                        CardColor cardColor = CardColor.None;
+
+                        if (i < ThisPermanent.TopCard.CardColors.Count)
+                        {
+                            cardColor = ThisPermanent.TopCard.CardColors[i];
+                            float fillAmount = (float)((i + 1) / (float)ThisPermanent.TopCard.CardColors.Count);
+
+                            if (DPBackground_color[i].color != DataBase.CardColor_ColorLightDictionary[cardColor])
+                                DPBackground_color[i].color = DataBase.CardColor_ColorLightDictionary[cardColor];
+
+                            DPBackground_color[i].fillAmount = fillAmount;
+                            DPBackground_color[i].gameObject.SetActive(true);
+                        }
+
+                        else
+                        {
+                            DPBackground_color[i].gameObject.SetActive(false);
+                        }
+                    }
+                }
+                else
+                {
+                    DPText.transform.parent.gameObject.SetActive(false);
+                }                
+            }
+
+            else
+            {
+                DPText.transform.parent.gameObject.SetActive(false);
+            }
+
+            //Level
+            if (ThisPermanent.IsDigimon && ThisPermanent.TopCard.HasLevel)
+            {
+                LevelText.transform.parent.gameObject.SetActive(true);
+
+                if(LevelText.text != ThisPermanent.Level.ToString())
+                    LevelText.text = ThisPermanent.Level.ToString();
+
+                foreach (TextCardColorMaterial textCardColorMaterial in textCardColorMaterials)
+                {
+                    if (textCardColorMaterial.cardColor == ThisPermanent.TopCard.CardColors[0])
+                    {
+                        LevelText.fontSharedMaterial = new Material(textCardColorMaterial.material);
+                        break;
+                    }
+                }
+            }
+
+            else
+            {
+                LevelText.transform.parent.gameObject.SetActive(false);
+            }
+
+            //Digivolution Count
+            if (EvoRootCountText != null)
+            {
+                if (ThisPermanent.DigivolutionCards.Count >= 1)
+                {
+                    EvoRootCountText.transform.parent.gameObject.SetActive(true);
+
+                    if(EvoRootCountText.text != $"×{ThisPermanent.DigivolutionCards.Count}")
+                        EvoRootCountText.text = $"×{ThisPermanent.DigivolutionCards.Count}";
+
+                    if(EvoRootCountBackground.color != DataBase.CardColor_ColorLightDictionary[ThisPermanent.TopCard.CardColors[0]])
+                        EvoRootCountBackground.color = DataBase.CardColor_ColorLightDictionary[ThisPermanent.TopCard.CardColors[0]];
+                }
+
+                else
+                {
+                    EvoRootCountText.transform.parent.gameObject.SetActive(false);
+                }
+            }
+
+            //Links
+            if (LinkedObject != null)
+            {
+                if (ThisPermanent.LinkedCards.Count > 0)
+                {
+                    LinkedObject.SetActive(true);
+
+                    //if (LinkedDPText.text != $"+{ThisPermanent.LinkedDP}")
+                    //    LinkedDPText.text = $"+{ThisPermanent.LinkedDP}";
+
+                    if (LinkIcon.color != DataBase.CardColor_ColorLightDictionary[ThisPermanent.TopCard.CardColors[0]])
+                        LinkIcon.color = DataBase.CardColor_ColorLightDictionary[ThisPermanent.TopCard.CardColors[0]];
+                    
+                }
+
+                else
+                {
+                    LinkedObject.SetActive(false);
+                }
+            }
+
+            //Summoning Sickness
+            if (SummonSicknessObject != null)
+            {
+                bool isActive = false;
+
+                if (ThisPermanent.EnterFieldTurnCount == GManager.instance.turnStateMachine.TurnCount)
+                {
+                    if (GManager.instance.turnStateMachine.gameContext.TurnPlayer == ThisPermanent.TopCard.Owner)
+                    {
+                        if (!ThisPermanent.HasRush)
+                        {
+                            if (ThisPermanent.TopCard.Owner.GetBattleAreaPermanents().Contains(ThisPermanent))
+                            {
+                                isActive = true;
+                            }
+                        }
+                    }
+
+                }
+
+                SummonSicknessObject.SetActive(isActive);
+            }
+
+            //Blocker
+            if (BlockerEffect != null)
+            {
+                bool isActive = false;
+
+                if (ThisPermanent.IsDigimon)
+                {
+                    if (ThisPermanent.HasBlocker)
+                    {
+                        //if (thisPermanent.TopCard.Owner.GetBattleAreaPermanents().Contains(thisPermanent))
+                        {
+                            isActive = true;
+                        }
+                    }
+                }
+
+                BlockerEffect.SetActive(isActive);
+            }
+        }
     }
+    #endregion
 
-    /// <summary>AS-IS <c>public bool destroyed { get; set; } = false</c> (:613) — set by the widget's destroy
-    /// coroutine.</summary>
+    #region Automatically reflect card data
+    int _frameCount = 0;
+    int _updateFrame = 75;
     public bool destroyed { get; set; } = false;
-
-    /// <summary>AS-IS <c>public bool skipDestroy { get; set; } = false</c> (:614).</summary>
     public bool skipDestroy { get; set; } = false;
-
-    /// <summary>AS-IS <c>public bool skipUpdate { get; set; } = false</c> (:615) — suppresses the LateUpdate
-    /// redraw.</summary>
     public bool skipUpdate { get; set; } = false;
 
-    /// <summary>AS-IS <c>PointerDown(BaseEventData)</c> (:708) — long-press detection; parameter dropped (see
-    /// file header).</summary>
-    public void PointerDown()
+    //TODO: Pretty poor gargage collection, need to optimize - MB
+    private void LateUpdate()
     {
+        if (skipUpdate)
+        {
+            return;
+        }
+
+        #region exception check
+        if (destroyed)
+        {
+            return;
+        }
+
+        if (ThisPermanent == null)
+        {
+            return;
+        }
+
+        if (ThisPermanent.TopCard == null)
+        {
+            if (!destroyed && !skipDestroy)
+            {
+                StartCoroutine(DestroyCoroutine());
+                return;
+            }
+        }
+        #endregion
+
+        //Skill name
+        if (SkillNameText.transform.parent.gameObject.activeSelf)
+        {
+            RotateSkillNameText();
+        }
+
+        if (DirectStrikeText != null)
+        {
+            if (ThisPermanent.IsSuspended)
+            {
+                DirectStrikeText.transform.parent.parent.transform.localPosition = new Vector2(DirectStrikeText.transform.parent.parent.transform.localPosition.x, 24);
+            }
+
+            else
+            {
+                DirectStrikeText.transform.parent.parent.transform.localPosition = new Vector2(DirectStrikeText.transform.parent.parent.transform.localPosition.x, 78);
+            }
+
+            DirectStrikeText.transform.parent.parent.localRotation = Quaternion.Euler(0, 0, -1 * this.transform.localRotation.eulerAngles.z);
+        }
+
+        if (ThisPermanent.TopCard.Owner.GetFieldPermanents().Count >= ThisPermanent.TopCard.Owner.fieldCardFrames.Count * 0.7f)
+        {
+            _updateFrame = 115;
+        }
+
+        else
+        {
+            _updateFrame = 75;
+        }
+
+        #region Get long press
+#if !UNITY_EDITOR && UNITY_ANDROID
+        if (pressing)
+        {
+            if(requiredTime < Time.time)
+            {
+                OnRightClicked();
+                pressing = false;
+            }
+        }
+#endif
+        #endregion
+
+        #region Reflected only once every few frames
+        _frameCount++;
+
+        if (_frameCount < _updateFrame)
+        {
+            return;
+        }
+
+        else
+        {
+            _frameCount = 0;
+        }
+        #endregion
+
+        ShowPermanentData(true);
+    }
+    #endregion
+
+    public void PointerDown(BaseEventData eventData)
+    {
+        if (!_pressing)
+        {
+            _pressing = true;
+            _requiredTime = Time.time + _validPressTime;
+        }
+
+        else
+        {
+            _pressing = false;
+        }
     }
 
-    /// <summary>AS-IS <c>PointerUp(BaseEventData)</c> (:722) — parameter dropped.</summary>
-    public void PointerUp()
+    public void PointerUp(BaseEventData eventData)
     {
+        if (_pressing)
+        {
+            _pressing = false;
+        }
     }
 
-    /// <summary>AS-IS <c>PointerExit(BaseEventData)</c> (:730) — parameter dropped.</summary>
-    public void PointerExit()
+    public void PointerExit(BaseEventData eventData)
     {
+        if (_pressing)
+        {
+            _pressing = false;
+        }
     }
 
-    /// <summary>AS-IS <c>public bool isExpand { get; set; }</c> (:748) — whether the widget is currently scaled
-    /// up by the selection effect.</summary>
+    #region このオブジェクトを削除
+    IEnumerator DestroyCoroutine()
+    {
+        yield return null;
+        destroyed = true;
+        Destroy(this.gameObject);
+    }
+    #endregion
+
+    #region 選択状態
     public bool isExpand { get; set; }
 
-    /// <summary>AS-IS <c>OnSelectEffect(float)</c> (:751) — shows the outline and scales the widget up.
-    /// </summary>
+    #region 選択状態
     public void OnSelectEffect(float expand)
     {
-    }
+        if (isExpand)
+        {
+            return;
+        }
 
-    /// <summary>AS-IS <c>SetOrangeOutline()</c> (:772).</summary>
+        Outline_Select.gameObject.SetActive(true);
+
+        if (this.gameObject.activeSelf)
+        {
+            StartCoroutine(ExpandCoroutine(expand));
+        }
+
+        isExpand = true;
+
+        SetOrangeOutline();
+    }
+    #endregion
+
+    #region オレンジアウトライン
     public void SetOrangeOutline()
     {
+        Outline_Select.color = DataBase.SelectColor_Orange;
     }
+    #endregion
 
-    /// <summary>AS-IS <c>SetBlueOutline()</c> (:779).</summary>
+    #region　ブルーアウトライン
     public void SetBlueOutline()
     {
+        Outline_Select.color = DataBase.SelectColor_Blue;
     }
+    #endregion
 
-    /// <summary>AS-IS <c>RemoveSelectEffect()</c> (:818) — hides the outline and restores the start scale.
-    /// </summary>
+    #region 大きくする
+    IEnumerator ExpandCoroutine(float expand)
+    {
+        float ExpandTime = 0.06f;
+
+        float targetScale = StartScale.x * expand;
+
+        float expandSpeed = (targetScale - transform.localScale.x) / ExpandTime;
+
+        while (transform.localScale.x < targetScale)
+        {
+            transform.localScale += new Vector3(expandSpeed * Time.deltaTime, expandSpeed * Time.deltaTime, 0);
+
+            yield return new WaitForSeconds(Time.deltaTime);
+
+            if (!isExpand)
+            {
+                transform.localScale = StartScale;
+                yield break;
+            }
+        }
+
+        transform.localScale = new Vector3(targetScale, targetScale, 1);
+
+        if (!isExpand)
+        {
+            transform.localScale = StartScale;
+            yield break;
+        }
+    }
+    #endregion
+
+    #region 選択状態リセット
     public void RemoveSelectEffect()
     {
-    }
+        Outline_Select.gameObject.SetActive(false);
 
-    /// <summary>AS-IS <c>CloseCommandPanel()</c> (:842).</summary>
+        if (!isExpand)
+        {
+            return;
+        }
+
+        transform.localScale = StartScale;
+
+        isExpand = false;
+    }
+    #endregion
+    #endregion
+
+    #region キャンバス座標への変換
+    public Vector3 GetLocalCanvasPosition()
+    {
+        return this.transform.localPosition + this.transform.parent.localPosition;
+    }
+    #endregion
+
+    #region コマンドパネルを閉じる
     public void CloseCommandPanel()
     {
+        if (fieldUnitCommandPanel != null)
+        {
+            fieldUnitCommandPanel.CloseCommandPanel();
+        }
     }
+    #endregion
 
-    /// <summary>AS-IS <c>public UnityAction&lt;FieldPermanentCard&gt; OnBeginDragAction { get; set; }</c>
-    /// (:852).</summary>
-    public Action<FieldPermanentCard>? OnBeginDragAction { get; set; }
+    #region ドラッグ
+    public UnityAction<FieldPermanentCard> OnBeginDragAction { get; set; }
+    public UnityAction<FieldPermanentCard, List<DropArea>> OnDragAction { get; set; }
+    public UnityAction<FieldPermanentCard, List<DropArea>> OnEndDragAction { get; set; }
 
-    /// <summary>AS-IS <c>RemoveDragTarget()</c> (:856).</summary>
     public void RemoveDragTarget()
     {
+        this.OnBeginDragAction = null;
+        this.OnDragAction = null;
+        this.OnEndDragAction = null;
     }
 
-    /// <summary>AS-IS <c>OnBeginDrag()</c> (:870).</summary>
+    public void AddDragTarget(UnityAction<FieldPermanentCard> OnBeginDragAction, UnityAction<FieldPermanentCard, List<DropArea>> OnDragAction, UnityAction<FieldPermanentCard, List<DropArea>> OnEndDragAction)
+    {
+        this.OnBeginDragAction = OnBeginDragAction;
+        this.OnDragAction = OnDragAction;
+        this.OnEndDragAction = OnEndDragAction;
+    }
+
     public void OnBeginDrag()
     {
+        OnBeginDragAction?.Invoke(this);
     }
 
-    /// <summary>AS-IS <c>OnDrag()</c> (:875).</summary>
     public void OnDrag()
     {
+        OnDragAction?.Invoke(this, Draggable.GetRaycastArea());
     }
 
-    /// <summary>AS-IS <c>OnEndDrag()</c> (:880).</summary>
     public void OnEndDrag()
     {
+        OnEndDragAction?.Invoke(this, Draggable.GetRaycastArea());
     }
+    #endregion
 }
 
-/// <summary>Headless no-op stand-in for the AS-IS <c>TextCardColorMaterial</c> (FieldPermanentCard.cs:888) — one
-/// row of the card-colour → text-material table. Its <c>Material material</c> field is dropped (see the
-/// FieldPermanentCard file header).</summary>
+[System.Serializable]
 public class TextCardColorMaterial
 {
-    /// <summary>AS-IS <c>public CardColor cardColor</c> (FieldPermanentCard.cs:890).</summary>
     public CardColor cardColor;
+    public Material material;
 }
+
+

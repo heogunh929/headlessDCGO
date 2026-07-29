@@ -1,15 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/CanNotReturnToHand.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of AS-IS CanNotReturnToHand.cs factory partial.
-// Returns the ported CannotReturnToHandClass kind-class (CardEffects/CannotReturnToHandClass.cs).
-// ADAPTATION: permanent.TopCard.CanNotBeAffected(ICardEffect) -> CanNotBeAffected(EffectSourceCard?.InstanceId).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CannotReturnToHandClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {

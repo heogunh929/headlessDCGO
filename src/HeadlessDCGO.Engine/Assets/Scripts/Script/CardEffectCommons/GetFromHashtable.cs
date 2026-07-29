@@ -1,18 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/GetFromHashtable.cs
-// (EFFECT-MODEL REBUILD / P2 "Hashtable layer") 1:1 mirror of the AS-IS per-timing Hashtable ACCESSORS. Sibling
-// partial of CardEffectCommons.cs (same namespace). The key strings read here ("CardEffect", "hashtables",
-// "AttackingPermanent", "isEvolution", "Permanent", ...) are the contract WRITTEN by HashtableSetting.cs and MUST
-// stay byte-identical between the two files. Logic is verbatim; only the UnityEngine using is stripped.
-// Missing (verbatim-referenced) symbols recorded in docs/audit/rebuild_p2_hashtable_missing.md.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Get CardEffect from hashtable
     public static ICardEffect GetCardEffectFromHashtable(Hashtable hashtable)

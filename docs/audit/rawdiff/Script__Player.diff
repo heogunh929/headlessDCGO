@@ -1,0 +1,1915 @@
+--- DCGO/Assets/Scripts/Script/Player.cs	2026-05-18 20:03:15.739434100 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/Script/Player.cs	2026-07-29 01:02:24.548084554 +0900
+@@ -1,208 +1,55 @@
+-﻿using DG.Tweening;
+-using System;
+-using System.Collections;
+-using System.Collections.Generic;
+-using System.Linq;
++namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++
++using HeadlessDCGO.Engine.Assets.Scripts.Script.PlayerSelection;
++using HeadlessDCGO.Engine.Headless.Bridge;
++using HeadlessDCGO.Engine.Headless.Choices;
++using HeadlessDCGO.Engine.Headless.Runtime;
++using HeadlessDCGO.Engine.Headless.Services;
+ using UnityEngine;
+-using UnityEngine.Events;
+-using UnityEngine.UI;
+-using UnityEngine.EventSystems;
+-using System.Threading.Tasks;
+-using TMPro;
++
+ public class Player : MonoBehaviour
+ {
+-    #region 初期化
+-    private async void Start()
+-    {
+-        fieldCardFrames = new List<FieldCardFrame>();
+-
+-        if (BattleAreaFrameParent != null && BreedingAreaFrameParent != null)
+-        {
+-            int count = 0;
+-
+-            for (int i = 0; i < BattleAreaFrameParent.childCount; i++)
+-            {
+-                if (BattleAreaFrameParent.GetChild(i).childCount >= 2)
+-                {
+-                    FieldCardFrame fieldCardFrame = new FieldCardFrame();
+-                    fieldCardFrame.Frame = BattleAreaFrameParent.GetChild(i).GetChild(0).gameObject;
+-                    fieldCardFrame.Frame_Select = BattleAreaFrameParent.GetChild(i).GetChild(1).GetComponent<Image>();
+-                    fieldCardFrame.FrameID = count;
+-                    fieldCardFrame.player = this;
+-                    fieldCardFrame.Frame.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+-                    fieldCardFrame.Frame_Select.color = new Color(0, 0, 0, 0);
+-                    fieldCardFrames.Add(fieldCardFrame);
+-
+-                    count++;
+-                }
+-            }
+-
+-            if (BreedingAreaFrameParent.childCount >= 2)
+-            {
+-                FieldCardFrame fieldCardFrame = new FieldCardFrame();
+-                fieldCardFrame.Frame = BreedingAreaFrameParent.GetChild(0).gameObject;
+-                fieldCardFrame.Frame_Select = BreedingAreaFrameParent.GetChild(1).GetComponent<Image>();
+-                fieldCardFrame.FrameID = count;
+-                fieldCardFrame.player = this;
+-                fieldCardFrame.Frame.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+-                fieldCardFrame.Frame_Select.color = new Color(0, 0, 0, 0);
+-                fieldCardFrames.Add(fieldCardFrame);
+-
+-                count++;
+-            }
+-
+-            BattleAreaFrameParent.gameObject.SetActive(true);
+-            BreedingAreaFrameParent.gameObject.SetActive(true);
+-        }
+-
+-        for (int i = 0; i < HandTransform.childCount; i++)
+-        {
+-            Destroy(HandTransform.GetChild(i).gameObject);
+-        }
+-
+-        for (int i = 0; i < PermanentTransform.childCount; i++)
+-        {
+-            Destroy(PermanentTransform.GetChild(i).gameObject);
+-        }
+-
+-        for (int i = 0; i < fieldCardFrames.Count; i++)
+-        {
+-            fieldCardFrames[i].OffFrame_Select();
+-
+-            fieldCardFrames[i].Frame.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+-            fieldCardFrames[i].Frame_Select.color = new Color(0, 0, 0, 0);
+-        }
+-
+-        TrashHandCard.gameObject.SetActive(false);
+-
+-        FieldPermanents = new Permanent[fieldCardFrames.Count];
+-
+-        SetPlayerUI();
+-
+-        await SetOriginalPlayMat();
+-
+-        FirstObject.SetActive(false);
+-
+-        playMatCardFrame.OffFrame_Select();
+-
+-        if (PlayerNameText != null)
+-        {
+-            PlayerNameText.transform.parent.gameObject.SetActive(false);
+-        }
+-
+-        OffHatchObject();
+-
+-        if (HatchObject != null)
+-        {
+-            Image hatchImage = HatchObject.GetComponent<Image>();
+-
+-            if (hatchImage != null)
+-            {
+-                if (ContinuousController.instance != null)
+-                {
+-                    hatchImage.sprite = ContinuousController.instance.ReverseCard_Digitama;
+-                }
+-            }
+-        }
+-
+-        if (_handCountText != null)
+-        {
+-            _handCountText.text = "";
+-        }
+-    }
+-    #endregion
+-
+-    public GameObject FirstObject;
+-    public bool IsLose { get; set; } = false;
+-    public Transform playerUIObjectParent;
+-
+-    public void SetLose()
++    public Player(EngineContext context, HeadlessPlayerId playerId)
+     {
+-        IsLose = true;
+-    }
+-
+-    public void OnClickFrame(int FrameID)
+-    {
+-        FieldCardFrame fieldCardFrame = fieldCardFrames[FrameID];
+-
+-        fieldCardFrame.OnClickAction?.Invoke(fieldCardFrame);
+-    }
+-
+-    int _timerCount = 0;
+-    int _updateFrame = 20;
+-    private void Update()
+-    {
+-        #region Update only once every few frames
+-        _timerCount++;
+-
+-        if (_timerCount < _updateFrame)
+-        {
+-            return;
+-        }
+-
+-        else
++        ArgumentNullException.ThrowIfNull(context);
++        if (playerId.IsEmpty)
+         {
+-            _timerCount = 0;
++            throw new ArgumentException("Player id must not be empty.", nameof(playerId));
+         }
+-        #endregion
+ 
+-        SetPlayerUI();
++        Context = context;
++        PlayerId = playerId;
+     }
+ 
+-    public void SetPlayerUI()
+-    {
+-        AlignHand();
+-
+-        SetLibraryCountText();
++    public EngineContext Context { get; }
+ 
+-        SetDigitamaLibraryCountText();
++    public HeadlessPlayerId PlayerId { get; }
+ 
+-        securityObject.SetSecurity(this);
++    public override bool Equals(object? obj) =>
++        obj is Player other && PlayerId.Equals(other.PlayerId) && ReferenceEquals(Context, other.Context);
+ 
+-        ShowTrash();
++    public override int GetHashCode() => PlayerId.GetHashCode();
+ 
+-        SetHandCountText();
+-    }
++    public static bool operator ==(Player? left, Player? right) =>
++        left is null ? right is null : left.Equals(right);
+ 
+-    #region Action Queue
+-    Queue<MainPhaseAction> mainPhaseActions = new Queue<MainPhaseAction>();
++    public static bool operator !=(Player? left, Player? right) => !(left == right);
+ 
+-    public void QueueMainPhaseAction(MainPhaseAction action)
+-    {
+-        mainPhaseActions.Enqueue(action);
+-    }
+-
+-    public MainPhaseAction DequeueMainPhaseAction()
+-    {
+-        if (mainPhaseActions.Count == 0)
+-        {
+-            return null;
+-        }
+-
+-        return mainPhaseActions.Dequeue();
+-    }
+-
+-    public bool HasMainPhaseAction()
+-    {
+-        return mainPhaseActions.Count > 0;
+-    }
++    #region Selection Queue
+ 
+-    #endregion
+ 
+-    #region Selection Queue
+-    Queue<IPlayerSelection> _playerSelectionQueue = new Queue<IPlayerSelection>();
++    Queue<IPlayerSelection> _playerSelectionQueue => PlayerSelectionQueueStore.Get(Context, PlayerId);
+ 
+     public void QueuePlayerSelection(IPlayerSelection selection)
+     {
+         _playerSelectionQueue.Enqueue(selection);
+     }
+ 
+-    public T DequeuePlayerSelection<T>() where T : class, IPlayerSelection
++    public T? DequeuePlayerSelection<T>() where T : class, IPlayerSelection
+     {
+         IPlayerSelection playerSelection = _playerSelectionQueue.Dequeue();
+         if (playerSelection is not T)
+         {
+-            Debug.LogWarning("Unexpected Player Selection", this);
+             return null;
+         }
+ 
+@@ -213,620 +60,231 @@
+     {
+         return _playerSelectionQueue.Count > 0;
+     }
+-    #endregion
+ 
+-    #region セキュリティアタックの座標
+-    public Vector3 SecurityAttackLocalCanvasPosition;
+     #endregion
+ 
+-    #region 処理領域の座標
+-    public Vector3 ExecutingAreaLocalCanvasPosition;
+-    #endregion
++    #region このプレイヤーがあなたかどうか
+ 
+-    #region そのプレイヤーの何ターン目か
+-    public int TurnCount { get; set; } = 0;
+-    #endregion
++    public bool isYou;
+ 
+-    #region 処理領域表示オブジェクト
+-    public BrainStormObject brainStormObject;
+     #endregion
+ 
+-    #region 山札の枚数表示テキスト
+-    public Text LibraryCountText;
+-    public List<Image> DeckCardImages;
+-    public Text DigitamaLibraryCountText;
+-    public List<Image> DigitamaDeckCardImages;
+-
+-    public EventTrigger HatchObject;
+-    public UnityAction OnClickHatchObjectAction;
+-    [SerializeField] TextMeshProUGUI _handCountText;
+-    public void OnClickHatchObject()
++    public Player? Enemy
+     {
+-        OnClickHatchObjectAction?.Invoke();
+-    }
+-
+-    public void OffHatchObject()
+-    {
+-        this.OnClickHatchObjectAction = null;
+-
+-        if (HatchObject != null)
+-        {
+-            HatchObject.gameObject.SetActive(false);
+-        }
+-    }
+-
+-    public void SetUpHatchObject(UnityAction OnClickHatchObjectAction)
+-    {
+-        this.OnClickHatchObjectAction = OnClickHatchObjectAction;
+-
+-        if (HatchObject != null)
++        get
+         {
+-            HatchObject.gameObject.SetActive(true);
+-
+-            Image targetImage = null;
++            IReadOnlyList<HeadlessPlayerId> seats = Context.TurnController.Current.PlayerOrder;
++            if (!seats.Contains(PlayerId))
++            {
++                return null;
++            }
+ 
+-            for (int i = 0; i < DigitamaDeckCardImages.Count; i++)
++            foreach (HeadlessPlayerId seat in seats)
+             {
+-                if (DigitamaDeckCardImages[i].gameObject.activeSelf)
++                if (seat != PlayerId && !seat.IsEmpty)
+                 {
+-                    targetImage = DigitamaDeckCardImages[i];
++                    return new Player(Context, seat);
+                 }
+             }
+ 
+-            if (targetImage != null)
+-            {
+-                HatchObject.transform.localPosition = targetImage.transform.localPosition;
+-            }
++            return null;
+         }
+     }
+ 
+-    void SetHandCountText()
+-    {
+-        if (_handCountText != null)
+-        {
+-            _handCountText.text = $"Hand\n{HandCards.Count}";
+-        }
+-    }
+ 
+-    void SetLibraryCountText()
+-    {
+-        LibraryCountText.text = $"{LibraryCards.Count}";
++    public List<Permanent> GetBattleAreaPermanents() => GetZonePermanents(ChoiceZone.BattleArea);
+ 
+-        if (LibraryCards.Count == 0)
+-        {
+-            for (int i = 0; i < DeckCardImages.Count; i++)
+-            {
+-                DeckCardImages[i].gameObject.SetActive(false);
+-            }
+-        }
++    public List<Permanent> GetBreedingAreaPermanents() => GetZonePermanents(ChoiceZone.BreedingArea);
+ 
+-        else
+-        {
+-            int count = LibraryCards.Count / 8;
++    public List<Permanent> GetFieldPermanents() =>
++        GetBattleAreaPermanents().Concat(GetBreedingAreaPermanents()).ToList();
+ 
+-            for (int i = 0; i < DeckCardImages.Count; i++)
+-            {
+-                if (i <= count)
+-                {
+-                    DeckCardImages[i].gameObject.SetActive(true);
+-                    DeckCardImages[i].sprite = ContinuousController.instance.ReverseCard;
+-                }
++    public List<Permanent> GetBattleAreaDigimons() =>
++        GetBattleAreaPermanents().Where(permanent => permanent.IsDigimon).ToList();
+ 
+-                else
+-                {
+-                    DeckCardImages[i].gameObject.SetActive(false);
+-                }
+-            }
+-        }
+-    }
+-
+-    public void SetDigitamaLibraryCountText()
++    public List<CardSource> HandCards
+     {
+-        DigitamaLibraryCountText.text = $"{DigitamaLibraryCards.Count}";
+-
+-        if (DigitamaLibraryCards.Count == 0)
++        get
+         {
+-            for (int i = 0; i < DigitamaDeckCardImages.Count; i++)
++            if (Context.ZoneMover is not IZoneStateReader zones)
+             {
+-                DigitamaDeckCardImages[i].gameObject.SetActive(false);
++                return new List<CardSource>();
+             }
+-        }
+ 
+-        else
+-        {
+-            int count = DigitamaLibraryCards.Count;
+-
+-            for (int i = 0; i < DigitamaDeckCardImages.Count; i++)
+-            {
+-                if (i < count)
+-                {
+-                    DigitamaDeckCardImages[i].gameObject.SetActive(true);
+-                    DigitamaDeckCardImages[i].sprite = ContinuousController.instance.ReverseCard_Digitama;
+-                }
+-
+-                else
+-                {
+-                    DigitamaDeckCardImages[i].gameObject.SetActive(false);
+-                }
+-            }
++            return zones.GetCards(PlayerId, ChoiceZone.Hand).ToArray()
++                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
++                .ToList();
+         }
+     }
+-    #endregion
+ 
+-    #region トラッシュ
+-    [Header("トラッシュ画像")]
+-    public Image TrashCardImage;
+-
+-    [Header("トラッシュ枚数テキスト")]
+-    public Text TrashCountText;
+-
+-    async void ShowTrash()
++    public List<CardSource> TrashCards
+     {
+-        if (TrashCardImage != null)
++        get
+         {
+-            if (TrashCards.Count == 0)
++            if (Context.ZoneMover is not IZoneStateReader zones)
+             {
+-                TrashCardImage.gameObject.SetActive(false);
++                return new List<CardSource>();
+             }
+ 
+-            else
+-            {
+-                TrashCardImage.gameObject.SetActive(true);
+-                TrashCardImage.sprite = await TrashCards[0].GetCardSprite();
+-
+-                if (!isYou)
+-                {
+-                    if (ContinuousController.instance != null)
+-                    {
+-                        Quaternion localRotation = Quaternion.Euler(0, 0, 0);
+-
+-                        if (ContinuousController.instance.reverseOpponentsCards)
+-                        {
+-                            localRotation = Quaternion.Euler(0, 0, 180);
+-                        }
+-
+-                        TrashCardImage.transform.localRotation = localRotation;
+-                    }
+-                }
+-            }
+-        }
+-
+-        if (TrashCountText != null)
+-        {
+-            TrashCountText.text = $"{TrashCards.Count}";
++            return zones.GetCards(PlayerId, ChoiceZone.Trash).ToArray()
++                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
++                .ToList();
+         }
+-
+     }
+-    #endregion
+ 
+-    #region シャッフルアニメーション
+-    public IEnumerator ShuffleAnimation()
++    public List<CardSource> SecurityCards
+     {
+-        float animTime = 0.03f;
+-
+-        yield return null;
+-
+-        for (int k = 0; k < 3; k++)
++        get
+         {
+-            for (int j = 0; j < 2; j++)
++            if (Context.ZoneMover is not IZoneStateReader zones)
+             {
+-                for (int i = 0; i < DeckCardImages.Count; i++)
+-                {
+-                    float targetY = 0;
+-
+-                    if (j % 2 == 0)
+-                    {
+-                        targetY = 0;
+-                    }
+-
+-                    else
+-                    {
+-                        targetY = 30;
+-                    }
+-
+-                    if (k % 2 == 0)
+-                    {
+-                        if (i % 2 == 0)
+-                        {
+-                            targetY *= -1;
+-                        }
+-                    }
+-
+-                    else
+-                    {
+-                        if (i % 2 == 1)
+-                        {
+-                            targetY *= -1;
+-                        }
+-                    }
+-
+-                    DeckCardImages[i].transform.DOLocalMoveY(targetY, animTime);
+-                }
+-
+-                yield return new WaitForSeconds(animTime);
++                return new List<CardSource>();
+             }
+-        }
+ 
+-        for (int i = 0; i < DeckCardImages.Count; i++)
+-        {
+-            DeckCardImages[i].transform.localPosition = new Vector2(DeckCardImages[i].transform.localPosition.x, DeckCardImages[i].transform.localPosition.x);
++            return zones.GetCards(PlayerId, ChoiceZone.Security).ToArray()
++                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
++                .ToList();
+         }
+     }
+-    #endregion
+-
+-    #region セキュリティ表示
+-    public SecurityObject securityObject;
+-    #endregion
+ 
+-    #region 手札を整列
+-    public void AlignHand()
++    public List<CardSource> LibraryCards
+     {
+-        if (isYou)
++        get
+         {
+-            if (GManager.instance != null)
++            if (Context.ZoneMover is not IZoneStateReader zones)
+             {
+-                if (GManager.instance.turnStateMachine != null)
+-                {
+-                    if (GManager.instance.turnStateMachine.DoneStartGame)
+-                    {
+-                        if (!HandTransform.GetComponent<HandContoller>().isDragging)
+-                        {
+-                            foreach (CardSource cardSource in HandCards)
+-                            {
+-                                if (cardSource.ShowingHandCard != null)
+-                                {
+-                                    cardSource.ShowingHandCard.transform.SetParent(HandTransform);
+-                                }
+-                            }
+-
+-                            CardObjectController.AlignHand(this);
+-                        }
+-                    }
+-                }
++                return new List<CardSource>();
+             }
++
++            return zones.GetCards(PlayerId, ChoiceZone.Library).ToArray()
++                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
++                .ToList();
+         }
+     }
+-    #endregion
+-
+-    #region キーカード
+-    public CEntity_Base KeyCard { get; set; }
+-    #endregion
+-
+-    #region カード情報
+ 
+-    #region デッキのカード
+-    public List<CardSource> LibraryCards = new List<CardSource>();
+-    #endregion
+-
+-    #region デジタマデッキのカード
+-    public List<CardSource> DigitamaLibraryCards = new List<CardSource>();
+-    #endregion
++    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<EngineContext, Dictionary<HeadlessPlayerId, Queue<MainPhaseAction>>> _mainPhaseActionStore = new();
+ 
+-    #region 手札のカード
+-    public List<CardSource> HandCards = new List<CardSource>();
+-    #endregion
+-
+-    #region 場外のカード
+-    public List<CardSource> TrashCards = new List<CardSource>();
+-    #endregion
+-
+-    #region ロストのカード
+-    public List<CardSource> LostCards = new List<CardSource>();
+-    #endregion
+-
+-    #region ライフのカード
+-    public List<CardSource> SecurityCards = new List<CardSource>();
+-    #endregion
+-
+-    #region 処理領域のカード
+-    public List<CardSource> ExecutingCards = new List<CardSource>();
+-    #endregion
+-
+-    #endregion
+-
+-    #region このプレイヤーがあなたかどうか
+-    [Header("このプレイヤーがあなたかどうか")]
+-    public bool isYou;
+-    #endregion
+-
+-    #region CardSource置き場
+-    [Header("CardSource置き場")]
+-    public Transform CardSorcesParent;
+-    #endregion
+-
+-    #region カード配置場所
+-
+-    [Header("パーマネントの配置場所")]
+-    public Transform PermanentTransform;
+-
+-    [Header("手札の配置場所")]
+-    public Transform HandTransform;
+-
+-    #endregion
+-
+-    #region プレイマットSpriteRenderer
+-    public SpriteRenderer PlayMatSpriteRenderer;
+-
+-    public SpriteRenderer PlayMatSpriteRenderer_Original;
+-
+-    public async Task SetOriginalPlayMat()
++    private Queue<MainPhaseAction> mainPhaseActions
+     {
+-        if (PlayMatSpriteRenderer_Original != null)
++        get
+         {
+-            string filiName = "";
+-
+-            if (isYou)
+-            {
+-                filiName = "PlayMat_You";
+-            }
+-
+-            else
+-            {
+-                filiName = "PlayMat_Opponent";
+-            }
+-
+-            Sprite playMatSprite = await StreamingAssetsUtility.GetSprite(filiName);
+-
+-            if (playMatSprite != null)
++            Dictionary<HeadlessPlayerId, Queue<MainPhaseAction>> byPlayer =
++                _mainPhaseActionStore.GetValue(Context, static _ => new Dictionary<HeadlessPlayerId, Queue<MainPhaseAction>>());
++            if (!byPlayer.TryGetValue(PlayerId, out Queue<MainPhaseAction>? queue))
+             {
+-                Sprite sprite = playMatSprite;
+-                PlayMatSpriteRenderer_Original.sprite = sprite;
+-                PlayMatSpriteRenderer_Original.gameObject.SetActive(true);
+-
+-                float width = 3045f;
+-
+-                float spriteWidth = sprite.rect.width;
+-                float spriteHeight = sprite.rect.height;
+-
+-                if (spriteWidth == 0)
+-                {
+-                    spriteWidth = 0.01f;
+-                }
+-
+-                float scale = width / spriteWidth;
+-
+-                PlayMatSpriteRenderer_Original.transform.localScale = new Vector3(scale, scale, 1);
+-                PlayMatSpriteRenderer_Original.transform.localPosition = new Vector3(-15.2f, -6f, 0);
++                queue = new Queue<MainPhaseAction>();
++                byPlayer[PlayerId] = queue;
+             }
+ 
+-            else
+-            {
+-                PlayMatSpriteRenderer_Original.gameObject.SetActive(false);
+-            }
++            return queue;
+         }
+     }
+-    #endregion
+ 
+-    #region 枠
+-    [Header("パーマネント枠")]
+-    public List<FieldCardFrame> fieldCardFrames = new List<FieldCardFrame>();
+-
+-    [Header("バトルエリア枠親")]
+-    [SerializeField] Transform BattleAreaFrameParent;
+-
+-    [Header("育成エリア枠親")]
+-    [SerializeField] Transform BreedingAreaFrameParent;
+-    #endregion
+-
+-    #region 手札領域の幅
+-    [Header("手札領域の幅")]
+-    public float HandWidth;
+-    #endregion
+-
+-    #region バトルエリアのパーマネント
+-    public List<Permanent> GetBattleAreaPermanents()
++    public void QueueMainPhaseAction(MainPhaseAction action)
+     {
+-        List<Permanent> GetBattleAreaPermanents = new List<Permanent>();
++        mainPhaseActions.Enqueue(action);
++    }
+ 
+-        for (int i = 0; i < FieldPermanents.Length; i++)
++    public MainPhaseAction? DequeueMainPhaseAction()
++    {
++        if (mainPhaseActions.Count == 0)
+         {
+-            if (FieldCardFrame.isBattleAreaFrameID(i))
+-            {
+-                if (FieldPermanents[i] != null)
+-                {
+-                    if (FieldPermanents[i].TopCard != null)
+-                    {
+-                        GetBattleAreaPermanents.Add(FieldPermanents[i]);
+-                    }
+-                }
+-            }
++            return null;
+         }
+ 
+-        return GetBattleAreaPermanents;
++        return mainPhaseActions.Dequeue();
+     }
+-    #endregion
+ 
+-    #region 育成エリアのパーマネント
+-    public List<Permanent> GetBreedingAreaPermanents()
++    public bool HasMainPhaseAction()
+     {
+-        List<Permanent> GetBreedingAreaPermanents = new List<Permanent>();
++        return mainPhaseActions.Count > 0;
++    }
+ 
+-        for (int i = 0; i < FieldPermanents.Length; i++)
++    public List<CardSource> ExecutingCards
++    {
++        get
+         {
+-            if (!FieldCardFrame.isBattleAreaFrameID(i))
++            if (Context.ZoneMover is not IZoneStateReader zones)
+             {
+-                if (FieldPermanents[i] != null)
+-                {
+-                    if (FieldPermanents[i].TopCard != null)
+-                    {
+-                        GetBreedingAreaPermanents.Add(FieldPermanents[i]);
+-                    }
+-                }
++                return new List<CardSource>();
+             }
+-        }
+ 
+-        return GetBreedingAreaPermanents;
++            return zones.GetCards(PlayerId, ChoiceZone.Execution).ToArray()
++                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
++                .ToList();
++        }
+     }
+-    #endregion
+ 
+-    #region 場のパーマネント
+-    public Permanent[] FieldPermanents = new Permanent[16];
++    public bool CanHatch => DigitamaLibraryCards.Count >= 1 && GetBreedingAreaPermanents().Count == 0;
+ 
+-    public List<Permanent> GetFieldPermanents()
++    public List<CardSource> DigitamaLibraryCards
+     {
+-        List<Permanent> GetFieldPermanents = new List<Permanent>();
+-
+-        for (int i = 0; i < FieldPermanents.Length; i++)
++        get
+         {
+-            if (FieldPermanents[i] != null)
++            if (Context.ZoneMover is not IZoneStateReader zones)
+             {
+-                if (FieldPermanents[i].TopCard != null)
+-                {
+-                    GetFieldPermanents.Add(FieldPermanents[i]);
+-                }
++                return new List<CardSource>();
+             }
+-        }
+ 
+-        return GetFieldPermanents;
++            return zones.GetCards(PlayerId, ChoiceZone.DigitamaLibrary).ToArray()
++                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
++                .ToList();
++        }
+     }
+ 
+-    public List<Permanent> GetBattleAreaDigimons()
+-    {
+-        List<Permanent> battleAreaPermanents = GetBattleAreaPermanents();
+-        List<Permanent> GetBattleAreaDigimons = new List<Permanent>();
++    public bool CanMove => GetBreedingAreaPermanents().Count(permanent => permanent.CanMove) >= 1;
+ 
++    public int MaxMemoryCost => Math.Abs(MemoryForPlayer + 10);
+ 
+-        for (int i = 0; i < battleAreaPermanents.Count; i++)
+-        {
+-            if (battleAreaPermanents[i] != null)
+-            {
+-                if (battleAreaPermanents[i].TopCard != null)
+-                {
+-                    if (battleAreaPermanents[i].IsDigimon)
+-                    {
+-                        GetBattleAreaDigimons.Add(battleAreaPermanents[i]);
+-                    }
+-                }
+-            }
+-        }
+ 
+-        return GetBattleAreaDigimons;
++    public List<Func<EffectTiming, ICardEffect>> PermanentEffects
++    {
++        get => PlayerEffectListStore.Get(Context, PlayerId).PermanentEffects;
++        set => PlayerEffectListStore.Get(Context, PlayerId).PermanentEffects = value;
+     }
+-    #endregion
+ 
+-    #region Player Name
+-    private string _playerName = "Opponent";
+-    public string PlayerName {
+-
+-        get {
+-            if (isYou || GManager.instance.IsAI)
+-                return _playerName; 
+-            else 
+-                return "Opponent";
+-        }
+-        set { _playerName = value; }
++    public List<Func<EffectTiming, ICardEffect>> UntilEndBattleEffects
++    {
++        get => PlayerEffectListStore.Get(Context, PlayerId).UntilEndBattleEffects;
++        set => PlayerEffectListStore.Get(Context, PlayerId).UntilEndBattleEffects = value;
+     }
+-    [Header("プレイヤー名")]
+-    public TextMeshProUGUI PlayerNameText;
+-    #endregion
+ 
+-    #region 勝利数
+-    public int WinCount { get; set; }
+-
+-    public void ShowWinCount()
++    public List<Func<EffectTiming, ICardEffect>> UntilEachTurnEndEffects
+     {
+-        //WinCountText.transform.parent.gameObject.SetActive(true);
++        get => PlayerEffectListStore.Get(Context, PlayerId).UntilEachTurnEndEffects;
++        set => PlayerEffectListStore.Get(Context, PlayerId).UntilEachTurnEndEffects = value;
+     }
+ 
+-    public void HideWinCount()
++    public List<Func<EffectTiming, ICardEffect>> UntilOwnerTurnEndEffects
+     {
+-        //WinCountText.transform.parent.gameObject.SetActive(false);
++        get => PlayerEffectListStore.Get(Context, PlayerId).UntilOwnerTurnEndEffects;
++        set => PlayerEffectListStore.Get(Context, PlayerId).UntilOwnerTurnEndEffects = value;
+     }
+-    #endregion
+ 
+-    #region PlayerID
+-    public int PlayerID { get; set; }
+-    #endregion
+-
+-    #region Enemy
+-    public Player Enemy
++    public List<Func<EffectTiming, ICardEffect>> UntilOwnerActivePhaseEffects
+     {
+-        get
+-        {
+-            if (GManager.instance != null)
+-            {
+-                if (GManager.instance.turnStateMachine != null)
+-                {
+-                    if (GManager.instance.turnStateMachine.gameContext != null)
+-                    {
+-                        if (GManager.instance.turnStateMachine.gameContext.Players.Contains(this))
+-                        {
+-                            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+-                            {
+-                                if (player != this)
+-                                {
+-                                    return player;
+-                                }
+-                            }
+-                        }
+-                    }
+-                }
+-            }
+-
+-            return null;
+-        }
++        get => PlayerEffectListStore.Get(Context, PlayerId).UntilOwnerActivePhaseEffects;
++        set => PlayerEffectListStore.Get(Context, PlayerId).UntilOwnerActivePhaseEffects = value;
+     }
+-    #endregion
+-
+-    #region プレイマット
+-    [Header("PlayMat")]
+-    public GameObject PlayMat;
+-    #endregion
+-
+-    #region プレイマットの枠
+-    public FieldCardFrame playMatCardFrame;
+-    #endregion
+-
+-    #region 手札のドロップエリア
+-    [Header("手札のドロップエリア")]
+-    public DropArea HandDropArea;
+-    #endregion
+ 
+-    #region 場のパーマネントカードオブジェクト
+-    public List<FieldPermanentCard> FieldPermanentObjects
++    public List<Func<EffectTiming, ICardEffect>> UntilOpponentTurnEndEffects
+     {
+-        get
+-        {
+-            List<FieldPermanentCard> _FieldPermanentObjects = new List<FieldPermanentCard>();
+-
+-            for (int i = 0; i < PermanentTransform.childCount; i++)
+-            {
+-                FieldPermanentCard fieldPermanentCard = PermanentTransform.GetChild(i).GetComponent<FieldPermanentCard>();
+-
+-                if (fieldPermanentCard != null)
+-                {
+-                    _FieldPermanentObjects.Add(fieldPermanentCard);
+-                }
+-            }
+-
+-            return _FieldPermanentObjects;
+-        }
++        get => PlayerEffectListStore.Get(Context, PlayerId).UntilOpponentTurnEndEffects;
++        set => PlayerEffectListStore.Get(Context, PlayerId).UntilOpponentTurnEndEffects = value;
+     }
+-    #endregion
+ 
+-    #region 手札のカードオブジェクト
+-    public List<HandCard> HandCardObjects
++    public List<Func<EffectTiming, ICardEffect>> UntilCalculateFixedCostEffect
+     {
+-        get
+-        {
+-            List<HandCard> _HandCards = new List<HandCard>();
+-
+-            foreach (CardSource cardSource in HandCards)
+-            {
+-                if (cardSource.ShowingHandCard != null)
+-                {
+-                    _HandCards.Add(cardSource.ShowingHandCard);
+-                }
+-            }
+-
+-            return _HandCards;
+-        }
++        get => PlayerEffectListStore.Get(Context, PlayerId).UntilCalculateFixedCostEffect;
++        set => PlayerEffectListStore.Get(Context, PlayerId).UntilCalculateFixedCostEffect = value;
+     }
+-    #endregion
+ 
+-    #region プレイヤーに掛かっている効果
++    public List<Func<EffectTiming, ICardEffect>> UntilSecurityCheckEndEffects
++    {
++        get => PlayerEffectListStore.Get(Context, PlayerId).UntilSecurityCheckEndEffects;
++        set => PlayerEffectListStore.Get(Context, PlayerId).UntilSecurityCheckEndEffects = value;
++    }
+ 
+-    #region All effects on the player
+     public List<ICardEffect> EffectList(EffectTiming timing)
+     {
+         List<ICardEffect> PlayerEffects = new List<ICardEffect>();
+@@ -899,9 +357,9 @@
+         {
+             if (cardEffect.EffectSourceCard == null)
+             {
+-                foreach (CardSource cardSource in GManager.instance.turnStateMachine.gameContext.ActiveCardList)
++                foreach (CardSource cardSource in new GameContext(Context).ActiveCardList)
+                 {
+-                    if (cardSource.Owner == this && !cardSource.IsToken)
++                    if (cardSource.Owner == PlayerId && !cardSource.IsToken)
+                     {
+                         cardEffect.SetEffectSourceCard(cardSource);
+                         break;
+@@ -912,271 +370,145 @@
+ 
+         return PlayerEffects;
+     }
+-    #endregion
+-
+-    #region 消えないプレイヤーに掛かっている効果
+-    public List<Func<EffectTiming, ICardEffect>> PermanentEffects = new List<Func<EffectTiming, ICardEffect>>();
+-    #endregion
+-
+-    #region バトル終了時に消えるプレイヤーに掛かっている効果
+-    public List<Func<EffectTiming, ICardEffect>> UntilEndBattleEffects = new List<Func<EffectTiming, ICardEffect>>();
+-    #endregion
+-
+-    #region お互いのターン終了時に消えるプレイヤーに掛かっている効果
+-    public List<Func<EffectTiming, ICardEffect>> UntilEachTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();
+-    #endregion
+-
+-    #region 自分のターン終了時に消えるプレイヤーに掛かっている効果
+-    public List<Func<EffectTiming, ICardEffect>> UntilOwnerTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();
+-    #endregion
+-
+-    #region 自分のアクティブフェイズ終了時に消えるプレイヤーに掛かっている効果
+-    public List<Func<EffectTiming, ICardEffect>> UntilOwnerActivePhaseEffects = new List<Func<EffectTiming, ICardEffect>>();
+-    #endregion
+-
+-    #region 相手のターン終了時に消えるプレイヤーに掛かっている効果
+-    public List<Func<EffectTiming, ICardEffect>> UntilOpponentTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();
+-    #endregion
+-
+-    #region カード使用後に消えるプレイヤーに掛かっている効果
+-    public List<Func<EffectTiming, ICardEffect>> UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();
+-    #endregion
+-
+-    #region セキュリティチェック後に消えるプレイヤーに掛かっている効果
+-    public List<Func<EffectTiming, ICardEffect>> UntilSecurityCheckEndEffects = new List<Func<EffectTiming, ICardEffect>>();
+-    #endregion
+-
+-    #endregion
+-
+-    #region Timestamp of the last time the player's turn started, for continuous effects.
+-
+-    DateTime _turnStartTime = DateTime.MinValue;
+-
+-    public DateTime TurnStartTime
+-    {
+-        get { return _turnStartTime; }
+-        private set { _turnStartTime = value; }
+-    }
+ 
+-    public void SetTurnStartTime()
++    public int MaxDP_DeleteEffect(int maxDP, ICardEffect cardEffect)
+     {
+-        TurnStartTime = DateTime.Now;
+-    }
+-
+-    #endregion
+-
+-    #region トラッシュのカードオブジェクト
+-    public HandCard TrashHandCard;
+-    #endregion
++        int _maxDP = maxDP;
+ 
+-    #region このプレイヤーから見た時のメモリー
+-    public int MemoryForPlayer
+-    {
+-        get
++        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+         {
+-            int memory = GManager.instance.turnStateMachine.gameContext.Memory;
+-
+-            if (PlayerID == 0)
++            foreach (Permanent permanent in player.GetFieldPermanents())
+             {
+-                memory *= -1;
++                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
++                {
++                    if (cardEffect1 is IChangeDPDeleteEffectMaxDPEffect changeMax && cardEffect1.CanUse(null))
++                    {
++                        _maxDP = changeMax.GetMaxDP(_maxDP, cardEffect);
++                    }
++                }
+             }
+ 
+-            return memory;
+-        }
+-    }
+-    #endregion
+-
+-    #region メモリーを固定の値にする
+-    public IEnumerator SetFixedMemory(int Memory, ICardEffect cardEffect)
+-    {
+-        if (MemoryForPlayer < Memory)
+-        {
+-            #region メモリーを+出来ないなら処理終了
+-            if (cardEffect != null)
++            foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+             {
+-                if (!CanAddMemory(cardEffect))
++                if (cardEffect1 is IChangeDPDeleteEffectMaxDPEffect changeMax && cardEffect1.CanUse(null))
+                 {
+-                    yield break;
++                    _maxDP = changeMax.GetMaxDP(_maxDP, cardEffect);
+                 }
+             }
+-            #endregion
+-        }
+-
+-        if (PlayerID == 0)
+-        {
+-            GManager.instance.turnStateMachine.gameContext.Memory = -1 * Memory;
+-        }
+-
+-        else
+-        {
+-            GManager.instance.turnStateMachine.gameContext.Memory = Memory;
+         }
+ 
+-        if (GManager.instance.turnStateMachine.gameContext.Memory >= 10)
+-        {
+-            GManager.instance.turnStateMachine.gameContext.Memory = 10;
+-        }
++        return _maxDP;
++    }
+ 
+-        else if (GManager.instance.turnStateMachine.gameContext.Memory <= -10)
++    private List<Permanent> GetZonePermanents(ChoiceZone zone)
++    {
++        if (Context.ZoneMover is not IZoneStateReader zones)
+         {
+-            GManager.instance.turnStateMachine.gameContext.Memory = -10;
++            return new List<Permanent>();
+         }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(GManager.instance.memoryObject.SetMemory());
++        return zones.GetCards(PlayerId, zone).ToArray()
++            .Select(cardId => new Permanent(Context, cardId, PlayerId))
++            .ToList();
+     }
+-    #endregion
+ 
+-    #region Can you increase memory?
+-    public bool CanAddMemory(ICardEffect cardEffect)
++
++    public bool CanAddSecurity(HeadlessEntityId? causeEffectSourceId)
+     {
+-        if (this.MemoryForPlayer >= 10)
++        if (!Assets.Scripts.Script.SecurityRuleGateSeam.CanAddSecurity(Context, PlayerId, causeEffectSourceId))
+         {
+             return false;
+         }
+ 
+-        #region Effects that impair memory
+-        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
++        ICardEffect cardEffect = BareCauseEffect.For(Context, causeEffectSourceId ?? default);
++        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+         {
+             foreach (Permanent permanent in player.GetFieldPermanents())
+             {
+-                #region Effects of permanents in play
+                 foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                 {
+-                    if (cardEffect1 is ICannotAddMemoryEffect)
++                    if (cardEffect1 is ICannotAddSecurityEffect && cardEffect1.CanUse(null)
++                        && ((ICannotAddSecurityEffect)cardEffect1).cannotAddSecurity(this, cardEffect))
+                     {
+-                        if (cardEffect1.CanUse(null))
+-                        {
+-                            if (((ICannotAddMemoryEffect)cardEffect1).cannotAddMemory(this, cardEffect))
+-                            {
+-                                return false;
+-                            }
+-                        }
++                        return false;
+                     }
+                 }
+-                #endregion
+             }
+ 
+-            #region player effect
+             foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+             {
+-                if (cardEffect1 is ICannotAddMemoryEffect)
++                if (cardEffect1 is ICannotAddSecurityEffect && cardEffect1.CanUse(null)
++                    && ((ICannotAddSecurityEffect)cardEffect1).cannotAddSecurity(this, cardEffect))
+                 {
+-                    if (cardEffect1.CanUse(null))
+-                    {
+-                        if (((ICannotAddMemoryEffect)cardEffect1).cannotAddMemory(this, cardEffect))
+-                        {
+-                            return false;
+-                        }
+-                    }
++                    return false;
+                 }
+             }
+-            #endregion
+         }
+-        #endregion
+ 
+         return true;
+     }
+-    #endregion
+ 
+-    #region メモリーを+する
+-    public IEnumerator AddMemory(int plusMemory, ICardEffect cardEffect)
+-    {
+-        if (plusMemory == 0)
+-        {
+-            yield break;
+-        }
++    public bool CanReduceSecurity() =>
++        Assets.Scripts.Script.SecurityRuleGateSeam.CanReduceSecurity(Context, PlayerId);
+ 
+-        if (plusMemory >= 1)
++    public bool CanReduceCost(List<Permanent> targetPermanents, CardSource cardSource)
++    {
++        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+         {
+-            #region メモリーを+出来ないなら処理終了
+-            if (cardEffect != null)
++            foreach (Permanent permanent in player.GetFieldPermanents())
+             {
+-                if (!CanAddMemory(cardEffect))
++                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                 {
+-                    yield break;
++                    if (cardEffect is ICannotReduceCostEffect cannotReduceCost && cardEffect.CanUse(null)
++                        && cannotReduceCost.CannotReduceCost(this, targetPermanents, cardSource))
++                    {
++                        return false;
++                    }
+                 }
+             }
+-            #endregion
+-        }
+ 
+-        if (PlayerID == 0)
+-        {
+-            GManager.instance.turnStateMachine.gameContext.Memory -= plusMemory;
+-        }
+-
+-        else
+-        {
+-            GManager.instance.turnStateMachine.gameContext.Memory += plusMemory;
+-        }
+-
+-        if (GManager.instance.turnStateMachine.gameContext.Memory >= 10)
+-        {
+-            GManager.instance.turnStateMachine.gameContext.Memory = 10;
+-        }
+-
+-        else if (GManager.instance.turnStateMachine.gameContext.Memory <= -10)
+-        {
+-            GManager.instance.turnStateMachine.gameContext.Memory = -10;
++            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
++            {
++                if (cardEffect is ICannotReduceCostEffect cannotReduceCost && cardEffect.CanUse(null)
++                    && cannotReduceCost.CannotReduceCost(this, targetPermanents, cardSource))
++                {
++                    return false;
++                }
++            }
+         }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(GManager.instance.memoryObject.SetMemory());
++        return true;
+     }
+-    #endregion
+ 
+-    #region 払えるメモリーコストの上限
+-    public int MaxMemoryCost
++    public bool CanIgnoreDigivolutionRequirement(Permanent targetPermanent, CardSource cardSource)
+     {
+-        get
++        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+         {
+-            int MaxMemoryCost = 0;
+-
+-            if (PlayerID == 0)
++            foreach (Permanent permanent in player.GetFieldPermanents())
+             {
+-                MaxMemoryCost = Mathf.Abs(10 - GManager.instance.turnStateMachine.gameContext.Memory);
++                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
++                {
++                    if (cardEffect is ICannotIgnoreDigivolutionConditionEffect cannotIgnore && cardEffect.CanUse(null)
++                        && cannotIgnore.cannotIgnoreDigivolutionCondition(this, targetPermanent, cardSource))
++                    {
++                        return false;
++                    }
++                }
+             }
+ 
+-            else
++            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+             {
+-                MaxMemoryCost = Mathf.Abs(-10 - GManager.instance.turnStateMachine.gameContext.Memory);
++                if (cardEffect is ICannotIgnoreDigivolutionConditionEffect cannotIgnore && cardEffect.CanUse(null)
++                    && cannotIgnore.cannotIgnoreDigivolutionCondition(this, targetPermanent, cardSource))
++                {
++                    return false;
++                }
+             }
+-
+-            return MaxMemoryCost;
+         }
+-    }
+-    #endregion
+ 
+-    #region コスト支払い後のメモリー予測値
+-    public int ExpectedMemory(int memoryCost)
+-    {
+-        int ExpectedMemory = GManager.instance.turnStateMachine.gameContext.Memory;
+-
+-        if (PlayerID == 0)
+-        {
+-            ExpectedMemory += memoryCost;
+-        }
+-
+-        else
+-        {
+-            ExpectedMemory -= memoryCost;
+-        }
+-
+-        return ExpectedMemory;
++        return true;
+     }
+-    #endregion
+-
+-    #region デジタマを孵化できるか
+-    public bool CanHatch => DigitamaLibraryCards.Count >= 1 && GetBreedingAreaPermanents().Count == 0;
+-    #endregion
+ 
+-    #region デジモンを移動できるか
+-    public bool CanMove => GetBreedingAreaPermanents().Count(permanent => permanent.CanMove) >= 1 && fieldCardFrames.Count((frame) => frame.IsEmptyFrame()) >= 1;
+-    #endregion
+-
+-    #region このターンにデジモンを進化させた回数
+-    public int DigivolveCount_ThisTurn { get; set; } = 0;
+-    #endregion
+-
+-    #region 吸収進化でタップできるデジモンの条件(効果可否判定に使用)
+     public bool CanTapWhenAbsorbEvolution_CheckAvailability(Permanent permanent, ICardEffect cardEffect)
+     {
+         if (permanent != null)
+@@ -1185,14 +517,12 @@
+             {
+                 if (!permanent.IsSuspended && permanent.CanSuspend)
+                 {
+-                    if (permanent.TopCard.Owner.GetBattleAreaDigimons().Contains(permanent))
++                    if (new Player(Context, permanent.TopCard.Owner).GetBattleAreaDigimons().Contains(permanent))
+                     {
+-                        #region 吸収進化でタップできるデジモンの条件を変更させる効果
+-                        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
++                        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+                         {
+                             foreach (Permanent permanent1 in player.GetFieldPermanents())
+                             {
+-                                #region 場のパーマネントの効果
+                                 foreach (ICardEffect cardEffect1 in permanent1.EffectList(EffectTiming.None))
+                                 {
+                                     if (cardEffect1 is ICanSuspendByDigisorptionEffect)
+@@ -1209,10 +539,8 @@
+                                         }
+                                     }
+                                 }
+-                                #endregion
+                             }
+ 
+-                            #region プレイヤーの効果
+                             foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+                             {
+                                 if (cardEffect1 is ICanSuspendByDigisorptionEffect)
+@@ -1229,11 +557,9 @@
+                                     }
+                                 }
+                             }
+-                            #endregion
+                         }
+-                        #endregion
+ 
+-                        if (permanent.TopCard.Owner == this)
++                        if (permanent.TopCard.Owner == PlayerId)
+                         {
+                             return true;
+                         }
+@@ -1244,9 +570,7 @@
+ 
+         return false;
+     }
+-    #endregion
+ 
+-    #region 吸収進化でタップできるデジモンの条件
+     public bool CanTapWhenAbsorbEvolution(Permanent permanent, ICardEffect cardEffect)
+     {
+         if (permanent != null)
+@@ -1255,14 +579,12 @@
+             {
+                 if (!permanent.IsSuspended && permanent.CanSuspend)
+                 {
+-                    if (permanent.TopCard.Owner.GetBattleAreaDigimons().Contains(permanent))
++                    if (new Player(Context, permanent.TopCard.Owner).GetBattleAreaDigimons().Contains(permanent))
+                     {
+-                        #region 吸収進化でタップできるデジモンの条件を変更させる効果
+-                        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
++                        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+                         {
+                             foreach (Permanent permanent1 in player.GetFieldPermanents())
+                             {
+-                                #region 場のパーマネントの効果
+                                 foreach (ICardEffect cardEffect1 in permanent1.EffectList(EffectTiming.None))
+                                 {
+                                     if (cardEffect1 is ICanSuspendByDigisorptionEffect)
+@@ -1275,7 +597,6 @@
+                                                 {
+                                                     return true;
+                                                 }
+-
+                                                 else
+                                                 {
+                                                     return false;
+@@ -1284,10 +605,8 @@
+                                         }
+                                     }
+                                 }
+-                                #endregion
+                             }
+ 
+-                            #region プレイヤーの効果
+                             foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+                             {
+                                 if (cardEffect1 is ICanSuspendByDigisorptionEffect)
+@@ -1300,7 +619,6 @@
+                                             {
+                                                 return true;
+                                             }
+-
+                                             else
+                                             {
+                                                 return false;
+@@ -1309,11 +627,9 @@
+                                     }
+                                 }
+                             }
+-                            #endregion
+                         }
+-                        #endregion
+ 
+-                        if (permanent.TopCard.Owner == this)
++                        if (permanent.TopCard.Owner == PlayerId)
+                         {
+                             return true;
+                         }
+@@ -1324,352 +640,208 @@
+ 
+         return false;
+     }
+-    #endregion
+ 
+-    #region コストを減らせるか
+-    public bool CanReduceCost(List<Permanent> targetPermanents, CardSource cardSource)
+-    {
+-        #region コストを減らせなくさせる効果
+-        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+-        {
+-            foreach (Permanent permanent in player.GetFieldPermanents())
+-            {
+-                #region 場のパーマネントの効果
+-                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+-                {
+-                    if (cardEffect is ICannotReduceCostEffect)
+-                    {
+-                        if (cardEffect.CanUse(null))
+-                        {
+-                            if (((ICannotReduceCostEffect)cardEffect).CannotReduceCost(this, targetPermanents, cardSource))
+-                            {
+-                                return false;
+-                            }
+-                        }
+-                    }
+-                }
+-                #endregion
+-            }
+ 
+-            #region プレイヤーの効果
+-            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+-            {
+-                if (cardEffect is ICannotReduceCostEffect)
+-                {
+-                    if (cardEffect.CanUse(null))
+-                    {
+-                        if (((ICannotReduceCostEffect)cardEffect).CannotReduceCost(this, targetPermanents, cardSource))
+-                        {
+-                            return false;
+-                        }
+-                    }
+-                }
+-            }
+-            #endregion
+-        }
+-        #endregion
++    public void SetLose() => Context.PlayerStatusController.MarkLose(PlayerId);
+ 
+-        return true;
+-    }
+-    #endregion
+ 
+-    #region DP消滅効果の上限
+-    public int MaxDP_DeleteEffect(int maxDP, ICardEffect cardEffect)
++    public int MemoryForPlayer
+     {
+-        int _maxDP = maxDP;
+-
+-        #region DP消滅効果の上限を変更する効果
+-
+-        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
++        get
+         {
+-            foreach (Permanent permanent in player.GetFieldPermanents())
+-            {
+-                #region 場のパーマネントの効果
+-                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+-                {
+-                    if (cardEffect1 is IChangeDPDeleteEffectMaxDPEffect)
+-                    {
+-                        if (cardEffect1.CanUse(null))
+-                        {
+-                            _maxDP = ((IChangeDPDeleteEffectMaxDPEffect)cardEffect1).GetMaxDP(_maxDP, cardEffect);
+-                        }
+-                    }
+-                }
+-                #endregion
+-            }
+-
+-            #region プレイヤーの効果
+-            foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+-            {
+-                if (cardEffect1 is IChangeDPDeleteEffectMaxDPEffect)
+-                {
+-                    if (cardEffect1.CanUse(null))
+-                    {
+-                        _maxDP = ((IChangeDPDeleteEffectMaxDPEffect)cardEffect1).GetMaxDP(_maxDP, cardEffect);
+-                    }
+-                }
+-            }
+-            #endregion
++            int memory = Context.MemoryController.Current.Current;
++            return Context.TurnController.Current.TurnPlayerId == PlayerId ? memory : -memory;
+         }
+-
+-        #endregion
+-
+-        return _maxDP;
+     }
+-    #endregion
+ 
+-    #region 進化条件を無視できるか
+-    public bool CanIgnoreDigivolutionRequirement(Permanent targetPermanent, CardSource cardSource)
++    public bool CanAddMemory(ICardEffect cardEffect)
+     {
+-        #region 進化条件を無視できなくさせる効果
+-        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
++        if (MemoryForPlayer >= 10)
++        {
++            return false;
++        }
++
++        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+         {
+             foreach (Permanent permanent in player.GetFieldPermanents())
+             {
+-                #region 場のパーマネントの効果
+                 foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                 {
+-                    if (cardEffect1 is ICannotIgnoreDigivolutionConditionEffect)
++                    if (cardEffect1 is ICannotAddMemoryEffect && cardEffect1.CanUse(null)
++                        && ((ICannotAddMemoryEffect)cardEffect1).cannotAddMemory(this, cardEffect))
+                     {
+-                        if (cardEffect1.CanUse(null))
+-                        {
+-                            if (((ICannotIgnoreDigivolutionConditionEffect)cardEffect1).cannotIgnoreDigivolutionCondition(this, targetPermanent, cardSource))
+-                            {
+-                                return false;
+-                            }
+-                        }
++                        return false;
+                     }
+                 }
+-                #endregion
+             }
+ 
+-            #region Player effect
+             foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+             {
+-                if (cardEffect1 is ICannotIgnoreDigivolutionConditionEffect)
++                if (cardEffect1 is ICannotAddMemoryEffect && cardEffect1.CanUse(null)
++                    && ((ICannotAddMemoryEffect)cardEffect1).cannotAddMemory(this, cardEffect))
+                 {
+-                    if (cardEffect1.CanUse(null))
+-                    {
+-                        if (((ICannotIgnoreDigivolutionConditionEffect)cardEffect1).cannotIgnoreDigivolutionCondition(this, targetPermanent, cardSource))
+-                        {
+-                            return false;
+-                        }
+-                    }
++                    return false;
+                 }
+             }
+-            #endregion
+         }
+-        #endregion
+ 
+         return true;
+     }
+-    #endregion
+ 
+-    #region セキュリティを増やせるか
+-    public bool CanAddSecurity(ICardEffect cardEffect)
++    public Task AddMemory(int plusMemory, ICardEffect cardEffect)
+     {
+-        if (GManager.instance.turnStateMachine.gameContext.IsSecurityLooking)
++        if (plusMemory == 0)
+         {
+-            return false;
++            return Task.CompletedTask;
+         }
+ 
+-        #region セキュリティを増やせない効果
+-        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
++        if (plusMemory >= 1)
+         {
+-            foreach (Permanent permanent in player.GetFieldPermanents())
+-            {
+-                #region 場のパーマネントの効果
+-                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+-                {
+-                    if (cardEffect1 is ICannotAddSecurityEffect)
+-                    {
+-                        if (cardEffect1.CanUse(null))
+-                        {
+-                            if (((ICannotAddSecurityEffect)cardEffect1).cannotAddSecurity(this, cardEffect))
+-                            {
+-                                return false;
+-                            }
+-                        }
+-                    }
+-                }
+-                #endregion
+-            }
+-
+-            #region プレイヤーの効果
+-            foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
++            if (cardEffect != null)
+             {
+-                if (cardEffect1 is ICannotAddSecurityEffect)
++                if (!CanAddMemory(cardEffect))
+                 {
+-                    if (cardEffect1.CanUse(null))
+-                    {
+-                        if (((ICannotAddSecurityEffect)cardEffect1).cannotAddSecurity(this, cardEffect))
+-                        {
+-                            return false;
+-                        }
+-                    }
++                    return Task.CompletedTask;
+                 }
+             }
+-            #endregion
+         }
+-        #endregion
+ 
+-        return true;
++        int delta = Context.TurnController.Current.TurnPlayerId == PlayerId ? plusMemory : -plusMemory;
++        Context.MemoryController.Add(delta);
++
++        return Task.CompletedTask;
+     }
+-    #endregion
+ 
+-    #region セキュリティを減らせるか
+-    public bool CanReduceSecurity()
++    public Task SetFixedMemory(int Memory, ICardEffect cardEffect)
+     {
+-        if (GManager.instance.turnStateMachine.gameContext.IsSecurityLooking)
++        if (MemoryForPlayer < Memory)
+         {
+-            return false;
++            if (cardEffect != null)
++            {
++                if (!CanAddMemory(cardEffect))
++                {
++                    return Task.CompletedTask;
++                }
++            }
+         }
+ 
+-        return true;
+-    }
+-    #endregion
+-}
++        int gauge = Context.TurnController.Current.TurnPlayerId == PlayerId ? Memory : -Memory;
++        Context.MemoryController.Set(gauge);
+ 
+-[Serializable]
+-public class ShowSupplyingEnergyIcon
+-{
+-    public CardColor cardColor;
+-    public Image SupplyingEnergyIcon;
+-    public Text SupplyingEnergyText;
++        return Task.CompletedTask;
++    }
+ }
+ 
+-[Serializable]
+-public class FieldCardFrame
++public static class PlayerIdAsIsExtensions
+ {
+-    [Header("枠")]
+-    public GameObject Frame;
+-
+-    [Header("選択状態表示枠")]
+-    public Image Frame_Select;
+-
+-    [Header("枠ID")]
+-    public int FrameID;
+-
+-    [Header("プレイヤー")]
+-    public Player player;
+-
+-    public UnityAction<FieldCardFrame> OnClickAction { get; private set; }
+-    public static bool isBattleAreaFrameID(int FrameID)
++    public static Task AddMemory(this HeadlessPlayerId player, int plusMemory, ICardEffect cardEffect)
+     {
+-        return 0 <= FrameID && FrameID <= GManager.instance.You.fieldCardFrames.Count - 2;
+-    }
+-    public bool IsBattleAreaFrame()
+-    {
+-        return isBattleAreaFrameID(this.FrameID);
++        EngineContext context = cardEffect?.EffectSourceCard?.Context
++            ?? AmbientMatchContext.Current
++            ?? throw new InvalidOperationException(
++                "AddMemory needs a live match context — pass the causing ICardEffect (AS-IS activateClass) " +
++                "or call inside a match scope.");
++        return new Player(context, player).AddMemory(plusMemory, cardEffect);
+     }
+ 
+-    public bool isBreedingAreaFrame()
++    public static Task SetFixedMemory(this HeadlessPlayerId player, int Memory, ICardEffect cardEffect)
+     {
+-        return !IsBattleAreaFrame();
++        EngineContext context = cardEffect?.EffectSourceCard?.Context
++            ?? AmbientMatchContext.Current
++            ?? throw new InvalidOperationException(
++                "SetFixedMemory needs a live match context — pass the causing ICardEffect (AS-IS activateClass) " +
++                "or call inside a match scope.");
++        return new Player(context, player).SetFixedMemory(Memory, cardEffect);
+     }
+ 
+-    Permanent framePermanent = null;
+-
+-    public void SetFramePermanent(Permanent permanent)
++    public static bool CanAddMemory(this HeadlessPlayerId player, ICardEffect cardEffect)
+     {
+-        framePermanent = permanent;
++        EngineContext context = cardEffect?.EffectSourceCard?.Context
++            ?? AmbientMatchContext.Current
++            ?? throw new InvalidOperationException(
++                "CanAddMemory needs a live match context — pass the causing ICardEffect (AS-IS activateClass) " +
++                "or call inside a match scope.");
++        return new Player(context, player).CanAddMemory(cardEffect);
+     }
+ 
+-    public Permanent GetFramePermanent()
++    public static List<Permanent> GetBattleAreaDigimons(this HeadlessPlayerId player)
+     {
+-        /*
+-        foreach (Permanent permanent in player.GetFieldPermanents())
+-        {
+-            if (permanent.PermanentFrame == this)
+-            {
+-                return permanent;
+-            }
+-        }
+-        */
+-
+-        if (framePermanent != null)
+-        {
+-            return framePermanent;
+-        }
+-
+-        return null;
++        EngineContext context = AmbientMatchContext.Current
++            ?? throw new InvalidOperationException(
++                "GetBattleAreaDigimons needs a live match context — call inside a match scope.");
++        return new Player(context, player).GetBattleAreaDigimons();
+     }
+ 
+-    public bool IsEmptyFrame()
++    public static List<Permanent> GetBattleAreaPermanents(this HeadlessPlayerId player)
+     {
+-        return GetFramePermanent() == null;
++        EngineContext context = AmbientMatchContext.Current
++            ?? throw new InvalidOperationException(
++                "GetBattleAreaPermanents needs a live match context — call inside a match scope.");
++        return new Player(context, player).GetBattleAreaPermanents();
+     }
++}
+ 
+-    public void AddClickTarget(UnityAction<FieldCardFrame> OnClickAction)
+-    {
+-        this.OnClickAction = OnClickAction;
+-
+-        if (Frame != null)
+-        {
+-            BoxCollider boxCollider = Frame.GetComponent<BoxCollider>();
++internal class PlayerEffectLists
++{
++    public List<Func<EffectTiming, ICardEffect>> PermanentEffects = new();
++    public List<Func<EffectTiming, ICardEffect>> UntilEndBattleEffects = new();
++    public List<Func<EffectTiming, ICardEffect>> UntilEachTurnEndEffects = new();
++    public List<Func<EffectTiming, ICardEffect>> UntilOwnerTurnEndEffects = new();
++    public List<Func<EffectTiming, ICardEffect>> UntilOwnerActivePhaseEffects = new();
++    public List<Func<EffectTiming, ICardEffect>> UntilOpponentTurnEndEffects = new();
++    public List<Func<EffectTiming, ICardEffect>> UntilCalculateFixedCostEffect = new();
++    public List<Func<EffectTiming, ICardEffect>> UntilSecurityCheckEndEffects = new();
++}
+ 
+-            if (boxCollider != null)
+-            {
+-                boxCollider.enabled = true;
+-            }
+-        }
+-    }
++internal static class PlayerEffectListStore
++{
++    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<
++        EngineContext, System.Collections.Concurrent.ConcurrentDictionary<HeadlessPlayerId, PlayerEffectLists>> ByContext = new();
+ 
+-    public void RemoveClickTarget()
++    public static PlayerEffectLists Get(EngineContext context, HeadlessPlayerId playerId)
+     {
+-        this.OnClickAction = null;
+-
+-        if (Frame != null)
+-        {
+-            BoxCollider boxCollider = Frame.GetComponent<BoxCollider>();
+-
+-            if (boxCollider != null)
+-            {
+-                boxCollider.enabled = false;
+-            }
+-        }
++        ArgumentNullException.ThrowIfNull(context);
++        return ByContext.GetOrCreateValue(context).GetOrAdd(playerId, static _ => new PlayerEffectLists());
+     }
++}
+ 
+-    public void OffFrame_Select()
+-    {
+-        if (Frame_Select != null)
+-        {
+-            Frame_Select.gameObject.SetActive(false);
+-        }
++internal static class PlayerSelectionQueueStore
++{
++    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<
++        EngineContext,
++        System.Collections.Concurrent.ConcurrentDictionary<HeadlessPlayerId, Queue<PlayerSelection.IPlayerSelection>>> ByContext = new();
++
++    public static Queue<PlayerSelection.IPlayerSelection> Get(EngineContext context, HeadlessPlayerId playerId)
++    {
++        ArgumentNullException.ThrowIfNull(context);
++        return ByContext.GetOrCreateValue(context)
++            .GetOrAdd(playerId, static _ => new Queue<PlayerSelection.IPlayerSelection>());
+     }
++}
++
++public class FieldCardFrame
++{
++    private readonly EngineContext _context;
++    private readonly Permanent? _framePermanent;
+ 
+-    public void OnFrame_Select(Color color)
++    public FieldCardFrame(EngineContext context, HeadlessPlayerId player, int frameID, Permanent? framePermanent)
+     {
+-        if (Frame_Select != null)
+-        {
+-            Frame_Select.gameObject.SetActive(true);
+-            Frame_Select.color = color;
+-            //Frame_Select.color = new Color(color.r, color.g, color.b, 0);
+-        }
++        _context = context;
++        this.player = player;
++        FrameID = frameID;
++        _framePermanent = framePermanent;
+     }
+ 
+-    public Vector3 GetLocalCanvasPosition()
+-    {
+-        Vector3 vector = Frame.transform.localPosition + Frame.transform.parent.localPosition + Frame.transform.parent.parent.localPosition;
++    public int FrameID { get; }
+ 
+-        return Frame.transform.localPosition + Frame.transform.parent.localPosition + Frame.transform.parent.parent.localPosition;
+-    }
++    public HeadlessPlayerId player { get; }
+ 
+-    public FieldCardFrame FacingFrame
+-    {
+-        get
+-        {
+-            if (this.IsBattleAreaFrame())
+-            {
+-                return player.fieldCardFrames[this.FrameID + 4];
+-            }
++    public Permanent? GetFramePermanent() => _framePermanent;
+ 
+-            else
+-            {
+-                return player.fieldCardFrames[this.FrameID - 4];
+-            }
++    public bool IsEmptyFrame() => GetFramePermanent() == null;
+ 
+-            return null;
+-        }
+-    }
++    public bool IsBattleAreaFrame() =>
++        _framePermanent != null && new Player(_context, player).GetBattleAreaPermanents().Contains(_framePermanent);
++
++    public bool isBreedingAreaFrame() => !IsBattleAreaFrame();
+ }

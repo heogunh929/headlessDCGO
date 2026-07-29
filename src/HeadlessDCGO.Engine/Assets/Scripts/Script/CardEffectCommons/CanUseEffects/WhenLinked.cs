@@ -1,12 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenLinked.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger "When card is linked" effect
     public static bool CanTriggerWhenLinking(Hashtable hashtable, Func<Permanent, bool> permanentCondition, CardSource card)

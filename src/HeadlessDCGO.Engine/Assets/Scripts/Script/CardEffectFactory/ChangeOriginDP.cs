@@ -1,16 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ChangeOriginDP.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS ChangeOriginDP.cs factory partial.
-// Returns the ported ChangeBaseDPClass kind-class (CardEffects/ChangeBaseDPClass.cs).
-// ADAPTATION (substrate only; logic verbatim): AS-IS permanent.TopCard.CanNotBeAffected(<ICardEffect>) ->
-//   mirror CanNotBeAffected(<class>.EffectSourceCard?.InstanceId). UnityEngine/Photon stripped.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ChangeBaseDPClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -85,7 +77,7 @@ public partial class CardEffectFactory
         {
             return permanentCondition != null
                 && permanentCondition(permanent)
-                && !permanent.TopCard.CanNotBeAffected(changeBaseDPClass);  // ADAPTATION
+                && !permanent.TopCard.CanNotBeAffected(changeBaseDPClass);
         }
 
         bool _isUpDown()

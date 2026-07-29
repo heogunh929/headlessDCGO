@@ -1,27 +1,18 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/KeyWordEffects/Iceclad.cs
-// (G-clean-2 grant rehousing) AS-IS-signature `Task` overloads: the [Iceclad] grant, AS-IS 1:1. Kept in the
-// flat `...Script.CardEffectCommons` namespace so these are genuine overloads of the same partial
-// `CardEffectCommons` type every ported card calls (established convention).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using System.Collections;
+using System.Collections.Generic;
 using System;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>(G-clean-2 grant rehousing) AS-IS <c>CardEffectCommons.GainIceclad</c> (KeyWordEffects/Iceclad.cs:10),
-    /// 1:1: build the target-locked <see cref="CardEffectFactory.IcecladStaticEffect"/> and store it in the target
-    /// permanent's <c>None</c> duration bucket via <see cref="AddEffectToPermanent"/> — read by
-    /// <see cref="Permanent.HasIceclad"/>'s <c>EffectList(None)</c> <c>IIcecladEffect</c> scan. Replaces the invented
-    /// <c>GainKeywordToPermanent</c> funnel. ADAPTATION: the AS-IS terminal <c>CreateBuffEffect</c> VFX is
-    /// dropped.</summary>
-    public static async Task GainIceclad(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
+    #region Target 1 Digimon gains [Iceclad]
+    public static IEnumerator GainIceclad(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
     {
-        if (targetPermanent == null) return;
-        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
-        if (activateClass == null) return;
-        if (activateClass.EffectSourceCard == null) return;
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
 
         CardSource card = activateClass.EffectSourceCard;
 
@@ -40,23 +31,22 @@ public static partial class CardEffectCommons
             return false;
         }
 
-        IcecladClass iceclad = CardEffectFactory.IcecladStaticEffect(
-            permanentCondition: PermanentCondition, isInheritedEffect: false, card: card, condition: CanUseCondition);
+        IcecladClass iceclad = CardEffectFactory.IcecladStaticEffect(permanentCondition: PermanentCondition, isInheritedEffect: false, card: card, condition: CanUseCondition);
 
-        AddEffectToPermanent(
-            targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
-            cardEffect: iceclad, timing: EffectTiming.None);
+        AddEffectToPermanent(targetPermanent: targetPermanent, effectDuration: effectDuration, card: card, cardEffect: iceclad, timing: EffectTiming.None);
 
-        await Task.CompletedTask;
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(targetPermanent));
+        }
     }
+    #endregion
 
-    /// <summary>(G-clean-2 grant rehousing) AS-IS <c>CardEffectCommons.GainIcecladPlayerEffect</c>
-    /// (KeyWordEffects/Iceclad.cs:46), 1:1: a PLAYER-scope Iceclad grant stored in the owning player's <c>None</c>
-    /// bucket via <see cref="AddEffectToPlayer"/>. ADAPTATION: the AS-IS per-permanent VFX loop is dropped.</summary>
-    public static async Task GainIcecladPlayerEffect(Func<Permanent, bool> permanentCondition, EffectDuration effectDuration, ICardEffect activateClass)
+    #region Player gains effect to have Digimon gains [Iceclad]
+    public static IEnumerator GainIcecladPlayerEffect(Func<Permanent, bool> permanentCondition, EffectDuration effectDuration, ICardEffect activateClass)
     {
-        if (activateClass == null) return;
-        if (activateClass.EffectSourceCard == null) return;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
 
         CardSource card = activateClass.EffectSourceCard;
 
@@ -76,13 +66,22 @@ public static partial class CardEffectCommons
             return false;
         }
 
-        bool CanUseCondition() => true;
+        bool CanUseCondition()
+        {
+            return true;
+        }
 
-        IcecladClass iceclad = CardEffectFactory.IcecladStaticEffect(
-            permanentCondition: PermanentCondition, isInheritedEffect: false, card: card, condition: CanUseCondition);
+        IcecladClass iceclad = CardEffectFactory.IcecladStaticEffect(permanentCondition: PermanentCondition, isInheritedEffect: false, card: card, condition: CanUseCondition);
 
         AddEffectToPlayer(effectDuration: effectDuration, card: card, cardEffect: iceclad, timing: EffectTiming.None);
 
-        await Task.CompletedTask;
+        foreach (Permanent permanent in GManager.instance.turnStateMachine.gameContext.PermanentsForTurnPlayer)
+        {
+            if (PermanentCondition(permanent))
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(permanent));
+            }
+        }
     }
+    #endregion
 }

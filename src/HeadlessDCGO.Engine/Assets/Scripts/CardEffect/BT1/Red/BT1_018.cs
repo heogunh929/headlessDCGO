@@ -1,8 +1,11 @@
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class BT1_018 : CEntity_Effect
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT1_018 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -10,9 +13,21 @@ public sealed class BT1_018 : CEntity_Effect
 
         if (timing == EffectTiming.None)
         {
-            bool Condition() =>
-                CardEffectCommons.IsExistOnBattleArea(card) &&
-                CardEffectCommons.IsOwnerTurn(card);
+            bool Condition()
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (card.Owner.MemoryForPlayer >= 3)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
 
             cardEffects.Add(CardEffectFactory.ChangeSelfSAttackStaticEffect(
                 changeValue: 1,

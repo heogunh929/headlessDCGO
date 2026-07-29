@@ -1,24 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Blue/BT1_096.cs
-// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_096 (BT1/Blue) — an Option.
-//   [Main] 1 of your Digimon gets +3000 DP for the turn.
-//   [Security] Trigger <Draw 1>. Then add this card to its owner's hand.
-// AS-IS structure kept verbatim: inline ActivateClass per timing (OptionSkill/SecuritySkill), matching
-// BT1_092's Option shape. `card.BaseENGCardNameFromEntity` (informational effectName) resolves via the
-// bridged accessor (W4). `customPermanentMessageArray_ChangeDP` is used for the [Main] SetUpCustomMessage.
-// UNRESOLVED (kept verbatim, logged): AS-IS `CardEffectCommons.customPermanentMessageArray_ChangeDP` — no
-// mirror bridge for this pure string-template helper (only the raw `SetUpCustomMessage(string[])` overload
-// exists, W4).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_096 : CEntity_Effect
+public class BT1_096 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -46,11 +34,11 @@ public sealed class BT1_096 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -67,14 +55,13 @@ public sealed class BT1_096 : CEntity_Effect
                         mode: SelectPermanentEffect.Mode.Custom,
                         cardEffect: activateClass);
 
-                    // UNRESOLVED (see file header): AS-IS `CardEffectCommons.customPermanentMessageArray_ChangeDP`.
                     selectPermanentEffect.SetUpCustomMessage(customMessageArray: CardEffectCommons.customPermanentMessageArray_ChangeDP(changeValue: 3000, maxCount: maxCount));
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
-                        await CardEffectCommons.ChangeDigimonDP(targetPermanent: permanent, changeValue: 3000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass);
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonDP(targetPermanent: permanent, changeValue: 3000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass));
                     }
                 }
             }
@@ -83,7 +70,7 @@ public sealed class BT1_096 : CEntity_Effect
         if (timing == EffectTiming.SecuritySkill)
         {
             ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect("Draw 1 and add this card to hand", CanUseCondition, card);
+            activateClass.SetUpICardEffect($"Draw 1 and add this card to hand", CanUseCondition, card);
             activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
             activateClass.SetIsSecurityEffect(true);
             cardEffects.Add(activateClass);
@@ -92,17 +79,16 @@ public sealed class BT1_096 : CEntity_Effect
             {
                 return "[Security] Trigger <Draw 1> (Draw 1 card from your deck). Then add this card to its owner's hand.";
             }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await new DrawClass(card.Context, card.Owner, 1, activateClass).Draw();
+                yield return ContinuousController.instance.StartCoroutine(new DrawClass(card.Owner, 1, activateClass).Draw());
 
-                await CardEffectCommons.AddThisCardToHand(card, activateClass.EffectSourceCard);
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.AddThisCardToHand(card, activateClass));
             }
         }
 

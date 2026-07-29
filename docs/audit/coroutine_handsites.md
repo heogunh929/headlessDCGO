@@ -7,6 +7,21 @@ modified.
 Mirror-tree comments were **not** used as evidence (several are known false); every original claim below comes
 from reading `DCGO/Assets/Scripts/` with `--binary-files=text`.
 
+### Provenance of the line numbers
+
+Derived against the **working tree**, not `HEAD`. At the time of the scan the tree carried 309 uncommitted
+modified files (`git diff --stat`: 9,260 insertions / 30,439 deletions), including all the files inventoried
+below, plus new untracked coroutine infrastructure at `src/HeadlessDCGO.Engine/Headless/Coroutines/`
+(`CoroutineDriver.cs`, `UnityEngineYieldInstructions.cs`). Two files (`ContinuousController.cs`,
+`CoroutineDriver.cs`) were written while this scan was in progress.
+
+The port-side line numbers are therefore valid **only** against that working-tree state. They will not match
+`HEAD`, and they will drift if the in-flight changes are reverted or rebased. The scan was re-run after the
+last observed write and reproduced identical figures — 1,864 total `await` statements, 62 consuming sites, 43
+`Task<T>` declarations — so the inventory below is self-consistent, but re-derive line numbers before acting
+on it if the tree has moved. Original-side (`DCGO/Assets/Scripts/`) line numbers are unaffected: that tree is
+clean.
+
 ---
 
 ## Totals

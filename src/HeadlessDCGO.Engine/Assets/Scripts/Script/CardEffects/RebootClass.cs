@@ -1,13 +1,9 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffects/RebootClass.cs
-// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class RebootClass : ICardEffect, IRebootEffect
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
+using Photon;
 using System;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 public class RebootClass : ICardEffect, IRebootEffect
 {

@@ -1,19 +1,13 @@
-// Source: Assets/Scripts/CardEffect/ST1/Red/ST1_12.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect (Phase 1, ST1 wave 2). Tamer.
-//
-// 1:1 mirror of the original ST1_12:
-//   [All Turns] [Your Turn] Your Digimon get +1000 DP   -> ChangeDPStaticEffect (player-scope, ported)
-//   [Security]  Play this Tamer                          -> PlaySelfTamerSecurityEffect (DEFERRED, Wave 3:
-//               the security-skill activation flow is not yet built; kept for source fidelity but not
-//               auto-registered — SecuritySkill is excluded from CardEffectRegistrar.AllTimings.)
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST1.Red;
 
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class ST1_12 : CEntity_Effect
+public class ST1_12 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {

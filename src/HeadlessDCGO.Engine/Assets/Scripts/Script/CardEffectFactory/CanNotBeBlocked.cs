@@ -1,15 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/CanNotBeBlocked.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of AS-IS CanNotBeBlocked.cs factory partial.
-// Returns the ported CannotBlockClass kind-class (via CanNotBlockStaticEffect).
-// ADAPTATION: card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CannotBlockClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -38,7 +31,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(attacker))
             {
-                if (attacker == ICardEffect.ResolvePermanentOfThisCard(card))  // ADAPTATION (1)
+                if (attacker == card.PermanentOfThisCard())
                 {
                     return true;
                 }

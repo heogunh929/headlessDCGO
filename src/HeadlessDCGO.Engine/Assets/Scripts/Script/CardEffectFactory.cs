@@ -1,1260 +1,13 @@
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
 
-using System.Collections;  // (P4 ACTIVATED timing-builders) Hashtable — the AS-IS gate/coroutine delegate param type.
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // (P4 ACTIVATED timing-builders) ActivateClass kind-class (return type / new).
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Services;
-using HeadlessDCGO.Engine.Headless.State;
-// Aliased (not a namespace import) to avoid pulling the sibling `...Script.CardEffectFactory` namespace
-// into scope, which would clash with the CardEffectFactory type below.
-using SelectPermanentEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPermanentEffect;
-using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition;
-
-
-/// <summary>
-/// Headless mirror of the original <c>CardEffectFactory</c>. Method names match the original so ported
-/// card bodies read 1:1. Each returns an <see cref="ICardEffect"/> the registrar lowers to a binding.
-/// </summary>
-public static partial class CardEffectFactory
+public partial class CardEffectFactory
 {
-    // (R6-Da'-3) invented `AsUniformActivated` helper DELETED — retirement-guard-protocol step 3 (consumer-0
-    // confirmed batch → immediate deletion). Its only consumers were the 6 granted-continuous BUFF factory
-    // seats (SelectAndBuffDp/SAttack, PlayerScope*, OpponentScope), all of which had 0 card call-sites at
-    // Da'-3 (their former cards ST1_13/14/08, ST3_11/13/14/15/16, BT2_035/092/097/099, ST6_12-STOP etc. were
-    // ALREADY re-ported inline to the AS-IS `ActivateClass` + `ChangeDigimonDP`/`ChangeDigimonSAttackPlayerEffect`
-    // duration-bucket idiom, D2=A). The helper + its 6 seats + the 2 invented buff bodies
-    // (ActivatedTargetBuffEffect / ActivatedPlayerScopeBuffEffect, which registered onto the inert
-    // EffectRegistry bridge) are all removed together. G1R-001 AsUniformActivated ledger row retired.
+    #region Tamer's effect to set Memory to 3
 
-    // (P4 slice) ChangeSelfSAttackStaticEffect moved to CardEffectFactory/ChangeSAttack.cs (AS-IS 1:1)
-
-    // (EFFECT-MODEL REBUILD / P4 slice: continuous DP) ChangeSelfDPStaticEffect (both int and Func<int> forms)
-    // moved to the AS-IS-1:1 generic version in Script/CardEffectFactory/ChangeDP.cs (returns ChangeDPClass).
-
-    // (P4 slice) ChangeDigivolutionCostStaticEffect moved to CardEffectFactory/ChangeDigivolutionCost.cs (AS-IS 1:1)
-
-    // (P4 slice) CanNotDigivolveStaticSelfEffect + CanNotDigivolveStaticEffect moved to CardEffectFactory/CanNotDigivolve.cs (AS-IS 1:1)
-
-    // (P4 slice) AddDigivolutionRequirementStaticEffect + AddSelfDigivolutionRequirementStaticEffect moved to CardEffectFactory/AddDigivolutionRequirement.cs (AS-IS 1:1)
-
-    // (이연③-h EXHAUSTED) factory `DrawCardsEffect` DELETED — it produced the retired invented declarative
-    // DrawEffect stub. Draws are the AS-IS `new DrawClass(card.Context, card.Owner, count, activateClass).Draw()`
-    // coroutine (Script/CardController.cs) inline in the card/fixture body, the printed-card idiom (BT1_046).
-
-    // (R7 종점) invented factory `DrawThenDiscardEffect` DELETED with its body `ActivatedDrawThenDiscardEffect` —
-    // atomic draw-then-discard is the LIVE `CardEffectCommons.DrawAndDiscardCards` coroutine inline in an
-    // ActivateClass (BT3_006 / BT3_088 idiom).
-
-    // (P4 KeyWord slice) PierceSelfEffect moved to KeyWordEffects/Pierce.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) BlockerSelfStaticEffect moved to KeyWordEffects/Blocker.cs (AS-IS 1:1)
-    // (P4 KeyWord slice) JammingSelfStaticEffect moved to KeyWordEffects/Jamming.cs (AS-IS 1:1)
-    // (P4 KeyWord slice) RebootSelfStaticEffect moved to KeyWordEffects/Reboot.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) AllianceSelfEffect moved to KeyWordEffects/Alliance.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) OverclockSelfEffect moved to KeyWordEffects/Overclock.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) VortexSelfEffect moved to KeyWordEffects/Vortex.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) RushSelfStaticEffect moved to KeyWordEffects/Rush.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) RetaliationSelfEffect moved to KeyWordEffects/Retaliation.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) RaidSelfEffect moved to KeyWordEffects/Raid.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) BarrierSelfEffect moved to KeyWordEffects/Barrier.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) CollisionSelfStaticEffect moved to KeyWordEffects/Collision.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) FortitudeSelfEffect moved to KeyWordEffects/Fortitude.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) EvadeSelfEffect moved to KeyWordEffects/Evade.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) SaveEffect moved to KeyWordEffects/Save.cs (AS-IS 1:1)
-
-    // --- (PRIM-W3) keyword self-static grants -----------------------------------------------------------
-    // (P4 KeyWord slice) BlitzSelfEffect moved to KeyWordEffects/Blitz.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) DecodeSelfEffect moved to KeyWordEffects/Decode.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) ProgressSelfStaticEffect moved to KeyWordEffects/Progress.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) PartitionSelfEffect moved to KeyWordEffects/Partition.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) IcecladSelfStaticEffect moved to KeyWordEffects/Iceclad.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) DecoySelfEffect moved to KeyWordEffects/Decoy.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) FragmentSelfEffect moved to KeyWordEffects/Fragment.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) ExecuteSelfEffect moved to KeyWordEffects/Execute.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) ScapegoatSelfEffect moved to KeyWordEffects/Scapegoat.cs (AS-IS 1:1)
-
-    /// <summary>(C9) AS-IS linked-effect gate (Permanent.cs:1532 / ICardEffect.cs:403): an effect flagged
-    /// <c>isLinkedEffect</c> is ACTIVE only while its source card is a LINK card of a battle-area permanent
-    /// (<c>cardSource.IsLinked</c>), evaluated LIVE on every read — breaking the link stops the effect (the
-    /// original has no removal event, only the two live guards). Wrapping the stored condition gives that
-    /// gate to every consumer with no per-gate changes.</summary>
-    internal static Func<bool>? LinkedGate(CardSource card, bool isLinkedEffect, Func<bool>? condition) =>
-        !isLinkedEffect
-            ? condition
-            : () => card.IsLinked && (condition?.Invoke() ?? true);
-
-    /// <summary>(FR-P2) Adapts a ported card's <c>Func&lt;Permanent,bool&gt; permanentCondition</c> into the
-    /// player-scope predicate (evaluated against each candidate 1:1). Null → no predicate (whole scope).</summary>
-    internal static Func<CardSource, bool>? ScopePred(Func<Permanent, bool>? permanentCondition) =>
-        permanentCondition is null ? null : cs => permanentCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner));
-
-    // (P4 KeyWord slice) RushStaticEffect moved to KeyWordEffects/Rush.cs (AS-IS 1:1)
-    // (P4 KeyWord slice) RebootStaticEffect moved to KeyWordEffects/Reboot.cs (AS-IS 1:1)
-
-    // (P4 slice) CanNotAttackStaticEffect + CanNotAttackSelfStaticEffect moved to CardEffectFactory/CanNotAttack.cs (AS-IS 1:1)
-
-    // (④) CanNotAttackJointStaticEffect DELETED — it built the invented JointRestrictionEffect (registry
-    // producer 0, fed only the deleted RestrictionScan). Had no src caller. The AS-IS CannotAttack path is the
-    // new-model CanNotAttackTargetDefendingPermanentClass (CanNotAttackStaticEffect, separate attacker/defender
-    // conditions), seen by NewModelContinuousScan.CanNotAttack.
-
-    // (R3-F1 fold) AS-IS 1:1 port of DCGO CardEffectFactory.cs:63 Gain1MemoryTamerOpponentDigimonEffect — was the
-    // mirror-invented TriggeredGainMemoryEffect; now the uniform ActivateClass (ActivateICardEffect, visible to the
-    // AS-IS window collection). Substrate: IEnumerator->async Task, StartCoroutine->await; AS-IS `card.Owner`
-    // (Player) -> mirror HeadlessPlayerId (memory extensions) / `new Player(context, owner)` for `.Enemy`.
-    public static ICardEffect Gain1MemoryTamerOpponentDigimonEffect(CardSource card)
-    {
-        ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
-        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
-
-        string EffectDiscription()
-        {
-            return "[Start of Your Main Phase] If your opponent has a Digimon, gain 1 memory.";
-        }
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            if (CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass))
-            {
-                if (CardEffectCommons.IsOwnerTurn(card))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        bool CanActivateCondition(Hashtable hashtable)
-        {
-            if (CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass))
-            {
-                if ((new Player(card.Context, card.Owner).Enemy?.GetBattleAreaDigimons().Count ?? 0) >= 1)
-                {
-                    if (card.Owner.CanAddMemory(activateClass))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        async Task ActivateCoroutine(Hashtable _hashtable)
-        {
-            await card.Owner.AddMemory(1, activateClass);
-        }
-
-        return activateClass;
-    }
-
-    /// <summary>(이연③-d) AS-IS <c>Gain2MemoryOptionDelayEffect(card)</c> (CardEffectFactory.cs:470) — a [Main]
-    /// &lt;Delay&gt; option: TRASH this card's own battle-area permanent to activate, and ONLY IF trashed, gain 2
-    /// memory. Re-ported to the AS-IS inline <c>ActivateClass</c> verbatim (retires the invented
-    /// TrashSelfThenGainMemoryDelayEffect). Substrate: IEnumerator->Task, StartCoroutine->await;
-    /// <c>card.PermanentOfThisCard()</c> (a PermanentView on the mirror) -> the target <c>Permanent</c>
-    /// reconstructed at the card's own instance (the DeletePeremanent target list takes Permanent);
-    /// <c>card.Owner.AddMemory(2, activateClass)</c> -> the HeadlessPlayerId extension.</summary>
-    public static ICardEffect Gain2MemoryOptionDelayEffect(CardSource card)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-
-        ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect("Memory +2", CanUseCondition, card);
-        activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
-
-        string EffectDiscription()
-        {
-            return "[Main] <Delay> (Trash this card in your battle area to activate the effect below. You can't activate this effect the turn this card enters play.) - Gain 2 memory.";
-        }
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.CanDeclareOptionDelayEffect(card);
-        }
-
-        async Task ActivateCoroutine(Hashtable _hashtable)
-        {
-            bool deleted = false;
-
-            await CardEffectCommons.DeletePeremanentAndProcessAccordingToResult(
-                targetPermanents: new List<Permanent>() { new Permanent(card.Context, card.InstanceId, card.Owner) },
-                sourceCard: card,
-                successProcess: SuccessProcess,
-                failureProcess: null);
-
-            Task SuccessProcess(IReadOnlyList<Permanent> _permanents)
-            {
-                deleted = true;
-                return Task.CompletedTask;
-            }
-
-            if (deleted)
-            {
-                await card.Owner.AddMemory(2, activateClass);
-            }
-        }
-
-        return activateClass;
-    }
-
-    // (P4 slice) CanNotBeBlockedStaticSelfEffect moved to CardEffectFactory/CanNotBeBlocked.cs (AS-IS 1:1)
-
-    // (P4 slice) CantUnsuspendStaticEffect moved to CardEffectFactory/CanNotUnsuspend.cs (AS-IS 1:1)
-
-    // (P4 slice) CanNotBeDestroyedBySkillStaticEffect moved to CardEffectFactory/CanNotBeDeletedByEffect.cs (AS-IS 1:1)
-
-    // (P4 slice) ChangeSAttackStaticEffect moved to CardEffectFactory/ChangeSAttack.cs (AS-IS 1:1)
-
-    // (P6 stage A retirement) mirror-invented `ReturnToLibraryBottomDigivolutionCardsClass` DELETED — 0
-    // consumers remained (grep: no card, no Tfx, no test); the AS-IS-named factory lives in the partial layer.
-
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:599
-    // ReplaceBottomSecurityWithFaceUpOptionMainEffect. Replaces the old mirror-invented
-    // ReplaceBottomSecurityWithFaceUpEffect version. StartCoroutine->await (coroutine body lambda returns Task).
-    public static ICardEffect ReplaceBottomSecurityWithFaceUpOptionMainEffect(CardSource card)
-    {
-        ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect("Replace your bottom security card with this face-up card", CanUseCondition, card);
-        activateClass.SetUpActivateClass(null, _ => ReplaceBottomSecurityWithFaceUpOptionEffect(card, activateClass), -1, false, EffectDescription());
-
-        string EffectDescription()
-        {
-            return "[Main] Add your bottom security card to the hand. Then, place this card face up as the bottom security card.";
-        }
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
-        }
-
-        return activateClass;
-    }
-
-    // (P4 ACTIVATED inline-mutation; RD-P6C3-B1 UN-STOP) 1:1 mirror of AS-IS CardEffectFactory.cs:645
-    // ReplaceBottomSecurityWithFaceUpOptionEffect. The substrate the earlier STOP cited is now ported: the
-    // StartCoroutine host = async/await; CardObjectController.AddHandCards (RD-R6-03) + AddSecurityCard
-    // (RD-P6C2-1) are the 1:1 zone-move statics; GManager.GetComponent<Effects>().CreateRecoveryEffect is
-    // UI/VFX only (cluster-1 §4 precedent — stripped). IReduceSecurity / IAddSecurity are the established sink
-    // primitives (BT9_043 idiom). NOTE (AS-IS-faithful): AS-IS AddSecurityCard(:1004) itself fires
-    // IAddSecurity, and this body fires it AGAIN after — the AS-IS double-fire is mirrored verbatim.
-    // Substrate translations: IEnumerator->async Task; `card.Owner.X`->`new Player(card.Context, card.Owner).X`;
-    // `.CanAddSecurity(activateClass)`->`.CanAddSecurity(activateClass.EffectSourceCard?.InstanceId)` (the
-    // PlaceToSecurityEffect :1196 mapping).
-    public static async Task ReplaceBottomSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
-    {
-        if (new Player(card.Context, card.Owner).SecurityCards.Count >= 1)
-        {
-            // AS-IS :651-660 Add Bottom Security Card to Hand.
-            CardSource bottomCard = new Player(card.Context, card.Owner).SecurityCards.Last();
-
-            await CardObjectController.AddHandCards(new List<CardSource>() { bottomCard }, false, activateClass);
-
-            await new IReduceSecurity(card.Context, card.Owner, refCollector: null, activateClass).ReduceSecurity();
-        }
-
-        // AS-IS :663-673 Place Face up as Bottom Security Card.
-        if (new Player(card.Context, card.Owner).CanAddSecurity(activateClass.EffectSourceCard?.InstanceId))
-        {
-            await CardObjectController.AddSecurityCard(card, toTop: false, faceUp: true);
-
-            // AS-IS :669 CreateRecoveryEffect (UI/VFX) — stripped per convention.
-
-            await new IAddSecurity(card).AddSecurity();
-        }
-    }
-
-    // (P4 KeyWord slice) TrainingEffect moved to KeyWordEffects/Training.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) MaterialSaveEffect moved to KeyWordEffects/MaterialSave.cs (AS-IS 1:1)
-
-    // (P4 slice) ChangeSelfLinkMaxStaticEffect moved to CardEffectFactory/ChangeLinkMax.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) GrantedReduceLinkCostClass moved to KeyWordEffects/Link.cs (AS-IS 1:1)
-
-    // (RC-5) MindLinkSelfEffect retired with SelfKeywordByNameEffect (test-only registry scaffolding; the AS-IS
-    // MindLink presence surface is the printed OnDeclaration ActivateClass read by Permanent.HasMindLink, and
-    // the real MindLink card EX11_070 runs the MindLinkClass process).
-
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:722 UseRequirements. Replaces the old
-    // mirror-invented ContinuousSelfRestrictionEffect version. Verbatim (no substrate translation needed here).
-    public static IgnoreColorConditionClass UseRequirements(CardSource card, Func<CardSource, bool> cardCondition)
-    {
-        IgnoreColorConditionClass ignoreColorConditionClass = new IgnoreColorConditionClass();
-        ignoreColorConditionClass.SetUpICardEffect("Ignore color requirements", CanUseCondition, card);
-        ignoreColorConditionClass.SetUpIgnoreColorConditionClass(cardCondition: CardCondition);
-        return ignoreColorConditionClass;
-
-        bool PermanentCondition(Permanent permanent)
-        {
-            if (cardCondition == null)
-                return false;
-
-            return (permanent.IsDigimon || permanent.IsTamer)
-                && cardCondition(permanent.TopCard);
-        }
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.HasMatchConditionOwnersPermanent(card, PermanentCondition)
-                || CardEffectCommons.HasMatchConditionOwnersBreedingPermanent(card, PermanentCondition);
-        }
-
-        bool CardCondition(CardSource cardSource)
-        {
-            return cardSource == card;
-        }
-    }
-
-    // ===== PRIM-W4 (low-frequency tail) =================================================================
-
-    // (P4 slice) CanNotBlockStaticSelfEffect + CanNotBlockStaticEffect moved to CardEffectFactory/CanNotBlock.cs (AS-IS 1:1)
-
-    // (P4 slice) CanNotBeDestroyedStaticEffect moved to CardEffectFactory/CanNotBeDeleted.cs (AS-IS 1:1)
-
-    // (P4 slice) ImmuneFromDPMinusStaticEffect moved to CardEffectFactory/ImmuneFromDPMinus.cs (AS-IS 1:1)
-
-    /// <summary>(PRIM-P0 B.O.6 / R2-C ③) <c>CannotReduceCostClass</c> — the play/digivolution cost of the cards
-    /// matched by <paramref name="cardCondition"/>, paid by the players matched by <paramref name="playerCondition"/>,
-    /// cannot be reduced. NEW-MODEL flip: returns the AS-IS kind-class <see cref="CardEffects.CannotReduceCostClass"/>
-    /// (an <c>ICannotReduceCostEffect</c>, no <c>ToBinding</c>) consulted SOLELY by the AS-IS-literal live scan
-    /// <c>Player.CanReduceCost</c> (reached by the cost pipeline CardSource.GetPayingCostWithBaseCost — both its
-    /// legacy-fold canReduce knob and ChangeCostClass.GetCost's own veto). This retires the parallel registry
-    /// CostReduction/Immune representation (ReplacementHelpers.ImmuneFrom*CostReductionKey + the removed
-    /// ContinuousModifierGate.CostReductionImmune). <paramref name="targetPermanentsCondition"/> is the AS-IS
-    /// <c>targetPermanentsCondition</c> predicate threaded straight into the kind-class (BT5_021 "opponent can't
-    /// reduce DIGIVOLUTION costs" passes count&gt;=1; BT8_071 "can't reduce PLAY costs" passes count==0; a null
-    /// argument protects either — the trivial predicate). The cost pipeline threads exactly this permanents
-    /// list, so a digivolution (≥1 non-null target permanent) vs a plain play/option (none) is distinguished
-    /// AS-IS-verbatim.</summary>
-    public static ICardEffect CanNotReduceCostStaticEffect(
-        Func<Player, bool> playerCondition, Func<CardSource, bool> cardCondition,
-        bool isInheritedEffect, CardSource card, Func<bool>? condition,
-        Func<List<Permanent>, bool>? targetPermanentsCondition = null)
-    {
-        ArgumentNullException.ThrowIfNull(playerCondition);
-        ArgumentNullException.ThrowIfNull(cardCondition);
-
-        var effect = new CardEffects.CannotReduceCostClass();
-        effect.SetUpICardEffect("Can't reduce cost", CanUseCondition, card);
-        effect.SetUpCannotReduceCostClass(
-            playerCondition: PlayerCondition,
-            targetPermanentsCondition: targetPermanentsCondition ?? (_ => true),
-            cardCondition: cardCondition);
-        effect.SetNotShowUI(true);
-        if (isInheritedEffect)
-        {
-            effect.SetIsInheritedEffect(true);
-        }
-
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-        bool PlayerCondition(Player player) => player != null && playerCondition(player);
-    }
-
-    /// <summary>(PRIM-P0 B.O.6; R3-W3c-4c B3 flip) <c>CannotAddSecurityClass</c> — <paramref name="scopePlayer"/>
-    /// cannot add cards to their security (AS-IS Player.CanAddSecurity). NEW-MODEL: returns the AS-IS kind-class
-    /// <see cref="CardEffects.CannotAddSecurityClass"/> (an <c>ICannotAddSecurityEffect</c>, no <c>ToBinding</c>)
-    /// consulted by the AS-IS-literal live scan <c>Player.CanAddSecurity</c> (reached by the AddToSecurity / Recover
-    /// mutation chokes). <paramref name="causingEffectPredicate"/> mirrors the AS-IS <c>CardEffectCondition</c> —
-    /// the restriction fires only when the CAUSING effect's source matches (e.g. IsOpponentEffect); null = block
-    /// every add (the AS-IS class requires a non-null CardEffectCondition, so null maps to <c>_ =&gt; true</c>).
-    /// PlayerCondition = "the gaining player is <paramref name="scopePlayer"/>" (the old player-scope binding).</summary>
-    public static ICardEffect CanNotAddSecurityStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null)
-    {
-        var effect = new CardEffects.CannotAddSecurityClass();
-        effect.SetUpICardEffect("Can't add security", CanUseCondition, card);
-        effect.SetUpCannotAddSecurityClass(PlayerCondition: PlayerCondition, CardEffectCondition: CardEffectCondition);
-        effect.SetNotShowUI(true);
-        if (isInheritedEffect)
-        {
-            effect.SetIsInheritedEffect(true);
-        }
-
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-        bool PlayerCondition(Player player) => player.PlayerId == scopePlayer;
-        bool CardEffectCondition(ICardEffect cardEffect) =>
-            causingEffectPredicate is null || (cardEffect?.EffectSourceCard is { } src && causingEffectPredicate(src));
-    }
-
-    /// <summary>(PRIM-P0 B.O.6; R3-W3c-4c B3 flip) <c>CannotAddMemoryClass</c> — <paramref name="scopePlayer"/>
-    /// cannot gain memory (AS-IS Player.CanAddMemory). NEW-MODEL: returns the AS-IS kind-class
-    /// <see cref="CardEffects.CannotAddMemoryClass"/> (an <c>ICannotAddMemoryEffect</c>, no <c>ToBinding</c>)
-    /// consulted by the AS-IS-literal live scan <c>Player.CanAddMemory</c> (reached by the AddMemory mutation choke
-    /// and the card-flow <c>Player.AddMemory</c>). <paramref name="causingEffectPredicate"/> mirrors the AS-IS
-    /// <c>CardEffectCondition</c> (null = block every gain; maps to <c>_ =&gt; true</c>).</summary>
-    public static ICardEffect CanNotAddMemoryStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null)
-    {
-        var effect = new CardEffects.CannotAddMemoryClass();
-        effect.SetUpICardEffect("Can't add memory", CanUseCondition, card);
-        effect.SetUpCannotAddMemoryClass(PlayerCondition: PlayerCondition, CardEffectCondition: CardEffectCondition);
-        effect.SetNotShowUI(true);
-        if (isInheritedEffect)
-        {
-            effect.SetIsInheritedEffect(true);
-        }
-
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-        bool PlayerCondition(Player player) => player.PlayerId == scopePlayer;
-        bool CardEffectCondition(ICardEffect cardEffect) =>
-            causingEffectPredicate is null || (cardEffect?.EffectSourceCard is { } src && causingEffectPredicate(src));
-    }
-
-    // (P4 KeyWord slice) AllianceStaticEffect moved to KeyWordEffects/Alliance.cs (AS-IS 1:1)
-
-    // (④) The player-scope keyword-grant statics (Piercing/Blitz/Retaliation/Decoy/Barrier StaticEffect) and
-    // GrantTriggeredEffectToScopedSet DELETED — they built the invented ContinuousPlayerScopeKeywordEffect /
-    // PlayerScopeTriggerGrantEffect carriers (registry producer 0). 2-hop real-card production census = 0 (only
-    // the retired PRIM-P0.AddSkillLiveSet / TriggerGrantSetSplice test scaffolding called them). The AS-IS
-    // AddSkillClass keyword-grant port is a later corpus decision (design item RD-④E-PSKEYWORD / RD-④E-TRIGGERGRANT).
-
-    // (P4 KeyWord slice) JammingStaticEffect moved to KeyWordEffects/Jamming.cs (AS-IS 1:1)
-    // (P4 KeyWord slice) AscensionSelfEffect moved to KeyWordEffects/Ascension.cs (AS-IS 1:1)
-
-    // (P4 slice) ChangeBaseDPGlobalEffect moved to CardEffectFactory/ChangeOriginDP.cs (AS-IS 1:1)
-
-    // (P4 slice) InvertSAttackStaticEffect moved to CardEffectFactory/ChangeSAttack.cs (AS-IS 1:1)
-
-    /// <summary>(b-remediation; R3-W3c-4c B5 flip) <c>ImmuneFromDeDigivolveStaticEffect</c> — AS-IS
-    /// <c>ImmuneFromDeDigivolveClass</c> (<c>IImmuneFromDeDigivolveEffect</c>, consumed by
-    /// <c>Permanent.ImmuneFromDeDigivolve()</c>): a continuous "cannot be de-digivolved" restriction on self (or,
-    /// with <paramref name="permanentCondition"/>, the owner's matching Digimon). NEW-MODEL: returns the AS-IS
-    /// kind-class <see cref="CardEffects.ImmuneFromDeDigivolveClass"/> (an <c>IImmuneFromDeDigivolveEffect</c>, no
-    /// <c>ToBinding</c>) at <see cref="EffectTiming.None"/>; the LIVE consumer is the AS-IS-literal getter
-    /// <c>Permanent.ImmuneFromDeDigivolve()</c> (scans every field permanent's <c>EffectList(None)</c> for a usable
-    /// <c>IImmuneFromDeDigivolveEffect</c>) reached uniformly through <c>Permanent.ImmuneFromDeDigivolve</c>
-    /// (CardController / ActivatedEffects / the mutation sink). AS-IS construction idiom mirrored (EX8_043):
-    /// SetUpICardEffect + SetUpImmuneFromDeDigivolveClass(PermanentCondition) — the class declares no ToBinding, so
-    /// nothing registers the old <c>CannotBeDeDigivolvedKey</c> binding (registry production stops here).</summary>
-    public static ICardEffect ImmuneFromDeDigivolveStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)
-    {
-        var effect = new CardEffects.ImmuneFromDeDigivolveClass();
-        effect.SetUpICardEffect("Isn't affected by <De-Digivolve>", CanUseCondition, card);
-        effect.SetUpImmuneFromDeDigivolveClass(PermanentCondition: PermanentCondition);
-        effect.SetNotShowUI(true);
-        if (isInheritedEffect)
-        {
-            effect.SetIsInheritedEffect(true);
-        }
-
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-
-        bool PermanentCondition(Permanent permanent)
-        {
-            if (permanentCondition is null)
-            {
-                // Old self-scope form (ContinuousSelfRestrictionEffect): protects exactly THIS card's permanent —
-                // the AS-IS self idiom `permanent == thisPermanent` (EX8_043, InstanceId equality).
-                Permanent? own = ICardEffect.ResolvePermanentOfThisCard(card);
-                return own is not null && permanent == own;
-            }
-
-            // Old player-scope form (ContinuousPlayerScopeRestrictionEffect): the owner's matching permanents.
-            return permanent.OwnerId == card.Owner && permanentCondition(permanent);
-        }
-    }
-
-    /// <summary>(d-remediation) <c>CanNotSelectBySkillStaticEffect</c> — AS-IS <c>ICanNotSelectBySkillEffect</c> /
-    /// <c>Permanent.CanSelectBySkill</c>: the protected permanent(s) cannot be CHOSEN as a target by a skill
-    /// effect (untargetability). <paramref name="permanentCondition"/> = AS-IS <c>CanNotSelectBySkill(candidate, …)</c>
-    /// = which candidates are protected (self when null). <paramref name="causingEffectPredicate"/> = the skill-side
-    /// gate ("cannot be chosen by your opponent's effects" ⇒ source-owner != owner). Registered candidate-scoped
-    /// (scopeAnyPlayer so it can protect ANY player's matching cards); consumed by
-    /// <see cref="HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPermanentEffect"/>.BuildRequest.</summary>
-    /// <summary>(true-scan) AS-IS <c>SetUpCanNotSelectBySkillClass(CanNotSelectBySkill)</c>: <paramref name="predicate"/>
-    /// is the joint AS-IS <c>CanNotSelectBySkill(candidate, skillSource)</c> — evaluated at select time by scanning
-    /// EVERY field effect (SelectPermanentEffect), not baked into a scope.</summary>
-    public static ICardEffect CanNotSelectBySkillStaticEffect(Func<CardSource, CardSource, bool> predicate, CardSource card, Func<bool>? condition = null) =>
-        new CanNotSelectBySkillEffect(card, predicate, condition);
-
-    // (P4 slice) CanNotBeRemovedStaticEffect moved to CardEffectFactory/CanNotBeRemoved.cs (AS-IS 1:1)
-
-    /// <summary>(d-remediation) <c>CanNotMoveStaticEffect</c> — AS-IS <c>ICanNotMoveEffect</c> /
-    /// <c>Permanent.CanMove</c>: the protected permanent(s) cannot MOVE (breeding→battle promotion). Registers a
-    /// continuous restriction consulted by the legal-action dispatcher's move gate.</summary>
-    /// <summary>(true-scan) AS-IS <c>SetUpCanNotMoveClass(CanNotMove)</c>: <paramref name="predicate"/> is the AS-IS
-    /// <c>CanNotMove(candidate, causing)</c>, evaluated by scanning EVERY field effect in the move gate (causing is
-    /// null there, AS-IS <c>CanNotMove(TopCard, null)</c>).</summary>
-    public static ICardEffect CanNotMoveStaticEffect(Func<CardSource, CardSource?, bool> predicate, CardSource card, Func<bool>? condition = null) =>
-        new CanNotMoveEffect(card, predicate, condition);
-
-    /// <summary>(d-remediation) <c>DontHaveDPStaticEffect</c> — AS-IS <c>IDontHaveDPEffect</c> /
-    /// <c>Permanent.HasDP==false</c>: the protected permanent(s) are treated as having NO DP — AS-IS
-    /// <c>Permanent.DP</c> then returns -1, overriding the base DP and every DP modifier.</summary>
-    public static ICardEffect DontHaveDPStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool scopeAnyPlayer = false)
-    {
-        // (R3-W3a narrow flip) NEW-MODEL: returns the AS-IS kind-class DontHaveDPClass (IDontHaveDPEffect)
-        // instead of the old-model registry restriction. Judgment basis: the LIVE consumer is the R1-a interface
-        // scan Permanent.HasDP (Permanent.cs:127-147 — `cardEffect is IDontHaveDPEffect` over every field
-        // permanent's EffectList(None)); the old DontHaveDpKey registry binding has ZERO readers (dead —
-        // superseded by the R1 rehousing), so the old-model form was inert. AS-IS construction idiom mirrored:
-        // BT17_014 (SetUpICardEffect "Don't have DP" + SetUpDontHaveDPClass(PermanentCondition) + SetNotShowUI).
-        // DontHaveDPClass declares no ToBinding, so LegacyBindingBridge.TryToBinding returns false and the
-        // enter-play registrar (CardEffectRegistrar.cs:234) registers NOTHING — registry production stops here;
-        // availability is the live EffectList scan alone.
-        var effect = new CardEffects.DontHaveDPClass();
-        effect.SetUpICardEffect("Don't have DP", CanUseCondition, card);
-        effect.SetUpDontHaveDPClass(PermanentCondition: PermanentCondition);
-        effect.SetNotShowUI(true);
-        if (isInheritedEffect)
-        {
-            effect.SetIsInheritedEffect(true);
-        }
-
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-
-        bool PermanentCondition(Permanent permanent)
-        {
-            if (permanentCondition is null)
-            {
-                // Old self-scope form (ContinuousSelfRestrictionEffect): strips DP from exactly THIS card's
-                // permanent — the AS-IS self idiom `permanent == selectedPermanent` (BT17_014, InstanceId equality).
-                Permanent? own = ICardEffect.ResolvePermanentOfThisCard(card);
-                return own is not null && permanent == own;
-            }
-
-            // Old player-scope form (ContinuousPlayerScopeRestrictionEffect): the owner's matching permanents;
-            // scopeAnyPlayer widens the scope to every player's (the old scopeAnyPlayer knob folded into the
-            // predicate — the new-model HasDP scan itself is board-wide, AS-IS Permanent.cs:128).
-            return (scopeAnyPlayer || permanent.OwnerId == card.Owner) && permanentCondition(permanent);
-        }
-    }
-
-    /// <summary>(d-remediation, R3-W3c-4b B1 flip) <c>DontBattleSecurityDigimonStaticEffect</c> — AS-IS
-    /// <c>DontBattleSecurityDigimonClass</c>: intrinsic "Ignore Battle" marker (EX4_013). Returns the new-model
-    /// kind-class <see cref="CardEffects.DontBattleSecurityDigimonClass"/> (an
-    /// <c>IDontBattleSecurityDigimonEffect</c>, no <c>ToBinding</c>) consumed by the security resolver's
-    /// AS-IS-literal interface scan (CardController.cs:4136-4169). Returned by the card at
-    /// <see cref="EffectTiming.None"/>; the resolver consults it when the card is revealed as a security Digimon
-    /// and skips the attacker battle. <paramref name="cardSourceCondition"/> = AS-IS CardSourceCondition
-    /// (usually <c>cs == card</c>); <paramref name="condition"/> = the effect's own CanUse gate (AS-IS
-    /// <c>CanUseIgnoreBattle</c>, abstracted). The only producer is TfxIgnoreBattle (no real-card producers).</summary>
-    public static ICardEffect DontBattleSecurityDigimonStaticEffect(Func<CardSource, bool> cardSourceCondition, CardSource card, Func<bool>? condition)
-    {
-        var effect = new CardEffects.DontBattleSecurityDigimonClass();
-        effect.SetUpICardEffect("Ignore Battle", CanUseCondition, card);
-        effect.SetUpDontBattleSecurityDigimonClass(CardSourceCondition: cardSourceCondition);
-        effect.SetIsSecurityEffect(true);
-        effect.SetNotShowUI(true);
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-    }
-
-    /// <summary>(d-remediation) <c>CannotIgnoreDigivolutionConditionStaticEffect</c> — AS-IS
-    /// <c>ICannotIgnoreDigivolutionConditionEffect</c> / <c>Player.CanIgnoreDigivolutionRequirement</c>: while this
-    /// is active NO player may ignore digivolution requirements (BT8_059 "Players can't ignore digivolution
-    /// requirements") — it negates the ignore-level/ignore-colour grants. Registered board-wide (scopeAnyPlayer,
-    /// so the digivolve target is in scope); honoured by DigivolveAction's evolution-condition gate. Default
-    /// <paramref name="scopeAnyPlayer"/>:true mirrors the AS-IS global scan.</summary>
-    /// <summary>(true-scan, R3-W3c-4b D flip) AS-IS <c>CannotIgnoreDigivolutionConditionClass</c>:
-    /// <paramref name="predicate"/> is the AS-IS joint <c>cannotIgnoreDigivolutionCondition(digivolvingCard,
-    /// target)</c>. Returns the new-model kind-class <see cref="CardEffects.CannotIgnoreDigivolutionConditionClass"/>
-    /// (an <c>ICannotIgnoreDigivolutionConditionEffect</c>, no <c>ToBinding</c>) consumed by the live getter
-    /// <see cref="Player.CanIgnoreDigivolutionRequirement"/> (scanned by DigivolveAction); no registry binding. The
-    /// kind-class exposes the AS-IS 3-arg predicate <c>(player, targetPermanent, cardSource)</c>; the joint maps as
-    /// <c>predicate(cardSource /*digivolvingCard*/, targetPermanent.TopCard /*target*/)</c>. BT8_059 uses
-    /// <c>(_, _) =&gt; true</c> (global lock).</summary>
-    public static ICardEffect CannotIgnoreDigivolutionConditionStaticEffect(Func<CardSource, CardSource, bool> predicate, CardSource card, Func<bool>? condition = null)
-    {
-        var effect = new CardEffects.CannotIgnoreDigivolutionConditionClass();
-        effect.SetUpICardEffect("Players can't ignore digivolution requirements", CanUseCondition, card);
-        effect.SetUpCannotIgnoreDigivolutionConditionClass(
-            (player, targetPermanent, cardSource) => predicate(cardSource, targetPermanent.TopCard));
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-    }
-
-    /// <summary>(d-remediation, R3-W3c-4b B2 flip) <c>ChangeEndTurnMinMemoryStaticEffect</c> — AS-IS
-    /// <c>ChangeEndTurnMinMemoryClass</c> / <c>AutoProcessing.TurnEndMinMemory</c>: SETS the memory the opponent
-    /// must reach for the turn to auto-end (default 1) to <paramref name="minMemory"/> (BT14_081/BT17_069 set it
-    /// to 3, AS-IS <c>SetUpChangeEndTurnMinMemoryClass(minMemory =&gt; 3)</c>). Returns the new-model kind-class
-    /// <see cref="CardEffects.ChangeEndTurnMinMemoryClass"/> (an <c>IChangeEndTurnMinMemoryEffect</c>, no
-    /// <c>ToBinding</c>) consumed by the AS-IS-literal live scan <c>AutoProcessing.TurnEndMinMemory</c>;
-    /// no registry binding.</summary>
-    public static ICardEffect ChangeEndTurnMinMemoryStaticEffect(int minMemory, bool isInheritedEffect, CardSource card, Func<bool>? condition)
-    {
-        var effect = new CardEffects.ChangeEndTurnMinMemoryClass();
-        effect.SetUpICardEffect("The turn end condition min-memory", CanUseCondition, card);
-        effect.SetUpChangeEndTurnMinMemoryClass(_ => minMemory);
-        if (isInheritedEffect)
-        {
-            effect.SetIsInheritedEffect(true);
-        }
-
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-    }
-
-    /// <summary>(d-remediation) <c>ChangeBaseCardNameStaticEffect</c> — AS-IS <c>ChangeBaseCardNameClass</c>: SETS
-    /// the target's original card name to <paramref name="newName"/> (BT14_097 "original name is [Sukamon]"),
-    /// REPLACING the printed name for all name matching (<c>CardSource.CardNames</c> / EqualsCardName). Grant on
-    /// the target permanent with a duration for a temporary change.</summary>
-    public static ICardEffect ChangeBaseCardNameStaticEffect(string newName, CardSource card, Func<bool>? condition = null)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(newName);
-        var effect = new CardEffects.ChangeBaseCardNameClass();
-        effect.SetUpICardEffect("Change base card name", CanUseCondition, card);
-        effect.SetUpChangeBaseCardNamesClass((_, _) => new List<string> { newName });
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-    }
-
-    // (P4 KeyWord slice) CollisionStaticEffect moved to KeyWordEffects/Collision.cs (AS-IS 1:1)
-
-    // (P4 slice) VortexCanAttackPlayersStaticEffect moved to CardEffectFactory/VortexCanAttackPlayers.cs (AS-IS 1:1)
-
-    // (P4 slice) ChangeLinkMaxStaticEffect moved to CardEffectFactory/ChangeLinkMax.cs (AS-IS 1:1)
-
-    // (P4 slice) TreatAsDigimonStaticEffect moved to CardEffectFactory/TreatAsDigimon.cs (AS-IS 1:1)
-
-    /// <summary>(PRIM-W4) <c>Gain1MemoryTamerOwnerDigimonConditionalEffect</c> — "[Start of Your Main Phase] if
-    /// you have a matching Digimon, gain 1 memory." The per-permanent predicate is captured in
-    /// <paramref name="condition"/> at porting time. Registers at <see cref="EffectTiming.OnStartMainPhase"/>
-    /// (AS-IS "[Start of Your Main Phase]" — both known cards BT23_081/BT23_083 return it under that timing),
-    /// NOT OnStartTurn.</summary>
-    public static ICardEffect Gain1MemoryTamerOwnerDigimonConditionalEffect(string effectDescription, Func<Permanent, bool>? permanentCondition, Func<bool>? condition, CardSource card)
-    {
-        // (R3-F1 fold) AS-IS 1:1 port of DCGO CardEffectFactory.cs:115 Gain1MemoryTamerOwnerDigimonConditionalEffect —
-        // was the mirror-invented TriggeredGainMemoryEffect; now the uniform ActivateClass. Substrate:
-        // IEnumerator->async Task, StartCoroutine->await; `card.Owner.AddMemory/CanAddMemory/GetBattleAreaDigimons`
-        // = HeadlessPlayerId extensions. AS-IS passes non-null `condition`/`permamentCondition`; the mirror
-        // signature made both nullable, so the nullable guards below are the retained pre-existing mirror ADAPTATION
-        // (a null predicate = "no extra gate"). The empty-description default is likewise the retained mirror guard.
-        ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
-        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
-
-        string EffectDiscription() =>
-            string.IsNullOrWhiteSpace(effectDescription) ? "[Start of Your Main Phase] Gain 1 memory." : effectDescription;
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass);
-        }
-
-        bool CanActivateCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass)
-                && card.Owner.CanAddMemory(activateClass)
-                && (condition is null || condition())
-                && (permanentCondition is null || card.Owner.GetBattleAreaDigimons().Any(permanentCondition));
-        }
-
-        async Task ActivateCoroutine(Hashtable _hashtable)
-        {
-            await card.Owner.AddMemory(1, activateClass);
-        }
-
-        return activateClass;
-    }
-
-    /// <summary>(FR2) Whether <paramref name="card"/>'s owner controls at least one permanent in
-    /// <paramref name="searchZones"/> (default: battle area) satisfying <paramref name="predicate"/> (evaluated
-    /// as a <see cref="Permanent"/> 1:1).</summary>
-    internal static bool OwnerControlsMatchingDigimon(CardSource card, Func<Permanent, bool> predicate, params ChoiceZone[] searchZones)
-    {
-        if (card.Context.ZoneMover is not IZoneStateReader zones)
-        {
-            return false;
-        }
-
-        ChoiceZone[] zonesToSearch = searchZones is { Length: > 0 } ? searchZones : new[] { ChoiceZone.BattleArea };
-        foreach (ChoiceZone zone in zonesToSearch)
-        {
-            foreach (HeadlessEntityId id in zones.GetCards(card.Owner, zone))
-            {
-                if (predicate(new Permanent(card.Context, id, card.Owner)))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>AS-IS <c>CardEffectFactory.EoTLose3Memory(card)</c> (CardEffectFactory.cs:1467) — the "at end of
-    /// turn lose 3 memory" reversal (BT1_021/BT1_040), a bare <c>ActivateClass</c> "Memory -3" whose CanUse/CanActivate
-    /// are always-true and whose body is <c>card.Owner.AddMemory(-3)</c>. It carries no timing itself — the OnEndTurn
-    /// firing comes from the closure key when it is stored via <c>AddEffectToPlayer(UntilEachTurnEnd, …, OnEndTurn)</c>
-    /// (or <c>UntilEachTurnEndEffects.Add(GetCardEffect)</c>) and surfaced by the flipped window's
-    /// <c>player.EffectList(OnEndTurn)</c> scan. R3-C2b-2 fold: replaces the mirror-invented old-model
-    /// <c>TriggeredGainMemoryEffect</c> with the AS-IS 1:1 ActivateClass (new-model, no ToBinding). Substrate:
-    /// IEnumerator→async Task, StartCoroutine→await; AS-IS <c>card.Owner</c> (Player) → mirror HeadlessPlayerId
-    /// AddMemory extension.</summary>
-    public static ICardEffect EoTLose3Memory(CardSource card)
-    {
-        ActivateClass activateClass1 = new ActivateClass();
-        activateClass1.SetUpICardEffect("Memory -3", CanUseCondition1, card);
-        activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription1());
-        return activateClass1;
-
-        string EffectDiscription1()
-        {
-            return "Lose 3 memory.";
-        }
-
-        bool CanUseCondition1(Hashtable hashtable)
-        {
-            return true;
-        }
-
-        bool CanActivateCondition1(Hashtable hashtable)
-        {
-            return true;
-        }
-
-        async Task ActivateCoroutine1(Hashtable _hashtable1)
-        {
-            await card.Owner.AddMemory(-3, activateClass1);
-        }
-    }
-
-    // (P4 slice) CantSuspendStaticEffect moved to CardEffectFactory/CanNotSuspend.cs (AS-IS 1:1)
-
-    // (P4 slice) CannotReturnToHandStaticEffect moved to CardEffectFactory/CanNotReturnToHand.cs (AS-IS 1:1)
-
-    // (P4 slice) CannotReturnToDeckStaticEffect moved to CardEffectFactory/CanNoReturnToDeck.cs (AS-IS 1:1)
-
-    // (P4 slice) CanNotBeDestroyedByBattleStaticEffect moved to CardEffectFactory/CanNotBeDeletedByBattle.cs (AS-IS 1:1)
-
-    // (P4 slice) CanNotBeTrashedBySkillStaticEffect moved to CardEffectFactory/CanNotBeTrashedByEffect.cs (AS-IS 1:1)
-
-    /// <summary>(PRIM-W4; R3-W3c B6 flip) <c>ImmuneStackTrashingClass</c> — alias of
-    /// <see cref="CanNotBeTrashedBySkillStaticEffect"/>. Now returns the AS-IS kind-class
-    /// <see cref="CardEffects.ImmuneStackTrashingClass"/> (no ToBinding → registers no legacy binding), served by
-    /// the live getter <c>Permanent.ImmuneFromStackTrashing(ICardEffect)</c>. Unconditional (null predicates).</summary>
-    public static ICardEffect ImmuneStackTrashingClass(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        CanNotBeTrashedBySkillStaticEffect(null!, null!, isInheritedEffect, card, condition!, "Isn't affected by trashing any stacked card");
-
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:622
-    // ReplaceTopSecurityWithFaceUpOptionMainEffect. Replaces the old mirror-invented version.
-    public static ICardEffect ReplaceTopSecurityWithFaceUpOptionMainEffect(CardSource card)
-    {
-        ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect("Replace your top security card with this face-up card", CanUseCondition, card);
-        activateClass.SetUpActivateClass(null, _ => ReplaceTopSecurityWithFaceUpOptionEffect(card, activateClass), -1, false, EffectDescription());
-
-        string EffectDescription()
-        {
-            return "[Main] Add your top security card to the hand. Then, place this card face up as the top security card.";
-        }
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
-        }
-
-        return activateClass;
-    }
-
-    // (P4 ACTIVATED inline-mutation; RD-P6C3-B1 UN-STOP) 1:1 mirror of AS-IS CardEffectFactory.cs:684
-    // ReplaceTopSecurityWithFaceUpOptionEffect. Same now-ported substrate as the Bottom variant above (AddHandCards
-    // RD-R6-03 / AddSecurityCard RD-P6C2-1 / IReduceSecurity / IAddSecurity; CreateRecoveryEffect = stripped VFX;
-    // AS-IS double IAddSecurity fire preserved). Differs from Bottom only in top vs bottom (SecurityCards.First()
-    // and toTop: true).
-    public static async Task ReplaceTopSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
-    {
-        if (new Player(card.Context, card.Owner).SecurityCards.Count >= 1)
-        {
-            // AS-IS :690-699 Add Top Security Card to Hand.
-            CardSource topCard = new Player(card.Context, card.Owner).SecurityCards.First();
-
-            await CardObjectController.AddHandCards(new List<CardSource>() { topCard }, false, activateClass);
-
-            await new IReduceSecurity(card.Context, card.Owner, refCollector: null, activateClass).ReduceSecurity();
-        }
-
-        // AS-IS :702-712 Place Face up as Top Security Card.
-        if (new Player(card.Context, card.Owner).CanAddSecurity(activateClass.EffectSourceCard?.InstanceId))
-        {
-            await CardObjectController.AddSecurityCard(card, toTop: true, faceUp: true);
-
-            // AS-IS :708 CreateRecoveryEffect (UI/VFX) — stripped per convention.
-
-            await new IAddSecurity(card).AddSecurity();
-        }
-    }
-
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:196
-    // PlayMindLinkTamerFromDigivolutionCards. Replaces the old mirror-invented ActivatedPlayFromUnderEffect version.
-    // Coroutine->async Task; StartCoroutine->await; card.PermanentOfThisCard()->ICardEffect.ResolvePermanentOfThisCard(card).
-    public static ICardEffect PlayMindLinkTamerFromDigivolutionCards(CardSource card, string cardName, string effectDescription)
-    {
-        ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect($"Play 1 [{cardName}] from this Digimon's digivolution cards", CanUseCondition, card);
-        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, effectDescription);
-        activateClass.SetIsInheritedEffect(true);
-
-        bool CanSelectCardCondition(CardSource cardSource)
-        {
-            return cardSource.EqualsCardName(cardName)
-                && CardEffectCommons.CanPlayAsNewPermanent(cardSource: cardSource, payCost: false, cardEffect: activateClass);
-        }
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.IsExistOnBattleArea(card);
-        }
-
-        bool CanActivateCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.IsExistOnBattleArea(card)
-                && ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Count(CanSelectCardCondition) >= 1;
-        }
-
-        async Task ActivateCoroutine(Hashtable _hashtable)
-        {
-            if (CardEffectCommons.IsExistOnBattleArea(card))
-            {
-                Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
-
-                if (selectedPermanent != null)
-                {
-                    if (selectedPermanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1)
-                    {
-                        int maxCount = 1;
-
-                        List<CardSource> selectedCards = new List<CardSource>();
-
-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
-
-                        selectCardEffect.SetUp(
-                                    canTargetCondition: CanSelectCardCondition,
-                                    canTargetCondition_ByPreSelecetedList: null,
-                                    canEndSelectCondition: null,
-                                    canNoSelect: () => true,
-                                    selectCardCoroutine: SelectCardCoroutine,
-                                    afterSelectCardCoroutine: null,
-                                    message: "Select 1 digivolution card to play.",
-                                    maxCount: maxCount,
-                                    canEndNotMax: false,
-                                    isShowOpponent: true,
-                                    mode: SelectCardEffect.Mode.Custom,
-                                    root: SelectCardEffect.Root.Custom,
-                                    customRootCardList: selectedPermanent.DigivolutionCards.ToList(),
-                                    canLookReverseCard: true,
-                                    selectPlayer: card.Owner,
-                                    cardEffect: activateClass);
-
-                        selectCardEffect.SetUpCustomMessage("Select 1 digivolution card to play.",
-                            "The opponent is selecting 1 digivolution card to play.");
-                        selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
-
-                        await selectCardEffect.Activate();
-
-                        async Task SelectCardCoroutine(CardSource cardSource)
-                        {
-                            selectedCards.Add(cardSource);
-
-                            await Task.CompletedTask;
-                        }
-
-                        await CardEffectCommons.PlayPermanentCards(
-                            cardSources: selectedCards,
-                            activateClass: activateClass,
-                            payCost: false,
-                            isTapped: false,
-                            root: SelectCardEffect.Root.DigivolutionCards,
-                            activateETB: true);
-                    }
-                }
-            }
-        }
-
-        return activateClass;
-    }
-
-    // (P4 slice) CanNotBeAttackedSelfStaticEffect moved to CardEffectFactory/CanNotBeAttacked.cs (AS-IS 1:1)
-
-    // (P6 stage A retirement) mirror-invented `RevealLibraryClass` DELETED — 0 consumers remained
-    // (grep: no card, no Tfx, no test).
-
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:551 ActivateMainOptionSecurityEffect
-    // (ADDED — absent on mirror). Func<ICardEffect,IEnumerator>->Func<ICardEffect,Task>; IEnumerator->async Task;
-    // StartCoroutine->await.
-    public static ICardEffect ActivateMainOptionSecurityEffect(CardSource card, string effectName, string effectDiscription = "", Func<ICardEffect, Task> afterMainEffect = null)
-    {
-        ActivateClass mainActivateClass = CardEffectCommons.OptionMainEffect(card);
-
-        ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect(EffectName(), CanUseCondition, card);
-        activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
-        activateClass.SetIsSecurityEffect(true);
-
-        string EffectName()
-        {
-            if (!string.IsNullOrEmpty(effectName)) return effectName;
-            if (mainActivateClass != null) return mainActivateClass.EffectName;
-            return "";
-        }
-
-        string EffectDiscription()
-        {
-            if (!string.IsNullOrEmpty(effectDiscription)) return effectDiscription;
-            if (mainActivateClass != null) return mainActivateClass.EffectDiscription.Replace("[Main]", "[Security]");
-            return "";
-        }
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.CanTriggerSecurityEffect(CardEffectCommons.OptionMainCheckHashtable(card), card);
-        }
-
-        async Task ActivateCoroutine(Hashtable _hashtable)
-        {
-            if (mainActivateClass != null)
-            {
-                await mainActivateClass.Activate(CardEffectCommons.OptionMainCheckHashtable(card));
-            }
-
-            if (afterMainEffect != null)
-            {
-                await afterMainEffect(activateClass);
-            }
-        }
-
-        return activateClass;
-    }
-
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:512 PlaceSelfDelayOptionSecurityEffect.
-    // Replaces the old mirror-invented PlayThisCardToBattleEffect version. Coroutine->async Task; StartCoroutine->await.
-    public static ICardEffect PlaceSelfDelayOptionSecurityEffect(CardSource card)
-    {
-        ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect("Place this card in battle area", CanUseCondition, card);
-        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
-        activateClass.SetIsSecurityEffect(true);
-
-        string EffectDiscription()
-        {
-            return "[Security] Place this card in its owner's battle area.";
-        }
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
-        }
-
-        bool CanActivateCondition(Hashtable hashtable)
-        {
-            if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass, isPlayOption: true))
-            {
-                return true;
-            }
-
-            return false;
-        }
-
-        async Task ActivateCoroutine(Hashtable _hashtable)
-        {
-            await CardEffectCommons.PlaceDelayOptionCards(card: card, cardEffect: activateClass);
-        }
-
-        return activateClass;
-    }
-
-    // (P4 ACTIVATED inline-mutation; R6-Db D4 landed) 1:1 mirror of AS-IS CardEffectFactory.cs:285
-    // PlaySelfDigimonAfterBattleSecurityEffect. Coroutine->async Task; StartCoroutine->await;
-    // card.PermanentOfThisCard()->ICardEffect.ResolvePermanentOfThisCard(card); PlaySE/WaitForSeconds = UI (stripped).
-    // Live consumers: EX10_029, P_165 ([Security], default deleteDigimon=UntilEndBattle → no delete branch).
-    // (RD-P6C3-B2 RE-ADJUDICATED — RESOLVED) The AS-IS body's nested grants are now landed: the SECOND grant
-    // (card.Owner.UntilEndBattleEffects.Add(GetCardEffect1) — the OnEndBattle-sampled Player bucket) sits on the
-    // Player.cs:279 store landed by B군-2R A1b (reset at battle end in BattleResolver); the conditional THIRD
-    // (playedDigimon.UntilOpponentTurnEndEffects.Add + DestroyPermanentsClass batch-delete) is mirrored against
-    // the landed Permanent.cs:2061 store + CardController DestroyPermanentsClass. The former mirror-invented
-    // PlaySelfAtEndOfBattleSecurityEffect / PlaySelfAtEndOfBattleTriggerEffect carriers (a parallel EffectRegistry
-    // OnEndBattle-trigger substitute for this bucket) are RETIRED with this landing.
-    public static ICardEffect PlaySelfDigimonAfterBattleSecurityEffect(CardSource card, EffectDuration deleteDigimon = EffectDuration.UntilEndBattle)
-    {
-        ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect("Play this card at the end of the battle", CanUseCondition, card);
-        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
-        activateClass.SetIsSecurityEffect(true);
-
-        string EffectDiscription()
-        {
-            return "[Security] At the end of the battle, play this card without paying its memory cost.";
-        }
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
-        }
-
-        bool CanActivateCondition(Hashtable hashtable)
-        {
-            return CardEffectCommons.IsExistOnExecutingArea(card);
-        }
-
-        // (R6-Db D4 / RD-P6C3-B2 landed) 1:1 mirror of AS-IS CardEffectFactory.cs:307-461. AS-IS :309 `yield
-        // return null` / :311 PlaySE(BuffSE) / :358 WaitForSeconds(0.2f) = UI frame yields — stripped.
-        async Task ActivateCoroutine(Hashtable _hashtable)
-        {
-            // ── Play Card (AS-IS :313-459) ──────────────────────────────────────────────────────
-            ActivateClass activateClass1 = new ActivateClass();
-            activateClass1.SetUpICardEffect("Play this card", CanUseCondition1, card);
-            activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription1());
-            // AS-IS :317 card.Owner.UntilEndBattleEffects.Add(GetCardEffect1) — the OnEndBattle-sampled Player grant
-            // bucket (Player.cs:279 mirror store, landed B군-2R A1b; expired at battle end by BattleResolver's
-            // battle-end UntilEndBattle reset, co-located with EffectDurationExpiry.ExpireBattleEnd). Precedent =
-            // ST17_13 [Security] Digivolve-into-this (same UntilEndBattleEffects→OnEndBattle idiom).
-            new Player(card.Context, card.Owner).UntilEndBattleEffects.Add(GetCardEffect1);
-
-            string EffectDiscription1()
-            {
-                return "Play this card without paying its memory cost.";
-            }
-
-            bool CanUseCondition1(Hashtable hashtable)
-            {
-                return true;
-            }
-
-            bool CanActivateCondition1(Hashtable hashtable)
-            {
-                // AS-IS :331 CanPlayAsNewPermanent(card, payCost:false, activateClass1, root:Security) — the mirror
-                // orchestrator carries no Root param (Root.None can-pay gate), substrate translation.
-                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1))
-                {
-                    // AS-IS :333 the card is still in a playable transient position (not back in deck/security).
-                    Player owner = new Player(card.Context, card.Owner);
-                    if (!owner.LibraryCards.Contains(card) && !owner.SecurityCards.Contains(card))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
-
-            async Task ActivateCoroutine1(Hashtable _hashtable1)
-            {
-                Player owner = new Player(card.Context, card.Owner);
-                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1)
-                    && !owner.LibraryCards.Contains(card) && !owner.SecurityCards.Contains(card))
-                {
-                    // AS-IS :348 PlayPermanentCards(card, activateClass1, payCost:false, isTapped:false,
-                    // root:Security, activateETB:true). Mirror 2nd arg = CardSource sourceCard (P_165/ST3_13 idiom).
-                    // ROOT translation: AS-IS SelectCardEffect.Root.Security is the COST-root; under payCost:false
-                    // it carries no cost, and the mirror PlayPermanentCards uses `root` as the PHYSICAL from-zone.
-                    // A revealed security card resolving its [Security] effect physically sits in the EXECUTING AREA
-                    // (ChoiceZone.Execution — the outer CanActivateCondition gates on IsExistOnExecutingArea; same
-                    // transient position the sibling PlaceSelfDelayOptionSecurityEffect plays from), NOT the Security
-                    // stack, so the physical transport is Execution → BattleArea.
-                    await CardEffectCommons.PlayPermanentCards(
-                        cardSources: new List<CardSource>() { card },
-                        sourceCard: card,
-                        payCost: false,
-                        isTapped: false,
-                        root: ChoiceZone.Execution,
-                        activateETB: true);
-
-                    if (deleteDigimon != EffectDuration.UntilEndBattle)
-                    {
-                        // ── Delete Digimon Played (AS-IS :360-444) ─────────────────────────────
-                        Permanent playedDigimon = ICardEffect.ResolvePermanentOfThisCard(card);
-
-                        ActivateClass activateClass2 = new ActivateClass();
-                        activateClass2.SetUpICardEffect("Delete this Digimon", CanUseCondition2, card);
-                        activateClass2.SetUpActivateClass(CanActivateCondition2, ActivateCoroutine2, -1, false, EffectDiscription2());
-                        activateClass2.SetEffectSourcePermanent(playedDigimon);
-                        // AS-IS :367 playedDigimon.UntilOpponentTurnEndEffects.Add(GetCardEffect) — OnEndTurn-sampled
-                        // Permanent grant bucket (Permanent.cs:2061 mirror store, landed).
-                        playedDigimon.UntilOpponentTurnEndEffects.Add(GetCardEffect);
-
-                        string EffectDiscription2()
-                        {
-                            if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
-                            {
-                                return "[End of Your Turn] Delete this Digimon.";
-                            }
-
-                            if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
-                            {
-                                return "[End of Opponents Turn] Delete this Digimon.";
-                            }
-
-                            if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
-                            {
-                                return "[End of Turn] Delete this Digimon.";
-                            }
-
-                            return "";
-                        }
-
-                        bool CanUseCondition2(Hashtable hashtable1)
-                        {
-                            if (CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(playedDigimon, card))
-                            {
-                                if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
-                                {
-                                    return CardEffectCommons.IsOwnerTurn(card);
-                                }
-
-                                if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
-                                {
-                                    return CardEffectCommons.IsOpponentTurn(card);
-                                }
-
-                                if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
-                                {
-                                    return CardEffectCommons.IsOwnerTurn(card)
-                                        || CardEffectCommons.IsOpponentTurn(card);
-                                }
-                            }
-
-                            return false;
-                        }
-
-                        bool CanActivateCondition2(Hashtable hashtable1)
-                        {
-                            if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
-                            {
-                                if (!playedDigimon.TopCard.CanNotBeAffected(activateClass2))
-                                {
-                                    return true;
-                                }
-                            }
-
-                            return false;
-                        }
-
-                        async Task ActivateCoroutine2(Hashtable _hashtable2)
-                        {
-                            if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
-                            {
-                                await new DestroyPermanentsClass(
-                                    new List<Permanent>() { playedDigimon },
-                                    CardEffectCommons.CardEffectHashtable(activateClass2)).Destroy();
-                            }
-                        }
-
-                        ICardEffect GetCardEffect(EffectTiming _timing)
-                        {
-                            if (_timing == EffectTiming.OnEndTurn)
-                            {
-                                return activateClass2;
-                            }
-
-                            return null;
-                        }
-                    }
-                }
-            }
-
-            ICardEffect GetCardEffect1(EffectTiming _timing)
-            {
-                if (_timing == EffectTiming.OnEndBattle)
-                {
-                    return activateClass1;
-                }
-
-                return null;
-            }
-        }
-
-        return activateClass;
-    }
-
-    /// <summary>(PRIM-W2) Original: <c>LinkEffect(card, condition)</c> — the &lt;Link&gt; activation: attach
-    /// this card to a chosen own Digimon, paying the link cost (read from the card's <c>linkCost</c> data).</summary>
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:1497 PlaceToSecurityEffect
-    // (ADDED — absent on mirror). IEnumerator->async Task; StartCoroutine->await.
-    public static OptionResolutionClass PlaceToSecurityEffect(CardSource card, bool toTop, bool isFaceUp = false, Func<bool> Condition = null)
-    {
-        if (card == null) return null;
-        string location = toTop ? "top" : "bottom";
-        string facing = isFaceUp ? "face up" : "face down";
-        string effectName = $"Place the used Option card on {location} of security {facing}.";
-        OptionResolutionClass placeToSecurityEffect = new();
-        placeToSecurityEffect.SetUpICardEffect(effectName, CanUseCondition, card);
-        placeToSecurityEffect.SetUpOptionResolutionClass(ResolutionCoroutine, CanResolveCondition);
-        return placeToSecurityEffect;
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return Condition == null || Condition();
-        }
-
-        bool CanResolveCondition(CardSource optionCard) =>
-            new Player(optionCard.Context, optionCard.Owner).CanAddSecurity(placeToSecurityEffect.EffectSourceCard?.InstanceId);
-
-        // (RD-P6C3-B1 UN-STOP) AS-IS :1516-1519 — the ported CardObjectController.AddSecurityCard (RD-P6C2-1) is
-        // the 1:1 sink. IEnumerator->async Task; StartCoroutine->await. No CreateRecoveryEffect / extra IAddSecurity
-        // here (AS-IS PlaceToSecurity body has neither — AddSecurityCard fires its own IAddSecurity internally).
-        async Task ResolutionCoroutine(CardSource optionCard)
-        {
-            await CardObjectController.AddSecurityCard(optionCard, toTop, isFaceUp);
-        }
-    }
-
-    #region Add detail for Display
-    // (P4 ACTIVATED timing-builders) 1:1 mirror of AS-IS CardEffectFactory.cs:1523 AddDetailClass. Replaces the
-    // old mirror-invented DisplayDetailEffect version. Returns the ported AddDetailClass kind-class
-    // (CardEffects/AddDetailClass.cs). NOTE: canUseCondition is Func<Hashtable,bool> (AS-IS) — the old version
-    // took Func<bool>?; any caller passing Func<bool> is CARD-MIGRATION-NEEDED (currently zero card-file callers).
-    public static AddDetailClass AddDetailClass(Func<Hashtable, bool> canUseCondition, Func<Permanent, bool> permanentCondition, string detail, bool triggerEffect, CardSource card)
-    {
-        AddDetailClass addDetailClass = new();
-        addDetailClass.SetUpICardEffect("Added Detail", canUseCondition, card);
-        addDetailClass.SetUpAddDetailClass(permanentCondition, detail, triggerEffect);
-        return addDetailClass;
-    }
-    #endregion
-
-    // (P4 KeyWord slice) ArtsDigivolveEffect moved to KeyWordEffects/ArtsDigivolve.cs (AS-IS 1:1)
-
-    // (P4 slice) AddAppfuseMethodByCondition + AddAppfuseMethodByName moved to CardEffectFactory/AddAppfusionMethod.cs (AS-IS 1:1)
-
-    // (P4 slice) AddSelfLinkConditionStaticEffect moved to CardEffectFactory/AddLinkRequirement.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) LinkEffect moved to KeyWordEffects/Link.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) BlockerStaticEffect moved to KeyWordEffects/Blocker.cs (AS-IS 1:1)
-
-    // (R3-F1b fold) AS-IS 1:1 port of DCGO CardEffectFactory.cs:11 SetMemoryTo3TamerEffect — was the
-    // mirror-invented TriggeredSetMemoryEffect; now the uniform ActivateClass (ActivateICardEffect, visible to the
-    // AS-IS window collection). Substrate: IEnumerator->async Task, StartCoroutine->await; AS-IS `card.Owner`
-    // (Player) -> mirror HeadlessPlayerId (CanAddMemory/SetFixedMemory extensions) / `new Player(context, owner)`
-    // for `.MemoryForPlayer` (BT1_054 idiom). EffectDiscription byte-identical to AS-IS.
     public static ICardEffect SetMemoryTo3TamerEffect(CardSource card)
     {
         ActivateClass activateClass = new ActivateClass();
@@ -1283,7 +36,7 @@ public static partial class CardEffectFactory
         {
             if (CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass))
             {
-                if (new Player(card.Context, card.Owner).MemoryForPlayer <= 2)
+                if (card.Owner.MemoryForPlayer <= 2)
                 {
                     if (card.Owner.CanAddMemory(activateClass))
                     {
@@ -1295,30 +48,103 @@ public static partial class CardEffectFactory
             return false;
         }
 
-        async Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
-            await card.Owner.SetFixedMemory(3, activateClass);
+            yield return ContinuousController.instance.StartCoroutine(card.Owner.SetFixedMemory(3, activateClass));
         }
 
         return activateClass;
     }
 
-    // (P4 KeyWord slice) ArmorPurgeEffect moved to KeyWordEffects/ArmorPurge.cs (AS-IS 1:1)
+    #endregion
 
-    // (P4 slice) CanNotAttackSelfStaticEffect moved to CardEffectFactory/CanNotAttack.cs (AS-IS 1:1)
+    #region Tamer's effect to Gain 1 Memory if opponent has a digimon
 
-    // (EFFECT-MODEL REBUILD / P4 slice: continuous DP) ChangeDPStaticEffect moved to the AS-IS-1:1 generic
-    // version in Script/CardEffectFactory/ChangeDP.cs (returns ChangeDPClass; effectName is a required arg there,
-    // per AS-IS — callers passing 5 args need the effectName argument, handled in the card-migration step).
+    public static ICardEffect Gain1MemoryTamerOpponentDigimonEffect(CardSource card)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
 
-    // (R3-C2b-2) AddMemoryTriggerEffect DELETED — the invented old-model memory-trigger factory (produced
-    // TriggeredMemoryEffect, a registry-lowering effect) is retired. Every former caller is now the AS-IS 1:1
-    // new-model inline ActivateClass "gain/lose N memory" recipe (card.Owner.AddMemory(N, activateClass) + the
-    // AS-IS Hashtable CanUse gate) — see BT2_073 / BT1_041 for the pattern the fixtures TfxOnDeleteGainMemory /
-    // TfxOnPlayGainMemory now follow.
+        string EffectDiscription()
+        {
+            return "[Start of Your Main Phase] If your opponent has a Digimon, gain 1 memory.";
+        }
 
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:148 PlaySelfTamerSecurityEffect.
-    // Replaces the old mirror-invented PlayThisCardToBattleEffect version. Coroutine->async Task; StartCoroutine->await.
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            if (CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass))
+            {
+                if (CardEffectCommons.IsOwnerTurn(card))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            if (CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass))
+            {
+                if (card.Owner.Enemy.GetBattleAreaDigimons().Count >= 1)
+                {
+                    if (card.Owner.CanAddMemory(activateClass))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
+        {
+            yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
+        }
+
+        return activateClass;
+    }
+
+    #endregion
+
+    #region Tamer's effect to Gain 1 Memory if owner has condition digimon
+
+    public static ICardEffect Gain1MemoryTamerOwnerDigimonConditionalEffect(string effectDescription, Func<Permanent, bool> permamentCondition, Func<bool> condition, CardSource card)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+
+        string EffectDiscription() => effectDescription;
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass);
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass)
+                && card.Owner.CanAddMemory(activateClass)
+                && condition()
+                && card.Owner.GetBattleAreaDigimons().Any(permamentCondition);
+        }
+
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
+        {
+            yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
+        }
+
+        return activateClass;
+    }
+
+    #endregion
+
+    #region Tamer's Security effect to play oneself
+
     public static ICardEffect PlaySelfTamerSecurityEffect(CardSource card)
     {
         ActivateClass activateClass = new ActivateClass();
@@ -1338,11 +164,7 @@ public static partial class CardEffectFactory
 
         bool CanActivateCondition(Hashtable hashtable)
         {
-            // AS-IS `card.Owner.ExecutingCards.Contains(card)` — the mirror re-expresses "is being resolved as
-            // an Option" as the live Execution-zone membership predicate (CardEffectCommons.IsExistOnExecutingArea,
-            // the established idiom this same file's PlaySelfDigimonAfterBattleSecurityEffect.CanActivateCondition
-            // already uses), not an AS-IS Player mutable-list read.
-            if (CardEffectCommons.IsExistOnExecutingArea(card))
+            if (card.Owner.ExecutingCards.Contains(card))
             {
                 if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass))
                 {
@@ -1353,216 +175,612 @@ public static partial class CardEffectFactory
             return false;
         }
 
-        async Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
-            await CardEffectCommons.PlayPermanentCards(
+            yield return ContinuousController.instance.StartCoroutine(
+                CardEffectCommons.PlayPermanentCards(
                     cardSources: new List<CardSource>() { card },
                     activateClass: activateClass,
                     payCost: false,
                     isTapped: false,
                     root: SelectCardEffect.Root.Execution,
-                    activateETB: true);
+                    activateETB: true));
         }
 
         return activateClass;
     }
 
-    // (R6-Da'-1) invented helper `SelectAndDestroyEffect` DELETED — 0 consumers after the TfxSecuritySelect
-    // inline-migration (the card corpus was already re-ported to the AS-IS inline ActivateClass +
-    // SelectPermanentEffect Mode.Destroy idiom — ST1_15/ST1_16/BT2_013/BT2_091/BT2_110).
+    #endregion
 
-    // (R7 종점) invented factory `SelectModeEffect` DELETED with its body `ModeChoiceEffect` — a "choose one mode"
-    // menu is the AS-IS inline `new ActivateClass()` whose ActivateCoroutine presents ChoiceType.ModeChoice and
-    // runs the chosen branch's ActivateClass (TfxSelectMode idiom).
-
-    // (R6-Da'-1) invented helpers `SelectAndSuspendEffect` / `SelectAndUnsuspendEffect` / `SelectAndBounceEffect`
-    // (5-arg) / `SelectAndReturnToDeckEffect` / `SelectAndPutSecurityEffect` / `SelectAndPlayFromZoneEffect`
-    // DELETED — 0 consumers after the TfxSelectFollowUp inline-migration (AS-IS inline ActivateClass +
-    // SelectPermanentEffect Mode.Tap/UnTap/Bounce/PutLibrary*/PutSecurity* — ST4_15/BT2_095/BT2_102 idiom) and
-    // the G9-046 SelectAndPlay-case removal (real-rule coverage: BT9_081 SelectCardEffect Root.Trash +
-    // PlayPermanentCards; see the G9-046 header).
-
-    // (R7 종점) invented factory `PlayOptionCardEffect` DELETED with its body — the effect-driven option play is
-    // the AS-IS inline `new ActivateClass()` that selects the Option(s) then drives the LIVE
-    // `CardEffectCommons.PlayOptionCards` bridge (TfxPlayOption idiom).
-
-    // (R6-Da'-1) invented helpers `SelectAndAddToHandFromZoneEffect` / `SelectAndTrashFromZoneEffect` /
-    // `SelectAndPutSecurityFromZoneEffect` DELETED — 0 consumers after the TfxSelectFollowUp inline-migration
-    // (AS-IS inline ActivateClass + SelectCardEffect full SetUp, Mode.AddHand/Discard over Root.Trash/Library —
-    // BT2_090/BT10_084 idiom; the invented body `ActivatedSelectFromZoneEffect` is deleted with them).
-
-    // (R7 종점) invented factory `SelectAndDigivolveEffect` DELETED with its body — AS-IS
-    // DigivolveIntoHandOrTrashCard (select target + source, pay cost, fold) is the inline `new ActivateClass()`
-    // coroutine driving DigivolveAction directly (TfxSelectDigivolve idiom).
-
-    // (이연③-d EXHAUSTED) invented `BeforePayCostReductionEffect` factory helpers (both overloads) DELETED —
-    // the AS-IS BeforePayCost cost reduction is the inline `[BeforePayCost] ActivateClass` that registers a self
-    // ChangeCostClass into UntilCalculateFixedCostEffect.Add (BT18_057 / EX8_074 / BT2_023 idiom). Sole producer
-    // (TfxBeforePayCostReduction fixture) re-pointed to that inline shape; class + resolver case removed.
-
-    // (R7 종점) invented factory `AddThisCardToHandEffect` DELETED with its body `ReturnThisCardToHandEffect` —
-    // returning this card to the hand is the LIVE AS-IS coroutine `CardEffectCommons.AddThisCardToHand(card, card)`
-    // (the same self-bounce path ST3_13 / ST4_15 [Security] drive).
-
-    // (R6-Da'-5) factory helper `SelectAndDeDigivolveEffect` DELETED with its invented body
-    // `ActivatedSelectAndDeDigivolveEffect` (census-0 producer; only consumer was the G9-046 DeDigivolve
-    // white-box test). De-digivolve is available live via CardEffectCommons.DeDigivolvePermanent (C5-witness)
-    // and the SelectDeDigivolve / MassDeDigivolveThenConditionalDestroy primitives.
-
-    // (이연③-f EXHAUSTED) factory helpers `SimplifiedRevealDeckTopCardsAndSelect` and `RevealDeckTopCardsAndSelect`
-    // DELETED with their invented bodies (`SimplifiedRevealAndSelectEffect` / `RevealMultiSelectEffect`, census-0).
-    // The AS-IS reveal-select surface is the coroutine-callable commons `CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect`
-    // / `RevealDeckTopCardsAndSelect` / `RevealDeckTopCardsAndProcessForAll` (RevealLibrary.cs, bridge W3), which
-    // real cards (BT2_044 / ST4_03 / ST4_10) call inline from an ActivateClass. The white-box fixtures/tests that
-    // used these factory helpers are re-pointed to that commons.
-
-    /// <summary>(PRIM-W5/S2, R3-W3c-1) <c>CanNotAffectedStaticEffect</c> — AS-IS <c>CanNotAffectedClass</c>:
-    /// <c>CanNotAffect(target, effect) = CardCondition(target) &amp;&amp; SkillCondition(effect)</c>. Returns the
-    /// new-model kind-class <see cref="CardEffects.CanNotAffectedClass"/> (an <c>ICanNotAffectedEffect</c>) consumed
-    /// by the live <see cref="CardSource.CanNotBeAffected"/> scan; no registry binding. <paramref name="skillCondition"/>
-    /// is the AS-IS <c>Func&lt;ICardEffect,bool&gt;</c> over the CAUSING effect that decides WHICH effects the card is
-    /// immune to (e.g. <c>e =&gt; e.EffectSourceCard.Owner != card.Owner &amp;&amp; e.EffectSourceCard.IsDigimon</c> for
-    /// "opponent's Digimon effects only"); null falls back to opponent-only.</summary>
-    public static ICardEffect CanNotAffectedStaticEffect(Func<Permanent, bool>? permanentCondition, Func<ICardEffect, bool>? skillCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)
+    #region Mind Link Tamer's effect to play themself from digivolution cards
+    public static ICardEffect PlayMindLinkTamerFromDigivolutionCards(CardSource card, string cardName, string effectDescription)
     {
-        // (R3-W3c-1 flip / RD-W3A-01 RESOLVED) NEW-MODEL: returns the AS-IS kind-class CanNotAffectedClass
-        // (ICanNotAffectedEffect) instead of the old-model registry ContinuousImmunityEffect. The LIVE consumer is
-        // the R1-e interface scan CardSource.CanNotBeAffected (CardSource.cs:741 — `cardEffect is
-        // ICanNotAffectedEffect` over every field permanent's EffectList(None)). The three registry-half consumers
-        // that forced the R3-W3a REVERT are now rehomed onto that same live scan (see their R3-W3c-1 comments):
-        // GainCanNotBeDeletedByBattle (CardEffectCommons.cs), the ContinuousPlayerScopeRestrictionEffect immunity
-        // exemption (ContinuousAndRestrictionEffects.cs), and BlockTiming.HasBlocker. (B군 P0-1 UPDATE) The last
-        // BlocksOpponentEffect consumers — the mutation sink (:527/1935/1959), the Commons continuous-grant cores
-        // (GainRestrictionToPermanent / GainToPlayerScope) and IsHostStackTrashGated — are now ALSO rehomed onto this
-        // same live CanNotBeAffected scan, so BlocksOpponentEffect has 0 production consumers. This flip is precisely
-        // what makes an immunity built here VISIBLE at those sites (before it, they read the dead registry and a
-        // CanNotAffectedClass grant WAS silently lost there). CanNotAffectedClass declares no ToBinding → the enter-play
-        // registrar registers NOTHING; availability is the live EffectList scan alone. AS-IS construction idiom
-        // mirrored: PermanentEffectFactory.DigimonEffectImmunity (SetUpICardEffect + SetUpCanNotAffectedClass).
-        var effect = new CardEffects.CanNotAffectedClass();
-        effect.SetUpICardEffect("Isn't affected by opponent's effect", CanUseCondition, card);
-        effect.SetUpCanNotAffectedClass(CardCondition: CardCondition, SkillCondition: SkillCondition);
-        if (isInheritedEffect)
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect($"Play 1 [{cardName}] from this Digimon's digivolution cards", CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, effectDescription);
+        activateClass.SetIsInheritedEffect(true);
+
+        bool CanSelectCardCondition(CardSource cardSource)
         {
-            effect.SetIsInheritedEffect(true);
+            return cardSource.EqualsCardName(cardName)
+                && CardEffectCommons.CanPlayAsNewPermanent(cardSource: cardSource, payCost: false, cardEffect: activateClass);
         }
-
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-
-        // AS-IS CanNotAffectedClass.CardCondition (permanentCondition) — WHICH permanents are protected, evaluated
-        // live against the protected target CardSource. null keeps the AS-IS self-only grant (protected == holder).
-        bool CardCondition(CardSource protectedCard)
-        {
-            if (permanentCondition is null)
-            {
-                return protectedCard.InstanceId == card.InstanceId;
-            }
-
-            return permanentCondition(new Permanent(protectedCard.Context, protectedCard.InstanceId, protectedCard.Owner));
-        }
-
-        // AS-IS CanNotAffectedClass.SkillCondition — WHICH causing effects are blocked, evaluated over the causing
-        // ICardEffect. null keeps the opponent-only fallback (the causing effect is sourced by the holder's opponent,
-        // AS-IS IsOpponentEffect(cardEffect, card)).
-        bool SkillCondition(ICardEffect causingEffect)
-        {
-            if (skillCondition is not null)
-            {
-                return skillCondition(causingEffect);
-            }
-
-            return causingEffect.EffectSourceCard is not null && causingEffect.EffectSourceCard.Owner != card.Owner;
-        }
-    }
-
-    /// <summary>(C-3, R3-W3c-4 flip) <c>CanNotTrashFromDigivolutionCardsStaticEffect</c> — AS-IS
-    /// <c>CanNotTrashFromDigivolutionCardsClass</c>: <c>CanNotTrashFromDigivolutionCards(source, effect) =
-    /// CardCondition(source) &amp;&amp; CardEffectCondition(effect) &amp;&amp; !source.IsFlipped</c>. Returns the
-    /// new-model kind-class <see cref="CardEffects.CanNotTrashFromDigivolutionCardsClass"/> (an
-    /// <c>ICanNotTrashFromDigivolutionCardsEffect</c>, no <c>ToBinding</c>) consumed by the R1-e live scan
-    /// <see cref="CardSource.CanNotTrashFromDigivolutionCards"/>; no registry binding. The EFFECT-trash filter
-    /// consults it, the deletion path bypasses it (AS-IS DiscardEvoRoots). <paramref name="cardCondition"/> =
-    /// WHICH source (e.g. name contains "X Antibody"); <paramref name="cardEffectCondition"/> = WHICH causing
-    /// effect (AS-IS <c>Func&lt;ICardEffect,bool&gt;</c> over the trashing effect; BT9_109 = <c>effect != null</c>
-    /// ⇒ always). <paramref name="condition"/> = the effect's own CanUse gate (BT9_109 = host
-    /// <c>IsExistOnBattleArea</c>) — protection lapses when the granting host leaves the field. BT9_109 itself
-    /// builds the kind-class inline (verbatim); this factory has no real-card producers.</summary>
-    public static ICardEffect CanNotTrashFromDigivolutionCardsStaticEffect(
-        Func<CardSource, bool> cardCondition, Func<ICardEffect, bool> cardEffectCondition,
-        bool isInheritedEffect, CardSource card, Func<bool>? condition)
-    {
-        var effect = new CardEffects.CanNotTrashFromDigivolutionCardsClass();
-        effect.SetUpICardEffect("[Digivolution cards] under this Digimon can't be trashed", CanUseCondition, card);
-        effect.SetUpCanNotTrashFromDigivolutionCardsClass(CardCondition: cardCondition, CardEffectCondition: cardEffectCondition);
-        if (isInheritedEffect)
-        {
-            effect.SetIsInheritedEffect(true);
-        }
-
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-    }
-
-    // (이연④-f) CanNotPlayOptionStaticEffect (old-model ContinuousCanNotPlayOptionEffect factory) DELETED with the
-    // CanNotPlayOption registry teardown: every producer now emits the AS-IS kind-class `CanNotPlayClass`
-    // (ICanNotPlayCardEffect) read by CanNotPlayOptionScan's interface-scan half — BT8_057 (region ②) and the
-    // TfxOptionForbidsSelf fixture (region ③, the sole former caller of this factory) do so directly.
-
-    /// <summary>(PRIM-W5 / 이연④-c) <c>ChangeCardNamesClass</c> — grants this card an additional name
-    /// (<paramref name="addedName"/>), folded into <c>CardSource.CardNames</c>. NEW-MODEL flip: returns the AS-IS
-    /// kind-class <see cref="CardEffects.ChangeCardNamesClass"/> (an <c>IChangeCardNamesEffect</c>, no
-    /// <c>ToBinding</c>) so the LIVE <c>CardSource.CardNames</c> scan (which enumerates
-    /// <c>IChangeCardNamesEffect</c>, <c>CanUse(null)</c>) actually SEES it — replacing the retired old-model
-    /// <c>ChangeCardNamesEffect</c> (ICardEffect-only; its <c>AddedCardNameKey</c> registry write was DEAD after
-    /// R1-e dropped the <c>CardNames</c> registry read, so the factory output was production-INERT). The
-    /// <c>changeCardNames</c> fold mirrors the ported-card idiom (BT14_097 :55-63): self-scoped
-    /// (<c>cardSource == card</c>) append of <paramref name="addedName"/>; <c>CardNames</c> re-Distincts. CanUse
-    /// mirrors AS-IS <c>condition</c>.</summary>
-    public static ICardEffect ChangeCardNamesStaticEffect(string addedName, bool isInheritedEffect, CardSource card, Func<bool>? condition)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(addedName);
-        ArgumentNullException.ThrowIfNull(card);
 
         bool CanUseCondition(Hashtable hashtable)
         {
-            return condition == null || condition();
+            return CardEffectCommons.IsExistOnBattleArea(card);
         }
 
-        List<string> ChangeCardNames(CardSource cardSource, List<string> cardNames)
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.IsExistOnBattleArea(card)
+                && card.PermanentOfThisCard().DigivolutionCards.Count(CanSelectCardCondition) >= 1;
+        }
+
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
+        {
+            if (CardEffectCommons.IsExistOnBattleArea(card))
+            {
+                Permanent selectedPermanent = card.PermanentOfThisCard();
+
+                if (selectedPermanent != null)
+                {
+                    if (selectedPermanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1)
+                    {
+                        int maxCount = 1;
+
+                        List<CardSource> selectedCards = new List<CardSource>();
+
+                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+                        selectCardEffect.SetUp(
+                                    canTargetCondition: CanSelectCardCondition,
+                                    canTargetCondition_ByPreSelecetedList: null,
+                                    canEndSelectCondition: null,
+                                    canNoSelect: () => true,
+                                    selectCardCoroutine: SelectCardCoroutine,
+                                    afterSelectCardCoroutine: null,
+                                    message: "Select 1 digivolution card to play.",
+                                    maxCount: maxCount,
+                                    canEndNotMax: false,
+                                    isShowOpponent: true,
+                                    mode: SelectCardEffect.Mode.Custom,
+                                    root: SelectCardEffect.Root.Custom,
+                                    customRootCardList: selectedPermanent.DigivolutionCards,
+                                    canLookReverseCard: true,
+                                    selectPlayer: card.Owner,
+                                    cardEffect: activateClass);
+
+                        selectCardEffect.SetUpCustomMessage("Select 1 digivolution card to play.",
+                            "The opponent is selecting 1 digivolution card to play.");
+                        selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
+
+                        yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
+
+                        IEnumerator SelectCardCoroutine(CardSource cardSource)
+                        {
+                            selectedCards.Add(cardSource);
+
+                            yield return null;
+                        }
+
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(
+                            cardSources: selectedCards,
+                            activateClass: activateClass,
+                            payCost: false,
+                            isTapped: false,
+                            root: SelectCardEffect.Root.DigivolutionCards,
+                            activateETB: true));
+                    }
+                }
+            }
+        }
+
+        return activateClass;
+    }   
+    #endregion
+
+    #region Digimon's Security effect to play oneself after battle
+
+    public static ICardEffect PlaySelfDigimonAfterBattleSecurityEffect(CardSource card, EffectDuration deleteDigimon = EffectDuration.UntilEndBattle)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Play this card at the end of the battle", CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+        activateClass.SetIsSecurityEffect(true);
+
+        string EffectDiscription()
+        {
+            return "[Security] At the end of the battle, play this card without paying its memory cost.";
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.IsExistOnExecutingArea(card);
+        }
+
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
+        {
+            yield return null;
+
+            ContinuousController.instance.PlaySE(GManager.instance.GetComponent<Effects>().BuffSE);
+
+            #region Play Card
+            ActivateClass activateClass1 = new ActivateClass();
+            activateClass1.SetUpICardEffect("Play this card", CanUseCondition1, card);
+            activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription1());
+            card.Owner.UntilEndBattleEffects.Add(GetCardEffect1);
+
+            string EffectDiscription1()
+            {
+                return "Play this card without paying its memory cost.";
+            }
+
+            bool CanUseCondition1(Hashtable hashtable)
+            {
+                return true;
+            }
+
+            bool CanActivateCondition1(Hashtable hashtable)
+            {
+                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1, root: SelectCardEffect.Root.Security))
+                {
+                    if (!card.Owner.LibraryCards.Contains(card) && !card.Owner.SecurityCards.Contains(card))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            IEnumerator ActivateCoroutine1(Hashtable _hashtable1)
+            {
+                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1, root: SelectCardEffect.Root.Security))
+                {
+                    if (!card.Owner.LibraryCards.Contains(card) && !card.Owner.SecurityCards.Contains(card))
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(
+                            cardSources: new List<CardSource>() { card },
+                            activateClass: activateClass1,
+                            payCost: false,
+                            isTapped: false,
+                            root: SelectCardEffect.Root.Security,
+                            activateETB: true));
+
+                        if (deleteDigimon != EffectDuration.UntilEndBattle)
+                        {
+                            yield return new WaitForSeconds(0.2f);
+
+                            #region Delete Digimon Played
+                            Permanent playedDigimon = card.PermanentOfThisCard();
+
+                            ActivateClass activateClass2 = new ActivateClass();
+                            activateClass2.SetUpICardEffect("Delete this Digimon", CanUseCondition2, card);
+                            activateClass2.SetUpActivateClass(CanActivateCondition2, ActivateCoroutine2, -1, false, EffectDiscription2());
+                            activateClass2.SetEffectSourcePermanent(playedDigimon);
+                            playedDigimon.UntilOpponentTurnEndEffects.Add(GetCardEffect);
+
+                            string EffectDiscription2()
+                            {
+                                if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
+                                {
+                                    return "[End of Your Turn] Delete this Digimon.";
+                                }
+
+                                if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
+                                {
+                                    return "[End of Opponents Turn] Delete this Digimon.";
+                                }
+
+                                if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
+                                {
+                                    return "[End of Turn] Delete this Digimon.";
+                                }
+                                return "";
+                            }
+
+                            bool CanUseCondition2(Hashtable hashtable1)
+                            {
+                                if (CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(playedDigimon, playedDigimon.TopCard))
+                                {
+                                    if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
+                                    {
+                                        return CardEffectCommons.IsOwnerTurn(card);
+                                    }
+
+                                    if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
+                                    {
+                                        return CardEffectCommons.IsOpponentTurn(card);
+                                    }
+
+                                    if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
+                                    {
+                                        return CardEffectCommons.IsOwnerTurn(card)
+                                            || CardEffectCommons.IsOpponentTurn(card);
+                                    }
+                                }
+
+                                return false;
+                            }
+
+                            bool CanActivateCondition2(Hashtable hashtable1)
+                            {
+                                if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
+                                {
+                                    if (!playedDigimon.TopCard.CanNotBeAffected(activateClass2))
+                                    {
+                                        return true;
+                                    }
+                                }
+
+                                return false;
+                            }
+
+                            IEnumerator ActivateCoroutine2(Hashtable _hashtable1)
+                            {
+                                if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
+                                {
+                                    yield return ContinuousController.instance.StartCoroutine(new DestroyPermanentsClass(
+                                    new List<Permanent>() { playedDigimon },
+                                    CardEffectCommons.CardEffectHashtable(activateClass2)).Destroy());
+                                }
+                            }
+
+                            ICardEffect GetCardEffect(EffectTiming _timing)
+                            {
+                                if (_timing == EffectTiming.OnEndTurn)
+                                {
+                                    return activateClass2;
+                                }
+
+                                return null;
+                            }
+                            #endregion
+                        }
+                    }
+                }
+            }
+
+            ICardEffect GetCardEffect1(EffectTiming _timing)
+            {
+                if (_timing == EffectTiming.OnEndBattle)
+                {
+                    return activateClass1;
+                }
+
+                return null;
+            }
+            #endregion
+
+        }
+
+        return activateClass;
+    }
+
+    #endregion
+
+    #region Delay Option's Effect to gain 2 Memory
+
+    public static ICardEffect Gain2MemoryOptionDelayEffect(CardSource card)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Memory +2", CanUseCondition, card);
+        activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+
+        string EffectDiscription()
+        {
+            return "[Main] <Delay> (Trash this card in your battle area to activate the effect below. You can't activate this effect the turn this card enters play.) - Gain 2 memory.";
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.CanDeclareOptionDelayEffect(card);
+        }
+
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
+        {
+            bool deleted = false;
+
+            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.DeletePeremanentAndProcessAccordingToResult(targetPermanents: new List<Permanent>() { card.PermanentOfThisCard() }, activateClass: activateClass, successProcess: permanents => SuccessProcess(), failureProcess: null));
+
+            IEnumerator SuccessProcess()
+            {
+                deleted = true;
+
+                yield return null;
+            }
+
+            if (deleted)
+            {
+                yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(2, activateClass));
+            }
+        }
+
+        return activateClass;
+    }
+
+    #endregion
+
+    #region Delay Option's Security effect to place oneself in battle area
+
+    public static ICardEffect PlaceSelfDelayOptionSecurityEffect(CardSource card)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Place this card in battle area", CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+        activateClass.SetIsSecurityEffect(true);
+
+        string EffectDiscription()
+        {
+            return "[Security] Place this card in its owner's battle area.";
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass, isPlayOption: true))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
+        {
+            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlaceDelayOptionCards(card: card, cardEffect: activateClass));
+        }
+
+        return activateClass;
+    }
+
+    #endregion
+
+    #region Option's Security effect that "Activate this card's Main effect"
+
+    public static ICardEffect ActivateMainOptionSecurityEffect(CardSource card, string effectName, string effectDiscription = "", Func<ICardEffect, IEnumerator> afterMainEffect = null)
+    {
+        ActivateClass mainActivateClass = CardEffectCommons.OptionMainEffect(card);
+
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect(EffectName(), CanUseCondition, card);
+        activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+        activateClass.SetIsSecurityEffect(true);
+
+        string EffectName()
+        {
+            if (!string.IsNullOrEmpty(effectName)) return effectName;
+            if (mainActivateClass != null) return mainActivateClass.EffectName;
+            return "";
+        }
+
+        string EffectDiscription()
+        {
+            if (!string.IsNullOrEmpty(effectDiscription)) return effectDiscription;
+            if (mainActivateClass != null) return mainActivateClass.EffectDiscription.Replace("[Main]", "[Security]");
+            return "";
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.CanTriggerSecurityEffect(CardEffectCommons.OptionMainCheckHashtable(card), card);
+        }
+
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
+        {
+            if (mainActivateClass != null)
+            {
+                yield return ContinuousController.instance.StartCoroutine(mainActivateClass.Activate(CardEffectCommons.OptionMainCheckHashtable(card)));
+            }
+
+            if (afterMainEffect != null)
+            {
+                yield return ContinuousController.instance.StartCoroutine(afterMainEffect(activateClass));
+            }
+        }
+
+        return activateClass;
+    }
+
+    #endregion
+
+    #region Option's Main Effect to replace bottom security card with this card face up
+
+    public static ICardEffect ReplaceBottomSecurityWithFaceUpOptionMainEffect(CardSource card)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Replace your bottom security card with this face-up card", CanUseCondition, card);
+        activateClass.SetUpActivateClass(null, _ => ReplaceBottomSecurityWithFaceUpOptionEffect(card, activateClass), -1, false, EffectDescription());
+
+        string EffectDescription()
+        {
+            return "[Main] Add your bottom security card to the hand. Then, place this card face up as the bottom security card.";
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+        }
+
+        return activateClass;
+    }
+
+    #endregion
+
+    #region Option's Effect to replace top security card with this card face up
+
+    public static ICardEffect ReplaceTopSecurityWithFaceUpOptionMainEffect(CardSource card)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Replace your top security card with this face-up card", CanUseCondition, card);
+        activateClass.SetUpActivateClass(null, _ => ReplaceTopSecurityWithFaceUpOptionEffect(card, activateClass), -1, false, EffectDescription());
+
+        string EffectDescription()
+        {
+            return "[Main] Add your top security card to the hand. Then, place this card face up as the top security card.";
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+        }
+
+        return activateClass;
+    }
+
+    #endregion
+
+    #region Option's Effect to replace bottom security card with this card face up
+
+    public static IEnumerator ReplaceBottomSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
+    {
+        if (card.Owner.SecurityCards.Count >= 1)
+        {
+            #region Add Bottom Security Card to Hand
+
+            CardSource bottomCard = card.Owner.SecurityCards.Last();
+
+            yield return ContinuousController.instance.StartCoroutine(
+                CardObjectController.AddHandCards(new List<CardSource>() { bottomCard }, false, activateClass));
+
+            yield return ContinuousController.instance.StartCoroutine(new IReduceSecurity(
+                player: card.Owner,
+                refSkillInfos: ref ContinuousController.instance.nullSkillInfos,
+                activateClass).ReduceSecurity());
+
+            #endregion
+        }
+
+        #region Place Face up as Bottom Security Card
+
+        if (card.Owner.CanAddSecurity(activateClass))
+        {
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddSecurityCard(
+                card, toTop: false, faceUp: true));
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>()
+                .CreateRecoveryEffect(card.Owner));
+
+            yield return ContinuousController.instance.StartCoroutine(new IAddSecurity(card).AddSecurity());
+        }
+
+        #endregion
+    }
+
+    #endregion
+
+    #region Option's Effect to replace top security card with this card face up
+
+    public static IEnumerator ReplaceTopSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
+    {
+        if (card.Owner.SecurityCards.Count >= 1)
+        {
+            #region Add Top Security Card to Hand
+
+            CardSource topCard = card.Owner.SecurityCards.First();
+
+            yield return ContinuousController.instance.StartCoroutine(
+                CardObjectController.AddHandCards(new List<CardSource>() { topCard }, false, activateClass));
+
+            yield return ContinuousController.instance.StartCoroutine(new IReduceSecurity(
+                player: card.Owner,
+                refSkillInfos: ref ContinuousController.instance.nullSkillInfos,
+                activateClass).ReduceSecurity());
+
+            #endregion
+        }
+
+        #region Place Face up as Top Security Card
+
+        if (card.Owner.CanAddSecurity(activateClass))
+        {
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddSecurityCard(
+                card, toTop: true, faceUp: true));
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>()
+                .CreateRecoveryEffect(card.Owner));
+
+            yield return ContinuousController.instance.StartCoroutine(new IAddSecurity(card).AddSecurity());
+        }
+
+        #endregion
+    }
+
+    #endregion
+
+    #region Use Requirements
+    public static IgnoreColorConditionClass UseRequirements(CardSource card, Func<CardSource, bool> cardCondition)
+    {
+        IgnoreColorConditionClass ignoreColorConditionClass = new IgnoreColorConditionClass();
+        ignoreColorConditionClass.SetUpICardEffect("Ignore color requirements", CanUseCondition, card);
+        ignoreColorConditionClass.SetUpIgnoreColorConditionClass(cardCondition: CardCondition);
+        return ignoreColorConditionClass;
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            if (cardCondition == null)
+                return false;
+
+            return (permanent.IsDigimon || permanent.IsTamer)
+                && cardCondition(permanent.TopCard); 
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.HasMatchConditionOwnersPermanent(card, PermanentCondition)
+                || CardEffectCommons.HasMatchConditionOwnersBreedingPermanent(card, PermanentCondition);
+        }
+
+        bool CardCondition(CardSource cardSource)
+        {
+            return cardSource == card;
+        }
+    }
+    #endregion
+
+    #region Jogress Condition Class
+    public static AddJogressConditionClass GetJogressConditionClass(Func<Permanent, bool> permanentCondition1, string description1, Func<Permanent, bool> permanentCondition2, string description2, CardSource card, int cost = 0, Func<Hashtable, bool> canUseCondition = null)
+    {
+        AddJogressConditionClass addJogressConditionClass = new AddJogressConditionClass();
+        addJogressConditionClass.SetUpICardEffect($"DNA Digivolution", CanUseCondition, card);
+        addJogressConditionClass.SetUpAddJogressConditionClass(getJogressCondition: GetJogress);
+        addJogressConditionClass.SetNotShowUI(true);
+        return addJogressConditionClass;
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return canUseCondition == null || canUseCondition(hashtable);
+        }
+
+        JogressCondition GetJogress(CardSource cardSource)
         {
             if (cardSource == card)
             {
-                cardNames.Add(addedName);
+                return CardEffectCommons.GetJogressConditions(
+                    permanentCondition1, 
+                    description1, 
+                    permanentCondition2, 
+                    description2, 
+                    card
+                    );
             }
 
-            return cardNames;
+            return null;
         }
-
-        CardEffects.ChangeCardNamesClass changeCardNamesClass = new CardEffects.ChangeCardNamesClass();
-        changeCardNamesClass.SetUpICardEffect($"Also treated as having [{addedName}] in its name", CanUseCondition, card);
-        changeCardNamesClass.SetUpChangeCardNamesClass(changeCardNames: ChangeCardNames);
-        if (isInheritedEffect)
-        {
-            changeCardNamesClass.SetIsInheritedEffect(true);
-        }
-
-        return changeCardNamesClass;
     }
+    #endregion
 
-    // ===== special plays — DigiXros / Blast / Blast-DNA ==============================================
-    // (SpecialPlay re-migration) The card DECLARES its recipe the AS-IS way: an AddDigiXrosConditionClass /
-    // AddJogressConditionClass / AddBurstDigivolutionConditionClass / AddAppFusionConditionClass effect in its
-    // OWN effect list, which CardSource surfaces (DigiXrosConditionOf / JogressConditionOf /
-    // BurstDigivolutionConditionOf / AppFusionConditionOf) for SelectDigiXrosClass / SelectJogressEffect /
-    // SelectBurstDigivolutionEffect / SelectAppFusionEffect to consume. The former side-registry currency
-    // (SpecialPlayRecipeRegistry keyed by card number + a BareCauseEffect no-op effect-list occupant) and its
-    // driver SpecialPlayAction are DELETED — the factories below return the real AS-IS condition classes.
-
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:784 DigiXrosEffectFromNames. Replaces
-    // the old mirror-invented SpecialPlayRecipeRegistry version. Verbatim.
+    #region DigiXrosEffect by Name
     public static AddDigiXrosConditionClass DigiXrosEffectFromNames(CardSource card, int CostReduction, Func<List<CardSource>, CardSource, bool> CanTargetCondition_ByPreSelecetedList, params string[] names)
     {
         AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();
@@ -1583,160 +801,39 @@ public static partial class CardEffectFactory
             return null;
         }
     }
-
-    // (SpecialPlay re-migration) DELETED with the SpecialPlayRecipeRegistry currency — every one of these
-    // registered a side-table recipe and returned an INERT `BareCauseEffect.For(null)` effect-list occupant,
-    // which is not how AS-IS declares a special play (the card adds the real condition class to its own effect
-    // list). Callers: none in the card corpus — the only ones were the Tfx fixtures, now re-shaped to the AS-IS
-    // idiom (BT18_065 / EX4_062 / BT25_104 exemplars):
-    //   * DigiXrosEffect / DigiXrosWithExtraMaterialsEffect -> `new AddDigiXrosConditionClass()` +
-    //     `SetUpAddDigiXrosConditionClass(getDigiXrosCondition)` (+ `AddMaxTrashCountDigiXrosClass` /
-    //     `AddMaxUnderTamerCountDigiXrosClass` for the trash / under-Tamer material extensions).
-    //   * MaterialByName / NameMaterials -> `DigiXrosConditionElement(CardCondition, label)` (or
-    //     CardEffectCommons.GetDigiXrosConditionsFromNames, which DigiXrosEffectFromNames above already uses).
-    //   * BurstDigivolveEffect -> `new AddBurstDigivolutionConditionClass()` +
-    //     `SetUpAddBurstDigivolutionConditionClass(getBurstDigivolutionCondition)`.
-    //   * JogressEffectFromNames / JogressEffect -> GetJogressConditionClass below (AS-IS :752, verbatim).
-
-    // (P4 KeyWord slice) BlastDigivolveEffect moved to KeyWordEffects/BlastDigivolution.cs (AS-IS 1:1)
-
-    // (P4 KeyWord slice) BlastDNADigivolveEffect moved to KeyWordEffects/BlastDNADigivolution.cs (AS-IS 1:1)
-
-    /// <summary>(Jogress by levels) AS-IS <c>AddJogressLevelsClass</c> — makes THIS card count as extra level(s)
-    /// when it is a Jogress / DNA-Digivolution material (e.g. "Also treated as level 6 for DNA Digivolution").
-    /// <paramref name="getLevels"/> maps the digivolving (Jogress) card to the extra levels this material grants;
-    /// read by <see cref="CardSource.JogressLevelsAgainst"/>. Level-based material predicates then test it.</summary>
-    public static ICardEffect AddJogressLevelsEffect(
-        CardSource card, Func<CardSource, Permanent, List<int>> getLevels, Func<bool>? condition = null,
-        string name = "Also treated as additional levels for DNA Digivolution")
-    {
-        var effect = new CardEffects.AddJogressLevelsClass();
-        effect.SetUpICardEffect(name, CanUseCondition, card);
-        effect.SetUpAddJogressLevelsClass(getLevels);
-        return effect;
-
-        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
-    }
-
-    // (R7 종점) invented factory `DnaDigivolveFromHandOrTrashEffect` DELETED with its body
-    // `DnaFromHandOrTrashActivatedEffect` — the effect-driven DNA digivolution is the AS-IS inline
-    // `new ActivateClass()` coroutine over CardEffectCommons.DNADigivolveWithHandOrTrashCardIntoHandOrTrash
-    // (EX6_072 / TfxDnaFromHand idiom).
-
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:752 GetJogressConditionClass. Replaces
-    // the old mirror-invented JogressEffect/AsMaterial version. Verbatim (canUseCondition is Func<Hashtable,bool>).
-    public static AddJogressConditionClass GetJogressConditionClass(Func<Permanent, bool> permanentCondition1, string description1, Func<Permanent, bool> permanentCondition2, string description2, CardSource card, int cost = 0, Func<Hashtable, bool> canUseCondition = null)
-    {
-        AddJogressConditionClass addJogressConditionClass = new AddJogressConditionClass();
-        addJogressConditionClass.SetUpICardEffect($"DNA Digivolution", CanUseCondition, card);
-        addJogressConditionClass.SetUpAddJogressConditionClass(getJogressCondition: GetJogress);
-        addJogressConditionClass.SetNotShowUI(true);
-        return addJogressConditionClass;
-
-        bool CanUseCondition(Hashtable hashtable)
-        {
-            return canUseCondition == null || canUseCondition(hashtable);
-        }
-
-        JogressCondition GetJogress(CardSource cardSource)
-        {
-            if (cardSource == card)
-            {
-                return CardEffectCommons.GetJogressConditions(
-                    permanentCondition1,
-                    description1,
-                    permanentCondition2,
-                    description2,
-                    card
-                    );
-            }
-
-            return null;
-        }
-    }
-
-    // (R6-Da'-3) invented granted-continuous BUFF factory seats DELETED — 0 card call-sites (census, Da'-1
-    // precedent): SelectAndBuffDpEffect (ST1_13/ST1_08/ST3_11-era), PlayerScopeBuffSAttackEffect (ST1_13 [Sec]),
-    // PlayerScopeBuffSecurityDpEffect (ST1_14). Their former cards were already re-ported inline to the AS-IS
-    // `ActivateClass` + `CardEffectCommons.ChangeDigimonDP(...)` / `ChangeDigimonSAttackPlayerEffect(...)` with an
-    // `EffectDuration` bucket (AddEffectToPermanent/Player), so the buff lands in the AS-IS duration-bucket and
-    // EffectDurationExpiry sweeps it at the matching reset (D2=A — AS-IS bucket single storage).
-
-    // (R6-Da'-1) invented helper `SelectAndTrashDigivolutionEffect` DELETED — 0 call-sites (its former cards
-    // ST2_03/ST2_06/ST2_09 were re-ported to the AS-IS inline ActivateClass + SelectPermanentEffect Mode.Custom
-    // + TrashDigivolutionCardsFromTopOrBottom idiom). (A6) Its body class `ActivatedSelectTrashDigivolutionEffect`
-    // is now also DELETED — its only remaining consumers were the stale ST2.Blue white-box casts, re-targeted onto
-    // the live ActivateClass surface with the ST2.Blue disposal (suite 12/12 truthful green). G1R-001 row RETIRED.
-
-    // (이연③-h EXHAUSTED) factory `DigiBurstEffect` DELETED — it produced the retired invented
-    // DigiBurstActivatedEffect. Cards (ST4_13 / BT5_056) and fixtures (TfxDigiBurst / TfxDigiBurstKeyword /
-    // TfxMainDigiBurstDraw) inline the literal AS-IS `new IDigiBurst(permanent, N, activateClass)` idiom instead.
-
-    // (R3-F1 fold) mirror-invented wrapper `UnsuspendSelfTriggerEffect` (returned the invented
-    // TriggeredUnsuspendSelfEffect) DELETED — 0 live consumers remained (grep: no card / Tfx / test / engine call;
-    // its former card ST2_11 was re-ported). No AS-IS same-named helper exists to fold into, so removal (not a
-    // fold) zeroes the TriggeredUnsuspendSelfEffect reference. Class removed from TriggeredEffects.cs.
-
-    // (이연③-d) invented helper `GainMemoryActivatedEffect` (returned the invented ActivatedMemoryEffect)
-    // DELETED — 0 live callers (grep: every former card, e.g. BT2_087 / ST2_13, re-ported to the AS-IS inline
-    // `new ActivateClass()` + `card.Owner.AddMemory(N, activateClass)` idiom). Class removed from ActivatedEffects.cs.
-
-    // (R6-Da'-1) invented helpers `SelectAndBounceEffect` (4-arg) / `SelectAndBounceWithSourceDiscardEffect`
-    // DELETED — 0 call-sites (former cards ST2_16/BT2_095/ST4_16 were re-ported to the AS-IS inline
-    // ActivateClass + SelectPermanentEffect Mode.Bounce idiom; the AS-IS unconditional
-    // `permanent.DiscardEvoRoots()` on every hand-bounce lives in the sink bounce route). (R6-Db) The body class
-    // `ActivatedSelectBounceAndDiscardSourcesEffect` is now also DELETED — its sole remaining (green C3-Witness
-    // case (9)) consumer was re-targeted onto that same real substrate (TrashSourcesAsync + Mode.Bounce).
-
-    // (R6-Da'-3) `SelectAndRestrictEffect` factory + its `ActivatedTargetRestrictionEffect` body DELETED — the
-    // invented registry-restriction producer was census-0 (ST2_14 / ST4_12 / BT1_113 are all re-ported to the
-    // inline AS-IS ActivateClass + GainCanNotAttack/GainCanNotBlock; the factory had no live caller).
-
-    // (R3-F1 fold) mirror-invented wrappers `SelfDpBuffTriggerEffect` (returned TriggeredSelfDpBuffEffect) and
-    // `RecoveryTriggerEffect` (returned RecoverTriggerEffect) DELETED — 0 live consumers remained (grep: no
-    // card / Tfx / test / engine call; former cards ST3_01/ST4_04/BT2_002/BT2_012 and ST3_09 were re-ported). No
-    // AS-IS same-named helper exists to fold into, so removal (not a fold) zeroes the TriggeredSelfDpBuffEffect /
-    // RecoverTriggerEffect references. Both classes removed from TriggeredEffects.cs.
-
-    // (R6-Da'-3) invented granted-continuous BUFF factory seats DELETED — 0 card call-sites (census, Da'-1
-    // precedent): SelectAndBuffSAttackEffect (ST3_15 [Main]-era), PlayerScopeBuffDpEffect (ST3_13 [Sec]),
-    // OpponentScopeBuffSAttackEffect (ST3_15 [Sec]). Same AS-IS re-port disposition as the sibling seats above.
-
-    // (P4 slice) ChangeSecurityDigimonCardDPStaticEffect moved to CardEffectFactory/ChangeCardDP.cs (AS-IS 1:1)
-
-    // ============================================================================================================
-    // (P4 ACTIVATED timing-builders) 1:1 mirror of AS-IS CardEffectFactory.cs:910-1462 ACTIVATED-effect timing
-    // builders. These REPLACE the monolith's old AsUniformActivated/ActivatedEffect-based inline construction —
-    // every method returns the ported ActivateClass kind-class (CardEffects/ActivateClass.cs).
-    //
-    // ASYNC TRANSLATION (the only substrate edits; logic verbatim):
-    //   * `Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine` -> `Func<Hashtable, ActivateClass, Task>`
-    //     (the card supplies an `async Task` body; the mirror ActivateClass.SetUpActivateClass already takes
-    //     `Func<Hashtable,Task>`, so only the delegate TYPE changes — the pass-through lambda is verbatim).
-    //   * WhenMovingClass PermanentCondition: AS-IS `card.PermanentOfThisCard()` (returns Permanent) ->
-    //     `ICardEffect.ResolvePermanentOfThisCard(card)` (PermanentView->Permanent bridge, per ChangeDP.cs
-    //     ADAPTATION (1)); `permanent ==` compares via mirror Permanent value equality (CARDSOURCE-EQUALITY).
-    //
-    // GATE DIVERGENCE (see docs/audit/rebuild_p4_factory_missing.md): the mirror CardEffectCommons.CanTrigger*
-    // family was rebuilt `CardEffectResolveContext ctx`-based, but the AS-IS builders pass a `Hashtable`; and
-    // IsExistOnBattleAreaDigimonTrigger / IsExistOnBattleAreaDigimonActivate have no mirror counterpart. These
-    // gate calls are kept VERBATIM per the fidelity directive (they surface as call-site errors in the RED build).
-    // ============================================================================================================
-
+    #endregion
+    
     #region Shared Effect Condition Creators
 
-    // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:828 ActivateClassesForSharedEffects
-    // (ADDED — absent on mirror). Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine ->
-    // Func<Hashtable, ActivateClass, Task> (matches the mirror timing-builder classes' signature). Body verbatim.
+    /// Method that can be used to quickly set up effects with multiple trigger conditions
+    /// Example: [When Digivolving] [When Attacking] (Do Something) can be set up with whenDigivolving = true and whenAttacking = true
+    /// Does not support sharing with Link or Inherited effect, purposefully to ensure they don't accidentally share a hashValue on Once Per Turn effects
+    /// 
+    /// Always pass in the cardEffects, timing and card variables from the calling card script, this ensures the below methods are added to that card's effects for the correct timing
+    /// 
+    /// The minimal conditions for triggering and activating the timings are included automatically,
+    /// further checks can be added to all created CanUseConditions and CanActivateConditions by passing those additonal checks with additionalUseCondition and additionalActivateCondition
+    /// For example, if a effect read "[On Play] [When Attacking] By trashing 1 card in hand..." you might create 
+    /// bool AdditionalActivateCondition(Hashtable hashtable) => card.Owner.HandCards.Count >= 1;
+    /// and pass such a method into this function.
+    /// 
+    /// By default, the effects are no optional and have no max per turn count. You can omit those parameters when this is the case and only change them when needed.
+    /// To ensure correct behaviour of X Per Turn, the hashValue is shared as the effect is once per turn regardless of how it is triggered.
+    /// 
+    /// Finally, for whichever combination of effects you want, you will set the corresponding booleans to true. Order does not matter when refering to them by name
+    /// Examples: 
+    /// "[when Moving] [When Digivolving] [When Attacking] ..." => (... whenMoving: true, whenDigivolving: true, whenAttacking: true)
+    /// "[When Digivolving] [On Deletion] ..." => (... whenDigivolving: true, onDeletion: true)
+    /// "[End of Attack] [End of Opponent's Turn] ..." => (... endOfAttack: true, endOfOpponentTurn: true)
     public static List<ICardEffect> ActivateClassesForSharedEffects(ref List<ICardEffect> cardEffects,
-                                                                    EffectTiming timing,
+                                                                    EffectTiming timing, 
                                                                     CardSource card,
-                                                                    string effectName,
-                                                                    Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                                    string effectName, 
+                                                                    Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine, 
                                                                     Func<string, string> effectDescription,
                                                                     bool optional,
                                                                     Func<Hashtable, ActivateClass, bool> additionalUseCondition = null,
-                                                                    Func<Hashtable, ActivateClass, bool> additionalActivateCondition = null,
+                                                                    Func<Hashtable, ActivateClass, bool> additionalActivateCondition = null, 
                                                                     Func<Hashtable, bool> isSkippableFunction = null,
                                                                     bool isSkippable = false,
                                                                     int maxCountPerTurn = -1,
@@ -1814,7 +911,7 @@ public static partial class CardEffectFactory
                                                 string effectName,
                                                 Func<Hashtable, ActivateClass, bool> canUseCondition,
                                                 Func<Hashtable, ActivateClass, bool> canActivateCondition,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -1842,7 +939,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass WhenMovingClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -1857,20 +954,19 @@ public static partial class CardEffectFactory
 
         bool PermanentCondition(Permanent permanent)
         {
-            // ADAPTATION: AS-IS `card.PermanentOfThisCard()` (Permanent) -> ResolvePermanentOfThisCard bridge.
-            return permanent == ICardEffect.ResolvePermanentOfThisCard(card);
+            return permanent == card.PermanentOfThisCard();
         }
 
         bool CanUseCondition(Hashtable hashtable, ActivateClass activateClass)
         {
             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass) &&
-                    CardEffectCommons.CanTriggerOnMove(hashtable, PermanentCondition) &&
+                    CardEffectCommons.CanTriggerOnMove(hashtable, PermanentCondition) && 
                     (additionalUseCondition == null || additionalUseCondition(hashtable, activateClass));
         }
 
         bool CanActivateCondition(Hashtable hashtable, ActivateClass activateClass)
         {
-            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) &&
+            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) && 
                 (additionalActivateCondition == null || additionalActivateCondition(hashtable, activateClass));
         }
     }
@@ -1881,7 +977,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass OnPlayClass(CardSource card,
                                             string effectName,
-                                            Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                            Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                             string effectDescription,
                                             bool optional,
                                             Func<Hashtable, bool> isSkippableFunction = null,
@@ -1897,13 +993,13 @@ public static partial class CardEffectFactory
         bool CanUseCondition(Hashtable hashtable, ActivateClass activateClass)
         {
             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass) &&
-                CardEffectCommons.CanTriggerOnPlay(hashtable, card) &&
+                CardEffectCommons.CanTriggerOnPlay(hashtable, card) && 
                 (additionalUseCondition == null || additionalUseCondition(hashtable, activateClass));
         }
 
         bool CanActivateCondition(Hashtable hashtable, ActivateClass activateClass)
         {
-            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) &&
+            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) && 
                 (additionalActivateCondition == null || additionalActivateCondition(hashtable, activateClass));
         }
     }
@@ -1914,7 +1010,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass WhenDigivolvingClass(CardSource card,
                                                         string effectName,
-                                                        Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                        Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                         string effectDescription,
                                                         bool optional,
                                                         Func<Hashtable, bool> isSkippableFunction = null,
@@ -1931,13 +1027,13 @@ public static partial class CardEffectFactory
         bool CanUseCondition(Hashtable hashtable, ActivateClass activateClass)
         {
             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass) &&
-                CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card) &&
+                CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card) && 
                 (additionalUseCondition == null || additionalUseCondition(hashtable, activateClass));
         }
 
         bool CanActivateCondition(Hashtable hashtable, ActivateClass activateClass)
         {
-            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) &&
+            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) && 
                 (additionalActivateCondition == null || additionalActivateCondition(hashtable, activateClass));
         }
     }
@@ -1947,7 +1043,7 @@ public static partial class CardEffectFactory
     #region When Attacking
     public static ActivateClass WhenAttackingClass(CardSource card,
                                                     string effectName,
-                                                    Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                    Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                     string effectDescription,
                                                     bool optional,
                                                     Func<Hashtable, bool> isSkippableFunction = null,
@@ -1964,13 +1060,13 @@ public static partial class CardEffectFactory
         bool CanUseCondition(Hashtable hashtable, ActivateClass activateClass)
         {
             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass) &&
-                CardEffectCommons.CanTriggerOnAttack(hashtable, card) &&
+                CardEffectCommons.CanTriggerOnAttack(hashtable, card) && 
                 (additionalUseCondition == null || additionalUseCondition(hashtable, activateClass));
         }
 
         bool CanActivateCondition(Hashtable hashtable, ActivateClass activateClass)
         {
-            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) &&
+            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) && 
                 (additionalActivateCondition == null || additionalActivateCondition(hashtable, activateClass));
         }
     }
@@ -1981,7 +1077,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass OnDeletionClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -1997,7 +1093,7 @@ public static partial class CardEffectFactory
 
         bool CanUseCondition(Hashtable hashtable, ActivateClass activateClass)
         {
-            return CardEffectCommons.CanTriggerOnDeletion(hashtable, card) &&
+            return CardEffectCommons.CanTriggerOnDeletion(hashtable, card) && 
                 (additionalUseCondition == null || additionalUseCondition(hashtable, activateClass));
         }
 
@@ -2014,7 +1110,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass WhenLinkingClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2049,7 +1145,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass SecurityClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2073,7 +1169,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass EndOfAttackClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2091,7 +1187,7 @@ public static partial class CardEffectFactory
         {
             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass)
                 && CardEffectCommons.CanTriggerOnAttack(hashtable, card)
-                && (additionalUseCondition == null
+                && (additionalUseCondition == null 
                     || additionalUseCondition(hashtable, activateClass));
         }
 
@@ -2109,7 +1205,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass CounterClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2129,7 +1225,7 @@ public static partial class CardEffectFactory
         {
             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass)
                 && CardEffectCommons.CanTriggerOnPermanentAttack(hashtable, permanent => CardEffectCommons.IsOpponentPermanent(permanent, card))
-                && (additionalUseCondition == null
+                && (additionalUseCondition == null 
                     || additionalUseCondition(hashtable, activateClass));
         }
 
@@ -2146,12 +1242,12 @@ public static partial class CardEffectFactory
     #region Start/End of Turn/Phase, Your/Opponent's/All Turns
 
 /**
- *  Can be used for Your Turn, Opponent's Turn, All Turns, End of [Your|Opponent's|All] Turn, Start of Turn/Phase effects
+ *  Can be used for Your Turn, Opponent's Turn, All Turns, End of [Your|Opponent's|All] Turn, Start of Turn/Phase effects 
  *  based on the timing it is used at and additional use conditions passed
  */
     public static ActivateClass TurnTimingClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2189,7 +1285,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass StartOfYourTurnClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2206,7 +1302,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass StartOfYourMainPhaseClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2223,7 +1319,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass EndOfYourTurnClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2240,7 +1336,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass YourTurnClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2261,7 +1357,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass StartOfOpponentsTurnClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2278,7 +1374,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass StartOfYourOpponentsMainPhaseClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2295,7 +1391,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass EndOfYourOpponentsTurnClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2312,7 +1408,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass OpponentsTurnClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2333,7 +1429,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass EndOfAllTurnsClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2350,7 +1446,7 @@ public static partial class CardEffectFactory
 
     public static ActivateClass AllTurnsClass(CardSource card,
                                                 string effectName,
-                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
                                                 string effectDescription,
                                                 bool optional,
                                                 Func<Hashtable, bool> isSkippableFunction = null,
@@ -2366,5 +1462,70 @@ public static partial class CardEffectFactory
     }
 
     #endregion
-}
 
+    #region At end of turn lose 3 memory
+    public static ActivateClass EoTLose3Memory(CardSource card)
+    {
+        ActivateClass activateClass1 = new ActivateClass();
+        activateClass1.SetUpICardEffect("Memory -3", CanUseCondition1, card);
+        activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription1());
+        return activateClass1;
+
+        string EffectDiscription1()
+        {
+            return "Lose 3 memory.";
+        }
+
+        bool CanUseCondition1(Hashtable hashtable)
+        {
+            return true;
+        }
+
+        bool CanActivateCondition1(Hashtable hashtable)
+        {
+            return true;
+        }
+
+        IEnumerator ActivateCoroutine1(Hashtable _hashtable1)
+        {
+            yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(-3, activateClass1));
+        }
+    }
+    #endregion
+
+    #region Place used Options in Security instead of trash effect
+    public static OptionResolutionClass PlaceToSecurityEffect(CardSource card, bool toTop, bool isFaceUp = false, Func<bool> Condition = null)
+    {
+        if (card == null) return null;
+        string location = toTop ? "top" : "bottom";
+        string facing = isFaceUp ? "face up" : "face down";
+        string effectName = $"Place the used Option card on {location} of security {facing}.";
+        OptionResolutionClass placeToSecurityEffect = new();
+        placeToSecurityEffect.SetUpICardEffect(effectName, CanUseCondition, card);
+        placeToSecurityEffect.SetUpOptionResolutionClass(ResolutionCoroutine, CanResolveCondition);
+        return placeToSecurityEffect;
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return Condition == null || Condition();
+        }
+
+        bool CanResolveCondition(CardSource optionCard) => optionCard.Owner.CanAddSecurity(placeToSecurityEffect);
+        
+        IEnumerator ResolutionCoroutine(CardSource optionCard)
+        {
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddSecurityCard(optionCard, toTop, isFaceUp));
+        }
+    }
+    #endregion
+
+    #region Add detail for Display
+    public static AddDetailClass AddDetailClass(Func<Hashtable, bool> canUseCondition, Func<Permanent, bool> permanentCondition, string detail, bool triggerEffect, CardSource card)
+    {
+        AddDetailClass addDetailClass = new();
+        addDetailClass.SetUpICardEffect("Added Detail", canUseCondition, card);
+        addDetailClass.SetUpAddDetailClass(permanentCondition, detail, triggerEffect);
+        return addDetailClass;
+    }
+    #endregion
+}

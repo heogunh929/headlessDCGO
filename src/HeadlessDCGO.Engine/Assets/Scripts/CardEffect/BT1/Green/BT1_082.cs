@@ -1,29 +1,11 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_082.cs
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the original
-// BT1_082 (BT1/Green).
-//   [Opponent's Turn] When an opponent's Digimon attacks a player, if this Digimon is suspended, spend 1 of
-//   your opponent's Digimon.
-// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
-// functions (registered on EffectTiming.OnAllyAttack — the AS-IS timing key for this hook, discriminated by
-// the CanTriggerOnPermanentAttack gate over the ATTACKING permanent being an opponent's permanent). Substrate
-// translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `permanent.HasBlocker` -> the self-static
-// keyword gate (negated); `GManager.instance.attackProcess.DefendingPermanent == null` (the attack targets the
-// player directly) -> `card.Context.AttackController.Current.IsDirectAttack` (established idiom, BT1_001
-// sibling's opposite-phrasing check); "if this Digimon is suspended" -> `CardEffectCommons.IsSuspended(card,
-// ICardEffect.ResolvePermanentOfThisCard(card).TopInstanceId)` (the BT1_053 convention);
-// `GManager.instance.GetComponent<SelectPermanentEffect>()` -> bridge W4.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class BT1_082 : CEntity_Effect
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT1_082 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -67,7 +49,7 @@ public sealed class BT1_082 : CEntity_Effect
                     {
                         if (CardEffectCommons.CanTriggerOnPermanentAttack(hashtable, PermanentCondition))
                         {
-                            if (card.Context.AttackController.Current.IsDirectAttack)
+                            if (GManager.instance.attackProcess.DefendingPermanent == null)
                             {
                                 return true;
                             }
@@ -82,9 +64,9 @@ public sealed class BT1_082 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                     {
-                        if (CardEffectCommons.IsSuspended(card, ICardEffect.ResolvePermanentOfThisCard(card).InstanceId))
+                        if (card.PermanentOfThisCard().IsSuspended)
                         {
                             return true;
                         }
@@ -94,9 +76,9 @@ public sealed class BT1_082 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -113,7 +95,7 @@ public sealed class BT1_082 : CEntity_Effect
                     mode: SelectPermanentEffect.Mode.Tap,
                     cardEffect: activateClass);
 
-                await selectPermanentEffect.Activate();
+                yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
             }
         }
 

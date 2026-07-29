@@ -1,34 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT6/Black/BT6_067.cs (88 lines) — TRUE AS-IS 1:1 re-port.
-// Witness card for the freshly-relocated IsMinCost predicate (MinMax_DP_Cost_Level/Cost/IsMinCost.cs).
-//   [When Digivolving] Delete all of your opponent's Digimon with the lowest play cost (OnEnterFieldAnyone).
-//   [None]             +1 SAttack while this Digimon is on the battle area during the owner's turn and the
-//                      opponent has an unsuspended Digimon (ChangeSelfSAttackStaticEffect).
-// Structure kept verbatim (inline `new ActivateClass()` + `DestroyPermanentsClass(...).Destroy()`, the BT9_111
-// sibling idiom); no invented helpers.
-// Substrate translations only:
-//   * IEnumerator -> async Task, `yield return ContinuousController.instance.StartCoroutine(X)` -> `await X`
-//     (BT9_111 idiom).
-//   * `card.Owner.Enemy.GetBattleAreaDigimons()` -> `new Player(card.Context, card.Owner).Enemy!
-//     .GetBattleAreaDigimons()` (BT9_111 idiom).
-//   * AS-IS `IsMinCost(permanent, card.Owner.Enemy, true)` (`Player Enemy` owner) -> mirror overload
-//     `IsMinCost(Permanent?, HeadlessPlayerId, bool, ...)`; `card.Owner.Enemy` -> `CardEffectCommons
-//     .OpponentOf(card)`. Predicate evaluated, NOT flattened (IsPermanentExists guard kept verbatim).
-//   * AS-IS card-less `HasMatchConditionPermanent(PermanentCondition)` -> the mirror `(card, cond)` overload
-//     (BT9_111 convention).
-//   * AS-IS `HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon && !permanent
-//     .IsSuspended)` — the mirror overload now takes `Func<Permanent,bool>`, so the VERBATIM Permanent
-//     predicate is passed directly; the predicate itself is unchanged.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT6.Black;
-
 using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT6_067 : CEntity_Effect
+public class BT6_067 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -50,7 +28,7 @@ public sealed class BT6_067 : CEntity_Effect
             {
                 if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (CardEffectCommons.IsMinCost(permanent, CardEffectCommons.OpponentOf(card), true))
+                    if (CardEffectCommons.IsMinCost(permanent, card.Owner.Enemy, true))
                     {
                         return true;
                     }
@@ -68,7 +46,7 @@ public sealed class BT6_067 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, PermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(PermanentCondition))
                     {
                         return true;
                     }
@@ -77,27 +55,22 @@ public sealed class BT6_067 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                List<Permanent> destroyTargetPermanents = new Player(card.Context, card.Owner).Enemy!.GetBattleAreaDigimons().Filter(PermanentCondition);
-                await new DestroyPermanentsClass(destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy();
+                List<Permanent> destroyTargetPermanents = card.Owner.Enemy.GetBattleAreaDigimons().Filter(PermanentCondition);
+                yield return ContinuousController.instance.StartCoroutine(new DestroyPermanentsClass(destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy());
             }
         }
 
         if (timing == EffectTiming.None)
         {
-            bool PermanentCondition(Permanent permanent)
-            {
-                return permanent.IsDigimon && !permanent.IsSuspended;
-            }
-
             bool Condition()
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, PermanentCondition))
+                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon && !permanent.IsSuspended))
                         {
                             return true;
                         }

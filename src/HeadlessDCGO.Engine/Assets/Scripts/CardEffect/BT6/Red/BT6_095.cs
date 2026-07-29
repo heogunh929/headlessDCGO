@@ -1,32 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT6/Red/BT6_095.cs (69 lines) — TRUE AS-IS 1:1 re-port.
-// Witness card for the freshly-relocated IsMinDP predicate (MinMax_DP_Cost_Level/DP/IsMinDP.cs).
-//   [None]     Ignore this card's color requirements while the owner has a [Three Musketeers] Digimon on the
-//              battle area (IgnoreColorConditionClass).
-//   [Main]     Delete all of your opponent's Digimon with the lowest DP (OptionSkill).
-//   [Security] The same Main effect, custom description (SecuritySkill).
-// Structure kept verbatim (inline kind-classes + `DestroyPermanentsClass(...).Destroy()`, the BT9_109/BT9_111
-// sibling idioms); no invented helpers.
-// Substrate translations only:
-//   * IEnumerator -> async Task, `yield return ContinuousController.instance.StartCoroutine(X)` -> `await X`.
-//   * `card.Owner.Enemy.GetBattleAreaDigimons()` -> `new Player(card.Context, card.Owner).Enemy!
-//     .GetBattleAreaDigimons()` (BT9_111 idiom).
-//   * AS-IS `IsMinDP(permanent, card.Owner.Enemy)` (`Player Enemy` owner) -> mirror overload `IsMinDP(Permanent?,
-//     HeadlessPlayerId, ...)`; `card.Owner.Enemy` -> `CardEffectCommons.OpponentOf(card)` (EX7_014 idiom).
-//     Predicate is evaluated, NOT flattened.
-//   * AS-IS `HasMatchConditionOwnersPermanent(card, (permanent) => ...)` takes a `Func<Permanent,bool>` in the
-//     mirror too, so the VERBATIM trait predicate is passed directly (no adapter needed). The AS-IS operator
-//     precedence (`&& ... || ...`) is preserved exactly.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT6.Red;
-
 using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT6_095 : CEntity_Effect
+public class BT6_095 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -64,7 +44,7 @@ public sealed class BT6_095 : CEntity_Effect
 
             bool PermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsMinDP(permanent, CardEffectCommons.OpponentOf(card));
+                return CardEffectCommons.IsMinDP(permanent, card.Owner.Enemy);
             }
 
             bool CanUseCondition(Hashtable hashtable)
@@ -72,10 +52,10 @@ public sealed class BT6_095 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                List<Permanent> destroyTargetPermanents = new Player(card.Context, card.Owner).Enemy!.GetBattleAreaDigimons().Filter(PermanentCondition);
-                await new DestroyPermanentsClass(destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy();
+                List<Permanent> destroyTargetPermanents = card.Owner.Enemy.GetBattleAreaDigimons().Filter(PermanentCondition);
+                yield return ContinuousController.instance.StartCoroutine(new DestroyPermanentsClass(destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy());
             }
         }
 

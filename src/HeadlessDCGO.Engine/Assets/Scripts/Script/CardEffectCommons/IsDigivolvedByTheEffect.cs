@@ -1,6 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/IsDigivolvedByTheEffect.cs
-// (R4 S3b-2②) 1:1 — unblocked by the just-after bookkeeping store (Permanent.DigivolvingEffect landed).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using UnityEngine;
 
 public partial class CardEffectCommons
 {
@@ -8,9 +10,7 @@ public partial class CardEffectCommons
     {
         if (IsPermanentExistsOnBattleArea(permanent))
         {
-            // AS-IS `permanent.TopCard == cardSource` — mirror CardSource is a per-access view, so reference
-            // equality is expressed as instance identity (the established view-comparison adaptation).
-            if (permanent.TopCard != null && cardSource != null && permanent.TopCard.InstanceId == cardSource.InstanceId)
+            if (permanent.TopCard == cardSource)
             {
                 if (permanent.DigivolvingEffect == cardEffect)
                 {

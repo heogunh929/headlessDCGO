@@ -1,0 +1,1469 @@
+--- DCGO/Assets/Scripts/Script/AutoProcessing.cs	2026-05-18 20:03:15.639264300 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/Script/AutoProcessing.cs	2026-07-29 01:02:23.460977293 +0900
+@@ -1,155 +1,78 @@
+-﻿using Photon.Pun;
+-using System;
+-using System.Collections;
+-using System.Collections.Generic;
+-using System.Linq;
+-using UnityEngine;
+ 
++namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
++
++using System.Collections;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++using HeadlessDCGO.Engine.Headless.Bridge;
++using HeadlessDCGO.Engine.Headless.Choices;
++using HeadlessDCGO.Engine.Headless.Runtime;
++using HeadlessDCGO.Engine.Headless.Services;
++using HeadlessDCGO.Engine.Headless.State;
++using Photon.Pun;
++using Commons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
+ 
+ public class AutoProcessing : MonoBehaviourPunCallbacks
+ {
+-    //Skill list before triggering and entering resolution timing
+-    public List<SkillInfo> StackedSkillInfos { get; set; } = new List<SkillInfo>();
+-    //Skill Processing Component List
+-    public List<MultipleSkills> multipleSkills = new List<MultipleSkills>();
+-
+-    [SerializeField] bool SkipSameEffect;
++    private readonly EngineContext _context;
+ 
+-    public List<SkillInfo> skipSkillInfos = new List<SkillInfo>();
+-
+-    #region Available Skill Processing Component
+-    public MultipleSkills availableMultipleSkills
++    private AutoProcessing(EngineContext context)
+     {
+-        get
+-        {
+-            foreach (MultipleSkills _multipleSkills in multipleSkills)
+-            {
+-                if (!_multipleSkills.IsUsing)
+-                {
+-                    return _multipleSkills;
+-                }
+-            }
+-
+-            return null;
+-        }
++        _context = context ?? throw new ArgumentNullException(nameof(context));
+     }
+-    #endregion
+ 
+-    #region Stack during effect processing
+-    public MultipleSkills executingMultipleSkills
++    public static AutoProcessing For(EngineContext context)
+     {
+-        get
++        ArgumentNullException.ThrowIfNull(context);
++        if (context.TryGetService(out AutoProcessing? existing) && existing is not null)
+         {
+-            for (int i = 0; i < multipleSkills.Count; i++)
+-            {
+-                if (multipleSkills[multipleSkills.Count - 1 - i].IsUsing)
+-                {
+-                    return multipleSkills[multipleSkills.Count - 1 - i];
+-                }
+-            }
+-
+-            return null;
++            return existing;
+         }
++
++        var created = new AutoProcessing(context);
++        context.RegisterService(created);
++        return created;
+     }
+-    #endregion
+ 
+-    #region put the effect on the stack
+-    public void PutStackedSkill(SkillInfo skillInfo)
++    public static AutoProcessing ForCutIn(EngineContext context)
+     {
+-        if (skillInfo == null) return;
+-        if (skillInfo.CardEffect == null) return;
+-        if (skillInfo.CardEffect.EffectSourceCard == null) return;
+-        if (!(skillInfo.CardEffect is ActivateICardEffect)) return;
+-
+-        CardSource card = skillInfo.CardEffect.EffectSourceCard;
+-        Permanent permanent = card.PermanentOfThisCard();
+-
+-        if (!skillInfo.CardEffect.IsOptionEffect) //If explicitly set to be an option effect, override setting it to any other kind
++        ArgumentNullException.ThrowIfNull(context);
++        if (context.TryGetService(out CutInInstanceHolder? holder) && holder is not null)
+         {
+-            //Inherited and Link effects can only ever be digimon effects
+-            if (skillInfo.CardEffect.IsInheritedEffect || skillInfo.CardEffect.IsLinkedEffect)
+-            {
+-                skillInfo.CardEffect.SetIsDigimonEffect(true);
+-            }
+-            else
+-            {
+-                #region set the flag whether it is Digimon's effect
+-                if (permanent != null)
+-                {
+-                    if (permanent.IsDigimon)
+-                    {
+-                        skillInfo.CardEffect.SetIsDigimonEffect(true);
+-                    }
+-                }
+-
+-                if (card == GManager.instance.attackProcess.SecurityDigimon)
+-                {
+-                    skillInfo.CardEffect.SetIsDigimonEffect(true);
+-                }
+-                #endregion
+-
+-                #region set the flag whether it is Tamer's effect
+-                if (permanent != null)
+-                {
+-                    if (permanent.IsTamer)
+-                    {
+-                        skillInfo.CardEffect.SetIsTamerEffect(true);
+-                    }
+-                }
+-
+-                else if (card.IsTamer)
+-                {
+-                    skillInfo.CardEffect.SetIsTamerEffect(true);
+-                }
+-                #endregion
+-            }
++            return holder.Value;
+         }
+ 
+-        #region set permanent and topCard when triggered
+-        ((ActivateICardEffect)skillInfo.CardEffect).PermanentWhenTriggered = permanent;
++        var created = new CutInInstanceHolder(new AutoProcessing(context));
++        context.RegisterService(created);
++        return created.Value;
++    }
+ 
+-        if (permanent != null)
++    private class CutInInstanceHolder
++    {
++        public CutInInstanceHolder(AutoProcessing value)
+         {
+-            ((ActivateICardEffect)skillInfo.CardEffect).TopCardWhenTriggered = permanent.TopCard;
++            Value = value;
+         }
+-        #endregion
+ 
+-        StackedSkillInfos.Add(skillInfo);
++        public AutoProcessing Value { get; }
+     }
+-    #endregion
+-
+-    #region Automated processing checks
+-    public IEnumerator AutoProcessCheck()
+-    {
+-        if (!GManager.instance.turnStateMachine.DoneStartGame) yield break;
+-
+-        yield return ContinuousController.instance.StartCoroutine(ShrinkSecurityDigimonDisplay());
+ 
+-        GManager.instance.turnStateMachine.IsSelecting = true;
+-
+-        //Rule processing
+-        yield return ContinuousController.instance.StartCoroutine(RuleProcess());
+-
+-        //Rule Timing
+-        yield return ContinuousController.instance.StartCoroutine(StackSkillInfos(null, EffectTiming.RulesTiming));
+-
+-        //Trigger effect processing
+-        yield return ContinuousController.instance.StartCoroutine(TriggeredSkillProcess(false, null));
++    public const string LinkTrimRequestIdPrefix = "rule:link-trim:";
+ 
+-        GManager.instance.turnStateMachine.IsSelecting = false;
+-    }
+-    #endregion
++    public bool IsRuleProcessing { get; set; }
+ 
+-    #region Rule processing
+-    public bool IsRuleProcessing { get; set; } = false;
+ 
+-    bool IsNotDigimonInBreeding(Permanent permanent)
++    private bool IsNotDigimonInBreeding(Permanent permanent)
+     {
+         if (permanent != null)
+         {
+             if (permanent.TopCard != null)
+             {
+-                if (CardEffectCommons.IsExistOnBreedingArea(permanent.TopCard))
++                if (!permanent.TopCard.HasDefinition)
++                {
++                    return false;
++                }
++
++                if (Commons.IsExistOnBreedingArea(permanent.TopCard))
+                 {
+                     if (!permanent.IsDigimon)
+                     {
+@@ -162,12 +85,17 @@
+         return false;
+     }
+ 
+-    bool IsNotHavingDP(Permanent permanent)
++    private bool IsNotHavingDP(Permanent permanent)
+     {
+         if (permanent != null)
+         {
+             if (permanent.TopCard != null)
+             {
++                if (permanent.IsDigimon && !permanent.TopCard.IsDigiEgg && !permanent.IsDpDefined)
++                {
++                    return false;
++                }
++
+                 if (permanent.DP < 0)
+                 {
+                     if (permanent.IsPlaceToTrashDueToNotHavingDP)
+@@ -192,12 +120,17 @@
+         return false;
+     }
+ 
+-    bool IsDigimonLackDP(Permanent permanent)
++    private bool IsDigimonLackDP(Permanent permanent)
+     {
+         if (permanent != null)
+         {
+             if (permanent.TopCard != null)
+             {
++                if (!permanent.IsDpDefined)
++                {
++                    return false;
++                }
++
+                 if (permanent.DP == 0)
+                 {
+                     if (permanent.IsDigimon)
+@@ -214,14 +147,16 @@
+         return false;
+     }
+ 
+-    bool IsAttackerNotADigimon()
++    private bool IsAttackerNotADigimon()
+     {
+-        if (!GManager.instance.attackProcess.IsAttacking)
++        AttackProcess attackProcess = AttackProcess.For(_context);
++
++        if (!attackProcess.IsAttacking)
+             return false;
+ 
+-        if (GManager.instance.attackProcess.AttackingPermanent != null)
++        if (attackProcess.AttackingPermanent != null)
+         {
+-            if (!GManager.instance.attackProcess.AttackingPermanent.IsDigimon)
++            if (!attackProcess.AttackingPermanent.IsDigimon)
+                 return true;
+ 
+             //if (GManager.instance.attackProcess.HasDefender && GManager.instance.attackProcess.DefendingPermanent == null)
+@@ -231,13 +166,14 @@
+         return false;
+     }
+ 
+-    bool IsDigimonLackLinkCondition(Permanent permanent)
++    private bool IsDigimonLackLinkCondition(Permanent permanent)
+     {
+         if (permanent != null)
+         {
+             if (permanent.TopCard != null)
+             {
+-                if (permanent.LinkedCards.Any(source => !source.CanLinkToTargetPermanent(permanent, false, true)))
++                if (permanent.LinkedCards.Any(source => source.LinkConditionOf() is not null
++                    && !source.CanLinkToTargetPermanent(permanent, false, true)))
+                 {
+                     return true;
+                 }
+@@ -247,7 +183,7 @@
+         return false;
+     }
+ 
+-    bool IsDigimonLackLinkCount(Permanent permanent)
++    private bool IsDigimonLackLinkCount(Permanent permanent)
+     {
+         if (permanent != null)
+         {
+@@ -263,7 +199,7 @@
+         return false;
+     }
+ 
+-    bool IsPermanentFaceDown(Permanent permanent)
++    private bool IsPermanentFaceDown(Permanent permanent)
+     {
+         if (permanent != null)
+         {
+@@ -279,70 +215,97 @@
+         return false;
+     }
+ 
+-    public IEnumerator RuleProcess()
++
++    public async Task<bool> RuleProcess(CancellationToken cancellationToken = default)
+     {
++        using AmbientMatchContext.Scope _ruleScope = AmbientMatchContext.Enter(_context);
++
++        bool progressedAny = false;
++
+         while (DoRuleProcess())
+         {
++            cancellationToken.ThrowIfCancellationRequested();
+             IsRuleProcessing = true;
++            bool progressed = false;
+ 
+             //敗北処理
+-            yield return ContinuousController.instance.StartCoroutine(EndGameProcess());
++            progressed |= EndGameProcess();
+ 
+-            if (GManager.instance.turnStateMachine.endGame) yield break;
++            if (_context.RuleQueryService.IsTerminal())
++            {
++                IsRuleProcessing = false;
++                return true;
++            }
+ 
+             //Trash Non Digimon from Breeding
+-            yield return ContinuousController.instance.StartCoroutine(TrashNonDigimonPermanentProcess());
++            progressed |= await TrashNonDigimonPermanentProcess(cancellationToken).ConfigureAwait(false);
+ 
+             //DPを持たないカードをトラッシュする処理
+-            yield return ContinuousController.instance.StartCoroutine(TrashNoDPPermanentProcess());
++            progressed |= await TrashNoDPPermanentProcess(cancellationToken).ConfigureAwait(false);
+ 
+             //DP不足処理
+-            yield return ContinuousController.instance.StartCoroutine(DigimonLackDPProcess());
++            progressed |= await DigimonLackDPProcess(cancellationToken).ConfigureAwait(false);
++
+ 
+             //Battle as Tamer
+-            yield return ContinuousController.instance.StartCoroutine(BattleWithoutDigimon());
++            progressed |= BattleWithoutDigimon();
+ 
+             //Link Lacking condition
+-            yield return ContinuousController.instance.StartCoroutine(DigimonLackLinkConditionProcess());
++            progressed |= await DigimonLackLinkConditionProcess(cancellationToken).ConfigureAwait(false);
+ 
+             //Add link count correction
+-            yield return ContinuousController.instance.StartCoroutine(DigimonLackLinkMaxCountProcess());
++            (bool linkMaxProgressed, bool linkMaxParked) = await DigimonLackLinkMaxCountProcess(cancellationToken).ConfigureAwait(false);
++            progressed |= linkMaxProgressed;
++            if (linkMaxParked)
++            {
++                IsRuleProcessing = false;
++                return true;
++            }
+ 
+             //Permanent Face Down
+-            yield return ContinuousController.instance.StartCoroutine(CardFaceDownProcess());
++            progressed |= await CardFaceDownProcess(cancellationToken).ConfigureAwait(false);
+ 
+             IsRuleProcessing = false;
++            progressedAny |= progressed;
++
++            if (!progressed)
++            {
++                _context.LogSink.Warn("[AutoProcessing] RuleProcess pass made no progress while DoRuleProcess reports work; yielding.");
++                break;
++            }
+         }
++
++        return progressedAny;
+     }
+ 
+-    #region Whether rule processing needs to be done
+-    bool DoRuleProcess()
++
++    public bool DoRuleProcess()
+     {
+         if (IsRuleProcessing) return false;
+ 
+         #region Whether it is necessary to perform game end processing
+-        if (GManager.instance.turnStateMachine.gameContext.Players.Count(player => player.IsLose) >= 1)
++        if (Players().Count(playerId => _context.PlayerStatusController.IsLose(playerId)) >= 1)
+         {
+             return true;
+         }
+         #endregion
+ 
+         #region Is it necessary to discard cards in breeding?
+-        if (CardEffectCommons.HasMatchConditionPermanent(IsNotDigimonInBreeding, true))
++        if (HasMatchConditionPermanent(IsNotDigimonInBreeding, true))
+         {
+             return true;
+         }
+         #endregion
+-        
++
+         #region Is it necessary to discard cards without DP?
+-        if (CardEffectCommons.HasMatchConditionPermanent(IsNotHavingDP))
++        if (HasMatchConditionPermanent(IsNotHavingDP))
+         {
+             return true;
+         }
+         #endregion
+ 
+         #region Is it necessary to deal with Digimon's DP shortage?
+-        if (CardEffectCommons.HasMatchConditionPermanent(IsDigimonLackDP))
++        if (HasMatchConditionPermanent(IsDigimonLackDP))
+         {
+             return true;
+         }
+@@ -356,62 +319,83 @@
+         #endregion
+ 
+         #region Is it necessary to deal with Digimon's Link Cards?
+-        if (CardEffectCommons.HasMatchConditionPermanent(IsDigimonLackLinkCondition, true))
++        if (HasMatchConditionPermanent(IsDigimonLackLinkCondition, true))
+         {
+             return true;
+         }
+         #endregion
+ 
+         #region Is it necessary to deal with Digimon's Link Count?
+-        if (CardEffectCommons.HasMatchConditionPermanent(IsDigimonLackLinkCount, true))
++        if (HasMatchConditionPermanent(IsDigimonLackLinkCount, true))
+         {
+             return true;
+         }
+         #endregion
+ 
+         #region Is it necessary to deal with card being face down?
+-        if (CardEffectCommons.HasMatchConditionPermanent(IsPermanentFaceDown, true))
++        if (HasMatchConditionPermanent(IsPermanentFaceDown, true))
+         {
+             return true;
+         }
+         #endregion
+ 
++
+         return false;
+     }
+-    #endregion
+ 
+-    #region Each rule processing
+ 
+     #region Game end processing
+-    IEnumerator EndGameProcess()
++    private bool EndGameProcess()
+     {
+-        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
++        if (_context.RuleQueryService.IsTerminal())
+         {
+-            if (player.IsLose)
++            return false;
++        }
++
++        foreach (HeadlessPlayerId playerId in Players())
++        {
++            if (!_context.PlayerStatusController.IsLose(playerId))
++            {
++                continue;
++            }
++
++            HeadlessPlayerId? enemyId = new Player(_context, playerId).Enemy?.PlayerId;
++
++            bool bothLose = enemyId is not { } enemy || enemy.IsEmpty || _context.PlayerStatusController.IsLose(enemy);
++
++            if (_context.RuleQueryService is ITerminalOutcomeSink outcomeSink)
+             {
+-                if (!player.Enemy.IsLose)
++                if (bothLose)
+                 {
+-                    GManager.instance.turnStateMachine.EndGame(player.Enemy, false);
++                    outcomeSink.SetTerminalOutcome(null, isDraw: true, "Both players lose — draw.");
+                 }
+-
+                 else
+                 {
+-                    GManager.instance.turnStateMachine.EndGame(null, false);
++                    outcomeSink.SetTerminalOutcome(enemyId, isDraw: false, $"Player {playerId} is marked as lose.");
+                 }
+-
+-                yield break;
+             }
++            else if (_context.RuleQueryService is ITerminalStateController terminalController)
++            {
++                terminalController.SetTerminal(true);
++            }
++
++            _context.LogSink.Info(
++                $"[AutoProcessing] EndGameProcess terminal: PlayerLoseFlag winner={(bothLose ? null : enemyId?.Value)} loser={playerId.Value}.");
++            return true;
+         }
++
++        return false;
+     }
+     #endregion
+ 
+     #region Process of trashing cards in Breeding
+-    IEnumerator TrashNonDigimonPermanentProcess()
++    private async Task<bool> TrashNonDigimonPermanentProcess(CancellationToken cancellationToken)
+     {
+-        List<Permanent> BreedingPermanents = GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer
+-            .Map(player => player.GetBreedingAreaPermanents()
+-            .Filter(IsNotDigimonInBreeding)).Flat();
++        List<Permanent> BreedingPermanents = PlayersForTurnPlayer()
++            .SelectMany(player => GetBreedingAreaPermanents(player).Where(IsNotDigimonInBreeding))
++            .ToList();
+ 
++        bool progressed = false;
+         if (BreedingPermanents.Count >= 1)
+         {
+             foreach (Permanent permanent in BreedingPermanents)
+@@ -420,28 +404,25 @@
+                 {
+                     if (permanent.TopCard != null)
+                     {
+-                        yield return ContinuousController.instance.StartCoroutine(permanent.DiscardEvoRoots());
+-
+-                        CardSource cardSource = permanent.TopCard;
+-
+-                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(new List<CardSource>() { cardSource }, "Cards put to trash", true, true));
+-
+-                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(permanent));
+-                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
++                        await DirectTrashPermanentAsync(permanent, ChoiceZone.BreedingArea, cancellationToken).ConfigureAwait(false);
++                        progressed = true;
+                     }
+                 }
+             }
+         }
++
++        return progressed;
+     }
+     #endregion
+ 
+     #region Process of trashing cards without DP
+-    IEnumerator TrashNoDPPermanentProcess()
++    private async Task<bool> TrashNoDPPermanentProcess(CancellationToken cancellationToken)
+     {
+-        List<Permanent> DigitamaPermanents = GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer
+-            .Map(player => player.GetBattleAreaPermanents()
+-            .Filter(IsNotHavingDP)).Flat();
++        List<Permanent> DigitamaPermanents = PlayersForTurnPlayer()
++            .SelectMany(player => GetBattleAreaPermanents(player).Where(IsNotHavingDP))
++            .ToList();
+ 
++        bool progressed = false;
+         if (DigitamaPermanents.Count >= 1)
+         {
+             foreach (Permanent permanent in DigitamaPermanents)
+@@ -450,323 +431,329 @@
+                 {
+                     if (permanent.TopCard != null)
+                     {
+-                        yield return ContinuousController.instance.StartCoroutine(permanent.DiscardEvoRoots());
+-
+-                        CardSource cardSource = permanent.TopCard;
+-
+-                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(new List<CardSource>() { cardSource }, "Cards put to trash", true, true));
+-
+-                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(permanent));
+-                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
++                        await DirectTrashPermanentAsync(permanent, ChoiceZone.BattleArea, cancellationToken).ConfigureAwait(false);
++                        progressed = true;
+                     }
+                 }
+             }
+         }
++
++        return progressed;
+     }
+     #endregion
+ 
+     #region Digimon DP shortage handling
+-    IEnumerator DigimonLackDPProcess()
++    private async Task<bool> DigimonLackDPProcess(CancellationToken cancellationToken)
+     {
+-        List<Permanent> LackPowerPermanents = GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer
+-            .Map(player => player.GetBattleAreaPermanents()
+-            .Filter(IsDigimonLackDP)).Flat();
++        List<Permanent> LackPowerPermanents = PlayersForTurnPlayer()
++            .SelectMany(player => GetBattleAreaPermanents(player).Where(IsDigimonLackDP))
++            .ToList();
+ 
+         if (LackPowerPermanents.Count >= 1)
+         {
+             Hashtable hashtable = new Hashtable()
+             {
+-                { "DPZero", true }
++                { "DPZero", true },
+             };
+ 
+-            yield return ContinuousController.instance.StartCoroutine(new DestroyPermanentsClass(LackPowerPermanents, hashtable).Destroy());
++            var destroyPermanents = new DestroyPermanentsClass(LackPowerPermanents, hashtable);
++            await destroyPermanents.Destroy(cancellationToken).ConfigureAwait(false);
++            return destroyPermanents.DestroyedPermanents.Count >= 1;
+         }
++
++        return false;
+     }
+     #endregion
+ 
+     #region Battle Concerning Tamer
+-    IEnumerator BattleWithoutDigimon()
++    private bool BattleWithoutDigimon()
+     {
+-        if(GManager.instance.attackProcess.AttackingPermanent == null)
+-            yield break;
++        AttackProcess attackProcess = AttackProcess.For(_context);
++
++        if (attackProcess.AttackingPermanent == null)
++            return false;
++
++        bool progressed = false;
++
++        if (!attackProcess.AttackingPermanent.IsDigimon && !attackProcess.IsEndAttack)
++        {
++            attackProcess.IsEndAttack = true;
++            progressed = true;
++        }
+ 
+-        if(!GManager.instance.attackProcess.AttackingPermanent.IsDigimon)
+-            GManager.instance.attackProcess.IsEndAttack = true;
++        if (attackProcess.DefendingPermanent == null && attackProcess.HasDefender && !attackProcess.IsEndAttack)
++        {
++            attackProcess.IsEndAttack = true;
++            progressed = true;
++        }
+ 
+-        if(GManager.instance.attackProcess.DefendingPermanent == null && GManager.instance.attackProcess.HasDefender)
+-            GManager.instance.attackProcess.IsEndAttack = true;
++        return progressed;
+     }
+     #endregion
+ 
+     #region Link Card Lacking conditions handling
+-    IEnumerator DigimonLackLinkConditionProcess()
++    private async Task<bool> DigimonLackLinkConditionProcess(CancellationToken cancellationToken)
+     {
+-        List<Permanent> LackLinkConditionPermanents = GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer
+-            .Map(player => player.GetFieldPermanents()
+-            .Filter(IsDigimonLackLinkCondition)).Flat();
++        List<Permanent> LackLinkConditionPermanents = PlayersForTurnPlayer()
++            .SelectMany(player => GetFieldPermanents(player).Where(IsDigimonLackLinkCondition))
++            .ToList();
+ 
++        bool progressed = false;
+         if (LackLinkConditionPermanents.Count >= 1)
+         {
+-            foreach(Permanent permanent in LackLinkConditionPermanents)
++            foreach (Permanent permanent in LackLinkConditionPermanents)
+             {
+-                List<CardSource> selectedCards = permanent.LinkedCards.FindAll(source => !source.CanLinkToTargetPermanent(permanent, false));
++                List<CardSource> selectedCards = permanent.LinkedCards.FindAll(source => source.LinkConditionOf() is not null
++                    && !source.CanLinkToTargetPermanent(permanent, false));
+ 
+-                yield return ContinuousController.instance.StartCoroutine(new ITrashLinkCards(
+-                               permanent,
+-                               selectedCards,
+-                               null).TrashLinkCards());
++                await new ITrashLinkCards(
++                    permanent,
++                    selectedCards,
++                    null).TrashLinkCards(cancellationToken).ConfigureAwait(false);
++                progressed = true;
+             }
+         }
++
++        return progressed;
+     }
+     #endregion
+ 
+     #region Link Card Lacking Max Count handling
+-    IEnumerator DigimonLackLinkMaxCountProcess()
++    private async Task<(bool Progressed, bool Parked)> DigimonLackLinkMaxCountProcess(CancellationToken cancellationToken)
+     {
+-        List<Permanent> LackLinkCountPermanents = GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer
+-            .Map(player => player.GetFieldPermanents()
+-            .Filter(IsDigimonLackLinkCount)).Flat();
++        List<Permanent> LackLinkCountPermanents = PlayersForTurnPlayer()
++            .SelectMany(player => GetFieldPermanents(player).Where(IsDigimonLackLinkCount))
++            .ToList();
+ 
+         if (LackLinkCountPermanents.Count >= 1)
+         {
+             foreach (Permanent permanent in LackLinkCountPermanents)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(permanent.RemoveLinkedCard(null, (permanent.LinkedCards.Count - permanent.LinkedMax)));
++                await permanent.RemoveLinkedCard(null, (permanent.LinkedCards.Count - permanent.LinkedMax), cancellationToken: cancellationToken).ConfigureAwait(false);
++
++                if (_context.ChoiceController.Current.IsPending)
++                {
++                    return (true, true);
++                }
+             }
++
++            return (true, false);
+         }
++
++        return (false, false);
+     }
+     #endregion
+ 
+     #region Process of trashing cards that are face down
+-    IEnumerator CardFaceDownProcess()
++    private async Task<bool> CardFaceDownProcess(CancellationToken cancellationToken)
+     {
+-        List<Permanent> FacedownPermanents = GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer
+-            .Map(player => player.GetBattleAreaPermanents()
+-            .Filter(IsPermanentFaceDown)).Flat();
++        List<Permanent> FacedownPermanents = PlayersForTurnPlayer()
++            .SelectMany(player => GetBattleAreaPermanents(player).Where(IsPermanentFaceDown))
++            .ToList();
+ 
++        bool progressed = false;
+         foreach (Permanent permanent in FacedownPermanents)
+         {
+             if (permanent != null)
+             {
+                 if (permanent.TopCard != null)
+                 {
+-                    yield return ContinuousController.instance.StartCoroutine(permanent.DiscardEvoRoots());
+-
+-                    CardSource cardSource = permanent.TopCard;
+-
+-                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(new List<CardSource>() { cardSource }, "Cards put to trash", true, true));
+-
+-                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(permanent));
+-                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
++                    await DirectTrashPermanentAsync(permanent, ChoiceZone.BattleArea, cancellationToken).ConfigureAwait(false);
++                    progressed = true;
+                 }
+             }
+         }
+-    }
+-    #endregion
+ 
++        return progressed;
++    }
+     #endregion
+ 
+-    #endregion
+ 
+-    #region Trigger effect processing
+-    public IEnumerator TriggeredSkillProcess(bool CheckNewTriggredSkill_mainStack, Func<List<SkillInfo>, SkillInfo, bool> skipCondition)
++    private async Task DirectTrashPermanentAsync(Permanent permanent, ChoiceZone zone, CancellationToken cancellationToken)
+     {
+-        yield return ContinuousController.instance.StartCoroutine(ShrinkSecurityDigimonDisplay());
++        await permanent.DiscardEvoRoots(cancellationToken: cancellationToken).ConfigureAwait(false);
+ 
+-        if (StackedSkillInfos.Count > 0)
+-        {
+-            List<SkillInfo> skillInfos = StackedSkillInfos.Filter(skillInfo => skillInfo != null && !skipSkillInfos.Contains(skillInfo));
++        await _context.ZoneMover.MoveAsync(
++            new ZoneMoveRequest(permanent.OwnerId, permanent.InstanceId, zone, ChoiceZone.Trash),
++            cancellationToken).ConfigureAwait(false);
++    }
+ 
+-            if (skillInfos.Count >= 1)
++    private bool HasMatchConditionPermanent(Func<Permanent, bool> condition, bool isContainBreedingArea = false)
++    {
++        foreach (HeadlessPlayerId player in PlayersForTurnPlayer())
++        {
++            foreach (Permanent permanent in GetBattleAreaPermanents(player))
+             {
+-                //Clear the list of triggering skills not included in the resolution timing
+-                foreach (SkillInfo skillInfo in skillInfos)
+-                {
+-                    StackedSkillInfos.Remove(skillInfo);
+-                }
+-
+-                //Process the list of skills being triggered
+-                if (availableMultipleSkills != null)
++                if (condition(permanent))
+                 {
+-                    yield return ContinuousController.instance.StartCoroutine(availableMultipleSkills.ActivateMultipleSkills(
+-                        skillInfos,
+-                        this,
+-                        CheckNewTriggredSkill_mainStack,
+-                        skipCondition));
++                    return true;
+                 }
+-                yield return ContinuousController.instance.StartCoroutine(StackSkillInfos(null, EffectTiming.AfterEffectsActivate));
+             }
+-        }
+-    }
+-    #endregion
+-
+-    #region List of effects already achieved
+-    public List<SkillInfo> skillInfos_used
+-    {
+-        get
+-        {
+-            List<SkillInfo> skillInfos_used = new List<SkillInfo>();
+ 
+-            foreach (MultipleSkills multipleSkills in multipleSkills)
++            if (isContainBreedingArea)
+             {
+-                foreach (SkillInfo skillInfo in multipleSkills.SkillInfos_used)
++                foreach (Permanent permanent in GetBreedingAreaPermanents(player))
+                 {
+-                    skillInfos_used.Add(skillInfo);
++                    if (condition(permanent))
++                    {
++                        return true;
++                    }
+                 }
+             }
+-
+-            return skillInfos_used;
+         }
++
++        return false;
+     }
+-    #endregion
+ 
+-    #region The same effect has already been achieved
+-    public static bool HasExecutedSameEffect(List<SkillInfo> skillInfos, SkillInfo skillInfo)
++    private IReadOnlyList<HeadlessPlayerId> Players() =>
++        _context.TurnController.Current.PlayerOrder.Where(player => !player.IsEmpty).ToArray();
++
++    private IReadOnlyList<HeadlessPlayerId> PlayersForTurnPlayer()
+     {
+-        return skillInfos.Some((skillInfo1) => skillInfo1.CardEffect.IsSameEffect(skillInfo.CardEffect));
++        HeadlessPlayerId? turnPlayer = _context.TurnController.Current.TurnPlayerId;
++        return Players()
++            .OrderBy(player => turnPlayer is { } tp && player == tp ? 0 : 1)
++            .ToArray();
+     }
+-    #endregion
+ 
+-    #region Check end of turn
+-    public IEnumerator EndTurnCheck()
++    private IEnumerable<Permanent> GetBattleAreaPermanents(HeadlessPlayerId player) =>
++        GetZonePermanents(player, ChoiceZone.BattleArea);
++
++    private IEnumerable<Permanent> GetBreedingAreaPermanents(HeadlessPlayerId player) =>
++        GetZonePermanents(player, ChoiceZone.BreedingArea);
++
++    private IEnumerable<Permanent> GetFieldPermanents(HeadlessPlayerId player) =>
++        GetBattleAreaPermanents(player).Concat(GetBreedingAreaPermanents(player));
++
++    private IEnumerable<Permanent> GetZonePermanents(HeadlessPlayerId player, ChoiceZone zone)
+     {
+-        if (GManager.instance.turnStateMachine.gameContext.TurnPhase != GameContext.phase.End && !GManager.instance.attackProcess.ActiveAttack())
++        if (_context.ZoneMover is not IZoneStateReader zones)
+         {
+-            if (GManager.instance.turnStateMachine.gameContext.NonTurnPlayer.MemoryForPlayer >= TurnEndMinMemory)
+-            {
+-                GManager.instance.turnStateMachine.Passed = false;
+-                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.EndTurnProcess());
+-            }
++            yield break;
++        }
++
++        foreach (HeadlessEntityId cardId in zones.GetCards(player, zone).ToArray())
++        {
++            yield return new Permanent(_context, cardId, player);
+         }
+     }
++
++
++    #region effect stack (AS-IS AutoProcessing.cs:24)
++    public List<SkillInfo> StackedSkillInfos { get; set; } = new List<SkillInfo>();
+     #endregion
+ 
+-    #region Minimum memory to end turn
+-    static int TurnEndMinMemory
++
++    #region Skill Processing Component pool (AS-IS AutoProcessing.cs:13-54)
++
++    private readonly List<MultipleSkills> _multipleSkills = new List<MultipleSkills>();
++    public List<MultipleSkills> multipleSkills => _multipleSkills;
++
++    public MultipleSkills availableMultipleSkills
+     {
+         get
+         {
+-            int turnEndMinMemory = 1;
+-
+-            #region the effects of players
+-            GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer
+-                    .Map(player => player.EffectList(EffectTiming.None))
+-                    .Flat()
+-                    .Filter(cardEffect => cardEffect is IChangeEndTurnMinMemoryEffect && cardEffect.CanUse(null))
+-                    .ForEach(cardEffect => turnEndMinMemory = ((IChangeEndTurnMinMemoryEffect)cardEffect).GetMinMemory(turnEndMinMemory));
+-            #endregion
+-
+-            #region the effects of permanents
+-            GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer
+-                    .Map(player => player.GetFieldPermanents())
+-                    .Flat()
+-                    .Map(permanent => permanent.EffectList(EffectTiming.None))
+-                    .Flat()
+-                    .Filter(cardEffect => cardEffect is IChangeEndTurnMinMemoryEffect && cardEffect.CanUse(null))
+-                    .ForEach(cardEffect => turnEndMinMemory = ((IChangeEndTurnMinMemoryEffect)cardEffect).GetMinMemory(turnEndMinMemory));
+-            #endregion
++            foreach (MultipleSkills _multipleSkills in multipleSkills)
++            {
++                if (!_multipleSkills.IsUsing)
++                {
++                    return _multipleSkills;
++                }
++            }
+ 
+-            return turnEndMinMemory;
++            MultipleSkills created = new MultipleSkills(_context);
++            _multipleSkills.Add(created);
++            return created;
+         }
+     }
+-    #endregion
+ 
+-    #region Turn end processing
+-    public IEnumerator EndTurnProcess()
++    public MultipleSkills executingMultipleSkills
+     {
+-        if (GManager.instance.turnStateMachine.gameContext.TurnPhase != GameContext.phase.End)
++        get
+         {
+-            // yield return GManager.instance.photonWaitController.StartWait("EndTurnProcess");
+-
+-            if (GManager.instance.turnStateMachine.Passed && GManager.instance.turnStateMachine.gameContext.TurnPhase == GameContext.phase.Main)
++            for (int i = 0; i < multipleSkills.Count; i++)
+             {
+-                if (GManager.instance.turnStateMachine.gameContext.TurnPlayer.PlayerID == 0)
+-                {
+-                    GManager.instance.turnStateMachine.gameContext.Memory = 3;
+-                }
+-
+-                else
++                if (multipleSkills[multipleSkills.Count - 1 - i].IsUsing)
+                 {
+-                    GManager.instance.turnStateMachine.gameContext.Memory = -3;
++                    return multipleSkills[multipleSkills.Count - 1 - i];
+                 }
+-
+-                yield return ContinuousController.instance.StartCoroutine(GManager.instance.memoryObject.SetMemory());
+             }
+ 
+-            GManager.instance.turnStateMachine.Passed = true;
++            return null;
++        }
++    }
+ 
+-            //Effect at end of turn
+-            yield return ContinuousController.instance.StartCoroutine(StackSkillInfos(null, EffectTiming.OnEndTurn));
++    #endregion
+ 
+-            //Automatic processing check timing
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.AutoProcessCheck());
++    #region put the effect on the stack
+ 
+-            //Handle attack steps
+-            while (GManager.instance.attackProcess.ActiveAttack())
+-            {
+-                Debug.Log($"Active Attack, {Enum.GetName(typeof(AttackProcess.AttackState),GManager.instance.attackProcess.State)} Step");
+-                yield return ContinuousController.instance.StartCoroutine(GManager.instance.attackProcess.ProcessNextState());
++    public void PutStackedSkill(SkillInfo skillInfo)
++    {
++        if (skillInfo == null) return;
++        if (skillInfo.CardEffect == null) return;
++        if (skillInfo.CardEffect.EffectSourceCard == null) return;
++        if (!(skillInfo.CardEffect is ActivateICardEffect)) return;
+ 
+-                //自動処理チェックタイミング
+-                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.AutoProcessCheck());
+-            }
++        CardSource card = skillInfo.CardEffect.EffectSourceCard;
++        Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(card);
+ 
+-            if (GManager.instance.turnStateMachine.gameContext.NonTurnPlayer.MemoryForPlayer >= TurnEndMinMemory)
++        if (!skillInfo.CardEffect.IsOptionEffect) //If explicitly set to be an option effect, override setting it to any other kind
++        {
++            //Inherited and Link effects can only ever be digimon effects
++            if (skillInfo.CardEffect.IsInheritedEffect || skillInfo.CardEffect.IsLinkedEffect)
+             {
+-                GManager.instance.turnStateMachine.gameContext.TurnPhase = GameContext.phase.End;
++                skillInfo.CardEffect.SetIsDigimonEffect(true);
+             }
+-
+             else
+             {
+-                if (GManager.instance.turnStateMachine.gameContext.TurnPhase == GameContext.phase.Main)
++                #region set the flag whether it is Digimon's effect
++                if (permanent != null)
+                 {
+-                    StartCoroutine(GManager.instance.turnStateMachine.SetMainPhase());
++                    if (permanent.IsDigimon)
++                    {
++                        skillInfo.CardEffect.SetIsDigimonEffect(true);
++                    }
+                 }
+-            }
+-        }
+-    }
+-    #endregion
+ 
+-    #region Shrink security Digimon display
+-    public IEnumerator ShrinkSecurityDigimonDisplay()
+-    {
+-        if (!HasAwaitingActivateEffects()) yield break;
++                if (GManager.instance.attackProcess.SecurityDigimon is { } securityDigimon && card.InstanceId == securityDigimon)
++                {
++                    skillInfo.CardEffect.SetIsDigimonEffect(true);
++                }
++                #endregion
+ 
+-        if (GManager.instance.attackProcess.IsAttacking)
+-        {
+-            if (GManager.instance.attackProcess.SecurityDigimon != null)
+-            {
+-                if (GManager.instance.GetComponent<Effects>().ShowUseHandCard.gameObject.activeSelf && GManager.instance.GetComponent<Effects>().ShowUseHandCard.cardSource == GManager.instance.attackProcess.SecurityDigimon)
++                #region set the flag whether it is Tamer's effect
++                if (permanent != null)
++                {
++                    if (permanent.IsTamer)
++                    {
++                        skillInfo.CardEffect.SetIsTamerEffect(true);
++                    }
++                }
++
++                else if (card.IsTamer)
+                 {
+-                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().MoveToExecuteCardEffect(GManager.instance.attackProcess.SecurityDigimon));
+-                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.attackProcess.SecurityDigimon.Owner.brainStormObject.BrainStormCoroutine(GManager.instance.attackProcess.SecurityDigimon));
++                    skillInfo.CardEffect.SetIsTamerEffect(true);
+                 }
++                #endregion
+             }
+         }
+-    }
+-    #endregion
+ 
+-    #region Whether there is awaiting activate effects
+-    public bool HasAwaitingActivateEffects()
+-    {
+-        if (StackedSkillInfos.Count >= 2)
+-        {
+-            return true;
+-        }
++        #region set permanent and topCard when triggered
++        ((ActivateICardEffect)skillInfo.CardEffect).PermanentWhenTriggered = permanent;
+ 
+-        else if (StackedSkillInfos.Count == 1)
++        if (permanent != null)
+         {
+-            if (StackedSkillInfos[0].CardEffect.CanActivate(StackedSkillInfos[0].Hashtable))
+-            {
+-                return true;
+-            }
++            ((ActivateICardEffect)skillInfo.CardEffect).TopCardWhenTriggered = permanent.TopCard;
+         }
++        #endregion
+ 
+-        return false;
++        StackedSkillInfos.Add(skillInfo);
+     }
++
+     #endregion
+ 
+-    #region Get skillInfos
++    #region Get skill infos
++
+     public static List<SkillInfo> GetSkillInfos(Hashtable hashtable, EffectTiming timing, Func<ICardEffect, bool> cardEffectCondition = null)
+     {
+         List<SkillInfo> skillInfos = new List<SkillInfo>();
+@@ -878,15 +865,17 @@
+                     }
+                 }
+             }
+-        }            
++        }
+         #endregion
+ 
+         return skillInfos;
+     }
++
+     #endregion
+ 
+     #region Activate background effects
+-    public static IEnumerator ActivateBackgroundEffects(Hashtable hashtable, EffectTiming timing, Func<ICardEffect, bool> cardEffectCondition = null)
++
++    public static async Task ActivateBackgroundEffects(Hashtable hashtable, EffectTiming timing, Func<ICardEffect, bool> cardEffectCondition = null)
+     {
+         #region Player effect
+         foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+@@ -900,7 +889,7 @@
+                         if (cardEffect.CanUse(hashtable))
+                         {
+                             cardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(cardEffect);
+-                            yield return ContinuousController.instance.StartCoroutine(((ActivateICardEffect)cardEffect).Activate(hashtable));
++                            await ((ActivateICardEffect)cardEffect).Activate(hashtable);
+                         }
+                     }
+                 }
+@@ -911,7 +900,6 @@
+         #region Effects of permanents in play
+         foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+         {
+-
+             foreach (Permanent permanent in player.GetFieldPermanents())
+             {
+                 foreach (ICardEffect cardEffect in permanent.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+@@ -923,7 +911,7 @@
+                             if (cardEffect.CanUse(hashtable))
+                             {
+                                 cardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(cardEffect);
+-                                yield return ContinuousController.instance.StartCoroutine(((ActivateICardEffect)cardEffect).Activate(hashtable));
++                                await ((ActivateICardEffect)cardEffect).Activate(hashtable);
+                             }
+                         }
+                     }
+@@ -946,7 +934,7 @@
+                             if (cardEffect.CanUse(hashtable))
+                             {
+                                 cardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(cardEffect);
+-                                yield return ContinuousController.instance.StartCoroutine(((ActivateICardEffect)cardEffect).Activate(hashtable));
++                                await ((ActivateICardEffect)cardEffect).Activate(hashtable);
+                             }
+                         }
+                     }
+@@ -969,7 +957,7 @@
+                             if (cardEffect.CanUse(hashtable))
+                             {
+                                 cardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(cardEffect);
+-                                yield return ContinuousController.instance.StartCoroutine(((ActivateICardEffect)cardEffect).Activate(hashtable));
++                                await ((ActivateICardEffect)cardEffect).Activate(hashtable);
+                             }
+                         }
+                     }
+@@ -978,26 +966,30 @@
+         }
+         #endregion
+     }
++
+     #endregion
+ 
+     #region Stack skillInfos
+-    public IEnumerator StackSkillInfos(Hashtable hashtable, EffectTiming timing, Func<ICardEffect, bool> cardEffectCondition = null)
++
++    public async Task StackSkillInfos(Hashtable hashtable, EffectTiming timing, Func<ICardEffect, bool> cardEffectCondition = null)
+     {
+         GetSkillInfos(hashtable, timing, cardEffectCondition).ForEach(skillInfo => PutStackedSkill(skillInfo));
+ 
+-        yield return ContinuousController.instance.StartCoroutine(ActivateBackgroundEffects(hashtable, timing, cardEffectCondition));
++        await ActivateBackgroundEffects(hashtable, timing, cardEffectCondition);
+     }
++
+     #endregion
+ 
+     #region Get skillInfos of cards
++
+     public static List<SkillInfo> GetSkillInfosOfCards(Hashtable hashtable, EffectTiming timing, List<CardSource> cardSources, Func<ICardEffect, bool> cardEffectCondition = null)
+     {
+         List<SkillInfo> skillInfos = new List<SkillInfo>();
+ 
+-        #region カードリストの効果
++        #region Effects of the card list
+         foreach (CardSource cardSource in cardSources)
+         {
+-            if (cardSource.PermanentOfThisCard() == null)
++            if (ICardEffect.ResolvePermanentOfThisCard(cardSource) == null)
+             {
+                 foreach (ICardEffect cardEffect in cardSource.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                 {
+@@ -1018,15 +1010,17 @@
+ 
+         return skillInfos;
+     }
++
+     #endregion
+ 
+     #region Activate background effects of cards
+-    public static IEnumerator ActivateBackgroundEffectsOfCards(Hashtable hashtable, EffectTiming timing, List<CardSource> cardSources, Func<ICardEffect, bool> cardEffectCondition = null)
++
++    public static async Task ActivateBackgroundEffectsOfCards(Hashtable hashtable, EffectTiming timing, List<CardSource> cardSources, Func<ICardEffect, bool> cardEffectCondition = null)
+     {
+         #region Effect of card list
+         foreach (CardSource cardSource in cardSources)
+         {
+-            if (cardSource.PermanentOfThisCard() == null)
++            if (ICardEffect.ResolvePermanentOfThisCard(cardSource) == null)
+             {
+                 foreach (ICardEffect cardEffect in cardSource.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                 {
+@@ -1037,7 +1031,7 @@
+                             if (cardEffect.CanUse(hashtable))
+                             {
+                                 cardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(cardEffect);
+-                                yield return ContinuousController.instance.StartCoroutine(((ActivateICardEffect)cardEffect).Activate(hashtable));
++                                await ((ActivateICardEffect)cardEffect).Activate(hashtable);
+                             }
+                         }
+                     }
+@@ -1045,25 +1039,233 @@
+             }
+         }
+         #endregion
+-
+     }
++
+     #endregion
+ 
+     #region Stack skillInfos of cards
+-    public IEnumerator StackSkillInfosOfCards(Hashtable hashtable, EffectTiming timing, List<CardSource> cardSources, Func<ICardEffect, bool> cardEffectCondition = null)
++
++    public async Task StackSkillInfosOfCards(Hashtable hashtable, EffectTiming timing, List<CardSource> cardSources, Func<ICardEffect, bool> cardEffectCondition = null)
+     {
+         GetSkillInfosOfCards(hashtable, timing, cardSources, cardEffectCondition).ForEach(skillInfo => PutStackedSkill(skillInfo));
+ 
+-        yield return ContinuousController.instance.StartCoroutine(ActivateBackgroundEffectsOfCards(hashtable, timing, cardSources, cardEffectCondition));
++        await ActivateBackgroundEffectsOfCards(hashtable, timing, cardSources, cardEffectCondition);
++    }
++
++    #endregion
++
++    #region Trigger effect processing
++
++    public List<SkillInfo> skipSkillInfos = new List<SkillInfo>();
++
++    public async Task TriggeredSkillProcess(bool CheckNewTriggredSkill_mainStack, Func<List<SkillInfo>, SkillInfo, bool> skipCondition)
++    {
++        if (StackedSkillInfos.Count > 0)
++        {
++            List<SkillInfo> skillInfos = StackedSkillInfos.Filter(skillInfo => skillInfo != null && !skipSkillInfos.Contains(skillInfo));
++
++            if (skillInfos.Count >= 1)
++            {
++                //Clear the list of triggering skills not included in the resolution timing
++                foreach (SkillInfo skillInfo in skillInfos)
++                {
++                    StackedSkillInfos.Remove(skillInfo);
++                }
++
++                //Process the list of skills being triggered
++                if (availableMultipleSkills != null)
++                {
++                    await availableMultipleSkills.ActivateMultipleSkills(
++                        skillInfos,
++                        this,
++                        CheckNewTriggredSkill_mainStack,
++                        skipCondition);
++                }
++
++                await StackSkillInfos(null, EffectTiming.AfterEffectsActivate);
++            }
++        }
++    }
++
++    #endregion
++
++
++    #region List of effects already achieved
++
++    public List<SkillInfo> skillInfos_used
++    {
++        get
++        {
++            List<SkillInfo> skillInfos_used = new List<SkillInfo>();
++
++            foreach (MultipleSkills multipleSkills in multipleSkills)
++            {
++                foreach (SkillInfo skillInfo in multipleSkills.SkillInfos_used)
++                {
++                    skillInfos_used.Add(skillInfo);
++                }
++            }
++
++            return skillInfos_used;
++        }
++    }
++
++    #endregion
++
++    #region Whether there is awaiting activate effects
++
++    public bool HasAwaitingActivateEffects()
++    {
++        if (StackedSkillInfos.Count >= 2)
++        {
++            return true;
++        }
++
++        else if (StackedSkillInfos.Count == 1)
++        {
++            if (StackedSkillInfos[0].CardEffect.CanActivate(StackedSkillInfos[0].Hashtable))
++            {
++                return true;
++            }
++        }
++
++        return false;
++    }
++
++    #endregion
++
++    #region Automated processing checks
++
++    public async Task AutoProcessCheck(CancellationToken cancellationToken = default)
++    {
++        if (!GManager.instance.turnStateMachine.DoneStartGame) return;
++
++        //Rule processing
++        await RuleProcess(cancellationToken);
++
++        //Rule Timing
++        await StackSkillInfos(null, EffectTiming.RulesTiming);
++
++        //Trigger effect processing
++        await TriggeredSkillProcess(false, null);
++    }
++
++    #endregion
++
++    #region The same effect has already been achieved
++
++    public static bool HasExecutedSameEffect(List<SkillInfo> skillInfos, SkillInfo skillInfo)
++    {
++        return skillInfos.Some((skillInfo1) => skillInfo1.CardEffect.IsSameEffect(skillInfo.CardEffect));
++    }
++
++    #endregion
++
++    #region Check end of turn
++
++    public async Task EndTurnCheck(CancellationToken cancellationToken = default)
++    {
++        if (GManager.instance.turnStateMachine.gameContext.TurnPhase != GameContext.phase.End && !GManager.instance.attackProcess.ActiveAttack())
++        {
++            if (GManager.instance.turnStateMachine.gameContext.NonTurnPlayer!.MemoryForPlayer >= TurnEndMinMemory)
++            {
++                GManager.instance.turnStateMachine.Passed = false;
++                await GManager.instance.autoProcessing.EndTurnProcess(cancellationToken);
++            }
++        }
+     }
++
+     #endregion
+ 
++    #region Minimum memory to end turn
++
++    static int TurnEndMinMemory
++    {
++        get
++        {
++            int turnEndMinMemory = 1;
++
++            #region the effects of players
++            GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer
++                    .Map(player => player.EffectList(EffectTiming.None))
++                    .Flat()
++                    .Filter(cardEffect => cardEffect is IChangeEndTurnMinMemoryEffect && cardEffect.CanUse(null))
++                    .ForEach(cardEffect => turnEndMinMemory = ((IChangeEndTurnMinMemoryEffect)cardEffect).GetMinMemory(turnEndMinMemory));
++            #endregion
++
++            #region the effects of permanents
++            GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer
++                    .Map(player => player.GetFieldPermanents())
++                    .Flat()
++                    .Map(permanent => permanent.EffectList(EffectTiming.None))
++                    .Flat()
++                    .Filter(cardEffect => cardEffect is IChangeEndTurnMinMemoryEffect && cardEffect.CanUse(null))
++                    .ForEach(cardEffect => turnEndMinMemory = ((IChangeEndTurnMinMemoryEffect)cardEffect).GetMinMemory(turnEndMinMemory));
++            #endregion
++
++            return turnEndMinMemory;
++        }
++    }
++
++    #endregion
++
++    #region Turn end processing
++
++    public async Task EndTurnProcess(CancellationToken cancellationToken = default)
++    {
++        if (GManager.instance.turnStateMachine.gameContext.TurnPhase != GameContext.phase.End)
++        {
++            // yield return GManager.instance.photonWaitController.StartWait("EndTurnProcess");
++
++            if (GManager.instance.turnStateMachine.Passed && GManager.instance.turnStateMachine.gameContext.TurnPhase == GameContext.phase.Main)
++            {
++                _context.MemoryController.Set(-3);
++
++            }
++
++            GManager.instance.turnStateMachine.Passed = true;
++
++            //Effect at end of turn
++            await StackSkillInfos(null, EffectTiming.OnEndTurn);
++
++            //Automatic processing check timing
++            await GManager.instance.autoProcessing.AutoProcessCheck(cancellationToken);
++
++            //Handle attack steps
++            while (GManager.instance.attackProcess.ActiveAttack())
++            {
++                await TurnStateMachine.WaitPendingChoiceUnderPump(_context).ConfigureAwait(false);
++                await GManager.instance.attackProcess.ProcessNextState(cancellationToken);
++
++                //自動処理チェックタイミング
++                await GManager.instance.autoProcessing.AutoProcessCheck(cancellationToken);
++            }
++
++            if (GManager.instance.turnStateMachine.gameContext.NonTurnPlayer!.MemoryForPlayer >= TurnEndMinMemory)
++            {
++                GManager.instance.turnStateMachine.gameContext.TurnPhase = GameContext.phase.End;
++            }
++
++            else
++            {
++                if (GManager.instance.turnStateMachine.gameContext.TurnPhase == GameContext.phase.Main)
++                {
++                }
++            }
++        }
++    }
++
++    #endregion
++
++    #region Activate effect process
++
+     public ICardEffect MainProcessingEffect { get; private set; } = null;
+     List<ICardEffect> _usedCutinEffects = new List<ICardEffect>();
+-    public IEnumerator ActivateEffectProcess(ICardEffect cardEffect, Hashtable hashtable, bool isCheckOptional = true)
++
++    public async Task ActivateEffectProcess(ICardEffect cardEffect, Hashtable hashtable, bool isCheckOptional = true)
+     {
+-        if (cardEffect == null) yield break;
+-        if (!(cardEffect is ActivateICardEffect)) yield break;
++        if (cardEffect == null) return;
++        if (!(cardEffect is ActivateICardEffect)) return;
+ 
+         if (cardEffect.CanActivate(hashtable) || cardEffect.IsDeclarative)
+         {
+@@ -1076,7 +1278,7 @@
+                 _usedCutinEffects = new List<ICardEffect>();
+             }
+ 
+-            yield return ContinuousController.instance.StartCoroutine(((ActivateICardEffect)cardEffect).Activate_Optional_Effect_Execute(hashtable, isCheckOptional));
++            await ((ActivateICardEffect)cardEffect).Activate_Optional_Effect_Execute(hashtable, isCheckOptional);
+ 
+             if (!isEffectProcessing)
+             {
+@@ -1087,9 +1289,13 @@
+         }
+     }
+ 
++    #endregion
++
++    #region Cut-in effect accounting (AS-IS AutoProcessing.cs:1090-1106)
++
+     public bool IsCutInEffectHasUsed(ICardEffect cutinEffect)
+     {
+-        return false;//TODO: General line 17 - _usedCutinEffects.Some(cardEffect => cardEffect.IsSameEffect(cutinEffect));
++        return false;
+     }
+ 
+     public bool IsCutInEffectUsedMaxCount(ICardEffect cutinEffect)
+@@ -1104,4 +1310,6 @@
+             _usedCutinEffects.Add(cardEffect);
+         }
+     }
+-}
+\ 파일 끝 개행 문자 없음
++
++    #endregion
++}

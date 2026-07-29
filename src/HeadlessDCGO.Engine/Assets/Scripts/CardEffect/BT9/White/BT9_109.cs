@@ -1,57 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT9/White/BT9_109.cs
-// TRUE AS-IS-verbatim re-port (bridge-W5 pass; C-3 WITNESS card — the AS-IS fidelity of the
-// CanNotTrashFromDigivolutionCards half is load-bearing). 1:1 mirror of the original BT9_109 (BT9/White,
-// the "X Antibody" Option) — the WHOLE AS-IS CardEffects body, all five timing blocks:
-//   [None]        IgnoreColorConditionClass — "ignore color requirements" for this card while the owner has a
-//                 battle-area Digimon (the ported kind-class, verbatim).
-//   [Security]    Gain 1 memory, and add this card to its owner's hand (inline ActivateClass,
-//                 SetIsSecurityEffect(true)).
-//   [Main]        Place this card under 1 of your Digimon without [X Antibody] in its digivolution cards as its
-//                 bottom digivolution card (W4 SelectPermanentEffect Mode.Custom + per-selected coroutine +
-//                 MIG4 Permanent.AddDigivolutionCardsBottom — retires the old port's C3-03 STOP).
-//   [None]        CanNotTrashFromDigivolutionCardsClass — "[X Antibody] under this Digimon can't be trashed"
-//                 (the ported kind-class, SetIsInheritedEffect(true), verbatim — the C-3 witnessed half, incl.
-//                 the AS-IS `CardEffectCondition(ICardEffect) = cardEffect != null` at its true signature).
-//   [When Attacking] (inherited) this Digimon may digivolve into an [X Antibody] Digimon card in hand for its
-//                 digivolution cost (SelectHandEffect + PlayCardClass — REHABBED 수리-9, was C3-04 STOP /
-//                 RD-P6C3-D1+D2; all deps now live, see below).
-// Replaces the PREVIOUS pass's invented `CanNotTrashFromDigivolutionCardsStaticEffect` /
-// `CardEffectFactory.UseRequirements` factory calls and old-model `ActivatedMemoryEffect`/
-// `AddThisCardToHandEffect` composites with the literal AS-IS structure.
-//
-// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`/bare
-// `StartCoroutine(X)` -> `await X`; `card.Owner.GetBattleAreaDigimons()` -> the batch-3 HeadlessPlayerId
-// extension; `card.Owner.AddMemory(1, activateClass)` -> the W4 extension; `AddThisCardToHand(card,
-// activateClass)` -> mirror `(card, card)` (ST3_13 convention — sourceCard = the effect's source card);
-// AS-IS card-less `HasMatchConditionPermanent(cond)`/`MatchConditionPermanentCount(cond)` -> the mirror
-// `(card, cond)` overloads (ST2_06/ST1_08 convention); the Permanent-shaped `CanSelectPermanentCondition` is
-// kept VERBATIM and passed directly to SetUp's canonical Func<Permanent,bool> overload (no id adapter);
-// `card.Owner.HandCards` -> `new Player(card.Context, card.Owner).HandCards` (bridge-W5 mirror member,
-// BT2_023 Player-handle idiom); `permanent.AddDigivolutionCardsBottom(list, activateClass)` -> the MIG4
-// `(list, causeEffectSourceId)` shape; `targetPermanent: card.PermanentOfThisCard()` (a `Permanent` arg) ->
-// `ICardEffect.ResolvePermanentOfThisCard(card)`; `cardSource.HasXAntibodyTraits` -> bridge-W5 mirror of
-// AS-IS CardSource.cs:1975. UI strip (anchor in-body): `card.Owner.brainStormObject.CloseBrainstrorm(card)`
-// (the brainstorm hand-widget overlay, BrainStormObject.cs — pure gameObject.SetActive UI).
-//
-// FORMERLY-UNRESOLVED MEMBERS — ALL RESOLVED (수리-9 rehab; the three CS errors below are stale). The whole
-// [When Attacking] block is now live AS-IS (design items RD-P6C3-D1 + RD-P6C3-D2 CLOSED):
-//   1. `SelectHandEffect` — the mirror Script/SelectHandEffect.cs is now a full 550-line 1:1 component
-//      (R5-A commit 00552dbf); `GetComponent<SelectHandEffect>()`/SetUp/Activate compile and run (RD-P6C3-D2).
-//   2. `cardSource.CanPlayCardTargetFrame(...)` — now declared on the mirror CardSource (CardSource.cs:475),
-//      proven live by BT25_092/ArtsDigivolve (RD-P6C3-D1).
-//   3. `card.PermanentOfThisCard().PermanentFrame` — Permanent.PermanentFrame (Permanent.cs:118) now
-//      materialises the frame on demand (field-list-index adaptation), consumed live by [Arts]/[App Fusion].
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT9.White;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT9_109 : CEntity_Effect
+public class BT9_109 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -92,11 +47,11 @@ public sealed class BT9_109 : CEntity_Effect
                 return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await card.Owner.AddMemory(1, activateClass);
+                yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
 
-                await CardEffectCommons.AddThisCardToHand(card, card);
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.AddThisCardToHand(card, activateClass));
             }
         }
 
@@ -130,13 +85,13 @@ public sealed class BT9_109 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    Permanent? selectedPermanent = null;
+                    Permanent selectedPermanent = null;
 
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -155,22 +110,20 @@ public sealed class BT9_109 : CEntity_Effect
 
                     selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get a digivolution card.", "The opponent is selecting 1 Digimon that will get a digivolution card.");
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
                         selectedPermanent = permanent;
 
-                        await Task.CompletedTask; // AS-IS `yield return null`.
+                        yield return null;   
                     }
 
                     if (selectedPermanent != null && !selectedPermanent.IsToken)
                     {
-                        // AS-IS `yield return ... card.Owner.brainStormObject.CloseBrainstrorm(card)` — the
-                        // brainstorm hand-overlay widget (BrainStormObject.cs:76-87, gameObject.SetActive only)
-                        // = UI (stripped).
+                        yield return ContinuousController.instance.StartCoroutine(card.Owner.brainStormObject.CloseBrainstrorm(card));
 
-                        await selectedPermanent.AddDigivolutionCardsBottom(new List<CardSource>() { card }, activateClass.EffectSourceCard.InstanceId);
+                        yield return ContinuousController.instance.StartCoroutine(selectedPermanent.AddDigivolutionCardsBottom(new List<CardSource>() { card }, activateClass));
                     }
                 }
             }
@@ -228,19 +181,13 @@ public sealed class BT9_109 : CEntity_Effect
 
             bool CanSelectCardCondition(CardSource cardSource)
             {
-                // (수리-9 REHAB, design item RD-P6C3-D1 CLOSED): AS-IS `cardSource.CanPlayCardTargetFrame(
-                // card.PermanentOfThisCard().PermanentFrame, true, activateClass, root: Root.Hand)`. Both
-                // members now exist on the mirror (CardSource.CanPlayCardTargetFrame CardSource.cs:475,
-                // Permanent.PermanentFrame Permanent.cs:118 — materialised on demand; proven live by BT25_092),
-                // so the earlier MIG5-FRAME-MODEL STOP is stale. `card.PermanentOfThisCard()` ->
-                // `ICardEffect.ResolvePermanentOfThisCard(card)` (the standard mirror translation).
                 if (cardSource.HasXAntibodyTraits)
                 {
                     if (cardSource.IsDigimon)
                     {
                         if (CardEffectCommons.IsExistOnBattleArea(card))
                         {
-                            if (cardSource.CanPlayCardTargetFrame(ICardEffect.ResolvePermanentOfThisCard(card).PermanentFrame, true, activateClass, root: SelectCardEffect.Root.Hand))
+                            if (cardSource.CanPlayCardTargetFrame(card.PermanentOfThisCard().PermanentFrame, true, activateClass, root: SelectCardEffect.Root.Hand))
                             {
                                 return true;
                             }
@@ -260,7 +207,7 @@ public sealed class BT9_109 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (new Player(card.Context, card.Owner).HandCards.Count >= 1)
+                    if (card.Owner.HandCards.Count >= 1)
                     {
                         return true;
                     }
@@ -269,16 +216,9 @@ public sealed class BT9_109 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                // (수리-9 REHAB, design item RD-P6C3-D2 CLOSED): the mirror SelectHandEffect is now a full
-                // 1:1 component (Script/SelectHandEffect.cs, 550 lines — R5-A commit 00552dbf), so the AS-IS
-                // select-1-hand-card + PlayCardClass digivolve block is restored verbatim. Substrate only:
-                // `card.Owner.HandCards` -> new Player(ctx, owner).HandCards; IEnumerator SelectCardCoroutine
-                // (`yield return null`) -> `Task SelectCardCoroutine` returning Task.CompletedTask (BT22_035
-                // convention); `yield return StartCoroutine(X)` -> `await X`; `card.PermanentOfThisCard()` ->
-                // ICardEffect.ResolvePermanentOfThisCard(card).
-                if (new Player(card.Context, card.Owner).HandCards.Count(CanSelectCardCondition) >= 1)
+                if (card.Owner.HandCards.Count(CanSelectCardCondition) >= 1)
                 {
                     List<CardSource> selectedCards = new List<CardSource>();
 
@@ -303,13 +243,13 @@ public sealed class BT9_109 : CEntity_Effect
                     selectHandEffect.SetUpCustomMessage("Select 1 card to digivolve.", "The opponent is selecting 1 card to digivolve.");
                     selectHandEffect.SetUpCustomMessage_ShowCard("Played Card");
 
-                    await selectHandEffect.Activate();
+                    yield return StartCoroutine(selectHandEffect.Activate());
 
-                    Task SelectCardCoroutine(CardSource cardSource)
+                    IEnumerator SelectCardCoroutine(CardSource cardSource)
                     {
                         selectedCards.Add(cardSource);
 
-                        return Task.CompletedTask;
+                        yield return null;
                     }
 
                     if (selectedCards.Count >= 1)
@@ -318,14 +258,14 @@ public sealed class BT9_109 : CEntity_Effect
 
                         if (CardEffectCommons.IsExistOnBattleArea(card))
                         {
-                            await new PlayCardClass(
+                            yield return ContinuousController.instance.StartCoroutine(new PlayCardClass(
                                 cardSources: new List<CardSource>() { selectedCard },
                                 hashtable: CardEffectCommons.CardEffectHashtable(activateClass),
                                 payCost: true,
-                                targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card),
+                                targetPermanent: card.PermanentOfThisCard(),
                                 isTapped: false,
                                 root: SelectCardEffect.Root.Hand,
-                                activateETB: true).PlayCard();
+                                activateETB: true).PlayCard());
                         }
                     }
                 }

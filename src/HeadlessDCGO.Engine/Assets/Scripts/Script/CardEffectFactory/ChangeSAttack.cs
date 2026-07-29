@@ -1,18 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ChangeSAttack.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS ChangeSAttack.cs factory partial.
-// Returns the ported ChangeSAttackClass / InvertSAttackClass kind-classes (CardEffects/*.cs).
-// ADAPTATIONS (substrate only; logic verbatim):
-//   (1) card.PermanentOfThisCard() (mirror returns PermanentView) -> ICardEffect.ResolvePermanentOfThisCard(card).
-//   (2) AS-IS permanent.TopCard.CanNotBeAffected(<ICardEffect>) -> mirror CanNotBeAffected(<class>.EffectSourceCard?.InstanceId).
-//   UnityEngine/Photon stripped.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ChangeSAttackClass / InvertSAttackClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -38,7 +28,7 @@ public partial class CardEffectFactory
         }
 
         return ChangeTargetSAttackStaticEffect(
-            targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card),  // ADAPTATION (1)
+            targetPermanent: card.PermanentOfThisCard(),
             changeValue: changeValue,
             isInheritedEffect: isInheritedEffect,
             card: card,
@@ -139,7 +129,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(changeSAttackClass))  // ADAPTATION (2)
+                if (!permanent.TopCard.CanNotBeAffected(changeSAttackClass))
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {
@@ -182,7 +172,7 @@ public partial class CardEffectFactory
         }
 
         return InvertTargetSAttackStaticEffect(
-            targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card),  // ADAPTATION (1)
+            targetPermanent: card.PermanentOfThisCard(),
             changeValue: changeValue,
             isInheritedEffect: isInheritedEffect,
             card: card,
@@ -235,7 +225,7 @@ public partial class CardEffectFactory
         invertSAttackClass.SetUpICardEffect("", CanUseCondition, card);
         invertSAttackClass.SetUpChangeSAttackClass(changeInvertFunc: InvertValue, permanentCondition: PermanentCondition);
         invertSAttackClass.SetIsInheritedEffect(isInheritedEffect);
-        invertSAttackClass.SetHashString($"InvertSecA_{card.CardNumber}");
+        invertSAttackClass.SetHashString($"InvertSecA_{card.CardID}");
         invertSAttackClass.SetIsBackgroundProcess(true);
 
         bool CanUseCondition(Hashtable hashtable)
@@ -264,7 +254,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(invertSAttackClass))  // ADAPTATION (2)
+                if (!permanent.TopCard.CanNotBeAffected(invertSAttackClass))
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {

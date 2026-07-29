@@ -1,18 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Progress.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord SYNC slice) 1:1 mirror of the AS-IS Progress.cs factory partial.
-// Returns the ported CanNotAffectedClass kind-class (CardEffects/CanNotAffectedClass.cs). Replaces the
-// monolith's old invented SelfKeywordBatch2Effect-based ProgressSelfStaticEffect (ProgressStaticEffect was
-// mirror-absent).
-// ADAPTATION (substrate only; logic verbatim): AS-IS cardSource.PermanentOfThisCard() returns a PermanentView
-// on the mirror, not a Permanent -> bridge via ICardEffect.ResolvePermanentOfThisCard(cardSource) (ICardEffect.cs).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CanNotAffectedClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -59,7 +49,7 @@ public partial class CardEffectFactory
                 {
                     if (GManager.instance.attackProcess.IsAttacking)
                     {
-                        if (GManager.instance.attackProcess.AttackingPermanent == ICardEffect.ResolvePermanentOfThisCard(cardSource))
+                        if (GManager.instance.attackProcess.AttackingPermanent == cardSource.PermanentOfThisCard())
                         {
                             return true;
                         }
@@ -76,7 +66,7 @@ public partial class CardEffectFactory
             {
                 if (cardEffect.EffectSourceCard != null)
                 {
-                    if (CardEffectCommons.IsOpponentEffect(cardEffect.EffectSourceCard, card))
+                    if (CardEffectCommons.IsOpponentEffect(cardEffect, card))
                     {
                         return true;
                     }

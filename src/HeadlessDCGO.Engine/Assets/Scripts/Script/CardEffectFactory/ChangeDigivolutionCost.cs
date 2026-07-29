@@ -1,14 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ChangeDigivolutionCost.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS ChangeDigivolutionCost.cs factory partial.
-// Returns the ported ChangeCostClass kind-class (CardEffects/ChangeCostClass.cs). UnityEngine/Photon stripped.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ChangeCostClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {

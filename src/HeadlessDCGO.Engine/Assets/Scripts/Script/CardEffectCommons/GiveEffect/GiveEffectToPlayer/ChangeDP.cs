@@ -1,17 +1,71 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/GiveEffect/GiveEffectToPlayer/ChangeDP.cs
-// (EFFECT-MODEL REBUILD / bridge W1) AS-IS-signature `Task` overload; delegates to the verified substrate
-// `ChangeDigimonDPPlayerEffect` (CardEffectCommons.cs:1824).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using System.Collections;
+using System.Collections.Generic;
 using System;
-using System.Threading.Tasks;
+using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.ChangeDigimonDPPlayerEffect(...)</c> (GiveEffect/GiveEffectToPlayer/ChangeDP.cs:10) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
-    public static async Task ChangeDigimonDPPlayerEffect(Func<Permanent, bool> permanentCondition, int changeValue, EffectDuration effectDuration, ICardEffect activateClass)
+    #region Player gains effect to change Digimon's DP
+    public static IEnumerator ChangeDigimonDPPlayerEffect(
+        Func<Permanent, bool> permanentCondition, 
+        int changeValue, 
+        EffectDuration effectDuration, 
+        ICardEffect activateClass)
     {
-        ChangeDigimonDPPlayerEffect(permanentCondition, changeValue, effectDuration, activateClass?.EffectSourceCard, activateClass);
-        await Task.CompletedTask;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+        if (changeValue == 0) yield break;
+
+        CardSource card = activateClass.EffectSourceCard;
+        bool isUpValue = changeValue > 0;
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            if (IsPermanentExistsOnBattleArea(permanent))
+            {
+                if (!permanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    if (permanentCondition == null || permanentCondition(permanent))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        bool CanUseCondition()
+        {
+            return true;
+        }
+
+        ChangeDPClass changeDPClass = CardEffectFactory.ChangeDPStaticEffect(
+            permanentCondition: PermanentCondition,
+            changeValue: changeValue,
+            isInheritedEffect: false,
+            card: card,
+            condition: CanUseCondition,
+            effectName: null);
+
+        AddEffectToPlayer(effectDuration: effectDuration, card: card, cardEffect: changeDPClass, timing: EffectTiming.None);
+
+        foreach (Permanent permanent in GManager.instance.turnStateMachine.gameContext.PermanentsForTurnPlayer)
+        {
+            if (PermanentCondition(permanent))
+            {
+                if (isUpValue)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(permanent));
+                }
+
+                else
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(permanent));
+                }
+            }
+        }
     }
+    #endregion
 }

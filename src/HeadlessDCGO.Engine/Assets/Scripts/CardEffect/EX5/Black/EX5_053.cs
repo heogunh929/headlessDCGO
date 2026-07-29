@@ -1,246 +1,201 @@
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// EXEMPLAR-T2B 정본 카드 — Baihumon (EX5_053, Digimon / Black / Lv.6)
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// ① AS-IS 앵커: DCGO/Assets/Scripts/CardEffect/EX5/Black/EX5_053.cs (200 lines, 4 regions)
-//    * [None] alt-digivolve   :13-21  (AddSelfDigivolutionRequirementStaticEffect: [Deva]Lv.5 위 코스트3)
-//    * [Counter] Blast Digi   :23-26  (OnCounterTiming — BlastDigivolveEffect; RD-P6C2-11 RESOLVED, 아래 ③ 참조)
-//    * [Security check]        :28-127 (OnSecurityCheck — 체크 카드가 [Deva] 디지몬이면 전투없이·무료 플레이)
-//    * [On Deletion]          :129-196(OnDestroyedAnyone — 상대 최고 플레이코스트 디지몬 삭제)
-//
-// ② 프리미티브 매핑 (감사 축 이름 — coverage_exemplar_audit_2026-07-18.md §4 #27):
-//    * P:DontBattleSecurityDigimonClass — [Security check] 몸통 (AS-IS :84-87; UntilSecurityCheckEndEffects)
-//    * T:OnSecurityCheck                — [Security check] 창 (AS-IS :28; SecurityResolver W4 창)
-//    * (+P:PlayPermanentCards(root Security) (AS-IS :117-123), CanPlayAsNewPermanent, IsMaxCost,
-//       E:SelectPermanentEffect Mode.Destroy, GetCardFromHashtable, IsOpponentTurn, CanUseIgnoreBattle)
-//
-// ③ 배선 관례 근거 (trigger-wiring-porting-rules) + 잠복 STOP:
-//    * [Security check] → OnSecurityCheck 창(SecurityResolver.RunSecurityCheckLoopAsync W4가 실해소 —
-//      SecurityResolver.cs:158-180). CanUseCondition의 hashtable-체크-카드 술어는 AS-IS 1:1.
-//      · 행동-수확 RD-EXT2B-02(EXEMPLAR-T2B W1 실측): OnSecurityCheck 창은 발화하고 이 리액터가 활성화(Deva 감지
-//        + DontBattle 부여 + 자기-플레이 시도)하나, 미러 시큐리티-체크 루프가 공개 카드를 소비/이동한 뒤라
-//        PlayPermanentCards(root:Security)가 착지하지 못한다(play-from-security 순서 갭). 카드 포팅은 AS-IS 1:1로
-//        정확 — 갭은 SecurityResolver 루프 측. 상환 시 witness를 뒤집어 자기-플레이 착지를 검증할 것.
-//    * [Counter] BlastDigivolveEffect(card, null) — 미러 팩토리(KeyWordEffects/BlastDigivolution.cs)는
-//      **RD-P6C2-11 RESOLVED (2026-07-22, A8 구조골 GOAL 1)**: read-side PermanentFrame idiom 착지로
-//      CanActivate/ActivateCoroutine이 실행된다. 구 "잠복 STOP → NotSupportedException" 주석은 stale이라 정정
-//      (BT21_030 자기-정정 판례). Blast 카운터 활성화 경로 실행 — witness EXEMPLAR-T2B EX5_053 W3(flip) + A8G1-BlastDigivolve.
-//    * [On Deletion] → OnDestroyedAnyone + CanTriggerOnDeletion/CanActivateOnDeletion(AS-IS :154-170).
-//
-// 치환(substrate translations only):
-//    * IEnumerator→async Task, StartCoroutine(X)→await X (BT8_092 idiom).
-//    * `card.Owner.UntilSecurityCheckEndEffects` → `new Player(card.Context, card.Owner).*` (미러 Player idiom).
-//    * AS-IS :102-106 `CanPlayAsNewPermanent(cardSource, payCost, cardEffect, root: Security)` — 미러
-//      CanPlayAsNewPermanent는 root 파라미터 없음(substrate drop, BT19_091 동일 idiom) → root 인자 생략.
-//    * AS-IS :108 `GManager.instance.attackProcess.SecurityDigimon = null` — 미러 AttackProcess.SecurityDigimon
-//      (게임 상태) 동일 대입.
-//    * AS-IS :110-115 `brainStormObject.CloseBrainstrorm`/`ShowUseHandCard`/`ShrinkUpUseHandCard` = UI 연출 —
-//      미러 확립 관례상 스트립(앵커 병기).
-//    * SelectPermanentEffect.canTargetCondition는 정본 Func<Permanent,bool> — Permanent-술어 직결(id 어댑터 없음).
-//    * `IsMaxCost(permanent, card.Owner.Enemy, true)` → `IsMaxCost(permanent, OpponentOf(card), true)` (미러 HeadlessPlayerId).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX5.Black;
-
+using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
 
-public sealed class EX5_053 : CEntity_Effect
+namespace DCGO.CardEffects.EX5
 {
-    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public class EX5_053 : CEntity_Effect
     {
-        List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        #region Alternate Digivolution
-        if (timing == EffectTiming.None)
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
         {
-            static bool PermanentCondition(Permanent targetPermanent)
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+            if (timing == EffectTiming.None)
             {
-                return targetPermanent.TopCard.CardTraits.Contains("Deva") && targetPermanent.TopCard.HasLevel && targetPermanent.TopCard.Level == 5;
-            }
-
-            cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(permanentCondition: PermanentCondition, digivolutionCost: 3, ignoreDigivolutionRequirement: false, card: card, condition: null));
-        }
-        #endregion
-
-        #region Blast Digivolve (RD-P6C2-11 RESOLVED)
-        if (timing == EffectTiming.OnCounterTiming)
-        {
-            cardEffects.Add(CardEffectFactory.BlastDigivolveEffect(card: card, condition: null));
-        }
-        #endregion
-
-        #region Security check - play without battle
-        if (timing == EffectTiming.OnSecurityCheck)
-        {
-            ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect("Play the security Digimon without battle", CanUseCondition, card);
-            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDiscription());
-            activateClass.SetHashString("PlaySecurity_EX5_053");
-            cardEffects.Add(activateClass);
-
-            string EffectDiscription()
-            {
-                return "[Opponent's Turn] [Once Per Turn] When your security is checked, if that card is a Digimon card with the [Deva] trait, play it without battling and without paying the cost.";
-            }
-
-            bool CanUseCondition(Hashtable hashtable)
-            {
-                if (CardEffectCommons.IsExistOnBattleArea(card))
+                static bool PermanentCondition(Permanent targetPermanent)
                 {
-                    if (CardEffectCommons.IsOpponentTurn(card))
-                    {
-                        CardSource securityCard = CardEffectCommons.GetCardFromHashtable(hashtable);
+                    return targetPermanent.TopCard.CardTraits.Contains("Deva") && targetPermanent.TopCard.HasLevel && targetPermanent.TopCard.Level == 5;
+                }
 
-                        if (securityCard != null)
+                cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(permanentCondition: PermanentCondition, digivolutionCost: 3, ignoreDigivolutionRequirement: false, card: card, condition: null));
+            }
+
+            if (timing == EffectTiming.OnCounterTiming)
+            {
+                cardEffects.Add(CardEffectFactory.BlastDigivolveEffect(card: card, condition: null));
+            }
+
+            if (timing == EffectTiming.OnSecurityCheck)
+            {
+                ActivateClass activateClass = new ActivateClass();
+                activateClass.SetUpICardEffect("Play the security Digimon without battle", CanUseCondition, card);
+                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDiscription());
+                activateClass.SetHashString("PlaySecurity_EX5_053");
+                cardEffects.Add(activateClass);
+
+                string EffectDiscription()
+                {
+                    return "[Opponent's Turn] [Once Per Turn] When your security is checked, if that card is a Digimon card with the [Deva] trait, play it without battling and without paying the cost.";
+                }
+
+                bool CanUseCondition(Hashtable hashtable)
+                {
+                    if (CardEffectCommons.IsExistOnBattleArea(card))
+                    {
+                        if (CardEffectCommons.IsOpponentTurn(card))
                         {
-                            if (securityCard.Owner == card.Owner)
+                            CardSource securityCard = CardEffectCommons.GetCardFromHashtable(hashtable);
+
+                            if (securityCard != null)
                             {
-                                if (securityCard.IsDigimon)
+                                if (securityCard.Owner == card.Owner)
                                 {
-                                    if (securityCard.CardTraits.Contains("Deva"))
+                                    if (securityCard.IsDigimon)
                                     {
-                                        return true;
+                                        if (securityCard.CardTraits.Contains("Deva"))
+                                        {
+                                            return true;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+
+                    return false;
                 }
 
-                return false;
-            }
-
-            bool CanActivateCondition(Hashtable hashtable)
-            {
-                if (CardEffectCommons.IsExistOnBattleArea(card))
+                bool CanActivateCondition(Hashtable hashtable)
                 {
-                    return true;
-                }
-
-                return false;
-            }
-
-            async Task ActivateCoroutine(Hashtable _hashtable)
-            {
-                CardSource securityCard = CardEffectCommons.GetCardFromHashtable(_hashtable);
-
-                if (securityCard != null)
-                {
-                    DontBattleSecurityDigimonClass dontBattleSecurityDigimonClass = new DontBattleSecurityDigimonClass();
-                    dontBattleSecurityDigimonClass.SetUpICardEffect("Ignore Battle", CanUseCondition, card);
-                    dontBattleSecurityDigimonClass.SetUpDontBattleSecurityDigimonClass(CardSourceCondition: CardSourceCondition);
-                    new Player(card.Context, card.Owner).UntilSecurityCheckEndEffects.Add(_timing => dontBattleSecurityDigimonClass);
-
-                    bool CanUseCondition(Hashtable hashtable)
+                    if (CardEffectCommons.IsExistOnBattleArea(card))
                     {
-                        return CardEffectCommons.CanUseIgnoreBattle(hashtable, securityCard);
+                        return true;
                     }
 
-                    bool CardSourceCondition(CardSource cardSource)
-                    {
-                        return cardSource == securityCard;
-                    }
+                    return false;
                 }
 
-                if (securityCard != null)
+                IEnumerator ActivateCoroutine(Hashtable _hashtable)
                 {
-                    if (CardEffectCommons.CanPlayAsNewPermanent(
-                        cardSource: securityCard,
-                        payCost: false,
-                        cardEffect: activateClass))
+                    CardSource securityCard = CardEffectCommons.GetCardFromHashtable(_hashtable);
+
+                    if (securityCard != null)
                     {
-                        // AS-IS :108 게임 상태: 이후 W5 배틀이 이 시큐리티 디지몬을 배틀하지 않도록 클리어.
-                        GManager.instance.attackProcess.SecurityDigimon = null;
+                        DontBattleSecurityDigimonClass dontBattleSecurityDigimonClass = new DontBattleSecurityDigimonClass();
+                        dontBattleSecurityDigimonClass.SetUpICardEffect("Ignore Battle", CanUseCondition, card);
+                        dontBattleSecurityDigimonClass.SetUpDontBattleSecurityDigimonClass(CardSourceCondition: CardSourceCondition);
+                        card.Owner.UntilSecurityCheckEndEffects.Add(_timing => dontBattleSecurityDigimonClass);
 
-                        // AS-IS :110-115 brainStormObject.CloseBrainstrorm / ShowUseHandCard / ShrinkUpUseHandCard
-                        //   = UI 연출 — 미러 확립 관례상 스트립.
+                        bool CanUseCondition(Hashtable hashtable)
+                        {
+                            return CardEffectCommons.CanUseIgnoreBattle(hashtable, securityCard);
+                        }
 
-                        await CardEffectCommons.PlayPermanentCards(
-                            cardSources: new List<CardSource>() { securityCard },
-                            activateClass: activateClass,
+                        bool CardSourceCondition(CardSource cardSource)
+                        {
+                            return cardSource == securityCard;
+                        }
+                    }
+
+                    if (securityCard != null)
+                    {
+                        if (CardEffectCommons.CanPlayAsNewPermanent(
+                            cardSource: securityCard,
                             payCost: false,
-                            isTapped: false,
-                            root: SelectCardEffect.Root.Security,
-                            activateETB: true);
+                            cardEffect: activateClass,
+                            root: SelectCardEffect.Root.Security))
+                        {
+                            GManager.instance.attackProcess.SecurityDigimon = null;
+
+                            yield return ContinuousController.instance.StartCoroutine(securityCard.Owner.brainStormObject.CloseBrainstrorm(securityCard));
+
+                            if (GManager.instance.GetComponent<Effects>().ShowUseHandCard.gameObject.activeSelf)
+                            {
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShrinkUpUseHandCard(GManager.instance.GetComponent<Effects>().ShowUseHandCard));
+                            }
+
+                            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(
+                                cardSources: new List<CardSource>() { securityCard },
+                                activateClass: activateClass,
+                                payCost: false,
+                                isTapped: false,
+                                root: SelectCardEffect.Root.Security,
+                                activateETB: true));
+                        }
                     }
                 }
             }
-        }
-        #endregion
 
-        #region On Deletion
-        if (timing == EffectTiming.OnDestroyedAnyone)
-        {
-            ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect("Delete opponent's all Digimon with the highest DP", CanUseCondition, card);
-            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
-            cardEffects.Add(activateClass);
-
-            string EffectDiscription()
+            if (timing == EffectTiming.OnDestroyedAnyone)
             {
-                return "[On Deletion] Delete 1 of your opponent's highest play cost Digimon.";
-            }
+                ActivateClass activateClass = new ActivateClass();
+                activateClass.SetUpICardEffect("Delete opponent's all Digimon with the highest DP", CanUseCondition, card);
+                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+                cardEffects.Add(activateClass);
 
-            bool CanSelectPermanentCondition(Permanent permanent)
-            {
-                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                string EffectDiscription()
                 {
-                    if (CardEffectCommons.IsMaxCost(permanent, CardEffectCommons.OpponentOf(card), true))
+                    return "[On Deletion] Delete 1 of your opponent's highest play cost Digimon.";
+                }
+
+                bool CanSelectPermanentCondition(Permanent permanent)
+                {
+                    if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                     {
-                        return true;
+                        if (CardEffectCommons.IsMaxCost(permanent, card.Owner.Enemy, true))
+                        {
+                            return true;
+                        }
                     }
+
+                    return false;
                 }
 
-                return false;
-            }
-
-            bool CanUseCondition(Hashtable hashtable)
-            {
-                return CardEffectCommons.CanTriggerOnDeletion(hashtable, card);
-            }
-
-            bool CanActivateCondition(Hashtable hashtable)
-            {
-                if (CardEffectCommons.CanActivateOnDeletion(hashtable, card))
+                bool CanUseCondition(Hashtable hashtable)
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    return CardEffectCommons.CanTriggerOnDeletion(hashtable, card);
+                }
+
+                bool CanActivateCondition(Hashtable hashtable)
+                {
+                    if (CardEffectCommons.CanActivateOnDeletion(hashtable, card))
                     {
-                        return true;
+                        if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
+                IEnumerator ActivateCoroutine(Hashtable _hashtable)
+                {
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
+                    {
+                        int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
+
+                        SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                        selectPermanentEffect.SetUp(
+                            selectPlayer: card.Owner,
+                            canTargetCondition: CanSelectPermanentCondition,
+                            canTargetCondition_ByPreSelecetedList: null,
+                            canEndSelectCondition: null,
+                            maxCount: maxCount,
+                            canNoSelect: false,
+                            canEndNotMax: false,
+                            selectPermanentCoroutine: null,
+                            afterSelectPermanentCoroutine: null,
+                            mode: SelectPermanentEffect.Mode.Destroy,
+                            cardEffect: activateClass);
+
+                        yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                     }
                 }
-
-                return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
-            {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
-                {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
-
-                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
-
-                    selectPermanentEffect.SetUp(
-                        selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentCondition,
-                        canTargetCondition_ByPreSelecetedList: null,
-                        canEndSelectCondition: null,
-                        maxCount: maxCount,
-                        canNoSelect: false,
-                        canEndNotMax: false,
-                        selectPermanentCoroutine: null,
-                        afterSelectPermanentCoroutine: null,
-                        mode: SelectPermanentEffect.Mode.Destroy,
-                        cardEffect: activateClass);
-
-                    await selectPermanentEffect.Activate();
-                }
-            }
+            return cardEffects;
         }
-        #endregion
-
-        return cardEffects;
     }
 }

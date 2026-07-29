@@ -1,18 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/VortexCanAttackPlayers.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS VortexCanAttackPlayers.cs factory partial.
-// Returns the ported VortexCanAttackPlayersClass kind-class (CardEffects/VortexCanAttackPlayersClass.cs).
-// ADAPTATIONS (substrate only; logic verbatim):
-//   (1) card.PermanentOfThisCard() (mirror returns PermanentView) -> ICardEffect.ResolvePermanentOfThisCard(card).
-//   (2) AS-IS attacker.TopCard.CanNotBeAffected(<ICardEffect>) -> mirror CanNotBeAffected(<class>.EffectSourceCard?.InstanceId).
-//   UnityEngine/Photon stripped.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // VortexCanAttackPlayersClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -40,7 +30,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(attacker))
             {
-                if (attacker == ICardEffect.ResolvePermanentOfThisCard(card))  // ADAPTATION (1)
+                if (attacker == card.PermanentOfThisCard())
                 {
                     return true;
                 }
@@ -84,7 +74,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(attacker))
             {
-                if (!attacker.TopCard.CanNotBeAffected(vortexCanAttackPlayersClass))  // ADAPTATION (2)
+                if (!attacker.TopCard.CanNotBeAffected(vortexCanAttackPlayersClass))
                 {
                     if (attackerCondition == null || attackerCondition(attacker))
                     {

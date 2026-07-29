@@ -1,38 +1,15 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/GiveEffect/GiveEffectToPermanentOrPlayer.cs
-// AS-IS 1:1 mirror of the `partial class CardEffectCommons` half that houses AddEffectToPermanent (the AS-IS file
-// also houses AddEffectToPlayer; that overload pair currently lives in the mirror CardEffectCommons.cs — R6-P /
-// batch-C scope — and is intentionally left there for now, see task W3 point 4).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using System.Collections;
+using System.Collections.Generic;
 using System;
+using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Add effects to 1 target permanent
 
-    /// <summary>AS-IS <c>AddEffectToPermanent(targetPermanent, effectDuration, card, cardEffect, timing)</c>
-    /// (GiveEffect/GiveEffectToPermanentOrPlayer.cs:11-51) — register an effect on the target permanent with a
-    /// duration. AS-IS stores a deferred <see cref="GetCardEffectByEffectTiming"/> selector into the target's
-    /// duration bucket (owner-relative swap for the two turn-end durations), which <see cref="Permanent.EffectList_Added"/>
-    /// then surfaces. RD-P6C3-C1 RESOLVED: a NEW-model effect (an <c>ActivateClass</c>) takes this AS-IS 1:1 bucket
-    /// path. (R7 종점) The old-model activated corpus is fully retired, so the former TRANSITIONAL registry-lowering
-    /// split — an OLD-model <c>ToBinding</c> effect kept on the pre-R3 registry path — is gone with it: the bucket
-    /// path is the sole path, matching AS-IS exactly. The sole caller (BT1_112) passes a new-model ActivateClass.</summary>
-    public static void AddEffectToPermanent(
-        Permanent? targetPermanent, EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing)
+    public static void AddEffectToPermanent(Permanent targetPermanent, EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing)
     {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(cardEffect);
-        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty)
-        {
-            return;
-        }
-
-        // (R3-W3b) AS-IS 1:1 (GiveEffectToPermanentOrPlayer.cs:13-50): store the deferred selector in the target
-        // permanent's duration bucket. The pre-R3 transitional LegacyBindingBridge registry-lowering branch that used
-        // to precede this (for OLD-model effects still exposing ToBinding) is retired: every live caller passes a
-        // NEW-model ActivateClass (no ToBinding), so the registry branch was inert. The bucket path is the sole path,
-        // matching AS-IS exactly.
         Func<EffectTiming, ICardEffect> getCardEffect = GetCardEffectByEffectTiming(timing: timing, cardEffect: cardEffect);
 
         switch (effectDuration)
@@ -77,28 +54,9 @@ public static partial class CardEffectCommons
 
     #region Add effects to 1 target player
 
-    /// <summary>AS-IS <c>AddEffectToPlayer(effectDuration, card, cardEffect, timing, getCardEffect)</c>
-    /// (GiveEffect/GiveEffectToPermanentOrPlayer.cs:57-89) — register an effect at the owning PLAYER's scope with a
-    /// duration. AS-IS stores a deferred <see cref="GetCardEffectByEffectTiming"/> selector into the player's
-    /// duration bucket; <see cref="Player.EffectList"/> then surfaces it, and (since the R3-C2 window flip) the live
-    /// <c>AutoProcessing.GetSkillInfos</c> enumerates <c>player.EffectList(timing)</c> — so a bucket-stored reactor
-    /// (e.g. a <c>[When Attacking] … at end of turn lose N memory</c> reversal) fires through the live window at its
-    /// timing, then the per-duration bucket clear (HeadlessEndTurnCleanupFlow, AS-IS <c>= new List&lt;…&gt;()</c>)
-    /// resets it. The stored value is the EFFECT OBJECT (a new-model <c>ActivateClass</c> needs no <c>ToBinding</c>);
-    /// AS-IS the bucket is a LIST, so a second activation the same turn ADDS a second delegate (BT1_021 attacking
-    /// twice loses 6 at end of turn). RD-P6C3-C1 RESOLVED (R3-C2b-2): the pre-R3 registry-lowering path is retired —
-    /// every live caller passes a new-model effect (EoTLose3Memory→ActivateClass, BT1_090 nested "Memory -2"
-    /// ActivateClass, BT1_104 AddSkillClass), so there is no old-model producer and the bucket path is the sole path.
-    /// AS-IS 1:1 (the <c>getCardEffect ??=</c> default and the per-duration switch, including the
-    /// <c>UntilOwnerActivePhase</c> Enemy redirect).</summary>
-    public static void AddEffectToPlayer(
-        EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing,
-        Func<EffectTiming, ICardEffect>? getCardEffect = null)
+    public static void AddEffectToPlayer(EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing, Func<EffectTiming, ICardEffect> getCardEffect = null)
     {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(cardEffect);
-
-        Player player = new Player(card.Context, card.Owner);
+        Player player = card.Owner;
 
         getCardEffect ??= GetCardEffectByEffectTiming(timing: timing, cardEffect: cardEffect);
 
@@ -121,7 +79,7 @@ public static partial class CardEffectCommons
                 break;
 
             case EffectDuration.UntilOwnerActivePhase:
-                player.Enemy!.UntilOwnerActivePhaseEffects.Add(getCardEffect);
+                player.Enemy.UntilOwnerActivePhaseEffects.Add(getCardEffect);
                 break;
 
             case EffectDuration.UntilCalculateFixedCost:

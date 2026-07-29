@@ -1,27 +1,13 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT2/Green/BT2_102.cs
-// TRUE AS-IS-verbatim re-port (batch 3). 1:1 mirror of the original BT2_102 (BT2/Green, an Option).
-//   [Main]     Return 1 of your opponent's suspended Digimon to the bottom of their deck. (Trash all of the
-//              digivolution cards of that Digimon.)
-//   [Security] (use the Main effect, custom description)
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndReturnToDeckEffect(...)` call (an
-// invented helper — `SelectAndReturnToDeckEffect` is explicitly prohibited/retired) with the literal AS-IS
-// inline `new ActivateClass()` structure + `GManager.instance.GetComponent<SelectPermanentEffect>()`
-// (Mode.PutLibraryBottom) selection pattern (bridge W4). `CardEffectCommons.AddActivateMainOptionSecurityEffect`
-// on SecuritySkill IS the real AS-IS call (verbatim, unchanged).
-// Substrate translations: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` (`permanent.IsSuspended`) -> the established
-// entity-id predicate idiom (`CardEffectCommons.IsSuspended(card, id)`).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Green;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT2_102 : CEntity_Effect
+
+public class BT2_102 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -41,8 +27,15 @@ public sealed class BT2_102 : CEntity_Effect
 
             bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, permanent.InstanceId)
-                    && CardEffectCommons.IsSuspended(card, permanent.InstanceId);
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                {
+                    if (permanent.IsSuspended)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
             }
 
             bool CanUseCondition(Hashtable hashtable)
@@ -50,11 +43,11 @@ public sealed class BT2_102 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -71,7 +64,7 @@ public sealed class BT2_102 : CEntity_Effect
                         mode: SelectPermanentEffect.Mode.PutLibraryBottom,
                         cardEffect: activateClass);
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                 }
             }
         }

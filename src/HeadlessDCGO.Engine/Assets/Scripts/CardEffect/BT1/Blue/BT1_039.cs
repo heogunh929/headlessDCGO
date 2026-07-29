@@ -1,26 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Blue/BT1_039.cs
-// R5-A re-port (RD-R6-01 / RD-P8-01 resolved): old-model ActivatedEffect -> new-model ActivateClass now that the
-// mirror SelectHandEffect exists (Script/SelectHandEffect.cs).
-//   [When Attacking][Twice Per Turn] You can unsuspend this Digimon by trashing 3 cards in your hand.
-// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass(..., 2, true, ...)
-// (ORDER 2 = twice per turn, optional) + SetHashString("Unsuspend_BT1_039") (BT1_039.cs:17-71). The AS-IS
-// ActivateCoroutine (:46-71) is mirrored 1:1: SelectHandEffect(Mode.Discard, maxCount = Min(3, hand)) as a COST,
-// then IUnsuspendPermanents(this Digimon).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `GManager.instance.GetComponent<
-// SelectHandEffect>()` (bridge W4); `card.Owner.HandCards.Count` -> new Player(ctx, owner).HandCards.Count;
-// `card.PermanentOfThisCard()` -> ICardEffect.ResolvePermanentOfThisCard(card); `IUnsuspendPermanents(list,
-// activateClass)` -> the mirror ctor (cause = effect-source id).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
-
-using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_039 : CEntity_Effect
+public class BT1_039 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -48,7 +34,7 @@ public sealed class BT1_039 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (new Player(card.Context, card.Owner).HandCards.Count >= 3)
+                    if (card.Owner.HandCards.Count >= 3)
                     {
                         return true;
                     }
@@ -57,9 +43,9 @@ public sealed class BT1_039 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                int discardCount = Math.Min(3, new Player(card.Context, card.Owner).HandCards.Count);
+                int discardCount = Math.Min(3, card.Owner.HandCards.Count);
 
                 SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
 
@@ -77,11 +63,11 @@ public sealed class BT1_039 : CEntity_Effect
                     mode: SelectHandEffect.Mode.Discard,
                     cardEffect: activateClass);
 
-                await selectHandEffect.Activate();
+                yield return StartCoroutine(selectHandEffect.Activate());
 
-                Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+                Permanent selectedPermanent = card.PermanentOfThisCard();
 
-                await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend();
+                yield return ContinuousController.instance.StartCoroutine(new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend());
             }
         }
 

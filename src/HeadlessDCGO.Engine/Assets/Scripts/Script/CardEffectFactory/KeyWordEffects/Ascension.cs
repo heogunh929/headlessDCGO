@@ -1,19 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Ascension.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord SYNC slice) 1:1 mirror of the AS-IS Ascension.cs factory partial.
-// Returns the ported ActivateClass kind-class (CardEffects/ActivateClass.cs). Replaces the monolith's old
-// invented SelfKeywordByNameEffect-based AscensionSelfEffect.
-// ADAPTATION (substrate only; logic verbatim): AS-IS ActivateCoroutine returns IEnumerator; the mirror
-// ActivateClass.SetUpActivateClass takes Func<Hashtable, Task> (the documented IEnumerator->Task coroutine
-// substrate adaptation in ActivateClass.cs), so ActivateCoroutine returns Task.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ActivateClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -37,7 +26,7 @@ public partial class CardEffectFactory
             return CardEffectCommons.CanActivateAscension(hashtable, card);
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
             return CardEffectCommons.AscensionProcess(_hashtable, activateClass, card);
         }

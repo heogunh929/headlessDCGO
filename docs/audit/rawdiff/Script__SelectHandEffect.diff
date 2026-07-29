@@ -1,0 +1,1231 @@
+--- DCGO/Assets/Scripts/Script/SelectHandEffect.cs	2026-05-18 20:03:15.749400800 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/Script/SelectHandEffect.cs	2026-07-29 01:02:24.647094316 +0900
+@@ -1,29 +1,75 @@
++namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
++
+ using System.Collections;
+-using System.Collections.Generic;
+-using UnityEngine;
+-using System.Linq;
+-using Photon;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
++using HeadlessDCGO.Engine.Headless.Bridge;
++using HeadlessDCGO.Engine.Headless.Choices;
++using HeadlessDCGO.Engine.Headless.Services;
++using HeadlessDCGO.Engine.Headless.State;
+ using Photon.Pun;
+-using System;
++using Commons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
+ 
+ public class SelectHandEffect : MonoBehaviourPunCallbacks
+ {
++    public enum Mode
++    {
++        Discard,
++        PutLibraryTop,
++        PutLibraryBottom,
++        PutSecurityBottom,
++        PlayForFree,
++        PlayForCost,
++        Custom,
++    }
++
++    private HeadlessPlayerId _selectPlayer;
++    private Func<CardSource, bool> _canTargetCondition = static _ => true;
++    private Func<List<CardSource>, CardSource, bool>? _canTargetCondition_ByPreSelecetedList;
++    private Func<List<CardSource>, bool>? _canEndSelectCondition;
++    private int _maxCount;
++    private bool _canNoSelect;
++    private bool _canEndNotMax;
++    private bool _isShowOpponent;
++    private Func<CardSource, Task>? _selectCardCoroutine;
++    private Func<List<CardSource>, Task>? _afterSelectCardCoroutine;
++    private Mode _mode = Mode.Custom;
++    private ICardEffect? _cardEffect;
++    private bool _showCard = true;
++    private bool _digiXros;
++    private bool _isLocal;
++    private bool _isFaceUp;
++    private (int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? _reduceCostTuple;
++    private (int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? _fixedCostTuple;
++
++    private List<CardSource> _targetCards = new();
++    private bool _noSelect;
++    private string? _customMessage_ShowCard;
++    private string _customMessage = string.Empty;
++    private string _customMessage_Enemy = string.Empty;
++    private bool _showOpponentMessage = true;
++
++    private HeadlessEntityId _sourceEntityId = new("select");
++    private EngineContext? _context;
++
++    internal void AttachContext(EngineContext context) => _context = context;
++
+     public void SetUp(
+-        Player selectPlayer,
++        HeadlessPlayerId selectPlayer,
+         Func<CardSource, bool> canTargetCondition,
+-        Func<List<CardSource>, CardSource, bool> canTargetCondition_ByPreSelecetedList,
+-        Func<List<CardSource>, bool> canEndSelectCondition,
++        Func<List<CardSource>, CardSource, bool>? canTargetCondition_ByPreSelecetedList,
++        Func<List<CardSource>, bool>? canEndSelectCondition,
+         int maxCount,
+         bool canNoSelect,
+         bool canEndNotMax,
+         bool isShowOpponent,
+-        Func<CardSource, IEnumerator> selectCardCoroutine,
+-        Func<List<CardSource>, IEnumerator> afterSelectCardCoroutine,
++        Func<CardSource, Task>? selectCardCoroutine,
++        Func<List<CardSource>, Task>? afterSelectCardCoroutine,
+         Mode mode,
+         ICardEffect cardEffect)
+     {
+         _selectPlayer = selectPlayer;
+-        _canTargetCondition = canTargetCondition;
++        _canTargetCondition = canTargetCondition ?? (static _ => true);
+         _canTargetCondition_ByPreSelecetedList = canTargetCondition_ByPreSelecetedList;
+         _canEndSelectCondition = canEndSelectCondition;
+         _maxCount = maxCount;
+@@ -38,47 +84,32 @@
+         _digiXros = false;
+ 
+         _customMessage_ShowCard = null;
+-        _customMessage = "";
+-        _customMessage_Enemy = "";
++        _customMessage = string.Empty;
++        _customMessage_Enemy = string.Empty;
+         _showOpponentMessage = true;
+         _isLocal = false;
+         _isFaceUp = false;
+-    }
+ 
+-    public void SetIsLocal()
+-    {
+-        _isLocal = true;
++        _sourceEntityId = cardEffect?.EffectSourceCard?.InstanceId is { IsEmpty: false } sourceId
++            ? sourceId
++            : new HeadlessEntityId("select");
+     }
+ 
+-    public void SetNotShowCard()
+-    {
+-        _showCard = false;
+-    }
++    public void SetIsLocal() => _isLocal = true;
+ 
+-    public void SetDigiXros()
+-    {
+-        _digiXros = true;
+-    }
++    public void SetNotShowCard() => _showCard = false;
+ 
+-    public void SetIsFaceup()
+-    {
+-        _isFaceUp = true;
+-    }
++    public void SetDigiXros() => _digiXros = true;
+ 
+-    public void SetReducedCostTuple((int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? reduceCostTuple)
+-    {
++    public void SetIsFaceup() => _isFaceUp = true;
++
++    public void SetReducedCostTuple((int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? reduceCostTuple) =>
+         _reduceCostTuple = reduceCostTuple;
+-    }
+ 
+-    public void SetFixedCostTuple((int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? fixedCostTuple)
+-    {
++    public void SetFixedCostTuple((int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? fixedCostTuple) =>
+         _fixedCostTuple = fixedCostTuple;
+-    }
+ 
+-    public void SetUpCustomMessage_ShowCard(string CustomMessage_ShowCard)
+-    {
+-        _customMessage_ShowCard = CustomMessage_ShowCard;
+-    }
++    public void SetUpCustomMessage_ShowCard(string CustomMessage_ShowCard) => _customMessage_ShowCard = CustomMessage_ShowCard;
+ 
+     public void SetUpCustomMessage(string CustomMessage, string CustomMessage_Enemy)
+     {
+@@ -86,857 +117,326 @@
+         _customMessage_Enemy = CustomMessage_Enemy;
+     }
+ 
+-    public void SetNotShowOpponentMessage()
+-    {
+-        _showOpponentMessage = false;
+-    }
++    public void SetNotShowOpponentMessage() => _showOpponentMessage = false;
+ 
+-    //The player who selects the hand
+-    Player _selectPlayer;
+-    //Conditions of the cards that can be selected
+-    Func<CardSource, bool> _canTargetCondition = null;
+-    //Whether the card can be selected with the current selection list status
+-    Func<List<CardSource>, CardSource, bool> _canTargetCondition_ByPreSelecetedList = null;
+-    //Conditions under which a selection can be terminated (see list of selection termination points)
+-    Func<List<CardSource>, bool> _canEndSelectCondition = null;
+-    //Maximum number of sheets to be selected
+-    int _maxCount = 0;
+-    //Whether you can choose not to choose
+-    bool _canNoSelect = false;
+-    //Whether you can finish your selection with less than the maximum number
+-    bool _canEndNotMax = false;
+-    //Whether or not to show it to the other player
+-    bool _isShowOpponent = false;
+-    //(Limited to Mode.Custom) Processing to be performed by selecting
+-    Func<CardSource, IEnumerator> _selectCardCoroutine = null;
+-    //Processing to be done after selection
+-    Func<List<CardSource>, IEnumerator> _afterSelectCardCoroutine = null;
+-    //Classification of processing to be done by selection
+-    Mode _mode = Mode.Custom;
+-    //Skill in making card selections
+-    ICardEffect _cardEffect;
+-    bool _showCard = true;
+-    bool _digiXros = false;
+-    bool _isLocal = false;
+-    bool _isFaceUp = false;
+-    (int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? _reduceCostTuple = null;
+-    (int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? _fixedCostTuple = null;
+-
+-    public enum Mode
+-    {
+-        Discard,
+-        PutLibraryTop,
+-        PutLibraryBottom,
+-        PutSecurityBottom,
+-        PlayForFree,
+-        PlayForCost,
+-        Custom
+-    }
+-
+-    //Selected Hand Card List
+-    List<CardSource> _targetCards = new List<CardSource>();
+-    //No Selection Flag
+-    bool _noSelect = false;
+-
+-    string _customMessage_ShowCard = null;
+-    string _customMessage = null;
+-    string _customMessage_Enemy = null;
+-    bool _showOpponentMessage = true;
+-
+-    #region Whether choice is possible
+     public bool active()
+     {
+-        if (_maxCount <= 0) return false;
++        if (_maxCount <= 0)
++        {
++            return false;
++        }
+ 
+-        if (_selectPlayer != null)
++        EngineContext? context = ResolveContext();
++        if (context is null || _selectPlayer.IsEmpty)
+         {
+-            if (_selectPlayer.HandCards.Count((cardSource) => _canTargetCondition(cardSource)) > 0)
+-            {
+-                return true;
+-            }
++            return false;
+         }
+ 
+-        return false;
++        List<CardSource> handCards = new Player(context, _selectPlayer).HandCards;
++        return handCards.Count(cardSource => _canTargetCondition(cardSource)) > 0;
+     }
+-    #endregion
+ 
+-    public virtual IEnumerator Activate()
++    public async Task Activate()
+     {
+-        bool oldIsSelecting = GManager.instance.turnStateMachine.IsSelecting;
+-
+-        List<PlayPermanentClass> playCharas = new List<PlayPermanentClass>();
+-        List<IDiscardHand> discardHands = new List<IDiscardHand>();
+-        List<CardSource> putClockCards = new List<CardSource>();
++        var discardHands = new List<IDiscardHand>();
+ 
+         _noSelect = false;
+ 
+         if (active())
+         {
++            EngineContext context = RequireContext();
++
+             if (_maxCount == 0)
+             {
+                 _canNoSelect = true;
+             }
+ 
+-            _targetCards = new List<CardSource>();
++            List<CardSource> handPool = new Player(context, _selectPlayer).HandCards;
+ 
+-            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+-            {
+-                GManager.instance.turnStateMachine.OffFieldCardTarget(player);
+-                GManager.instance.turnStateMachine.OffHandCardTarget(player);
+-            }
++            (List<CardSource> selected, bool noSelect) = await RunAsIsSelectionAsync(context, handPool).ConfigureAwait(false);
++            _targetCards = selected;
++            _noSelect = noSelect;
+ 
+-            if (_selectPlayer.isYou)
++            if (!_noSelect)
+             {
+-                GManager.instance.sideBar.SetUpSideBar();
+-
+-                GManager.instance.turnStateMachine.IsSelecting = true;
+-
+-                #region Message Display
+-                if (!string.IsNullOrEmpty(_customMessage))
+-                {
+-                    GManager.instance.commandText.OpenCommandText(_customMessage, _digiXros);
+-                }
+-
+-                else
+-                {
+-                    string message = "";
+-
+-                    switch (_mode)
+-                    {
+-                        case Mode.Discard:
+-                            message = "Select cards to discard.";
+-                            break;
+-
+-                        case Mode.PutLibraryTop:
+-                            message = "Select cards to put on top of the deck.";
+-                            break;
+-
+-                        case Mode.PutLibraryBottom:
+-
+-                            if (_maxCount >= 2)
+-                            {
+-                                message = "Select cards to put on bottom of the deck\n(cards will be placed back to the bottom of the deck so that cards with lower numbers are on top).";
+-                            }
+-
+-                            else
+-                            {
+-                                message = "Select cards to put on bottom of the deck.";
+-                            }
+-
+-                            break;
+-                        case Mode.PutSecurityBottom:
+-                            string str = _isFaceUp ? "faceup" : "facedown";
+-                            message = $"Select card(s) to put on bottom of the security {str}.";
+-
+-                            break;
+-
+-                        case Mode.PlayForFree:
+-                            message = "Select cards to play for without paying the cost.";
+-                            break;
+-
+-                        case Mode.PlayForCost:
+-                            message = "Select cards to play.";
+-                            break;
+-
+-                        case Mode.Custom:
+-                            message = "Select cards in your hand.";
+-                            break;
+-                    }
+-
+-                    if (!string.IsNullOrEmpty(message))
+-                    {
+-                        GManager.instance.commandText.OpenCommandText(message, _digiXros);
+-                    }
+-                }
+-                #endregion
+-
+-                List<CardSource> PreSelectedHandCards = new List<CardSource>();
++                HeadlessEntityId? causeId = _cardEffect?.EffectSourceCard?.InstanceId;
+ 
+-                foreach (HandCard handCard in _selectPlayer.HandCardObjects)
++                foreach (CardSource cardSource in _targetCards)
+                 {
+-                    if (handCard != null)
++                    if (_selectCardCoroutine != null)
+                     {
+-                        if (_canTargetCondition(handCard.cardSource))
+-                        {
+-                            handCard.AddClickTarget(OnClickHandCard);
+-                        }
++                        await _selectCardCoroutine(cardSource).ConfigureAwait(false);
+                     }
+                 }
+ 
+-                CheckEndSelect();
+-
+-                #region Processing when a card in the hand is clicked
+-                void OnClickHandCard(HandCard handCard)
++                switch (_mode)
+                 {
+-                    if (PreSelectedHandCards.Contains(handCard.cardSource))
+-                    {
+-                        PreSelectedHandCards.Remove(handCard.cardSource);
+-                    }
+-
+-                    else
+-                    {
+-                        if (_canTargetCondition_ByPreSelecetedList != null)
+-                        {
+-                            List<CardSource> _PreSelectedList = new List<CardSource>();
+-
+-                            for (int i = 0; i < PreSelectedHandCards.Count; i++)
+-                            {
+-                                if (PreSelectedHandCards.Count >= _maxCount && i == PreSelectedHandCards.Count - 1)
+-                                {
+-                                    continue;
+-                                }
+-
+-                                _PreSelectedList.Add(PreSelectedHandCards[i]);
+-                            }
+-
+-                            if (!_canTargetCondition_ByPreSelecetedList(_PreSelectedList, handCard.cardSource))
+-                            {
+-                                return;
+-                            }
+-                        }
+-
+-                        if (PreSelectedHandCards.Count < _maxCount)
+-                        {
+-                            PreSelectedHandCards.Add(handCard.cardSource);
+-                        }
+-
+-                        else
+-                        {
+-                            if (PreSelectedHandCards.Count > 0)
+-                            {
+-                                PreSelectedHandCards.RemoveAt(PreSelectedHandCards.Count - 1);
+-                                PreSelectedHandCards.Add(handCard.cardSource);
+-                            }
+-                        }
+-
+-                        if (!ContinuousController.instance.checkBeforeEndingSelection
+-                            && !_canNoSelect
+-                            && !_canEndNotMax
+-                            && _maxCount == PreSelectedHandCards.Count)
+-                        {
+-                            EndSelect_RPC();
+-                            return;
+-                        }
+-                    }
++                    case Mode.Discard:
++                        discardHands = _targetCards.Select(cardSource => new IDiscardHand(cardSource)).ToList();
++                        break;
+ 
+-                    CheckEndSelect();
+-                }
+-                #endregion
++                    case Mode.PutLibraryTop:
++                        await CardObjectController.AddLibraryTopCards(_targetCards).ConfigureAwait(false);
++                        break;
+ 
+-                void EndSelect_RPC()
+-                {
+-                    foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+-                    {
+-                        foreach (Permanent permanent in player.GetFieldPermanents())
+-                        {
+-                            permanent.ShowingPermanentCard.RemoveSelectEffect();
+-                            permanent.ShowingPermanentCard.RemoveClickTarget();
+-                        }
++                    case Mode.PutLibraryBottom:
++                        await CardObjectController.AddLibraryBottomCards(_targetCards).ConfigureAwait(false);
++                        break;
+ 
+-                        foreach (HandCard handCard in player.HandCardObjects)
++                    case Mode.PutSecurityBottom:
++                        foreach (CardSource cardSource in _targetCards)
+                         {
+-                            if (handCard != null)
+-                            {
+-                                handCard.RemoveClickTarget();
+-                                handCard.RemoveSelectEffect();
+-                            }
++                            await CardObjectController.AddSecurityCard(cardSource, toTop: false, faceUp: _isFaceUp).ConfigureAwait(false);
+                         }
+-                    }
+ 
+-                    List<int> CardIDs = new List<int>();
+-
+-                    foreach (CardSource cardSource in PreSelectedHandCards)
+-                    {
+-                        CardIDs.Add(cardSource.CardIndex);
+-                    }
++                        break;
+ 
+-                    if (!_isLocal)
+-                    {
+-                        photonView.RPC("SetTargetHandCards", RpcTarget.All, _selectPlayer.PlayerID, CardIDs.ToArray());
+-                    }
++                    case Mode.PlayForFree:
++                        await Commons.PlayPermanentCards(
++                            cardSources: _targetCards,
++                            activateClass: _cardEffect!,
++                            payCost: false,
++                            isTapped: false,
++                            root: SelectCardEffect.Root.Hand,
++                            activateETB: true).ConfigureAwait(false);
++                        break;
+ 
+-                    else
+-                    {
+-                        SetTargetHandCards(_selectPlayer.PlayerID, CardIDs.ToArray());
+-                    }
++                    case Mode.PlayForCost:
++                        await ActivatePlayForCostAsync(context).ConfigureAwait(false);
++                        break;
+ 
+-                    GManager.instance.BackButton.CloseSelectCommandButton();
++                    case Mode.Custom:
++                        break;
+                 }
+ 
+-                #region Determines if selection can be terminated and displays UI
+-                void CheckEndSelect()
++                if (discardHands.Count > 0)
+                 {
+-                    #region UI display depending on whether it can be terminated
+-                    if (CanEndSelect(PreSelectedHandCards))
+-                    {
+-                        GManager.instance.selectCommandPanel.SetUpCommandButton(
+-                            new List<Command_SelectCommand>()
+-                            {
+-                                new Command_SelectCommand("End Selection", EndSelect_RPC, 0)
+-                            });
+-                    }
+-
+-                    else
+-                    {
+-                        GManager.instance.selectCommandPanel.Off(false);
+-                        GManager.instance.sideBar.SetUpSideBar();
+-                    }
+-                    #endregion
+-
+-                    #region Card UI display by selection list
+-                    foreach (CardSource cardSource in _selectPlayer.HandCards)
+-                    {
+-                        if (cardSource.ShowingHandCard != null)
+-                        {
+-                            cardSource.ShowingHandCard.RemoveSelectEffect();
+-                            cardSource.ShowingHandCard.OffSelectedIndexText();
+-
+-                            if (_canTargetCondition(cardSource))
+-                            {
+-                                if (PreSelectedHandCards.Contains(cardSource))
+-                                {
+-                                    cardSource.ShowingHandCard.OnSelect();
+-                                    cardSource.ShowingHandCard.SetOrangeOutline();
+-                                    cardSource.ShowingHandCard.SetSelectedIndexText(PreSelectedHandCards.IndexOf(cardSource) + 1);
+-                                }
+-
+-                                else
+-                                {
+-                                    cardSource.ShowingHandCard.OnSelect();
+-                                    cardSource.ShowingHandCard.SetBlueOutline();
+-
+-                                    if (_canTargetCondition_ByPreSelecetedList != null)
+-                                    {
+-                                        List<CardSource> _PreSelectedList = new List<CardSource>();
+-
+-                                        for (int i = 0; i < PreSelectedHandCards.Count; i++)
+-                                        {
+-                                            if (PreSelectedHandCards.Count >= _maxCount && i == PreSelectedHandCards.Count - 1)
+-                                            {
+-                                                continue;
+-                                            }
+-
+-                                            _PreSelectedList.Add(PreSelectedHandCards[i]);
+-                                        }
+-
+-                                        if (!_canTargetCondition_ByPreSelecetedList(_PreSelectedList, cardSource))
+-                                        {
+-                                            cardSource.ShowingHandCard.RemoveSelectEffect();
+-                                        }
+-                                    }
+-                                }
+-                            }
+-                        }
+-                    }
+-                    #endregion
+-
+-                    if (PreSelectedHandCards.Count >= 1)
+-                    {
+-                        GManager.instance.BackButton.CloseSelectCommandButton();
+-                    }
+-
+-                    else
+-                    {
+-                        if (_canNoSelect)
+-                        {
+-                            GManager.instance.BackButton.OpenSelectCommandButton("No Selection", () => NoSelect_RPC(), 0);
+-
+-                            void NoSelect_RPC()
+-                            {
+-                                if (!_isLocal)
+-                                {
+-                                    photonView.RPC("SetTargetHandCards", RpcTarget.All, _selectPlayer.PlayerID, null);
+-                                }
+-
+-                                else
+-                                {
+-                                    SetTargetHandCards(_selectPlayer.PlayerID, null);
+-                                }
+-                            }
+-                        }
+-                    }
++                    await new IDiscardHands(discardHands, causeId, _cardEffect).DiscardHands().ConfigureAwait(false);
+                 }
+-                #endregion
+             }
+ 
+-            else
++            if (_afterSelectCardCoroutine != null)
+             {
+-                #region Message Display
+-                if (_showOpponentMessage)
+-                {
+-                    if (!string.IsNullOrEmpty(_customMessage_Enemy))
+-                    {
+-                        GManager.instance.commandText.OpenCommandText(_customMessage_Enemy, _digiXros);
+-                    }
+-
+-                    else
+-                    {
+-                        GManager.instance.commandText.OpenCommandText("The opponent is selecting cards.", _digiXros);
+-                    }
+-                }
+-
+-                #endregion
+-
+-                #region AI
+-                if (GManager.instance.IsAI)
+-                {
+-                    List<CardSource> ValidCards = new List<CardSource>();
+-
+-                    foreach (CardSource cardSource in _selectPlayer.HandCards)
+-                    {
+-                        if (_canTargetCondition(cardSource))
+-                        {
+-                            ValidCards.Add(cardSource);
+-                        }
+-                    }
+-
+-                    if (_canEndNotMax)
+-                    {
+-                        _noSelect = true;
+-
+-                        for (int maxCount = 0; maxCount < _maxCount; maxCount++)
+-                        {
+-                            IList<int> indexList = Enumerable.Range(0, ValidCards.Count).ToList();
+-
+-                            List<int> CardIDs = null;
+-
+-                            if (ValidCards.Count >= maxCount)
+-                            {
+-                                for (int i = 0; i < 1000; i++)
+-                                {
+-                                    List<int> GetIndexes = indexList.GetRandom(maxCount).ToList();
+-
+-                                    List<CardSource> GetCards = new List<CardSource>();
+-
+-                                    foreach (int index in GetIndexes)
+-                                    {
+-                                        GetCards.Add(ValidCards[index]);
+-                                    }
+-
+-                                    if (CanEndSelect(GetCards))
+-                                    {
+-                                        CardIDs = new List<int>();
+-
+-                                        foreach (CardSource cardSource in GetCards)
+-                                        {
+-                                            CardIDs.Add(cardSource.CardIndex);
+-                                        }
+-
+-                                        break;
+-                                    }
+-                                }
+-                            }
+-
+-                            SetTargetHandCards(_selectPlayer.PlayerID, CardIDs != null ? CardIDs.ToArray() : null);
+-                        }  
+-                    }
+-
+-                    else
+-                    {
+-                        IList<int> indexList = Enumerable.Range(0, ValidCards.Count).ToList();
+-
+-                        List<int> CardIDs = null;
+-
+-                        if (ValidCards.Count >= _maxCount)
+-                        {
+-                            for (int i = 0; i < 1000; i++)
+-                            {
+-                                List<int> GetIndexes = indexList.GetRandom(_maxCount).ToList();
+-
+-                                List<CardSource> GetCards = new List<CardSource>();
+-
+-                                foreach (int index in GetIndexes)
+-                                {
+-                                    GetCards.Add(ValidCards[index]);
+-                                }
+-
+-                                if (CanEndSelect(GetCards))
+-                                {
+-                                    CardIDs = new List<int>();
+-
+-                                    foreach (CardSource cardSource in GetCards)
+-                                    {
+-                                        CardIDs.Add(cardSource.CardIndex);
+-                                    }
+-
+-                                    break;
+-                                }
+-                            }
+-                        }
+-
+-                        SetTargetHandCards(_selectPlayer.PlayerID, CardIDs != null ? CardIDs.ToArray() : null);
+-
+-                    }
+-                }
+-                #endregion
++                await _afterSelectCardCoroutine(_targetCards).ConfigureAwait(false);
+             }
++        }
++    }
+ 
+-            #region Determine if you can exit
+-            bool CanEndSelect(List<CardSource> PreSelectedHandCards)
++    private async Task ActivatePlayForCostAsync(EngineContext context)
++    {
++        bool PermanentsCondition(List<Permanent> targetPermanents)
++        {
++            if (targetPermanents == null)
+             {
+-                //If the number of cards does not meet the requirements
+-                if (!(PreSelectedHandCards.Count == _maxCount || (PreSelectedHandCards.Count <= _maxCount && _canEndNotMax)))
+-                {
+-                    return false;
+-                }
+-
+-                //Failure to meet specified conditions
+-                if (_canEndSelectCondition != null)
+-                {
+-                    if (!_canEndSelectCondition(PreSelectedHandCards))
+-                    {
+-                        return false;
+-                    }
+-                }
+-
+                 return true;
+             }
+-            #endregion
+-
+-            //Wait for selection to be completed
+-            yield return new WaitUntil(() => _selectPlayer.HasPlayerSelection());
+-            CardSelection cardSeletion = _selectPlayer.DequeuePlayerSelection<CardSelection>();
+ 
+-            _targetCards = new List<CardSource>();
+-
+-            if (cardSeletion != null)
++            if (targetPermanents.Count(targetPermanent => targetPermanent != null) == 0)
+             {
+-                _noSelect = cardSeletion.CardIDList == null;
+-
+-                if (!_noSelect)
+-                {
+-                    foreach (int CardID in cardSeletion.CardIDList)
+-                    {
+-                        _targetCards.Add(GManager.instance.turnStateMachine.gameContext.ActiveCardList[CardID]);
+-                    }
+-                }
+-                else
+-                {
+-                    GManager.instance.selectCommandPanel.CloseSelectCommandPanel();
+-                }
++                return true;
+             }
+ 
+-            #region Reset
+-            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+-            {
+-                GManager.instance.turnStateMachine.OffFieldCardTarget(player);
+-                GManager.instance.turnStateMachine.OffHandCardTarget(player);
+-
+-                foreach (Permanent chara in player.GetFieldPermanents())
+-                {
+-                    chara.ShowingPermanentCard.RemoveSelectEffect();
+-                }
++            return false;
++        }
+ 
+-                foreach (HandCard handCard in player.HandCardObjects)
+-                {
+-                    if (handCard != null)
+-                    {
+-                        handCard.RemoveClickTarget();
+-                        handCard.RemoveSelectEffect();
+-                        handCard.OffSelectedIndexText();
+-                    }
+-                }
+-            }
++        bool SharedCardCondition(CardSource cardSource) => _targetCards.Contains(cardSource);
++        bool RootCondition(SelectCardEffect.Root root) => true;
++        bool CanUseCondition(Hashtable hashtable) => true;
+ 
+-            GManager.instance.commandText.CloseCommandText();
+-            yield return new WaitWhile(() => GManager.instance.commandText.gameObject.activeSelf);
++        var selectPlayer = new Player(context, _selectPlayer);
+ 
+-            GManager.instance.sideBar.OffSideBar();
+-            #endregion
++        Func<EffectTiming, ICardEffect>? getChangeCostEffect = null;
++        if (_reduceCostTuple != null)
++        {
++            bool CardCondition(CardSource cardSource) =>
++                SharedCardCondition(cardSource)
++                && (_reduceCostTuple.Value.reduceCostCardCondition == null || _reduceCostTuple.Value.reduceCostCardCondition(cardSource));
+ 
+-            if (!_noSelect)
++            int ChangeCost(CardSource cardSource, int Cost, SelectCardEffect.Root root, List<Permanent> targetPermanents)
+             {
+-                #region Show selected cards
+-                if (_targetCards.Count > 0 && _showCard)
++                if (PermanentsCondition(targetPermanents))
+                 {
+-                    if (_isShowOpponent || _selectPlayer.isYou)
+-                    {
+-                        if (!string.IsNullOrEmpty(_customMessage_ShowCard))
+-                        {
+-                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, _customMessage_ShowCard, true, true));
+-                        }
+-
+-                        else
+-                        {
+-                            switch (_mode)
+-                            {
+-                                case Mode.Discard:
+-
+-                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, "Discarded cards", true, true));
+-
+-                                    break;
+-
+-                                case Mode.PutLibraryTop:
+-
+-                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, "Cards put on top of deck", true, true));
+-
+-                                    break;
+-
+-                                case Mode.PutLibraryBottom:
+-
+-                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, "Cards put on bottom of deck", true, true));
+-
+-                                    break;
+-
+-                                case Mode.PutSecurityBottom:
+-
+-                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, "Cards put on bottom of security", _isFaceUp, true));
+-
+-                                    break;
+-
+-                                case Mode.PlayForFree:
+-                                case Mode.PlayForCost:
++                    Cost -= _reduceCostTuple.Value.reduceCost;
++                }
+ 
+-                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, "Played cards", true, true));
++                return Cost;
++            }
+ 
+-                                    break;
++            bool isUpDown() => true;
+ 
+-                                case Mode.Custom:
++            ChangeCostClass changeCostClass = new ChangeCostClass();
++            changeCostClass.SetUpICardEffect($"Play Cost -{_reduceCostTuple.Value.reduceCost}", CanUseCondition, _cardEffect!.EffectSourceCard);
++            changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
++            getChangeCostEffect = GetCardEffect;
+ 
+-                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, "Selected cards", true, true));
++            ICardEffect? GetCardEffect(EffectTiming _timing) => _timing == EffectTiming.None ? changeCostClass : null;
+ 
+-                                    break;
+-                            }
+-                        }
+-                    }
+-                }
+-                #endregion
++            selectPlayer.UntilCalculateFixedCostEffect.Add(getChangeCostEffect);
++        }
+ 
+-                Hashtable hashtable = new Hashtable();
++        Func<EffectTiming, ICardEffect>? getFixedCostEffect = null;
++        if (_fixedCostTuple != null)
++        {
++            bool CardCondition(CardSource cardSource) =>
++                SharedCardCondition(cardSource)
++                && (_fixedCostTuple.Value.fixedCostCardCondition == null || _fixedCostTuple.Value.fixedCostCardCondition(cardSource));
+ 
+-                if (_cardEffect != null)
++            int ChangeCost(CardSource cardSource, int Cost, SelectCardEffect.Root root, List<Permanent> targetPermanents)
++            {
++                if (PermanentsCondition(targetPermanents))
+                 {
+-                    hashtable.Add("CardEffect", _cardEffect);
++                    Cost = _fixedCostTuple.Value.fixedCost;
+                 }
+ 
+-                string log = "";
+-
+-                log += $"\nSelected Hand Card:";
+-
+-                #region Processes the selected card
+-                foreach (CardSource cardSource in _targetCards)
+-                {
+-                    log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+-
+-                    if(_selectCardCoroutine != null)
+-                        yield return StartCoroutine(_selectCardCoroutine(cardSource));
+-                }
++                return Cost;
++            }
+ 
+-                switch (_mode)
+-                {
+-                    case Mode.Discard:
++            bool isUpDown() => false;
+ 
+-                        discardHands = _targetCards.Map(cardSource => new IDiscardHand(cardSource, hashtable));
+-                        break;
++            ChangeCostClass changeCostClass = new ChangeCostClass();
++            changeCostClass.SetUpICardEffect($"Play Cost {_fixedCostTuple.Value.fixedCost}", CanUseCondition, _cardEffect!.EffectSourceCard);
++            changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
++            getFixedCostEffect = GetCardEffect;
+ 
+-                    case Mode.PutLibraryTop:
++            ICardEffect? GetCardEffect(EffectTiming _timing) => _timing == EffectTiming.None ? changeCostClass : null;
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryTopCards(_targetCards));
+-                        break;
++            selectPlayer.UntilCalculateFixedCostEffect.Add(getFixedCostEffect);
++        }
+ 
+-                    case Mode.PutLibraryBottom:
++        await Commons.PlayPermanentCards(
++            cardSources: _targetCards,
++            activateClass: _cardEffect!,
++            payCost: true,
++            isTapped: false,
++            root: SelectCardEffect.Root.Hand,
++            activateETB: true).ConfigureAwait(false);
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryBottomCards(_targetCards));
+-                        break;
++        if (getChangeCostEffect != null)
++        {
++            selectPlayer.UntilCalculateFixedCostEffect.Remove(getChangeCostEffect);
++        }
+ 
+-                    case Mode.PutSecurityBottom:
++        if (getFixedCostEffect != null)
++        {
++            selectPlayer.UntilCalculateFixedCostEffect.Remove(getFixedCostEffect);
++        }
++    }
+ 
+-                        foreach (CardSource cardSource in _targetCards)
+-                            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddSecurityCard(cardSource,false, _isFaceUp));
+-                        break;
++    private async Task<(List<CardSource> Selected, bool NoSelect)> RunAsIsSelectionAsync(EngineContext context, List<CardSource> handPool)
++    {
++        var selected = new List<CardSource>();
++        int selectableCount = handPool.Count(cardSource => _canTargetCondition(cardSource));
++        int maxCount = Math.Min(_maxCount, selectableCount);
++        string message = BuildAsIsMessage();
+ 
+-                    case Mode.PlayForFree:
+-                        yield return ContinuousController.instance.StartCoroutine(
+-                            CardEffectCommons.PlayPermanentCards(
+-                                cardSources: _targetCards, 
+-                                activateClass: _cardEffect, 
+-                                payCost: false, 
+-                                isTapped: false, 
+-                                root: SelectCardEffect.Root.Hand, 
+-                                activateETB: true));
+-                        break;
++        if (maxCount < 1)
++        {
++            return (selected, true);
++        }
+ 
+-                    case Mode.PlayForCost:
+-                        {
+-                            bool PermanentsCondition(List<Permanent> targetPermanents)
+-                            {
+-                                if (targetPermanents == null)
+-                                {
+-                                    return true;
+-                                }
+-
+-                                else
+-                                {
+-                                    if (targetPermanents.Count((targetPermanent) => targetPermanent != null) == 0)
+-                                    {
+-                                        return true;
+-                                    }
+-                                }
+-
+-                                return false;
+-                            }
+-
+-                            bool SharedCardCondition(CardSource cardSource) => _targetCards.Contains(cardSource);
+-                            bool RootCondition(SelectCardEffect.Root root) => true;
+-                            bool CanUseCondition(Hashtable hashtable) => true;
+-
+-                            #region reduce cost
+-
+-                            Func<EffectTiming, ICardEffect> getChangeCostEffect = null;
+-
+-                            if (_reduceCostTuple != null)
+-                            {
+-                                bool CardCondition(CardSource cardSource)
+-                                {
+-                                    return SharedCardCondition(cardSource)
+-                                        && (_reduceCostTuple.Value.reduceCostCardCondition == null || _reduceCostTuple.Value.reduceCostCardCondition(cardSource));
+-                                }
+-
+-                                int ChangeCost(CardSource cardSource, int Cost, SelectCardEffect.Root root, List<Permanent> targetPermanents)
+-                                {
+-                                    if (PermanentsCondition(targetPermanents))
+-                                    {
+-                                        Cost -= _reduceCostTuple.Value.reduceCost;
+-                                    }
+-
+-                                    return Cost;
+-                                }
+-
+-                                bool isUpDown() => true;
+-
+-                                ChangeCostClass changeCostClass = new ChangeCostClass();
+-                                changeCostClass.SetUpICardEffect($"Play Cost -{_reduceCostTuple.Value.reduceCost}", CanUseCondition, _cardEffect.EffectSourceCard);
+-                                changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
+-                                getChangeCostEffect = GetCardEffect;
+-
+-                                ICardEffect GetCardEffect(EffectTiming _timing)
+-                                {
+-                                    if (_timing == EffectTiming.None)
+-                                    {
+-                                        return changeCostClass;
+-                                    }
+-
+-                                    return null;
+-                                }
+-
+-                                if (getChangeCostEffect != null)
+-                                {
+-                                    _selectPlayer.UntilCalculateFixedCostEffect.Add(getChangeCostEffect);
+-                                }
+-                            }
+-
+-                            #endregion
+-
+-                            #region set fixed cost
+-
+-                            Func<EffectTiming, ICardEffect> getFixedCostEffect = null;
+-
+-                            if (_fixedCostTuple != null)
+-                            {
+-                                bool CardCondition(CardSource cardSource)
+-                                {
+-                                    return SharedCardCondition(cardSource)
+-                                        && (_fixedCostTuple.Value.fixedCostCardCondition == null || _fixedCostTuple.Value.fixedCostCardCondition(cardSource));
+-                                }
+-
+-                                int ChangeCost(CardSource cardSource, int Cost, SelectCardEffect.Root root, List<Permanent> targetPermanents)
+-                                {
+-                                    if (PermanentsCondition(targetPermanents))
+-                                    {
+-                                        Cost = _fixedCostTuple.Value.fixedCost;
+-                                    }
+-
+-                                    return Cost;
+-                                }
+-
+-                                bool isUpDown() => false;
+-
+-                                ChangeCostClass changeCostClass = new ChangeCostClass();
+-                                changeCostClass.SetUpICardEffect($"Play Cost {_fixedCostTuple.Value.fixedCost}", CanUseCondition, _cardEffect.EffectSourceCard);
+-                                changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
+-                                getFixedCostEffect = GetCardEffect;
+-
+-                                ICardEffect GetCardEffect(EffectTiming _timing)
+-                                {
+-                                    if (_timing == EffectTiming.None)
+-                                    {
+-                                        return changeCostClass;
+-                                    }
+-
+-                                    return null;
+-                                }
+-
+-                                if (getFixedCostEffect != null)
+-                                {
+-                                    _selectPlayer.UntilCalculateFixedCostEffect.Add(getFixedCostEffect);
+-                                }
+-                            }
+-
+-                            #endregion
+-
+-                            yield return ContinuousController.instance.StartCoroutine(
+-                                CardEffectCommons.PlayPermanentCards(
+-                                    cardSources: _targetCards, 
+-                                    activateClass: _cardEffect, 
+-                                    payCost: true, 
+-                                    isTapped: false, 
+-                                    root: SelectCardEffect.Root.Hand, 
+-                                    activateETB: true));
+-                            
+-                            #region release effect
+-                            if (getChangeCostEffect != null) _selectPlayer.UntilCalculateFixedCostEffect.Remove(getChangeCostEffect);
+-                            #endregion
+-
+-                            #region release effect
+-                            if (getFixedCostEffect != null) _selectPlayer.UntilCalculateFixedCostEffect.Remove(getFixedCostEffect);
+-                            #endregion
++        if (_canTargetCondition_ByPreSelecetedList == null)
++        {
++            ChoiceCandidate[] candidates = handPool
++                .Select(cardSource => new ChoiceCandidate(
++                    cardSource.InstanceId, cardSource.InstanceId.Value, ChoiceZone.Hand,
++                    IsSelectable: _canTargetCondition(cardSource), ownerId: cardSource.Owner))
++                .ToArray();
++            int minCount = (_canNoSelect || _canEndNotMax) ? 0 : maxCount;
++            var request = new ChoiceRequest(
++                ChoiceType.Card, _selectPlayer, message, minCount, maxCount, canSkip: _canNoSelect,
++                ChoiceZone.Hand, candidates);
++            if (_canEndSelectCondition != null)
++            {
++                request = request with
++                {
++                    SelectionValidator = ids => _canEndSelectCondition(
++                        ids.Select(id => handPool.First(cardSource => cardSource.InstanceId == id)).ToList()),
++                };
++            }
+ 
+-                            break;
+-                        }
+-                }
+-                #endregion
++            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
++            if (result.IsSkipped)
++            {
++                return (selected, true);
++            }
+ 
+-                if (discardHands.Count > 0)
++            foreach (HeadlessEntityId id in result.SelectedIds)
++            {
++                int index = handPool.FindIndex(cardSource => cardSource.InstanceId == id);
++                if (index >= 0 && !selected.Contains(handPool[index]))
+                 {
+-                    yield return ContinuousController.instance.StartCoroutine(new IDiscardHands(discardHands, _cardEffect).DiscardHands());
++                    selected.Add(handPool[index]);
+                 }
++            }
+ 
+-                #region ���O�ǉ�
+-                if (_isShowOpponent || _selectPlayer.isYou)
+-                {
+-                    if (_targetCards.Count >= 1)
+-                    {
+-                        log += "\n";
++            return (selected, selected.Count == 0);
++        }
+ 
+-                        PlayLog.OnAddLog?.Invoke(log);
+-                    }
+-                }
+-                #endregion
++        while (selected.Count < maxCount)
++        {
++            List<CardSource> legal = handPool
++                .Where(cardSource => !selected.Contains(cardSource)
++                    && _canTargetCondition(cardSource)
++                    && _canTargetCondition_ByPreSelecetedList(selected, cardSource))
++                .ToList();
++            if (legal.Count == 0)
++            {
++                break;
+             }
+ 
+-            if (_afterSelectCardCoroutine != null)
++            bool canEndNow = (_canNoSelect && selected.Count == 0)
++                || (_canEndNotMax && (_canEndSelectCondition == null || _canEndSelectCondition(selected)));
++            var request = new ChoiceRequest(
++                ChoiceType.Card, _selectPlayer, message,
++                minCount: canEndNow ? 0 : 1, maxCount: 1, canSkip: canEndNow, ChoiceZone.Hand,
++                legal.Select(cardSource => new ChoiceCandidate(
++                    cardSource.InstanceId, cardSource.InstanceId.Value, ChoiceZone.Hand,
++                    IsSelectable: true, ownerId: cardSource.Owner)).ToArray());
++            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
++            if (result.IsSkipped || result.SelectedIds.Count == 0)
+             {
+-                yield return StartCoroutine(_afterSelectCardCoroutine(_targetCards));
++                break;
+             }
+-        }
+ 
+-        GManager.instance.turnStateMachine.IsSelecting = oldIsSelecting;
++            int index = handPool.FindIndex(cardSource => cardSource.InstanceId == result.SelectedIds[0]);
++            if (index < 0)
++            {
++                break;
++            }
++
++            selected.Add(handPool[index]);
++        }
+ 
++        return (selected, selected.Count == 0);
+     }
+ 
+-    #region ƒJ[ƒh‘I‘ð‚ðŒˆ’è
+-    [PunRPC]
+-    public void SetTargetHandCards(int playerID, int[] CardIDs)
++    private string BuildAsIsMessage()
+     {
+-        Player selectionPlayer = GManager.instance.GetPlayerFromID(playerID);
+-
+-        if (selectionPlayer == null)
++        if (!string.IsNullOrEmpty(_customMessage))
+         {
+-            return;
++            return _customMessage;
+         }
+ 
+-        selectionPlayer.QueuePlayerSelection(new CardSelection(CardIDs));
+-    }
+-    #endregion
++        return _mode switch
++        {
++            Mode.Discard => "Select cards to discard.",
++            Mode.PutLibraryTop => "Select cards to put on top of the deck.",
++            Mode.PutLibraryBottom => _maxCount >= 2
++                ? "Select cards to put on bottom of the deck\n(cards will be placed back to the bottom of the deck so that cards with lower numbers are on top)."
++                : "Select cards to put on bottom of the deck.",
++            Mode.PutSecurityBottom => $"Select card(s) to put on bottom of the security {(_isFaceUp ? "faceup" : "facedown")}.",
++            Mode.PlayForFree => "Select cards to play for without paying the cost.",
++            Mode.PlayForCost => "Select cards to play.",
++            Mode.Custom => "Select cards in your hand.",
++            _ => "Select cards in your hand.",
++        };
++    }
++
++    private EngineContext? ResolveContext() => _context ?? _cardEffect?.EffectSourceCard?.Context;
++
++    private EngineContext RequireContext() =>
++        ResolveContext()
++        ?? throw new InvalidOperationException(
++            "SelectHandEffect has no EngineContext — obtain the instance via " +
++            "GManager.instance.GetComponent<SelectHandEffect>() (bridge W4).");
+ }
+-

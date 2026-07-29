@@ -1,18 +1,12 @@
-// Source: Assets/Scripts/CardEffect/BT2/BT2_031.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect.
-//
-// 1:1 mirror of the original BT2_031: [Your Turn] while there is >= 1 opponent Digimon
-// with no digivolution cards on the battle area, DP +1000 and S.Attack +1 (non-inherited).
-// NAMESPACE FIX (batch 3): this file lives under BT2/Blue but declared the bare `CardEffect.BT2` namespace
-// (pre-existing bug) — corrected to `CardEffect.BT2.Blue` below.
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Blue;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class BT2_031 : CEntity_Effect
+public class BT2_031 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -26,7 +20,7 @@ public sealed class BT2_031 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => CardEffectCommons.IsBattleAreaDigimon(card, permanent.InstanceId) && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)))
+                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon && permanent.HasNoDigivolutionCards))
                         {
                             return true;
                         }
@@ -47,7 +41,7 @@ public sealed class BT2_031 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => CardEffectCommons.IsBattleAreaDigimon(card, permanent.InstanceId) && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)))
+                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon && permanent.HasNoDigivolutionCards))
                         {
                             return true;
                         }

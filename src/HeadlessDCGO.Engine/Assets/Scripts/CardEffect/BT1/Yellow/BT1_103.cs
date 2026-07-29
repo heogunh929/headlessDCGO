@@ -1,28 +1,11 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_103.cs — an Option.
-// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS
-// BT1_103 — inline `new ActivateClass()` (twice) + local functions.
-//   [Main] (OptionSkill) Until the end of your opponent's next turn, 1 of your Digimon gains <Blocker>.
-//     ActivateClass(CanUseCondition = CanTriggerOptionMainEffect, CanActivateCondition = null, ORDER=-1,
-//     ISOPTIONAL=false). CanSelectPermanentCondition = IsPermanentExistsOnOwnerBattleAreaDigimon.
-//     ActivateCoroutine (guarded by HasMatchConditionPermanent): SelectPermanentEffect.SetUp(mode: Custom,
-//     maxCount = Min(1, count), canNoSelect:false, canEndNotMax:false, selectPermanentCoroutine); per selected
-//     permanent CardEffectCommons.GainBlocker(permanent, UntilOpponentTurnEnd, activateClass).
-//   [Security] (SecuritySkill, independent) ActivateClass(CanUseCondition = CanTriggerSecurityEffect,
-//     SetIsSecurityEffect(true)). ActivateCoroutine: DrawClass(owner, 1).Draw() THEN AddThisCardToHand(card).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` kept
-//   verbatim on the canonical shape (id-flip 3b); DrawClass ctor -> mirror shape;
-//   `AddThisCardToHand(card, activateClass)` -> mirror `(card, card)` (BT1_098 convention).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class BT1_103 : CEntity_Effect
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT1_103 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -50,11 +33,11 @@ public sealed class BT1_103 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -73,18 +56,19 @@ public sealed class BT1_103 : CEntity_Effect
 
                     selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get Blocker.", "The opponent is selecting 1 Digimon that will get Blocker.");
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent selectedPermanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent selectedPermanent)
                     {
-                        await CardEffectCommons.GainBlocker(
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainBlocker(
                             targetPermanent: selectedPermanent,
                             effectDuration: EffectDuration.UntilOpponentTurnEnd,
-                            activateClass: activateClass);
+                            activateClass: activateClass));
                     }
                 }
             }
         }
+
 
         if (timing == EffectTiming.SecuritySkill)
         {
@@ -98,17 +82,16 @@ public sealed class BT1_103 : CEntity_Effect
             {
                 return "[Security] Trigger <Draw 1> (Draw 1 card from your deck.) Then, add this card to your hand.";
             }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await new DrawClass(card.Context, card.Owner, 1, activateClass).Draw();
+                yield return ContinuousController.instance.StartCoroutine(new DrawClass(card.Owner, 1, activateClass).Draw());
 
-                await CardEffectCommons.AddThisCardToHand(card, card);
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.AddThisCardToHand(card, activateClass));
             }
         }
 

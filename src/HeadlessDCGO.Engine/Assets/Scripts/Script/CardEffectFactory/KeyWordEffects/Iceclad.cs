@@ -1,24 +1,15 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Iceclad.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord SYNC slice) 1:1 mirror of the AS-IS Iceclad.cs factory partial.
-// Returns the ported IcecladClass kind-class (CardEffects/IcecladClass.cs). Replaces the monolith's old
-// invented SelfKeywordByNameEffect-based IcecladSelfStaticEffect (IcecladStaticEffect was mirror-absent).
-// ADAPTATION (substrate only; logic verbatim): AS-IS card.PermanentOfThisCard() returns a PermanentView on the
-// mirror, not a Permanent -> bridge via ICardEffect.ResolvePermanentOfThisCard(card) (ICardEffect.cs).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // IcecladClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
     #region Static effect of [Iceclad] on oneself
     public static IcecladClass IcecladSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool> condition)
     {
-        bool PermanentCondition(Permanent permanent) => permanent == ICardEffect.ResolvePermanentOfThisCard(card);
+        bool PermanentCondition(Permanent permanent) => permanent == card.PermanentOfThisCard();
 
         bool CanUseCondition()
         {

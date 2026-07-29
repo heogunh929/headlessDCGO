@@ -1,103 +1,114 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
 
-// (P6 cluster2, purely additive — see file header §"AS-IS mirror" note) old-model CardEffectCommons
-// Hashtable-based siblings (KeyWordEffects/Decode.cs) — a different namespace/type than the
-// KeywordBaseBatch2Effect resolver above.
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
+public partial class CardEffectCommons
 {
-    using System;
-    using System.Linq;
-    using System.Threading.Tasks;
-    using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-    using HeadlessDCGO.Engine.Headless.Choices;
-    using HeadlessDCGO.Engine.Headless.Services;
-
-    public static partial class CardEffectCommons
+    static bool CanSelectSourceCardCondition(CardSource source, Func<CardSource, bool> sourceCondition, ICardEffect activateClass)
     {
-        private static bool CanSelectDecodeSourceCardCondition(CardSource source, Func<CardSource, bool> sourceCondition, ICardEffect activateClass) =>
-            source.IsDigimon && sourceCondition(source) && CanPlayAsNewPermanent(cardSource: source, payCost: false, cardEffect: activateClass);
+        return source.IsDigimon &&
+               sourceCondition(source) &&
+               CanPlayAsNewPermanent(cardSource: source, payCost: false, cardEffect: activateClass);
+    }
 
-        /// <summary>(P6 cluster2) AS-IS <c>CanActivateDecode</c> (KeyWordEffects/Decode.cs:16, verbatim).</summary>
-        public static bool CanActivateDecode(CardSource cardSource, Func<CardSource, bool> sourceCondition, ICardEffect activateClass) =>
-            IsExistOnBattleAreaDigimon(cardSource) &&
-            ICardEffect.ResolvePermanentOfThisCard(cardSource).DigivolutionCards.Some(source => CanSelectDecodeSourceCardCondition(source, sourceCondition, activateClass));
+    #region Can activate [Decode]
 
-        /// <summary>(P6 cluster2) AS-IS <c>DecodeProcess</c> (KeyWordEffects/Decode.cs:27): owner selects 1
-        /// matching digivolution card and plays it for free.</summary>
-        public static async Task DecodeProcess(CardSource cardSource, Func<CardSource, bool> sourceCondition, string[] decodeStrings, ICardEffect activateClass)
+    public static bool CanActivateDecode(CardSource cardSource, Func<CardSource, bool> sourceCondition, ICardEffect activateClass)
+    {
+        return IsExistOnBattleAreaDigimon(cardSource) &&
+               cardSource.PermanentOfThisCard().DigivolutionCards.Some(
+                   source => CanSelectSourceCardCondition(source, sourceCondition, activateClass));
+    }
+
+    #endregion
+
+    #region Effect process of [Decode]
+
+    public static IEnumerator DecodeProcess(CardSource cardSource, Func<CardSource, bool> sourceCondition,string[] decodeStrings, ICardEffect activateClass)
+    {
+        List<CardSource> selectedCards = new List<CardSource>();
+
+        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+        selectCardEffect.SetUp(
+            canTargetCondition: source => CanSelectSourceCardCondition(source, sourceCondition, activateClass),
+            canTargetCondition_ByPreSelecetedList: null,
+            canEndSelectCondition: null,
+            canNoSelect: () => true,
+            selectCardCoroutine: SelectCardCoroutine,
+            afterSelectCardCoroutine: null,
+            message: $"Select 1 {decodeStrings[0]} digivolution card to play.",
+            maxCount: 1,
+            canEndNotMax: false,
+            isShowOpponent: true,
+            mode: SelectCardEffect.Mode.Custom,
+            root: SelectCardEffect.Root.Custom,
+            customRootCardList: cardSource.PermanentOfThisCard().DigivolutionCards,
+            canLookReverseCard: true,
+            selectPlayer: cardSource.Owner,
+            cardEffect: activateClass);
+
+        selectCardEffect.SetUpCustomMessage(
+            $"Select 1 {decodeStrings[0]} digivolution card to play.",
+            $"The opponent is selecting 1 {decodeStrings[0]} digivolution card to play.");
+        selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
+
+        yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
+
+        IEnumerator SelectCardCoroutine(CardSource source)
         {
-            Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
-            var selectedCards = new System.Collections.Generic.List<CardSource>();
+            selectedCards.Add(source);
 
-            var selectCardEffect = GManager.instance!.GetComponent<SelectCardEffect>();
-            selectCardEffect.SetUp(
-                canTargetCondition: source => CanSelectDecodeSourceCardCondition(source, sourceCondition, activateClass),
-                canTargetCondition_ByPreSelecetedList: null,
-                canEndSelectCondition: null,
-                canNoSelect: () => true,
-                selectCardCoroutine: (CardSource source) => { selectedCards.Add(source); return Task.CompletedTask; },
-                afterSelectCardCoroutine: null,
-                message: $"Select 1 {decodeStrings[0]} digivolution card to play.",
-                maxCount: 1,
-                canEndNotMax: false,
-                isShowOpponent: true,
-                mode: SelectCardEffect.Mode.Custom,
-                root: SelectCardEffect.Root.Custom,
-                customRootCardList: permanent.DigivolutionCards.ToList(),
-                canLookReverseCard: true,
-                selectPlayer: cardSource.Owner,
-                cardEffect: activateClass);
-            selectCardEffect.SetUpCustomMessage(
-                $"Select 1 {decodeStrings[0]} digivolution card to play.",
-                $"The opponent is selecting 1 {decodeStrings[0]} digivolution card to play.");
-            selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
+            yield return null;
+        }
 
-            await selectCardEffect.Activate().ConfigureAwait(false);
-
-            await PlayPermanentCards(
+        yield return ContinuousController.instance.StartCoroutine(
+            PlayPermanentCards(
                 cardSources: selectedCards,
-                sourceCard: cardSource,
+                activateClass: activateClass,
                 payCost: false,
                 isTapped: false,
-                root: ChoiceZone.DigivolutionCards,
-                activateETB: true).ConfigureAwait(false);
+                root: SelectCardEffect.Root.DigivolutionCards,
+                activateETB: true));
+    }
+
+    #endregion
+
+    #region Target 1 Digimon gains [Decode]
+
+    public static IEnumerator GainDecode(Permanent targetPermanent, string[] decodeStrings, Func<CardSource, bool> sourceCondition, EffectDuration effectDuration,
+        ICardEffect activateClass)
+    {
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+
+        CardSource card = activateClass.EffectSourceCard;
+
+        bool CanUseCondition()
+        {
+            return IsPermanentExistsOnBattleArea(targetPermanent) &&
+                   !targetPermanent.TopCard.CanNotBeAffected(activateClass);
         }
 
-        /// <summary>(C-Del 3b grant rehousing) AS-IS <c>CardEffectCommons.GainDecode</c>
-        /// (KeyWordEffects/Decode.cs:79-114, 1:1). "Target 1 Digimon gains [Decode]": builds the printed-style
-        /// <see cref="CardEffectFactory.DecodeEffect"/> ActivateClass (rooted at the granting effect) and stores it in
-        /// the target permanent's <c>WhenRemoveField</c> duration bucket via <see cref="AddEffectToPermanent"/> — the
-        /// W3 bucket the deletion PRE cut-in window collects (GetSkillInfos). ADAPTATION: <c>IEnumerator</c> -> <c>Task</c>;
-        /// the trailing <c>CreateBuffEffect</c> (a Unity presentation coroutine) has no headless substrate — dropped
-        /// (same as <see cref="GainRetaliation"/> / <see cref="GainEvade"/>).</summary>
-        public static async Task GainDecode(
-            Permanent targetPermanent, string[] decodeStrings, Func<CardSource, bool> sourceCondition,
-            EffectDuration effectDuration, ICardEffect activateClass)
+        ActivateClass decode = CardEffectFactory.DecodeEffect(
+            targetPermanent: targetPermanent, isInheritedEffect: false, decodeStrings,
+            condition: CanUseCondition, sourceCondition: sourceCondition, rootCardEffect: activateClass, card);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent,
+            effectDuration: effectDuration,
+            card: card,
+            cardEffect: decode,
+            timing: EffectTiming.WhenRemoveField);
+
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
         {
-            if (targetPermanent == null) return;
-            if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
-            if (activateClass == null) return;
-            if (activateClass.EffectSourceCard == null) return;
-
-            CardSource card = activateClass.EffectSourceCard;
-
-            bool CanUseCondition()
-            {
-                return IsPermanentExistsOnBattleArea(targetPermanent) &&
-                       !targetPermanent.TopCard.CanNotBeAffected(activateClass);
-            }
-
-            ActivateClass decode = CardEffectFactory.DecodeEffect(
-                targetPermanent: targetPermanent, isInheritedEffect: false, decodeStrings,
-                condition: CanUseCondition, sourceCondition: sourceCondition, rootCardEffect: activateClass, card);
-
-            AddEffectToPermanent(
-                targetPermanent: targetPermanent,
-                effectDuration: effectDuration,
-                card: card,
-                cardEffect: decode,
-                timing: EffectTiming.WhenRemoveField);
-
-            await Task.CompletedTask;
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>()
+                .CreateBuffEffect(targetPermanent));
         }
     }
+
+    #endregion
 }

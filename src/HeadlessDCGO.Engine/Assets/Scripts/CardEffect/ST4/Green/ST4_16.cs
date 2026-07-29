@@ -1,33 +1,13 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST4/Green/ST4_16.cs
-// TRUE AS-IS-verbatim re-port (batch 3). 1:1 mirror of the original ST4_16 (ST4/Green) — an Option.
-//   [Main] Return 1 of your opponent's suspended Digimon to its owner's hand. Trash all of the
-//          digivolution cards of that Digimon.
-//   [Security] (use the Main effect)
-// AS-IS HandBounceClaass.Bounce() (CardController.cs:2622) unconditionally calls permanent.DiscardEvoRoots()
-// (Permanent.cs:106) right before the top card leaves the field, for EVERY hand-bounce — so the "trash all
-// digivolution cards" clause is the Mode.Bounce mechanic itself, not a separate effect call in this file.
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndBounceWithSourceDiscardEffect(...)` call
-// (an invented per-card wrapper) with the literal AS-IS inline `new ActivateClass()` +
-// `GManager.instance.GetComponent<SelectPermanentEffect>()` + `SetUp(...)` (Mode.Bounce) structure (see
-// ST4_15.cs this batch for the identically-shaped Main/Security Option precedent — same shape, Mode.Bounce
-// instead of Mode.Tap, plus the extra `IsSuspended` target narrowing).
-// [Security] block UNCHANGED (no afterMainBody — AS-IS has none here): established genuine bridge.
-// Substrate translation only: IEnumerator->Task; `yield return ContinuousController.instance.StartCoroutine(X)`
-// -> `await X`; the AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` is kept Permanent-shaped as the
-// local `PermanentCondition(Permanent)` fed directly to HasMatchConditionPermanent/MatchConditionPermanentCount
-// AND SelectPermanentEffect.SetUp's canTargetCondition (id-flip 3b canonical overload — no id-shape sibling
-// needed).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST4.Green;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class ST4_16 : CEntity_Effect
+
+public class ST4_16 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -45,7 +25,7 @@ public sealed class ST4_16 : CEntity_Effect
                 return "[Main] Return 1 of your opponent's suspended Digimon to its owner's hand. Trash all of the digivolution cards of that Digimon.";
             }
 
-            bool PermanentCondition(Permanent permanent)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
                 if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
@@ -63,17 +43,17 @@ public sealed class ST4_16 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, PermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, PermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: PermanentCondition,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -84,14 +64,14 @@ public sealed class ST4_16 : CEntity_Effect
                         mode: SelectPermanentEffect.Mode.Bounce,
                         cardEffect: activateClass);
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                 }
             }
         }
 
         if (timing == EffectTiming.SecuritySkill)
         {
-            CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: "Return 1 Digimon to hand");
+            CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $"Return 1 Digimon to hand");
         }
 
         return cardEffects;

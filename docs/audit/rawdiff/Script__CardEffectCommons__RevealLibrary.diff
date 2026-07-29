@@ -1,0 +1,1222 @@
+--- DCGO/Assets/Scripts/Script/CardEffectCommons/RevealLibrary.cs	2026-05-18 20:03:15.678084000 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/RevealLibrary.cs	2026-07-29 01:02:23.954025977 +0900
+@@ -1,168 +1,178 @@
+-using System.Collections;
+-using System.Collections.Generic;
++namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++
+ using System;
++using System.Collections.Generic;
+ using System.Linq;
+-using UnityEngine;
++using System.Threading.Tasks;
++using HeadlessDCGO.Engine.Headless.Bridge;
++using HeadlessDCGO.Engine.Headless.Choices;
++using HeadlessDCGO.Engine.Headless.Runtime;
++using HeadlessDCGO.Engine.Headless.Services;
++using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
++using CardObjectController = HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController;
+ 
+-public partial class CardEffectCommons
++#region In which area the remaining cards are placed (AS-IS RevealLibrary.cs:723-732, 1:1)
++
++public enum RemainingCardsPlace
+ {
+-    #region Reveal cards from top of deck and process for all of them
+-    public static IEnumerator RevealDeckTopCardsAndProcessForAll(
+-        int revealCount,
+-        SimplifiedSelectCardConditionClass simplifiedSelectCardCondition,
+-        RemainingCardsPlace remainingCardsPlace,
+-        ICardEffect activateClass,
+-        Func<List<CardSource>, IEnumerator> revealedCardsCoroutine = null,
+-        List<CardSource> refSelectedCards = null,
+-        bool isOpponentDeck = false)
++    DeckBottom,
++    DeckTop,
++    DeckTopOrBottom,
++    Trash,
++    AddHand,
++    None,
++}
++
++#endregion
++
++#region Select conditions class (AS-IS RevealLibrary.cs:655-720, 1:1)
++
++public class SimplifiedSelectCardConditionClass
++{
++    public SimplifiedSelectCardConditionClass(
++        Func<CardSource, bool> canTargetCondition,
++        string message,
++        SelectCardEffect.Mode mode,
++        int maxCount,
++        Func<CardSource, Task> selectCardCoroutine)
+     {
+-        if (revealCount <= 0) yield break;
+-        if (activateClass == null) yield break;
+-        CardSource effectSourceCard = activateClass.EffectSourceCard;
+-        if (effectSourceCard == null) yield break;
+-        Player selectPlayer = effectSourceCard.Owner;
+-        if (selectPlayer == null) yield break;
+-        Player revealPlayer = isOpponentDeck ? selectPlayer.Enemy : selectPlayer;
+-        if (revealPlayer == null) yield break;
+-        if (revealPlayer.LibraryCards.Count == 0) yield break;
++        CanTargetCondition = canTargetCondition;
++        Message = message ?? string.Empty;
++        Mode = mode;
++        MaxCount = maxCount;
++        SelectCardCoroutine = selectCardCoroutine;
++    }
+ 
+-        if (simplifiedSelectCardCondition == null) yield break;
++    public Func<CardSource, bool>? CanTargetCondition { get; }
+ 
+-        RevealLibraryClass revealLibrary = new RevealLibraryClass(revealPlayer, revealCount);
++    public string Message { get; }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(revealLibrary.RevealLibrary());
++    public int MaxCount { get; }
+ 
+-        List<CardSource> selectedCards = revealLibrary.RevealedCards.Filter(simplifiedSelectCardCondition.CanTargetCondition);
++    public SelectCardEffect.Mode Mode { get; }
+ 
+-        List<CardSource> remainingCards = revealLibrary.RevealedCards.Filter(cardSource => !selectedCards.Contains(cardSource));
++    public Func<CardSource, Task>? SelectCardCoroutine { get; }
++}
+ 
+-        switch (simplifiedSelectCardCondition.Mode)
+-        {
+-            case SelectCardEffect.Mode.AddHand:
+-                {
+-                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCards(selectedCards, false, activateClass));
++public class SelectCardConditionClass
++{
++    public SelectCardConditionClass(
++        Func<CardSource, bool> canTargetCondition,
++        Func<List<CardSource>, CardSource, bool> canTargetCondition_ByPreSelecetedList,
++        Func<List<CardSource>, bool> canEndSelectCondition,
++        bool canNoSelect,
++        Func<CardSource, Task> selectCardCoroutine,
++        string message,
++        int maxCount,
++        bool canEndNotMax,
++        SelectCardEffect.Mode mode)
++    {
++        CanTargetCondition = canTargetCondition;
++        CanTargetCondition_ByPreSelecetedList = canTargetCondition_ByPreSelecetedList;
++        CanEndSelectCondition = canEndSelectCondition;
++        CanNoSelect = canNoSelect;
++        SelectCardCoroutine = selectCardCoroutine;
++        Message = message ?? string.Empty;
++        MaxCount = maxCount;
++        CanEndNotMax = canEndNotMax;
++        Mode = mode;
++    }
+ 
+-                    if (selectedCards.Count >= 1)
+-                    {
+-                        string log = "";
++    public Func<CardSource, bool>? CanTargetCondition { get; }
+ 
+-                        log += $"\nCard{Utils.PluralFormSuffix(selectedCards.Count)} added to hand:";
++    public Func<List<CardSource>, CardSource, bool>? CanTargetCondition_ByPreSelecetedList { get; }
+ 
+-                        foreach (CardSource cardSource in selectedCards)
+-                        {
+-                            log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+-                        }
++    public Func<List<CardSource>, bool>? CanEndSelectCondition { get; }
+ 
+-                        log += "\n";
++    public bool CanNoSelect { get; }
+ 
+-                        PlayLog.OnAddLog?.Invoke(log);
+-                    }
+-                }
+-                break;
++    public Func<CardSource, Task>? SelectCardCoroutine { get; }
+ 
+-            case SelectCardEffect.Mode.Discard:
+-                {
+-                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(selectedCards, "Discarded Cards", true, true));
+-                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCards(selectedCards));
++    public string Message { get; }
+ 
+-                    if (selectedCards.Count >= 1)
+-                    {
+-                        string log = "";
++    public int MaxCount { get; }
+ 
+-                        log += $"\nTrash Card{Utils.PluralFormSuffix(selectedCards.Count)}:";
++    public bool CanEndNotMax { get; }
+ 
+-                        foreach (CardSource cardSource in selectedCards)
+-                        {
+-                            log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+-                        }
++    public SelectCardEffect.Mode Mode { get; }
++}
+ 
+-                        log += "\n";
++#endregion
+ 
+-                        PlayLog.OnAddLog?.Invoke(log);
+-                    }
+-                }
+-                break;
++public static partial class CardEffectCommons
++{
++    #region Reveal cards from top of deck and process for all of them (AS-IS RevealLibrary.cs:10-176)
+ 
+-            case SelectCardEffect.Mode.Custom:
+-                if (simplifiedSelectCardCondition.SelectCardCoroutine != null)
+-                {
+-                    foreach (CardSource selectedCard in selectedCards)
+-                    {
+-                        yield return ContinuousController.instance.StartCoroutine(simplifiedSelectCardCondition.SelectCardCoroutine(selectedCard));
+-                    }
+-                }
+-                break;
++    public static async Task RevealDeckTopCardsAndProcessForAll(
++        int revealCount,
++        SimplifiedSelectCardConditionClass simplifiedSelectCardCondition,
++        RemainingCardsPlace remainingCardsPlace,
++        ICardEffect activateClass,
++        Func<List<CardSource>, Task>? revealedCardsCoroutine = null,
++        List<CardSource>? refSelectedCards = null,
++        bool isOpponentDeck = false)
++    {
++        if (revealCount <= 0 || activateClass == null)
++        {
++            return;
+         }
+ 
+-        if (revealedCardsCoroutine != null)
++        CardSource effectSourceCard = activateClass.EffectSourceCard;
++        if (effectSourceCard == null)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(revealedCardsCoroutine(revealLibrary.RevealedCards));
++            return;
+         }
+ 
+-        switch (remainingCardsPlace)
++        EngineContext context = effectSourceCard.Context;
++        var zones = (IZoneStateReader)context.ZoneMover;
++        HeadlessPlayerId selectPlayer = effectSourceCard.Owner;
++        HeadlessPlayerId revealPlayer = isOpponentDeck ? OpponentOf(effectSourceCard) : selectPlayer;
++        if (revealPlayer.IsEmpty || zones.GetCards(revealPlayer, ChoiceZone.Library).Count == 0 ||
++            simplifiedSelectCardCondition == null)
+         {
+-            case RemainingCardsPlace.DeckBottom:
+-                yield return ContinuousController.instance.StartCoroutine(ReturnRevealedCardsToLibraryBottom(remainingCards, activateClass));
+-                break;
+-
+-            case RemainingCardsPlace.DeckTop:
+-                yield return ContinuousController.instance.StartCoroutine(ReturnRevealedCardsToLibraryTop(remainingCards, activateClass));
+-                break;
+-
+-            case RemainingCardsPlace.Trash:
+-                {
+-                    yield return ContinuousController.instance.StartCoroutine(TrashRevealedCards(remainingCards, activateClass));
++            return;
++        }
+ 
+-                    if (remainingCards.Count >= 1)
+-                    {
+-                        string log = "";
++        Func<CardSource, bool> canTarget = simplifiedSelectCardCondition.CanTargetCondition
++            ?? throw new InvalidOperationException(
++                "RevealDeckTopCardsAndProcessForAll (bridge W3) requires a condition built through the AS-IS " +
++                "constructor (CardSource-shape CanTargetCondition).");
+ 
+-                        log += $"\nTrash Card{Utils.PluralFormSuffix(remainingCards.Count)}:";
++        List<CardSource> allRevealed = zones.GetCards(revealPlayer, ChoiceZone.Library)
++            .Take(revealCount)
++            .Select(id => new CardSource(context, id, revealPlayer, revealPlayer))
++            .ToList();
+ 
+-                        foreach (CardSource cardSource in remainingCards)
+-                        {
+-                            log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+-                        }
++        List<CardSource> selectedCards = allRevealed.Where(canTarget).ToList();
++        List<CardSource> remainingCards = allRevealed.Where(cs => !selectedCards.Contains(cs)).ToList();
+ 
+-                        log += "\n";
+-
+-                        PlayLog.OnAddLog?.Invoke(log);
+-                    }
+-                }
++        switch (simplifiedSelectCardCondition.Mode)
++        {
++            case SelectCardEffect.Mode.AddHand:
++                await StageRevealMovesAsync(context, activateClass, selectedCards, toHand: true).ConfigureAwait(false);
+                 break;
+-
+-            case RemainingCardsPlace.AddHand:
++            case SelectCardEffect.Mode.Discard:
++                await StageRevealMovesAsync(context, activateClass, selectedCards, toHand: false).ConfigureAwait(false);
++                break;
++            case SelectCardEffect.Mode.Custom:
++                if (simplifiedSelectCardCondition.SelectCardCoroutine != null)
+                 {
+-                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCards(remainingCards, false, activateClass));
+-
+-                    if (remainingCards.Count >= 1)
++                    foreach (CardSource selectedCard in selectedCards)
+                     {
+-                        string log = "";
+-
+-                        log += $"\nTrash Card{Utils.PluralFormSuffix(remainingCards.Count)}:";
+-
+-                        foreach (CardSource cardSource in remainingCards)
+-                        {
+-                            log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+-                        }
+-
+-                        log += "\n";
+-
+-                        PlayLog.OnAddLog?.Invoke(log);
++                        await simplifiedSelectCardCondition.SelectCardCoroutine(selectedCard).ConfigureAwait(false);
+                     }
+                 }
+-                break;
+ 
+-            case RemainingCardsPlace.DeckTopOrBottom:
+-                if (remainingCards.Count >= 2)
+-                {
+-                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(remainingCards, "Remaining Cards", true, true));
+-                }
+-
+-                yield return ContinuousController.instance.StartCoroutine(ReturnRevealedCardsToLibraryTopOrBottom(remainingCards, activateClass));
+                 break;
+         }
+ 
++        if (revealedCardsCoroutine != null)
++        {
++            await revealedCardsCoroutine(new List<CardSource>(allRevealed)).ConfigureAwait(false);
++        }
++
++        await RouteRemainingRevealedCardsAsync(context, activateClass, selectPlayer, remainingCardsPlace, remainingCards).ConfigureAwait(false);
++
+         if (refSelectedCards != null)
+         {
+             foreach (CardSource selectedCard in selectedCards)
+@@ -170,51 +180,61 @@
+                 refSelectedCards.Add(selectedCard);
+             }
+         }
+-
+-        revealLibrary.RevealedCards.ForEach(cardSource => cardSource.IsBeingRevealed = false);
+     }
++
+     #endregion
+ 
+-    #region Reveal cards from top of deck and select them
+-    public static IEnumerator SimplifiedRevealDeckTopCardsAndSelect(
++    #region Reveal cards from top of deck and select them (AS-IS RevealLibrary.cs:179-465)
++
++    public static async Task SimplifiedRevealDeckTopCardsAndSelect(
+         int revealCount,
+         SimplifiedSelectCardConditionClass[] simplifiedSelectCardConditions,
+         RemainingCardsPlace remainingCardsPlace,
+         ICardEffect activateClass,
+-        Func<List<CardSource>, CardSource, bool> canTargetCondition_ByPreSelecetedList = null,
+-        Func<List<CardSource>, bool> canEndSelectCondition = null,
++        Func<List<CardSource>, CardSource, bool>? canTargetCondition_ByPreSelecetedList = null,
++        Func<List<CardSource>, bool>? canEndSelectCondition = null,
+         bool canNoSelect = false,
+         bool canEndNotMax = false,
+         bool isSendAllCardsToSamePlace = false,
+         bool isOpponentDeck = false,
+-        Func<List<CardSource>, IEnumerator> revealedCardsCoroutine = null,
++        Func<List<CardSource>, Task>? revealedCardsCoroutine = null,
+         bool mutualConditions = false)
+     {
+-        if (revealCount <= 0) yield break;
+-        if (activateClass == null) yield break;
++        if (revealCount <= 0 || activateClass == null)
++        {
++            return;
++        }
++
+         CardSource effectSourceCard = activateClass.EffectSourceCard;
+-        if (effectSourceCard == null) yield break;
+-        Player revealPlayer = effectSourceCard.Owner;
+-        if (revealPlayer == null) yield break;
+-        if (revealPlayer.LibraryCards.Count == 0) yield break;
+-
+-        if (simplifiedSelectCardConditions == null) yield break;
+-        if (simplifiedSelectCardConditions.Length == 0) yield break;
+-
+-        SelectCardConditionClass[] selectCardConditions = simplifiedSelectCardConditions.Map(selectCardConditionTuple =>
+-        new SelectCardConditionClass(
+-            canTargetCondition: selectCardConditionTuple.CanTargetCondition,
+-            canTargetCondition_ByPreSelecetedList: canTargetCondition_ByPreSelecetedList,
+-            canEndSelectCondition: canEndSelectCondition,
+-            canNoSelect: canNoSelect,
+-            selectCardCoroutine: selectCardConditionTuple.SelectCardCoroutine,
+-            message: selectCardConditionTuple.Message,
+-            maxCount: selectCardConditionTuple.MaxCount,
+-            canEndNotMax: canEndNotMax,
+-            mode: selectCardConditionTuple.Mode
+-        ));
++        if (effectSourceCard == null)
++        {
++            return;
++        }
++
++        var zones = (IZoneStateReader)effectSourceCard.Context.ZoneMover;
++        if (zones.GetCards(effectSourceCard.Owner, ChoiceZone.Library).Count == 0 ||
++            simplifiedSelectCardConditions == null || simplifiedSelectCardConditions.Length == 0)
++        {
++            return;
++        }
++
++        SelectCardConditionClass[] selectCardConditions = simplifiedSelectCardConditions
++            .Select(selectCardConditionTuple => new SelectCardConditionClass(
++                canTargetCondition: selectCardConditionTuple.CanTargetCondition
++                    ?? throw new InvalidOperationException(
++                        "SimplifiedRevealDeckTopCardsAndSelect (bridge W3) requires conditions built through " +
++                        "the AS-IS constructor (CardSource-shape CanTargetCondition)."),
++                canTargetCondition_ByPreSelecetedList: canTargetCondition_ByPreSelecetedList!,
++                canEndSelectCondition: canEndSelectCondition!,
++                canNoSelect: canNoSelect,
++                selectCardCoroutine: selectCardConditionTuple.SelectCardCoroutine!,
++                message: selectCardConditionTuple.Message,
++                maxCount: selectCardConditionTuple.MaxCount,
++                canEndNotMax: canEndNotMax,
++                mode: selectCardConditionTuple.Mode))
++            .ToArray();
+ 
+-        yield return ContinuousController.instance.StartCoroutine(RevealDeckTopCardsAndSelect(
++        await RevealDeckTopCardsAndSelect(
+             revealCount: revealCount,
+             selectCardConditions: selectCardConditions,
+             remainingCardsPlace: remainingCardsPlace,
+@@ -222,11 +242,10 @@
+             isSendAllCardsToSamePlace: isSendAllCardsToSamePlace,
+             isOpponentDeck: isOpponentDeck,
+             revealedCardsCoroutine: revealedCardsCoroutine,
+-            mutualConditions: mutualConditions
+-        ));
++            mutualConditions: mutualConditions).ConfigureAwait(false);
+     }
+ 
+-    public static IEnumerator RevealDeckTopCardsAndSelect(
++    public static async Task RevealDeckTopCardsAndSelect(
+         int revealCount,
+         SelectCardConditionClass[] selectCardConditions,
+         RemainingCardsPlace remainingCardsPlace,
+@@ -234,63 +253,63 @@
+         bool canNoAction = false,
+         bool isSendAllCardsToSamePlace = false,
+         bool isOpponentDeck = false,
+-        Func<List<CardSource>, IEnumerator> revealedCardsCoroutine = null,
++        Func<List<CardSource>, Task>? revealedCardsCoroutine = null,
+         bool mutualConditions = false)
+     {
+-        if (revealCount <= 0) yield break;
+-        if (activateClass == null) yield break;
+-        CardSource effectSourceCard = activateClass.EffectSourceCard;
+-        if (effectSourceCard == null) yield break;
+-        Player selectPlayer = effectSourceCard.Owner;
+-        if (selectPlayer == null) yield break;
+-        Player revealPlayer = isOpponentDeck ? selectPlayer.Enemy : selectPlayer;
+-        if (revealPlayer == null) yield break;
+-        if (revealPlayer.LibraryCards.Count == 0) yield break;
+-        if (selectCardConditions.Length == 0) yield break;
+-
+-        RevealLibraryClass revealLibrary = new RevealLibraryClass(revealPlayer, revealCount);
+-
+-        yield return ContinuousController.instance.StartCoroutine(revealLibrary.RevealLibrary());
++        if (revealCount <= 0 || activateClass == null)
++        {
++            return;
++        }
+ 
+-        List<CardSource> revealedCards = revealLibrary.RevealedCards.Clone();
++        CardSource effectSourceCard = activateClass.EffectSourceCard;
++        if (effectSourceCard == null)
++        {
++            return;
++        }
+ 
+-        List<CardSource> remainingCards = revealedCards.Clone();
++        EngineContext context = effectSourceCard.Context;
++        var zones = (IZoneStateReader)context.ZoneMover;
++        HeadlessPlayerId selectPlayer = effectSourceCard.Owner;
++        HeadlessPlayerId revealPlayer = isOpponentDeck ? OpponentOf(effectSourceCard) : selectPlayer;
++        if (revealPlayer.IsEmpty || zones.GetCards(revealPlayer, ChoiceZone.Library).Count == 0 ||
++            selectCardConditions == null || selectCardConditions.Length == 0)
++        {
++            return;
++        }
+ 
+-        List<CardSource> chosenCards = new List<CardSource>();
++        List<CardSource> allRevealed = zones.GetCards(revealPlayer, ChoiceZone.Library)
++            .Take(revealCount)
++            .Select(id => new CardSource(context, id, revealPlayer, revealPlayer))
++            .ToList();
++        List<CardSource> revealedCards = new(allRevealed);
++        List<CardSource> chosenCards = new();
+ 
+         bool doAction = true;
+-
+-        // ??? (BT10-096)    
+-        if (selectCardConditions.Length >= 2)
++        if (selectCardConditions.Length >= 2 && canNoAction)
+         {
+-            if (canNoAction)
+-            {
+-                List<SelectionElement<bool>> selectionElements = new List<SelectionElement<bool>>()
+-                        {
+-                            new SelectionElement<bool>(message: $"Select cards", value : true, spriteIndex: 0),
+-                            new SelectionElement<bool>(message: $"Not select", value : false, spriteIndex: 1),
+-                        };
+-
+-                string selectPlayerMessage = "Will you select cards?";
+-                string notSelectPlayerMessage = "The opponent is wheter to select cards.";
+-
+-                GManager.instance.userSelectionManager.SetBoolSelection(selectionElements: selectionElements, selectPlayer: selectPlayer, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
+-
+-                yield return ContinuousController.instance.StartCoroutine(GManager.instance.userSelectionManager.WaitForEndSelect());
+-
+-                doAction = GManager.instance.userSelectionManager.SelectedBoolValue;
+-            }
++            var optOut = new ChoiceRequest(
++                ChoiceType.Card, selectPlayer, "Will you select cards?",
++                minCount: 0, maxCount: 1, canSkip: true, ChoiceZone.Library,
++                new[]
++                {
++                    new ChoiceCandidate(
++                        new HeadlessEntityId($"reveal-optout:{effectSourceCard.InstanceId.Value}"),
++                        "Select cards", ChoiceZone.Library, IsSelectable: true, ownerId: selectPlayer),
++                });
++            ChoiceResult optResult = await context.ChoiceProvider.ChooseAsync(optOut).ConfigureAwait(false);
++            doAction = !optResult.IsSkipped && optResult.SelectedIds.Count > 0;
+         }
+ 
+         if (doAction)
+         {
+-            SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+-
+             bool firstSelection = true;
+-
+-            foreach(SelectCardConditionClass selectCondition in selectCardConditions)
++            foreach (SelectCardConditionClass selectCondition in selectCardConditions)
+             {
+-                int maxCount = Math.Min(selectCondition.MaxCount, revealedCards.Count(selectCondition.CanTargetCondition));
++                Func<CardSource, bool> canTarget = selectCondition.CanTargetCondition
++                    ?? throw new InvalidOperationException(
++                        "RevealDeckTopCardsAndSelect (bridge W3) requires conditions built through the AS-IS " +
++                        "constructor (CardSource-shape CanTargetCondition).");
++                int maxCount = Math.Min(selectCondition.MaxCount, revealedCards.Count(canTarget));
+ 
+                 if (maxCount >= 1)
+                 {
+@@ -299,494 +318,290 @@
+                     {
+                         firstSelection = false;
+                     }
+-                    else if (mutualConditions //If both conditions are chosen at once (per card game rules)
+-                          && chosenCards.Count == 1 //And first condition lets you select 1
+-                          && selectCondition.CanTargetCondition(chosenCards[0]) //If that one also fulfills the second condition
+-                          && !revealedCards.Any(selectCardConditions[0].CanTargetCondition)) //And was the only card that could fulfill the first condition
++                    else if (mutualConditions
++                          && chosenCards.Count == 1
++                          && canTarget(chosenCards[0])
++                          && !revealedCards.Any(cs =>
++                                 selectCardConditions[0].CanTargetCondition!(cs)))
+                     {
+-                        canNoSelect = true; // Can no select on the basis of choosing it as the second condition, leaving no valid targets for the first
++                        canNoSelect = true;
+                     }
+ 
+-                    selectCardEffect.SetUp(
+-                        canTargetCondition: selectCondition.CanTargetCondition,
+-                        canTargetCondition_ByPreSelecetedList: selectCondition.CanTargetCondition_ByPreSelecetedList,
+-                        canEndSelectCondition: selectCondition.CanEndSelectCondition,
+-                        canNoSelect: () => canNoSelect,
+-                        selectCardCoroutine: selectCondition.SelectCardCoroutine,
+-                        afterSelectCardCoroutine: AfterSelectCardCoroutine,
+-                        message: selectCondition.Message,
+-                        maxCount: maxCount,
+-                        canEndNotMax: selectCondition.CanEndNotMax,
+-                        isShowOpponent: true,
+-                        mode: selectCondition.Mode,
+-                        root: SelectCardEffect.Root.Library,
+-                        customRootCardList: revealedCards,
+-                        canLookReverseCard: true,
+-                        selectPlayer: selectPlayer,
+-                        cardEffect: activateClass);
++                    List<CardSource> selected = await SelectCardsFromRevealPoolAsync(
++                        context, selectPlayer, revealedCards, canTarget,
++                        selectCondition.CanTargetCondition_ByPreSelecetedList,
++                        selectCondition.CanEndSelectCondition,
++                        maxCount, canNoSelect, selectCondition.CanEndNotMax,
++                        string.IsNullOrEmpty(selectCondition.Message) ? "Select card(s)." : selectCondition.Message).ConfigureAwait(false);
+ 
+-                    yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
+-                }
++                    if (selectCondition.SelectCardCoroutine != null)
++                    {
++                        foreach (CardSource selectedCard in selected)
++                        {
++                            await selectCondition.SelectCardCoroutine(selectedCard).ConfigureAwait(false);
++                        }
++                    }
+ 
+-                IEnumerator AfterSelectCardCoroutine(List<CardSource> cardSources)
+-                {
+-                    foreach (CardSource cardSource in cardSources)
++                    switch (selectCondition.Mode)
++                    {
++                        case SelectCardEffect.Mode.AddHand:
++                            await StageRevealMovesAsync(context, activateClass, selected, toHand: true).ConfigureAwait(false);
++                            break;
++                        case SelectCardEffect.Mode.Discard:
++                            await StageRevealMovesAsync(context, activateClass, selected, toHand: false).ConfigureAwait(false);
++                            break;
++                        case SelectCardEffect.Mode.PlayForFree:
++                        case SelectCardEffect.Mode.PlayForCost:
++                            await PlayPermanentCards(
++                                selected, activateClass,
++                                payCost: selectCondition.Mode == SelectCardEffect.Mode.PlayForCost,
++                                isTapped: false, root: SelectCardEffect.Root.Library, activateETB: true).ConfigureAwait(false);
++                            break;
++                        case SelectCardEffect.Mode.Custom:
++                            break;
++                    }
++
++                    foreach (CardSource cardSource in selected)
+                     {
+                         chosenCards.Add(cardSource);
+                         revealedCards.Remove(cardSource);
+                     }
+-
+-                    yield return null;
+                 }
+             }
++        }
+ 
+-            remainingCards = revealedCards.Clone();
++        List<CardSource> remainingCards = isSendAllCardsToSamePlace
++            ? new List<CardSource>(allRevealed)
++            : new List<CardSource>(revealedCards);
+ 
+-            /*SelectCardConditionClass selectCardCondition = selectCardConditions[0];
++        await RouteRemainingRevealedCardsAsync(context, activateClass, selectPlayer, remainingCardsPlace, remainingCards).ConfigureAwait(false);
+ 
+-            int maxCount = Math.Min(selectCardCondition.MaxCount, revealedCards.Count(selectCardCondition.CanTargetCondition));
+-            //TODO: Clean this up - MBunch
+-            if (maxCount >= 1)
+-            {
+-                selectCardEffect.SetUp(
+-                canTargetCondition: selectCardCondition.CanTargetCondition,
+-                canTargetCondition_ByPreSelecetedList: selectCardCondition.CanTargetCondition_ByPreSelecetedList,
+-                canEndSelectCondition: selectCardCondition.CanEndSelectCondition,
+-                canNoSelect: () => selectCardCondition.CanNoSelect,
+-                selectCardCoroutine: selectCardCondition.SelectCardCoroutine,
+-                afterSelectCardCoroutine: AfterSelectCardCoroutine,
+-                message: selectCardCondition.Message,
+-                maxCount: maxCount,
+-                canEndNotMax: selectCardCondition.CanEndNotMax,
+-                isShowOpponent: true,
+-                mode: selectCardCondition.Mode,
+-                root: SelectCardEffect.Root.Custom,
+-                customRootCardList: revealedCards,
+-                canLookReverseCard: true,
+-                selectPlayer: selectPlayer,
+-                cardEffect: activateClass);
++        if (revealedCardsCoroutine != null)
++        {
++            await revealedCardsCoroutine(new List<CardSource>(allRevealed)).ConfigureAwait(false);
++        }
++    }
+ 
+-                yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
++    #endregion
+ 
+-                IEnumerator AfterSelectCardCoroutine(List<CardSource> cardSources)
+-                {
+-                    foreach (CardSource cardSource in cardSources)
+-                    {
+-                        remainingCards = revealedCards.Filter(cardSource => !cardSources.Contains(cardSource));
+-                    }
++    #region Return revealed cards to the bottom of deck by any order (AS-IS RevealLibrary.cs:469-533)
+ 
+-                    yield return null;
+-                }
+-            }
++    public static async Task ReturnRevealedCardsToLibraryBottom(List<CardSource> remainingCards, ICardEffect activateClass)
++    {
++        if (remainingCards == null || remainingCards.Count == 0 || activateClass?.EffectSourceCard == null)
++        {
++            return;
++        }
+ 
+-            remainingCards = revealedCards.Clone();
++        await ReturnRevealedCardsToLibraryBottom(remainingCards, activateClass.EffectSourceCard).ConfigureAwait(false);
++    }
+ 
+-            if (selectCardConditions.Length >= 2)
+-            {
+-                SelectCardConditionClass selectCardCondition1 = selectCardConditions[1];
++    #endregion
+ 
+-                maxCount = Math.Min(selectCardCondition1.MaxCount, revealedCards.Count(selectCardCondition1.CanTargetCondition));
++    #region Shared reveal-select plumbing (private)
+ 
+-                if (maxCount >= 1)
+-                {
+-                    selectCardEffect.SetUp(
+-                canTargetCondition: selectCardCondition1.CanTargetCondition,
+-                canTargetCondition_ByPreSelecetedList: selectCardCondition1.CanTargetCondition_ByPreSelecetedList,
+-                canEndSelectCondition: selectCardCondition1.CanEndSelectCondition,
+-                canNoSelect: () => selectCardCondition1.CanNoSelect,
+-                selectCardCoroutine: selectCardCondition1.SelectCardCoroutine,
+-                afterSelectCardCoroutine: AfterSelectCardCoroutine1,
+-                message: selectCardCondition1.Message,
+-                maxCount: maxCount,
+-                canEndNotMax: selectCardCondition1.CanEndNotMax,
+-                isShowOpponent: true,
+-                mode: selectCardCondition1.Mode,
+-                root: SelectCardEffect.Root.Custom,
+-                customRootCardList: revealedCards,
+-                canLookReverseCard: true,
+-                selectPlayer: selectPlayer,
+-                cardEffect: activateClass);
++    private static async Task<List<CardSource>> SelectCardsFromRevealPoolAsync(
++        EngineContext context,
++        HeadlessPlayerId selectPlayer,
++        List<CardSource> pool,
++        Func<CardSource, bool> canTarget,
++        Func<List<CardSource>, CardSource, bool>? byPreSelectedList,
++        Func<List<CardSource>, bool>? canEndSelectCondition,
++        int maxCount,
++        bool canNoSelect,
++        bool canEndNotMax,
++        string message,
++        ChoiceZone zone = ChoiceZone.Library)
++    {
++        var selected = new List<CardSource>();
++        if (maxCount < 1)
++        {
++            return selected;
++        }
+ 
+-                    yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
++        if (byPreSelectedList == null)
++        {
++            ChoiceCandidate[] candidates = pool
++                .Select(cs => new ChoiceCandidate(cs.InstanceId, cs.InstanceId.Value, zone,
++                    IsSelectable: canTarget(cs), ownerId: cs.Owner))
++                .ToArray();
++            int minCount = canNoSelect ? 0 : (canEndNotMax ? Math.Min(1, maxCount) : maxCount);
++            var request = new ChoiceRequest(
++                ChoiceType.Card, selectPlayer, message, minCount, maxCount, canSkip: canNoSelect,
++                zone, candidates);
++            if (canEndSelectCondition != null)
++            {
++                request = request with
++                {
++                    SelectionValidator = ids => canEndSelectCondition(
++                        ids.Select(id => pool.First(cs => cs.InstanceId == id)).ToList()),
++                };
++            }
+ 
+-                    IEnumerator AfterSelectCardCoroutine1(List<CardSource> cardSources)
++            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
++            if (!result.IsSkipped)
++            {
++                foreach (HeadlessEntityId id in result.SelectedIds)
++                {
++                    CardSource? pick = pool.FirstOrDefault(cs => cs.InstanceId == id);
++                    if (pick is not null && !selected.Contains(pick))
+                     {
+-                        remainingCards = revealedCards.Filter(cardSource => !cardSources.Contains(cardSource));
+-
+-                        yield return null;
++                        selected.Add(pick);
+                     }
+                 }
+-            }*/
+-        }
++            }
+ 
+-        if (isSendAllCardsToSamePlace)
+-        {
+-            remainingCards = revealLibrary.RevealedCards.Clone();
++            return selected;
+         }
+ 
+-        switch (remainingCardsPlace)
++        while (selected.Count < maxCount)
+         {
+-            case RemainingCardsPlace.DeckBottom:
+-                yield return ContinuousController.instance.StartCoroutine(ReturnRevealedCardsToLibraryBottom(remainingCards, activateClass));
+-                break;
+-
+-            case RemainingCardsPlace.DeckTop:
+-                yield return ContinuousController.instance.StartCoroutine(ReturnRevealedCardsToLibraryTop(remainingCards, activateClass));
+-                break;
+-
+-            case RemainingCardsPlace.Trash:
+-                yield return ContinuousController.instance.StartCoroutine(TrashRevealedCards(remainingCards, activateClass));
++            List<CardSource> legal = pool
++                .Where(cs => !selected.Contains(cs) && canTarget(cs) && byPreSelectedList(selected, cs))
++                .ToList();
++            if (legal.Count == 0)
++            {
+                 break;
++            }
+ 
+-            case RemainingCardsPlace.AddHand:
+-                yield return ContinuousController.instance.StartCoroutine(AddRevealedCardsToHand(remainingCards, activateClass));
++            bool canEndNow = (canNoSelect && selected.Count == 0)
++                || (canEndNotMax && (canEndSelectCondition == null || canEndSelectCondition(selected)));
++            var request = new ChoiceRequest(
++                ChoiceType.Card, selectPlayer, message,
++                minCount: canEndNow ? 0 : 1, maxCount: 1, canSkip: canEndNow, zone,
++                legal.Select(cs => new ChoiceCandidate(cs.InstanceId, cs.InstanceId.Value, zone,
++                    IsSelectable: true, ownerId: cs.Owner)).ToArray());
++            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
++            if (result.IsSkipped || result.SelectedIds.Count == 0)
++            {
+                 break;
++            }
+ 
+-            case RemainingCardsPlace.DeckTopOrBottom:
+-                if (remainingCards.Count >= 2)
+-                {
+-                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(
+-                        remainingCards,
+-                        "Remaining Cards",
+-                        true,
+-                        true));
+-                }
+-
+-                yield return ContinuousController.instance.StartCoroutine(ReturnRevealedCardsToLibraryTopOrBottom(remainingCards, activateClass));
++            CardSource? picked = legal.FirstOrDefault(cs => cs.InstanceId == result.SelectedIds[0]);
++            if (picked is null)
++            {
+                 break;
+-        }
++            }
+ 
+-        if (revealedCardsCoroutine != null)
+-        {
+-            yield return ContinuousController.instance.StartCoroutine(revealedCardsCoroutine(revealLibrary.RevealedCards));
++            selected.Add(picked);
+         }
+ 
+-        revealLibrary.RevealedCards.ForEach(cardSource => cardSource.IsBeingRevealed = false);
++        return selected;
+     }
+-    #endregion
+ 
+-    #region Return revealed cards to the bottom of deck by any order
+-    public static IEnumerator ReturnRevealedCardsToLibraryBottom(List<CardSource> remainingCards, ICardEffect activateClass)
++    private static async Task StageRevealMovesAsync(
++        EngineContext context, ICardEffect activateClass, IReadOnlyList<CardSource> cards, bool toHand)
+     {
+-        if (remainingCards.Count == 0) yield break;
+-        if (activateClass == null) yield break;
+-        CardSource effectSourceCard = activateClass.EffectSourceCard;
+-        if (effectSourceCard == null) yield break;
+-        Player selectPlayer = effectSourceCard.Owner;
+-        if (selectPlayer == null) yield break;
+-
+-        if (remainingCards.Count == 1)
++        if (cards.Count == 0)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryBottomCards(remainingCards));
+-
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(remainingCards, "Deck Bottom Card", true, true));
++            return;
+         }
+ 
++        if (toHand)
++        {
++            await CardObjectController.AddHandCards(cards.ToList(), false, activateClass).ConfigureAwait(false);
++        }
+         else
+         {
+-            SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+-
+-            selectCardEffect.SetUp(
+-                canTargetCondition: (cardSource) => true,
+-                canTargetCondition_ByPreSelecetedList: null,
+-                canEndSelectCondition: null,
+-                canNoSelect: () => false,
+-                selectCardCoroutine: null,
+-                afterSelectCardCoroutine: AfterSelectCardCoroutine1,
+-                message: "Specify the order to place the card at the bottom of the deck\n(cards will be placed back to the bottom of the deck so that cards with lower numbers are on top).",
+-                maxCount: remainingCards.Count,
+-                canEndNotMax: false,
+-                isShowOpponent: false,
+-                mode: SelectCardEffect.Mode.Custom,
+-                root: SelectCardEffect.Root.Custom,
+-                customRootCardList: remainingCards,
+-                canLookReverseCard: true,
+-                selectPlayer: selectPlayer,
+-                cardEffect: activateClass);
+-
+-            selectCardEffect.SetNotShowCard();
+-            selectCardEffect.SetNotAddLog();
+-            selectCardEffect.SetIsDeckBottom();
+-            selectCardEffect.SetUseFaceDown();
+-
+-            yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
+-
+-            static IEnumerator AfterSelectCardCoroutine1(List<CardSource> cardSources)
++            foreach (CardSource cs in cards)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryBottomCards(cardSources));
+-
+-                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(cardSources,
+-                "Deck Bottom Cards", true, true));
++                await context.ZoneMover.TrashCardAsync(cs.Owner, cs.InstanceId).ConfigureAwait(false);
+             }
+         }
+     }
+-    #endregion
+ 
+-    #region Return revealed cards to the top of deck by any order
+-    static IEnumerator ReturnRevealedCardsToLibraryTop(List<CardSource> remainingCards, ICardEffect activateClass)
++    private static async Task RouteRemainingRevealedCardsAsync(
++        EngineContext context,
++        ICardEffect activateClass,
++        HeadlessPlayerId selectPlayer,
++        RemainingCardsPlace remainingCardsPlace,
++        List<CardSource> remainingCards)
+     {
+-        if (remainingCards.Count == 0) yield break;
+-        if (activateClass == null) yield break;
+-        CardSource effectSourceCard = activateClass.EffectSourceCard;
+-        if (effectSourceCard == null) yield break;
+-        Player selectPlayer = effectSourceCard.Owner;
+-        if (selectPlayer == null) yield break;
+-
+-        if (remainingCards.Count == 1)
++        if (remainingCards.Count == 0 || remainingCardsPlace == RemainingCardsPlace.None)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryTopCards(remainingCards));
+-
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(remainingCards, "Deck Top Card", true, true));
++            return;
+         }
+ 
+-        else
++        switch (remainingCardsPlace)
+         {
+-            SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+-
+-            selectCardEffect.SetUp(
+-        canTargetCondition: (cardSource) => true,
+-        canTargetCondition_ByPreSelecetedList: null,
+-        canEndSelectCondition: null,
+-        canNoSelect: () => false,
+-        selectCardCoroutine: null,
+-        afterSelectCardCoroutine: AfterSelectCardCoroutine1,
+-        message: "Specify the order to place the card at the top of the deck\n(cards will be placed back to the top of the deck so that cards with lower numbers are on top).",
+-        maxCount: remainingCards.Count,
+-        canEndNotMax: false,
+-        isShowOpponent: false,
+-        mode: SelectCardEffect.Mode.Custom,
+-        root: SelectCardEffect.Root.Custom,
+-        customRootCardList: remainingCards,
+-        canLookReverseCard: true,
+-        selectPlayer: selectPlayer,
+-        cardEffect: activateClass);
+-
+-            selectCardEffect.SetNotShowCard();
+-            selectCardEffect.SetNotAddLog();
+-            selectCardEffect.SetIsDeckTop();
+-            selectCardEffect.SetUseFaceDown();
++            case RemainingCardsPlace.DeckBottom:
++                await ReturnRevealedCardsToLibraryBottom(remainingCards, activateClass.EffectSourceCard).ConfigureAwait(false);
++                break;
+ 
+-            yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
++            case RemainingCardsPlace.DeckTop:
++                await ReturnRevealedCardsToLibraryTopAsync(context, activateClass, selectPlayer, remainingCards).ConfigureAwait(false);
++                break;
+ 
+-            static IEnumerator AfterSelectCardCoroutine1(List<CardSource> cardSources)
+-            {
+-                List<CardSource> topCards = cardSources.Clone();
++            case RemainingCardsPlace.Trash:
++                await StageRevealMovesAsync(context, activateClass, remainingCards, toHand: false).ConfigureAwait(false);
++                break;
+ 
+-                topCards.Reverse();
++            case RemainingCardsPlace.AddHand:
++                await StageRevealMovesAsync(context, activateClass, remainingCards, toHand: true).ConfigureAwait(false);
++                break;
+ 
+-                yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryTopCards(topCards));
++            case RemainingCardsPlace.DeckTopOrBottom:
++            {
++                var placeRequest = new ChoiceRequest(
++                    ChoiceType.Card, selectPlayer, "To which area do you place cards?",
++                    minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.Library,
++                    new[]
++                    {
++                        new ChoiceCandidate(
++                            new HeadlessEntityId($"reveal-place-top:{activateClass.EffectSourceCard.InstanceId.Value}"),
++                            "Deck Top", ChoiceZone.Library, IsSelectable: true, ownerId: selectPlayer),
++                        new ChoiceCandidate(
++                            new HeadlessEntityId($"reveal-place-bottom:{activateClass.EffectSourceCard.InstanceId.Value}"),
++                            "Deck Bottom", ChoiceZone.Library, IsSelectable: true, ownerId: selectPlayer),
++                    });
++                ChoiceResult placeResult = await context.ChoiceProvider.ChooseAsync(placeRequest).ConfigureAwait(false);
++                bool toTop = placeResult.SelectedIds.Count > 0 &&
++                    placeResult.SelectedIds[0].Value.StartsWith("reveal-place-top", StringComparison.Ordinal);
++                if (toTop)
++                {
++                    await ReturnRevealedCardsToLibraryTopAsync(context, activateClass, selectPlayer, remainingCards).ConfigureAwait(false);
++                }
++                else
++                {
++                    await ReturnRevealedCardsToLibraryBottom(remainingCards, activateClass.EffectSourceCard).ConfigureAwait(false);
++                }
+ 
+-                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(cardSources, "Deck Top Cards", true, true));
++                break;
+             }
+         }
+     }
+-    #endregion
+ 
+-    #region Trash revealed cards
+-    static IEnumerator TrashRevealedCards(List<CardSource> remainingCards, ICardEffect activateClass)
++    private static async Task ReturnRevealedCardsToLibraryTopAsync(
++        EngineContext context, ICardEffect activateClass, HeadlessPlayerId selectPlayer, List<CardSource> remainingCards)
+     {
+-        if (remainingCards.Count == 0) yield break;
+-        if (activateClass == null) yield break;
+-        CardSource effectSourceCard = activateClass.EffectSourceCard;
+-        if (effectSourceCard == null) yield break;
+-        Player selectPlayer = effectSourceCard.Owner;
+-        if (selectPlayer == null) yield break;
+-
+-        yield return ContinuousController.instance.StartCoroutine(new ITrashDeckCards(remainingCards, activateClass).TrashDeckCards());
+-
+-        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(remainingCards, "Discarded Cards", true, true));
+-    }
+-    #endregion
+-
+-    #region Add revealed cards to hand
+-    static IEnumerator AddRevealedCardsToHand(List<CardSource> remainingCards, ICardEffect activateClass)
+-    {
+-        if (remainingCards.Count == 0) yield break;
+-        if (activateClass == null) yield break;
+-        CardSource effectSourceCard = activateClass.EffectSourceCard;
+-        if (effectSourceCard == null) yield break;
+-        Player selectPlayer = effectSourceCard.Owner;
+-        if (selectPlayer == null) yield break;
+-
+-        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCards(remainingCards, false, activateClass));
+-
+-        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(remainingCards, "Card added to hand", true, true));
+-    }
+-    #endregion
+-
+-    #region Return revealed cards to the top or bottom of deck by any order
+-    static IEnumerator ReturnRevealedCardsToLibraryTopOrBottom(List<CardSource> remainingCards, ICardEffect activateClass)
+-    {
+-        if (remainingCards.Count == 0) yield break;
+-        if (activateClass == null) yield break;
+-        CardSource effectSourceCard = activateClass.EffectSourceCard;
+-        if (effectSourceCard == null) yield break;
+-        Player selectPlayer = effectSourceCard.Owner;
+-        if (selectPlayer == null) yield break;
+-
+-        List<SelectionElement<bool>> selectionElements = new List<SelectionElement<bool>>()
+-                        {
+-                            new SelectionElement<bool>(message: $"Deck Top", value : true, spriteIndex: 0),
+-                            new SelectionElement<bool>(message: $"Deck Bottom", value : false, spriteIndex: 1),
+-                        };
+-
+-        string selectPlayerMessage = "To which area do you place cards?";
+-        string notSelectPlayerMessage = "The opponent is choosing to which area to place cards.";
+-
+-        GManager.instance.userSelectionManager.SetBoolSelection(selectionElements: selectionElements, selectPlayer: selectPlayer, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
+-
+-        yield return ContinuousController.instance.StartCoroutine(GManager.instance.userSelectionManager.WaitForEndSelect());
+-
+-        bool toTop = GManager.instance.userSelectionManager.SelectedBoolValue;
+-
+-        if (toTop)
+-        {
+-            yield return ContinuousController.instance.StartCoroutine(ReturnRevealedCardsToLibraryTop(remainingCards, activateClass));
+-        }
+-        else
++        if (remainingCards.Count == 0 || activateClass?.EffectSourceCard == null)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(ReturnRevealedCardsToLibraryBottom(remainingCards, activateClass));
++            return;
+         }
+-    }
+-    #endregion
+-}
+-
+-#region Select conditions class
+-public class SimplifiedSelectCardConditionClass
+-{
+-    public SimplifiedSelectCardConditionClass(Func<CardSource, bool> canTargetCondition,
+-        string message,
+-        SelectCardEffect.Mode mode,
+-        int maxCount,
+-        Func<CardSource, IEnumerator> selectCardCoroutine)
+-    {
+-        _canTargetCondition = canTargetCondition;
+-        _selectCardCoroutine = selectCardCoroutine;
+-        _message = message;
+-        _maxCount = maxCount;
+-        _mode = mode;
+-    }
+-    Func<CardSource, bool> _canTargetCondition = null;
+-    Func<CardSource, IEnumerator> _selectCardCoroutine = null;
+-    string _message = null;
+-    int _maxCount = 0;
+-    SelectCardEffect.Mode _mode = SelectCardEffect.Mode.Custom;
+-    public Func<CardSource, bool> CanTargetCondition { get { return _canTargetCondition; } }
+-    public Func<CardSource, IEnumerator> SelectCardCoroutine { get { return _selectCardCoroutine; } }
+-    public string Message { get { return _message; } }
+-    public int MaxCount { get { return _maxCount; } }
+-    public SelectCardEffect.Mode Mode { get { return _mode; } }
+-}
+-
+-public class SelectCardConditionClass
+-{
+-    public SelectCardConditionClass(Func<CardSource, bool> canTargetCondition,
+-        Func<List<CardSource>, CardSource, bool> canTargetCondition_ByPreSelecetedList,
+-        Func<List<CardSource>, bool> canEndSelectCondition,
+-        bool canNoSelect,
+-        Func<CardSource, IEnumerator> selectCardCoroutine,
+-        string message,
+-        int maxCount,
+-        bool canEndNotMax,
+-        SelectCardEffect.Mode mode)
+-    {
+-        _canTargetCondition = canTargetCondition;
+-        _canTargetCondition_ByPreSelecetedList = canTargetCondition_ByPreSelecetedList;
+-        _canEndSelectCondition = canEndSelectCondition;
+-        _canNoSelect = canNoSelect;
+-        _selectCardCoroutine = selectCardCoroutine;
+-        _message = message;
+-        _maxCount = maxCount;
+-        _canEndNotMax = canEndNotMax;
+-        _mode = mode;
+-    }
+-    Func<CardSource, bool> _canTargetCondition = null;
+-    Func<List<CardSource>, CardSource, bool> _canTargetCondition_ByPreSelecetedList = null;
+-    Func<List<CardSource>, bool> _canEndSelectCondition = null;
+-    bool _canNoSelect = false;
+-    Func<CardSource, IEnumerator> _selectCardCoroutine = null;
+-    string _message = null;
+-    int _maxCount = 0;
+-    bool _canEndNotMax = false;
+-    SelectCardEffect.Mode _mode = SelectCardEffect.Mode.Custom;
+-    public Func<CardSource, bool> CanTargetCondition { get { return _canTargetCondition; } }
+-    public Func<List<CardSource>, CardSource, bool> CanTargetCondition_ByPreSelecetedList { get { return _canTargetCondition_ByPreSelecetedList; } }
+-    public Func<List<CardSource>, bool> CanEndSelectCondition { get { return _canEndSelectCondition; } }
+-    public bool CanNoSelect { get { return _canNoSelect; } }
+-    public Func<CardSource, IEnumerator> SelectCardCoroutine { get { return _selectCardCoroutine; } }
+-    public string Message { get { return _message; } }
+-    public int MaxCount { get { return _maxCount; } }
+-    public bool CanEndNotMax { get { return _canEndNotMax; } }
+-    public SelectCardEffect.Mode Mode { get { return _mode; } }
+-}
+-#endregion
+-
+-#region In which area the remaining cards are placed
+-public enum RemainingCardsPlace
+-{
+-    DeckBottom,
+-    DeckTop,
+-    DeckTopOrBottom,
+-    Trash,
+-    AddHand,
+-    None,
+-}
+-#endregion
+ 
+-#region Reveal deck cards
+-public class RevealLibraryClass
+-{
+-    public RevealLibraryClass(Player player, int revealCount)
+-    {
+-        _player = player;
+-        _revealCount = revealCount;
+-    }
+-    Player _player = null;
+-    int _revealCount = 0;
+-    List<CardSource> _revealedCards = new List<CardSource>();
+-    public List<CardSource> RevealedCards => _revealedCards.Clone();
+-
+-    public IEnumerator RevealLibrary()
+-    {
+-        _revealedCards = new List<CardSource>();
+-
+-        for (int i = 0; i < _revealCount; i++)
++        IReadOnlyList<CardSource> ordered = remainingCards;
++        if (remainingCards.Count >= 2)
+         {
+-            if (_player.LibraryCards.Count > i)
++            var orderRequest = new ChoiceRequest(
++                ChoiceType.Card, selectPlayer,
++                "Specify the order to place the card at the top of the deck\n(cards will be placed back to the top of the deck so that cards with lower numbers are on top).",
++                minCount: remainingCards.Count, maxCount: remainingCards.Count, canSkip: false, ChoiceZone.Library,
++                remainingCards.Select(cs => new ChoiceCandidate(cs.InstanceId, cs.InstanceId.Value, ChoiceZone.Library,
++                    IsSelectable: true, ownerId: cs.Owner)).ToArray());
++            ChoiceResult orderResult = await context.ChoiceProvider.ChooseAsync(orderRequest).ConfigureAwait(false);
++            if (orderResult.SelectedIds.Count == remainingCards.Count)
+             {
+-                _revealedCards.Add(_player.LibraryCards[i]);
++                ordered = orderResult.SelectedIds
++                    .Select(id => remainingCards.First(cs => cs.InstanceId == id))
++                    .ToArray();
+             }
+         }
+ 
+-        if (RevealedCards.Count >= 1)
++        foreach (CardSource cs in ordered.Reverse())
+         {
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(RevealedCards, "Revealed Cards", true, true));
++            await context.ZoneMover.MoveToDeckTopAsync(cs.Owner, cs.InstanceId).ConfigureAwait(false);
+         }
+-
+-        #region ???
+-        if (RevealedCards.Count >= 1)
+-        {
+-            string log = "";
+-
+-            log += $"\nRevealed Cards:";
+-
+-            foreach (CardSource cardSource in RevealedCards)
+-            {
+-                if (cardSource != null)
+-                {
+-                    log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+-                }
+-            }
+-
+-            log += "\n";
+-
+-            PlayLog.OnAddLog?.Invoke(log);
+-        }
+-        #endregion
+-
+-        yield return new WaitForSeconds(0.5f);
+-
+-        _revealedCards.ForEach(cardSource => cardSource.IsBeingRevealed = true);
+     }
++
++    #endregion
+ }
+-#endregion
+\ 파일 끝 개행 문자 없음

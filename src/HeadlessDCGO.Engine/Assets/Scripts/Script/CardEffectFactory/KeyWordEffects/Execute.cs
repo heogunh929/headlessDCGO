@@ -1,15 +1,5 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Execute.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Execute.cs factory partial.
-// ADAPTATION: card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card); coroutine
-// `IEnumerator ActivateCoroutine` (pure delegation) -> non-async `Task ActivateCoroutine`.
-// Replaces the monolith's invented ExecuteSelfEffect.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public partial class CardEffectFactory
 {
@@ -18,7 +8,7 @@ public partial class CardEffectFactory
     public static ActivateClass ExecuteSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition,
         ICardEffect rootCardEffect = null)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+        Permanent targetPermanent = card.PermanentOfThisCard();
 
         bool CanUseCondition()
         {
@@ -65,7 +55,7 @@ public partial class CardEffectFactory
                    (condition == null || condition());
         }
 
-        Task ActivateCoroutine(Hashtable hashtable)
+        IEnumerator ActivateCoroutine(Hashtable hashtable)
         {
             return CardEffectCommons.ExecuteProcess(targetPermanent.TopCard, activateClass);
         }

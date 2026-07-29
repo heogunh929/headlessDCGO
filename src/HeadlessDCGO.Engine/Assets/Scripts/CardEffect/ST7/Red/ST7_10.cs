@@ -1,19 +1,11 @@
-// Source: Assets/Scripts/CardEffect/ST7/Red/ST7_10.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect (Phase 1 vertical slice).
-//
-// 1:1 mirror of the original DCGO ST7_10 (DCGO/Assets/Scripts/CardEffect/ST7/Red/ST7_10.cs):
-//   [All Turns] <Security Attack +1>            -> ChangeSelfSAttackStaticEffect (continuous, main)
-//   [When Attacking] <Piercing>                 -> PierceSelfEffect (OnDetermineDoSecurityCheck)
-// Both effects are unconditional (condition: null) and main (isInheritedEffect: false), so they map
-// directly onto the existing continuous-modifier / keyword gates with no conditional gating needed.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST7.Red;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class ST7_10 : CEntity_Effect
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class ST7_10 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {

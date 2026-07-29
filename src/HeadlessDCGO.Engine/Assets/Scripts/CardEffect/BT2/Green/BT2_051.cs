@@ -1,28 +1,12 @@
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// Coverage-exemplar card — BT2_051 (Digimon / Green)
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// ① AS-IS 앵커: DCGO/Assets/Scripts/CardEffect/BT2/Green/BT2_051.cs (2 regions)
-//    * timing==None      : CanAttackTargetDefendingPermanentClass — 자기 턴 & 녹색 테이머 존재 시 서스펜드 안 된
-//      상대 디지몬도 공격 대상으로 지정 가능 (PRIMARY covered element: CanAttackTargetDefendingPermanent).
-//    * timing==OnEndBattle: [Your Turn] 전투로 상대 디지몬 삭제하고 생존 시 상대 디지몬 1체 서스펜드
-//      (SelectPermanentEffect Mode.Tap).
-// 치환(substrate translations only):
-//    * IEnumerator→async Task, `yield return ContinuousController.instance.StartCoroutine(X)`→`await X`.
-//    * `card.PermanentOfThisCard()` → `ICardEffect.ResolvePermanentOfThisCard(card)`.
-//    * SelectPermanentEffect.canTargetCondition에 AS-IS Permanent-술어(Func<Permanent,bool>)를 직접 전달.
-//    * `MatchConditionPermanentCount(cond)`(단일-인자, Permanent 술어) → 미러 `MatchConditionPermanentCount(card,
-//      id-form)`(id-form 유일; BT17_026 idiom). `HasMatchConditionPermanent(cond)` → `(card, cond)`(Permanent 뷰-
-//      오버로드 존재, CardEffectCommons.cs:3731). `HasMatchConditionOwnersPermanent(cond)` → `(card, cond)`.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Green;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT2_051 : CEntity_Effect
+public class BT2_051 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -43,9 +27,7 @@ public sealed class BT2_051 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    // (미러 idiom, BT2_099) AS-IS enum `CardColors.Contains(CardColor.Green)` → 미러 string-list
-                    // `CardColors.Contains("Green")` (CardSource.CardColors는 IReadOnlyList<string>).
-                    if (CardEffectCommons.HasMatchConditionOwnersPermanent(card, (permanent) => permanent.TopCard.CardColors.Contains("Green") && permanent.IsTamer))
+                    if (CardEffectCommons.HasMatchConditionOwnersPermanent(card, (permanent) => permanent.TopCard.CardColors.Contains(CardColor.Green) && permanent.IsTamer))
                     {
                         if (CardEffectCommons.IsOwnerTurn(card))
                         {
@@ -61,7 +43,7 @@ public sealed class BT2_051 : CEntity_Effect
 
             bool AttackerCondition(Permanent permanent)
             {
-                return permanent == ICardEffect.ResolvePermanentOfThisCard(card);
+                return permanent == card.PermanentOfThisCard();
             }
 
             bool DefenderCondition(Permanent permanent)
@@ -123,7 +105,7 @@ public sealed class BT2_051 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                     {
                         return true;
                     }
@@ -132,11 +114,11 @@ public sealed class BT2_051 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -153,7 +135,7 @@ public sealed class BT2_051 : CEntity_Effect
                         mode: SelectPermanentEffect.Mode.Tap,
                         cardEffect: activateClass);
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                 }
             }
         }

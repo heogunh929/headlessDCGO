@@ -1,12 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnUnsuspend.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger "when this permanent unsuspends" effect
     public static bool CanTriggerWhenSelfPermanentUnsuspends(Hashtable hashtable, CardSource card)

@@ -1,24 +1,15 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Decoy.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Decoy.cs factory partial.
-// ADAPTATION: card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card); coroutine
-// `IEnumerator ActivateCoroutine` (pure delegation) -> non-async `Task ActivateCoroutine`; stripped
-// `using UnityEngine;`. Replaces the monolith's invented DecoySelfEffect.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
     #region Trigger effect of [Decoy] on oneself
     public static ActivateClass DecoySelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition, Func<Permanent, bool> permanentCondition, string effectName, string effectDiscription, ICardEffect rootCardEffect = null)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+        Permanent targetPermanent = card.PermanentOfThisCard();
 
         bool CanUseCondition()
         {
@@ -47,7 +38,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect(effectName, CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, effectDiscription);
-        activateClass.SetHashString($"Decoy_{card.CardNumber}" + (isInheritedEffect ? "_inherited" : ""));
+        activateClass.SetHashString($"Decoy_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
         activateClass.SetIsInheritedEffect(isInheritedEffect);
 
         if (rootCardEffect != null)
@@ -61,7 +52,7 @@ public partial class CardEffectFactory
 
         bool CanUseCondition(Hashtable hashtable)
         {
-            bool CardEffectCondition(ICardEffect cardEffect) => cardEffect.EffectSourceCard.Owner == new Player(card.Context, card.Owner).Enemy?.PlayerId;
+            bool CardEffectCondition(ICardEffect cardEffect) => cardEffect.EffectSourceCard.Owner == card.Owner.Enemy;
 
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(targetPermanent))
             {
@@ -93,7 +84,7 @@ public partial class CardEffectFactory
             return false;
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
             return CardEffectCommons.DecoyProcess(activateClass, targetPermanent, CanSelectPermanentCondition);
         }

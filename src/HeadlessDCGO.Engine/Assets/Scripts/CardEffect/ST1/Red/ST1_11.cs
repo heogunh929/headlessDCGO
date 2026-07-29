@@ -1,18 +1,6 @@
-// Source: Assets/Scripts/CardEffect/ST1/Red/ST1_11.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect (Phase 1, ST1 wave 2).
-//
-// 1:1 mirror of the original ST1_11: [Your Turn] this Digimon gets <Security Attack +X>, where
-// X = (its digivolution source count) / 2. The original calls the generic
-// ChangeSelfSAttackStaticEffect<Func<int>>; the headless overload takes the Func<int> directly so the
-// explicit type argument is dropped.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST1.Red;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class ST1_11 : CEntity_Effect
+using System;
+using System.Collections.Generic;
+public class ST1_11 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -46,10 +34,10 @@ public sealed class ST1_11 : CEntity_Effect
                 return false;
             }
 
-            cardEffects.Add(CardEffectFactory.ChangeSelfSAttackStaticEffect(
-                changeValue: () => count(),
-                isInheritedEffect: false,
-                card: card,
+            cardEffects.Add(CardEffectFactory.ChangeSelfSAttackStaticEffect<Func<int>>(
+                changeValue: () => count(), 
+                isInheritedEffect: false, 
+                card: card, 
                 condition: Condition));
         }
 

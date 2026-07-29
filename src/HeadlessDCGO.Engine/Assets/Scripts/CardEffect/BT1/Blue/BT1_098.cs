@@ -1,31 +1,11 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Blue/BT1_098.cs — an Option.
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS BT1_098.
-//   [Main] (OptionSkill) ActivateClass(CanUseCondition = CanTriggerOptionMainEffect, ORDER=-1, ISOPTIONAL=false).
-//     ActivateCoroutine: SelectPermanentEffect.SetUp(selectPlayer: owner, canTargetCondition =
-//     IsPermanentExistsOnOwnerBattleAreaDigimon, maxCount = Min(1, MatchConditionPermanentCount),
-//     canNoSelect:false, canEndNotMax:false, mode: Custom, selectPermanentCoroutine: SelectPermanentCoroutine).
-//     SelectPermanentCoroutine(permanent): CardEffectCommons.GainJamming(targetPermanent: permanent,
-//     EffectDuration.UntilEachTurnEnd, activateClass).
-//   [Security] (SecuritySkill) ActivateClass(CanUseCondition = CanTriggerSecurityEffect, SetIsSecurityEffect(true)).
-//     ActivateCoroutine: CardEffectCommons.AddThisCardToHand(card, activateClass).
-// AS-IS structure kept verbatim: inline `new ActivateClass()` (twice) + local functions. Substrate
-// translations only: IEnumerator->Task, StartCoroutine->await; the AS-IS `Func<Permanent,bool>
-// CanSelectPermanentCondition` is expressed verbatim on the canonical Func<Permanent,bool> shape (id-flip 3b),
-// serving both HasMatchConditionPermanent/MatchConditionPermanentCount call sites and SetUp's canTargetCondition;
-// `GManager.instance.GetComponent<SelectPermanentEffect>()` -> bridge W4;
-// `CardEffectCommons.AddThisCardToHand(card, activateClass)` -> mirror `(card, card)` (ST3_13/BT9_109
-// convention — sourceCard = the effect's source card).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class BT1_098 : CEntity_Effect
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT1_098 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -53,9 +33,9 @@ public sealed class BT1_098 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -74,19 +54,20 @@ public sealed class BT1_098 : CEntity_Effect
 
                 selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will gain Jamming.", "The opponent is selecting 1 Digimon that will gain Jamming.");
 
-                await selectPermanentEffect.Activate();
+                yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                async Task SelectPermanentCoroutine(Permanent permanent)
+                IEnumerator SelectPermanentCoroutine(Permanent permanent)
                 {
-                    await CardEffectCommons.GainJamming(targetPermanent: permanent, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass);
+                    yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainJamming(targetPermanent: permanent, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass));
                 }
             }
         }
 
+
         if (timing == EffectTiming.SecuritySkill)
         {
             ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect("Add this card to hand", CanUseCondition, card);
+            activateClass.SetUpICardEffect($"Add this card to hand", CanUseCondition, card);
             activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
             activateClass.SetIsSecurityEffect(true);
             cardEffects.Add(activateClass);
@@ -95,15 +76,14 @@ public sealed class BT1_098 : CEntity_Effect
             {
                 return "[Security] Add this card to its owner's hand.";
             }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await CardEffectCommons.AddThisCardToHand(card, card);
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.AddThisCardToHand(card, activateClass));
             }
         }
 

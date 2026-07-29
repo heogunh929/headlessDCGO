@@ -1,16 +1,12 @@
-// 1:1 mirror of the original ST2_01 (ST2/Blue).
-//   [Inherited][Your Turn] While the Digimon this is battling has no digivolution cards, this Digimon gets
-//   +1000 DP.  -> ChangeSelfDPStaticEffect (inherited, conditional)
-// Battle-pairing restored (G10-006): the condition keys off the SPECIFIC enemy this card's permanent is
-// battling (CurrentBattleOpponent, read from AttackController.Current), exactly as the original
-// card.PermanentOfThisCard().battle.enemyPermanent(...).
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class ST2_01 : CEntity_Effect
+public class ST2_01 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -20,22 +16,32 @@ public sealed class ST2_01 : CEntity_Effect
         {
             bool Condition()
             {
-                if (!CardEffectCommons.IsExistOnBattleArea(card) || !CardEffectCommons.IsOwnerTurn(card))
+                if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    return false;
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (card.PermanentOfThisCard().battle != null)
+                        {
+                            Permanent enemy = card.PermanentOfThisCard().battle.enemyPermanent(card.PermanentOfThisCard());
+
+                            if (enemy != null)
+                            {
+                                if (enemy.TopCard != null)
+                                {
+                                    if (enemy.TopCard.Owner == card.Owner.Enemy)
+                                    {
+                                        if (enemy.HasNoDigivolutionCards)
+                                        {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
-                HeadlessEntityId enemy = CardEffectCommons.CurrentBattleOpponent(card);
-                if (enemy.IsEmpty)
-                {
-                    return false;
-                }
-
-                // AS-IS ST2_01: `enemy.TopCard.Owner == card.Owner.Enemy && enemy.HasNoDigivolutionCards`
-                // (Permanent/CardSource direct-read; the battle opponent materialised from its entity id).
-                Permanent enemyPermanent = new Permanent(card.Context, enemy);
-                return enemyPermanent.TopCard.Owner == CardEffectCommons.OpponentOf(card)
-                    && enemyPermanent.HasNoDigivolutionCards;
+                return false;
             }
 
             cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(changeValue: 1000, isInheritedEffect: true, card: card, condition: Condition));

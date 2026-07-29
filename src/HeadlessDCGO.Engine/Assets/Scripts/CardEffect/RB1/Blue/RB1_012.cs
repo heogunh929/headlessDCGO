@@ -1,7 +1,32 @@
-// Source: Assets/Scripts/CardEffect/RB1/Blue/RB1_012.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.RB1.Blue
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+
+public class RB1_012 : CEntity_Effect
+{
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+        if (timing == EffectTiming.None)
+        {
+            static bool PermanentCondition(Permanent targetPermanent)
+            {
+                return targetPermanent.TopCard.CardNames.Contains("Gammamon");
+            }
+
+            cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(permanentCondition: PermanentCondition, digivolutionCost: 2, ignoreDigivolutionRequirement: false, card: card, condition: null));
+        }
+
+        if (timing == EffectTiming.WhenPermanentWouldBeDeleted)
+        {
+            cardEffects.Add(CardEffectFactory.EvadeSelfEffect(isInheritedEffect: false, card: card, condition: null));
+        }
+
+        return cardEffects;
+    }
+}

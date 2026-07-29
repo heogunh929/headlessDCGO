@@ -1,12 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenPermanentWouldDigivolve.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger "When card would digivolve" effects of 1 permanent
 
@@ -14,7 +12,7 @@ public static partial class CardEffectCommons
     {
         bool PermanentCondition(Permanent permanent)
         {
-            return permanent == ICardEffect.ResolvePermanentOfThisCard(card);
+            return permanent == card.PermanentOfThisCard();
         }
 
         return CanTriggerWhenPermanentWouldDigivolve(hashtable: hashtable, permanentCondition: PermanentCondition, cardCondition: cardCondition);

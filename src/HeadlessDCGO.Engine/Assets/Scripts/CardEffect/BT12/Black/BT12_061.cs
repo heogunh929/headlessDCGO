@@ -1,7 +1,29 @@
-// Source: Assets/Scripts/CardEffect/BT12/Black/BT12_061.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT12.Black
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections.Generic;
+
+namespace DCGO.CardEffects.BT12
+{
+    public class BT12_061 : CEntity_Effect
+    {
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+        {
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+            if (timing == EffectTiming.None)
+            {
+                bool PermanentCondition(Permanent targetPermanent)
+                {
+                    return targetPermanent.TopCard.HasSaveText && targetPermanent.TopCard.HasLevel && targetPermanent.TopCard.Level == 3;
+                }
+
+                cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(permanentCondition: PermanentCondition, digivolutionCost: 2, ignoreDigivolutionRequirement: false, card: card, condition: null));
+            }
+
+            if (timing == EffectTiming.None)
+            {
+                cardEffects.Add(CardEffectFactory.RebootSelfStaticEffect(isInheritedEffect: true, card: card, condition: null));
+            }
+
+            return cardEffects;
+        }
+    }
+}

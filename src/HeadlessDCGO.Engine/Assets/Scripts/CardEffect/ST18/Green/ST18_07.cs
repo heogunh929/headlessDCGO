@@ -1,7 +1,38 @@
-// Source: Assets/Scripts/CardEffect/ST18/Green/ST18_07.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST18.Green
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections.Generic;
+
+namespace DCGO.CardEffects.ST18
+{
+    public class ST18_07 : CEntity_Effect
+    {
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+        {
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+            #region Blocker
+
+            if (timing == EffectTiming.None)
+            {
+                cardEffects.Add(CardEffectFactory.BlockerSelfStaticEffect(
+                    isInheritedEffect: false,
+                    card: card,
+                    condition: null));
+            }
+
+            #endregion
+
+            #region Piercing - ESS
+
+            if (timing == EffectTiming.OnDetermineDoSecurityCheck)
+            {
+                cardEffects.Add(CardEffectFactory.PierceSelfEffect(
+                    isInheritedEffect: true,
+                    card: card,
+                    condition: null));
+            }
+
+            #endregion
+
+            return cardEffects;
+        }
+    }
+}

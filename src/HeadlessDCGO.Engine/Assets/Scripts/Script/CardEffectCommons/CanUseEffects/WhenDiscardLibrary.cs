@@ -1,12 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenDiscardLibrary.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger "when this permanent suspends" effect
     public static bool CanTriggerWhenSelfDiscardLibrary(Hashtable hashtable, CardSource card)

@@ -1,18 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ChangeLinkMax.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS ChangeLinkMax.cs factory partial.
-// Returns the ported ChangeLinkMaxClass kind-class (CardEffects/ChangeLinkMaxClass.cs).
-// ADAPTATIONS (substrate only; logic verbatim):
-//   (1) card.PermanentOfThisCard() (mirror returns PermanentView) -> ICardEffect.ResolvePermanentOfThisCard(card).
-//   (2) AS-IS permanent.TopCard.CanNotBeAffected(<ICardEffect>) -> mirror CanNotBeAffected(<class>.EffectSourceCard?.InstanceId).
-//   UnityEngine/Photon stripped.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ChangeLinkMaxClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -37,7 +27,7 @@ public partial class CardEffectFactory
         }
 
         return ChangeTargetLinkMaxStaticEffect(
-            targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card),  // ADAPTATION (1)
+            targetPermanent: card.PermanentOfThisCard(),
             changeValue: changeValue,
             isInheritedEffect: isInheritedEffect,
             card: card,
@@ -129,7 +119,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(changeLinkMaxClass))  // ADAPTATION (2)
+                if (!permanent.TopCard.CanNotBeAffected(changeLinkMaxClass))
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {

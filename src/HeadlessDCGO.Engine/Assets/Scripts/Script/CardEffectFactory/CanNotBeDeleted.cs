@@ -1,15 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/CanNotBeDeleted.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of AS-IS CanNotBeDeleted.cs factory partial.
-// Returns the ported CanNotBeDestroyedClass kind-class (CardEffects/CanNotBeDestroyedClass.cs).
-// ADAPTATION: permanent.TopCard.CanNotBeAffected(ICardEffect) -> CanNotBeAffected(EffectSourceCard?.InstanceId).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CanNotBeDestroyedClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {

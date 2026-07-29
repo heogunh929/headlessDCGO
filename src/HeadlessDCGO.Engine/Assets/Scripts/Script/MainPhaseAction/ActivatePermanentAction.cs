@@ -1,6 +1,4 @@
-// Source: DCGO/Assets/Scripts/Script/MainPhaseAction/ActivatePermanentAction.cs (Photon transport stripped —
-// see MainPhaseAction.cs).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using ExitGames.Client.Photon;
 
 public class ActivatePermanentAction : MainPhaseAction
 {
@@ -13,9 +11,34 @@ public class ActivatePermanentAction : MainPhaseAction
         SkillIndex = skillIndex;
     }
 
-    public override Task Execute(TurnStateMachine stateMachine)
+    public ActivatePermanentAction(byte[] bytes)
+    {
+        PermanentIndex = -1;
+        SkillIndex = -1;
+        Deserialize(bytes);
+    }
+
+    public override void Execute(TurnStateMachine stateMachine)
     {
         stateMachine.SetActSkill(PermanentIndex, SkillIndex);
-        return Task.CompletedTask;
+    }
+
+    public override void Deserialize(byte[] bytes)
+    {
+        int index = 0;
+
+        Protocol.Deserialize(out PermanentIndex, bytes, ref index);
+        Protocol.Deserialize(out SkillIndex, bytes, ref index);
+    }
+
+    public override byte[] Serialize()
+    {
+        byte[] bytes = new byte[sizeof(int) * 2];
+        int index = 0;
+
+        Protocol.Serialize(PermanentIndex, bytes, ref index);
+        Protocol.Serialize(SkillIndex, bytes, ref index);
+
+        return bytes;
     }
 }

@@ -1,0 +1,1437 @@
+--- DCGO/Assets/Scripts/Script/CardObjectController.cs	2026-05-18 20:03:15.712020600 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardObjectController.cs	2026-07-29 01:02:24.211051325 +0900
+@@ -1,1133 +1,526 @@
+-﻿using Photon.Pun;
+-using System;
+-using System.Collections;
+-using System.Collections.Generic;
+-using System.Linq;
++
++namespace HeadlessDCGO.Engine.Assets.Scripts.Script
++{
++
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++using HeadlessDCGO.Engine.Headless.Bridge;
++using HeadlessDCGO.Engine.Headless.Choices;
++using HeadlessDCGO.Engine.Headless.Runtime;
++using HeadlessDCGO.Engine.Headless.Services;
+ using UnityEngine;
+-using UnityEngine.Events;
+-using Hashtable = ExitGames.Client.Photon.Hashtable;
+-using UnityEngine.UI;
+-using DG.Tweening;
+ 
+-//Card-related operations
+ public class CardObjectController : MonoBehaviour
+ {
+-    #region Generate cards for each player's deck
+-    public static IEnumerator CreatePlayerDecks(CardSource CardPrefab, GameContext gameContext)
+-    {
++    #region デッキカード生成
+ 
+-        yield return null;
++    public static async Task CreatePlayerDecks(
++        EngineContext context,
++        MatchSetupConfig setup,
++        IReadOnlyList<HeadlessPlayerId> playerIds,
++        CancellationToken cancellationToken = default)
++    {
++        ArgumentNullException.ThrowIfNull(context);
++        ArgumentNullException.ThrowIfNull(setup);
++        ArgumentNullException.ThrowIfNull(playerIds);
+ 
+-        DeckData RandomDeck = null;
++        Dictionary<HeadlessPlayerId, PlayerDeckSetup> decksByPlayer =
++            setup.PlayerDecks.ToDictionary(deck => deck.PlayerId);
+ 
+-        if (GManager.instance.IsAI)
++        foreach (HeadlessPlayerId playerId in playerIds)
+         {
+-            if (ContinuousController.instance.DeckDatas.Count((deckData) => deckData.IsValidDeckData()) > 0)
++            if (!decksByPlayer.TryGetValue(playerId, out PlayerDeckSetup? deck))
+             {
+-                List<DeckData> deckDatas = new List<DeckData>();
+-
+-                foreach (DeckData deckData in ContinuousController.instance.DeckDatas)
+-                {
+-                    if (deckData.IsValidDeckData())
+-                    {
+-                        deckDatas.Add(deckData);
+-                    }
+-                }
+-
+-                DeckData randomDeck = deckDatas[UnityEngine.Random.Range(0, deckDatas.Count)];
+-
+-                RandomDeck = new DeckData(randomDeck.GetThisDeckCode(), randomDeck.DeckID);
+-
+-#if UNITY_EDITOR && !UNITY_WINDOWS
+-                foreach (DeckData deckData in ContinuousController.instance.DeckDatas)
+-                {
+-                    if (deckData.IsValidDeckData())
+-                    {
+-                        RandomDeck = new DeckData(deckData.GetThisDeckCode(), deckData.DeckID);
+-                        break;
+-                    }
+-                }
+-#endif
++                continue;
+             }
+ 
+-            else
+-            {
+-                List<CEntity_Base> mainDeckCards = new List<CEntity_Base>();
+-
+-                List<CEntity_Base> digitamaDeckCards = new List<CEntity_Base>();
+-
+-                List<CEntity_Base> mainDeckCandidates = new List<CEntity_Base>();
+-
+-                List<CEntity_Base> digitamaDeckCandidates = new List<CEntity_Base>();
+-
+-                foreach (CEntity_Base cEntity_Base in ContinuousController.instance.CardList)
+-                {
+-                    if (!cEntity_Base.cardKind.Contains(CardKind.DigiEgg))
+-                    {
+-                        mainDeckCandidates.Add(cEntity_Base);
+-                    }
+-
+-                    else
+-                    {
+-                        digitamaDeckCandidates.Add(cEntity_Base);
+-                    }
+-                }
+-
+-                if (mainDeckCandidates.Count >= 1)
+-                {
+-                    for (int i = 0; i < 50; i++)
+-                    {
+-                        mainDeckCards.Add(mainDeckCandidates[UnityEngine.Random.Range(0, mainDeckCandidates.Count)]);
+-                    }
+-                }
+-
+-                if (digitamaDeckCandidates.Count >= 1)
+-                {
+-                    for (int i = 0; i < 5; i++)
+-                    {
+-                        digitamaDeckCards.Add(digitamaDeckCandidates[UnityEngine.Random.Range(0, digitamaDeckCandidates.Count)]);
+-                    }
+-                }
++            IReadOnlyList<HeadlessEntityId> mainDeck =
++                PrepareDeck(deck.MainDeckDefinitionIds, setup.ShuffleDecks, context.RandomSource);
++            IReadOnlyList<HeadlessEntityId> digitamaDeck =
++                PrepareDeck(deck.DigitamaDeckDefinitionIds, setup.ShuffleDigitamaDecks, context.RandomSource);
+ 
+-                RandomDeck = new DeckData(DeckData.GetDeckCode("サンプルデッキ", mainDeckCards, digitamaDeckCards, null));
+-            }
++            await SeedDeck(context, playerId, mainDeck, ChoiceZone.Library, "main", cancellationToken)
++                .ConfigureAwait(false);
++            await SeedDeck(context, playerId, digitamaDeck, ChoiceZone.DigitamaLibrary, "digitama", cancellationToken)
++                .ConfigureAwait(false);
+         }
++    }
+ 
+-        #region マスタークライアントと非マスタークライアントを抽出
+-        Photon.Realtime.Player MasterPlayer = null;
+-        Photon.Realtime.Player nonMasterPlayer = null;
+-
+-        if (PhotonNetwork.IsMasterClient)
++    private static IReadOnlyList<HeadlessEntityId> PrepareDeck(
++        IReadOnlyList<HeadlessEntityId> source,
++        bool shuffle,
++        IRandomSource randomSource)
++    {
++        HeadlessEntityId[] cards = source.ToArray();
++        if (shuffle)
+         {
+-            MasterPlayer = PhotonNetwork.LocalPlayer;
+-
+-            foreach (Photon.Realtime.Player player in PhotonNetwork.PlayerList)
+-            {
+-                if (player != PhotonNetwork.LocalPlayer)
+-                {
+-                    nonMasterPlayer = player;
+-                    break;
+-                }
+-            }
++            randomSource.Shuffle(cards);
+         }
+ 
+-        else
+-        {
+-            nonMasterPlayer = PhotonNetwork.LocalPlayer;
+-
+-            foreach (Photon.Realtime.Player player in PhotonNetwork.PlayerList)
+-            {
+-                if (player != PhotonNetwork.LocalPlayer)
+-                {
+-                    MasterPlayer = player;
+-                    break;
+-                }
+-            }
+-        }
+-        #endregion
++        return cards;
++    }
+ 
+-        #region そのPhotonクライアントのメインデッキレシピ
+-        List<CEntity_Base> DeckRecipie(Photon.Realtime.Player player)
++    private static async Task SeedDeck(
++        EngineContext context,
++        HeadlessPlayerId playerId,
++        IReadOnlyList<HeadlessEntityId> definitionIds,
++        ChoiceZone zone,
++        string deckKind,
++        CancellationToken cancellationToken)
++    {
++        for (int index = 0; index < definitionIds.Count; index++)
+         {
+-            #region 対人戦
+-            if (!GManager.instance.IsAI)
+-            {
+-                Hashtable hashtable = player.CustomProperties;
+-
+-                if (HasDeckRecipie(player))
+-                {
+-                    if (hashtable.TryGetValue(ContinuousController.DeckDataPropertyKey, out object value))
+-                    {
+-                        DeckData deckData = new DeckData((string)value);
+-
+-                        return RandomUtility.ShuffledDeckCards(deckData.DeckCards());
+-                    }
+-                }
+-
+-                else
++            HeadlessEntityId definitionId = definitionIds[index];
++            HeadlessEntityId instanceId = new(
++                $"p{playerId.Value}:{deckKind}:{index + 1:D3}:{definitionId.Value}");
++            context.CardInstanceRepository.Upsert(new CardInstanceRecord(
++                instanceId,
++                definitionId,
++                playerId,
++                Metadata: new Dictionary<string, object?>
+                 {
+-                    Debug.Log("!HasDeckRecipie");
+-                }
++                    ["setupDeck"] = deckKind,
++                    ["setupIndex"] = index
++                }));
+ 
+-                return null;
++            if (zone == ChoiceZone.DigitamaLibrary)
++            {
++                await context.ZoneMover
++                    .MoveAsync(new ZoneMoveRequest(playerId, instanceId, ChoiceZone.None, ChoiceZone.DigitamaLibrary), cancellationToken)
++                    .ConfigureAwait(false);
+             }
+-            #endregion
+-
+-            #region vs.AI
+             else
+             {
+-                #region プレイヤーのデッキ
+-                if (player == MasterPlayer)
+-                {
+-                    if (ContinuousController.instance.BattleDeckData == null)
+-                    {
+-                        foreach (DeckData deckData in ContinuousController.instance.DeckDatas)
+-                        {
+-                            if (deckData.IsValidDeckData())
+-                            {
+-                                return RandomUtility.ShuffledDeckCards(deckData.DeckCards());
+-                            }
+-                        }
+-                    }
+-
+-                    else
+-                    {
+-                        if (ContinuousController.instance.BattleDeckData.IsValidDeckData())
+-                        {
+-                            return RandomUtility.ShuffledDeckCards(ContinuousController.instance.BattleDeckData.DeckCards());
+-                        }
+-                    }
+-
+-                    if (RandomDeck != null)
+-                    {
+-                        return RandomUtility.ShuffledDeckCards(RandomDeck.DeckCards());
+-                    }
+-
+-                    return null;
+-                }
+-                #endregion
+-
+-                #region AIのデッキ
+-                else
+-                {
+-                    if (RandomDeck != null)
+-                    {
+-                        return RandomUtility.ShuffledDeckCards(RandomDeck.DeckCards());
+-                    }
+-
+-                    foreach (DeckData deckData in ContinuousController.instance.DeckDatas)
+-                    {
+-                        if (deckData.IsValidDeckData())
+-                        {
+-                            return RandomUtility.ShuffledDeckCards(deckData.DeckCards());
+-                        }
+-                    }
+-
+-                    return null;
+-                }
+-                #endregion
+-
++                await context.ZoneMover
++                    .MoveToDeckBottomAsync(playerId, instanceId, cancellationToken)
++                    .ConfigureAwait(false);
+             }
+-            #endregion
+         }
+-        #endregion
+-
+-        #region そのPhotonクライアントのデジタマデッキレシピ
+-        List<CEntity_Base> DigitamaDeckRecipie(Photon.Realtime.Player player)
+-        {
+-            #region 対人戦
+-            if (!GManager.instance.IsAI)
+-            {
+-                Hashtable hashtable = player.CustomProperties;
+-
+-                if (HasDeckRecipie(player))
+-                {
+-                    if (hashtable.TryGetValue(ContinuousController.DeckDataPropertyKey, out object value))
+-                    {
+-                        DeckData deckData = new DeckData((string)value);
++    }
+ 
+-                        return RandomUtility.ShuffledDeckCards(deckData.DigitamaDeckCards());
+-                    }
+-                }
++    #endregion
+ 
+-                else
+-                {
+-                    Debug.Log("!HasDeckRecipie");
+-                }
++    #region remove card from all area
+ 
+-                return null;
+-            }
+-            #endregion
++    public static async Task RemoveFromAllArea(CardSource cardSource, CancellationToken cancellationToken = default)
++    {
++        EngineContext context = cardSource.Context;
+ 
+-            #region vs.AI
+-            else
++        foreach (Player player in new GameContext(context).Players)
++        {
++            foreach (Permanent permanent in player.GetFieldPermanents())
+             {
+-                #region プレイヤーのデッキ
+-                if (player == MasterPlayer)
++                if (permanent.cardSources.Any(cs => cs.InstanceId == cardSource.InstanceId))
+                 {
+-                    if (ContinuousController.instance.BattleDeckData == null)
++                    if (permanent.LinkedCards.Any(lc => lc.InstanceId == cardSource.InstanceId))
+                     {
+-                        foreach (DeckData deckData in ContinuousController.instance.DeckDatas)
+-                        {
+-                            if (deckData.IsValidDeckData())
+-                            {
+-                                return RandomUtility.ShuffledDeckCards(deckData.DigitamaDeckCards());
+-                            }
+-                        }
++                        await permanent.RemoveLinkedCard(cardSource, trashCard: false, cancellationToken: cancellationToken).ConfigureAwait(false);
+                     }
+-
+                     else
+                     {
+-                        if (ContinuousController.instance.BattleDeckData.IsValidDeckData())
+-                        {
+-                            return RandomUtility.ShuffledDeckCards(ContinuousController.instance.BattleDeckData.DigitamaDeckCards());
+-                        }
+-                    }
+-
+-                    if (RandomDeck != null)
+-                    {
+-                        return RandomUtility.ShuffledDeckCards(RandomDeck.DigitamaDeckCards());
+-                    }
+-
+-                    return null;
+-                }
+-                #endregion
+-
+-                #region AIのデッキ
+-                else
+-                {
+-                    if (RandomDeck != null)
+-                    {
+-                        return RandomUtility.ShuffledDeckCards(RandomDeck.DigitamaDeckCards());
+-                    }
+-
+-                    foreach (DeckData deckData in ContinuousController.instance.DeckDatas)
+-                    {
+-                        if (deckData.IsValidDeckData())
+-                        {
+-                            return RandomUtility.ShuffledDeckCards(deckData.DigitamaDeckCards());
+-                        }
++                        await permanent.RemoveCardSource(cardSource, cancellationToken).ConfigureAwait(false);
+                     }
+-                    return null;
+                 }
+-                #endregion
+-
+             }
+-            #endregion
+         }
+-        #endregion
+ 
+-        #region そのPhotonクライアントがデッキレシピのキーを持っているかの判定
+-        bool HasDeckRecipie(Photon.Realtime.Player _player)
++        ChoiceZone from = CurrentZoneOf(context, cardSource.Owner, cardSource.InstanceId);
++        if (from != ChoiceZone.None)
+         {
+-            Hashtable _hashtable = _player.CustomProperties;
++            await context.ZoneMover.MoveAsync(
++                new ZoneMoveRequest(cardSource.Owner, cardSource.InstanceId, from, ChoiceZone.None),
++                cancellationToken).ConfigureAwait(false);
++        }
++    }
+ 
+-            if (_hashtable.TryGetValue(ContinuousController.DeckDataPropertyKey, out object value))
+-            {
+-                DeckData deckData = new DeckData((string)value);
++    #endregion
+ 
+-                if (deckData.IsValidDeckData())
+-                {
+-                    return true;
+-                }
+-            }
++    #region create a new permanent
+ 
+-            return false;
+-        }
+-        #endregion
++    public static async Task<Permanent> CreateNewPermanent(
++        CardSource card,
++        bool isSuspended,
++        bool isBreedingArea = false,
++        CancellationToken cancellationToken = default)
++    {
++        EngineContext context = card.Context;
+ 
+-        #region カードを生成
+-        GManager.instance.CardIndex = 0;
++        await RemoveFromAllArea(card, cancellationToken).ConfigureAwait(false);
+ 
+-        foreach (CEntity_Base cEntity_Base in DeckRecipie(MasterPlayer))
+-        {
+-            GManager.instance.turnStateMachine.gameContext.PlayerFromID(0).LibraryCards.Add(CreateCardSource(0, cEntity_Base, false));
+-        }
++        await context.ZoneMover.MoveAsync(
++            new ZoneMoveRequest(
++                card.Owner,
++                card.InstanceId,
++                ChoiceZone.None,
++                isBreedingArea ? ChoiceZone.BreedingArea : ChoiceZone.BattleArea),
++            cancellationToken).ConfigureAwait(false);
+ 
+-        foreach (CEntity_Base cEntity_Base in DigitamaDeckRecipie(MasterPlayer))
++        if (context.CardInstanceRepository.TryGetInstance(card.InstanceId, out CardInstanceRecord? record) && record is not null)
+         {
+-            GManager.instance.turnStateMachine.gameContext.PlayerFromID(0).DigitamaLibraryCards.Add(CreateCardSource(0, cEntity_Base, false));
+-        }
+-
+-        foreach (CEntity_Base cEntity_Base in DeckRecipie(nonMasterPlayer))
+-        {
+-            GManager.instance.turnStateMachine.gameContext.PlayerFromID(1).LibraryCards.Add(CreateCardSource(1, cEntity_Base, false));
++            var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
++            {
++                ["isSuspended"] = isSuspended,
++                [ZoneMoveMetadataKeys.EnteredThisTurnKey] = true,
++            };
++            context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+         }
+ 
+-        foreach (CEntity_Base cEntity_Base in DigitamaDeckRecipie(nonMasterPlayer))
+-        {
+-            GManager.instance.turnStateMachine.gameContext.PlayerFromID(1).DigitamaLibraryCards.Add(CreateCardSource(1, cEntity_Base, false));
+-        }
+ 
+-        #endregion
++        CardSource.Init(context, card.InstanceId, card.Owner);
++        return new Permanent(context, card.InstanceId, card.Owner);
+     }
++
+     #endregion
+ 
+-    #region generate card
+-    public static CardSource CreateCardSource(int _PlayerID, CEntity_Base cEntity_Base, bool isToken)
+-    {
+-        Player player = GManager.instance.turnStateMachine.gameContext.PlayerFromID(_PlayerID);
++    #region remove permanent from field
+ 
+-        CardSource cardSource = Instantiate(GManager.instance.CardPrefab, player.CardSorcesParent);
++    public static async Task RemoveField(Permanent permanent, bool ignoreOverflow = false, CancellationToken cancellationToken = default)
++    {
++        if (permanent == null) return;
++        CardSource topCard = permanent.TopCard;
++        if (topCard == null) return;
+ 
+-        cardSource.SetBaseData(cEntity_Base, player);
++        EngineContext context = topCard.Context;
+ 
+-        cardSource.cEntity_EffectController.AddCardEffect(cEntity_Base.CardID, cEntity_Base.CardEffectClassName);
++        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
++            CardEffectCommons.CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
++                new List<Permanent> { permanent },
++                null,
++                null),
++            EffectTiming.OnRemovedField).ConfigureAwait(false);
+ 
+-        cardSource.SetUpCardIndex(GManager.instance.CardIndex);
++        if (!ignoreOverflow)
++        {
++            await new AceOverflowClass(permanent.cardSources).Overflow(cancellationToken).ConfigureAwait(false);
++        }
+ 
+-        cardSource.SetIsToken(isToken);
++        List<CardSource> leavingStack = permanent.cardSources;
+ 
+-        GManager.instance.turnStateMachine.gameContext.ActiveCardList.Add(cardSource);
++        ChoiceZone from = CurrentZoneOf(context, permanent.OwnerId, permanent.InstanceId);
++        if (from is ChoiceZone.BattleArea or ChoiceZone.BreedingArea)
++        {
++            await context.ZoneMover.MoveAsync(
++                new ZoneMoveRequest(permanent.OwnerId, permanent.InstanceId, from, ChoiceZone.None),
++                cancellationToken).ConfigureAwait(false);
+ 
+-        GManager.instance.CardIndex++;
++        }
+ 
+-        return cardSource;
++        foreach (CardSource cardSource in leavingStack)
++        {
++            cardSource.Init();
++        }
+     }
++
+     #endregion
+ 
+-    #region Remove cards from all areas
+-    public static IEnumerator RemoveFromAllArea(CardSource cardSource)
+-    {
+-        //TODO: This might not even be necessary at all? - MB
+-        if(!cardSource.IsFlipped || cardSource.IsBeingRevealed || GManager.instance.turnStateMachine.gameContext.IsSecurityLooking)
+-            cardSource.SetFace();
++    #region add card to trash
+ 
+-        if (cardSource.Owner.HandCards.Contains(cardSource))
+-        {
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().DeleteHandCardEffectCoroutine(cardSource));
+-        }
+-
+-        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
++    public static async Task AddTrashCard(CardSource cardSource, CancellationToken cancellationToken = default)
++    {
++        if (!CardEffectCommons.CardEffectCommons.IsExistOnTrash(cardSource))
+         {
+-            List<Permanent> permanents = new List<Permanent>();
++            await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+ 
+-            foreach (Permanent permanent in player.GetFieldPermanents())
++            if (!cardSource.IsToken)
+             {
+-                permanents.Add(permanent);
+-            }
++                SecurityFaceState.Stamp(cardSource.Context.CardInstanceRepository, cardSource.InstanceId, faceUp: true);
+ 
+-            foreach (Permanent permanent in permanents)
+-            {
+-                if (permanent.cardSources.Contains(cardSource))
++                if (!CardEffectCommons.CardEffectCommons.IsExistOnTrash(cardSource))
+                 {
+-                    if (permanent.LinkedCards.Contains(cardSource))
+-                    {
+-                        yield return ContinuousController.instance.StartCoroutine(permanent.RemoveLinkedCard(cardSource, trashCard: false));
+-                    }
+-                    else
+-                    {
+-                        yield return ContinuousController.instance.StartCoroutine(permanent.RemoveCardSource(cardSource));
+-                    }
++                    await cardSource.Context.ZoneMover.AddToTrashAsync(cardSource.Owner, cardSource.InstanceId, cancellationToken).ConfigureAwait(false);
+                 }
++
++                cardSource.Init();
+             }
+         }
++    }
+ 
+-        //手札から取り除く
+-        while (cardSource.Owner.HandCards.Contains(cardSource))
+-        {
+-            cardSource.Owner.HandCards.Remove(cardSource);
+-        }
++    #endregion
+ 
+-        //デッキから取り除く
+-        while (cardSource.Owner.LibraryCards.Contains(cardSource))
+-        {
+-            cardSource.Owner.LibraryCards.Remove(cardSource);
+-        }
++    #region add card to security
+ 
+-        //デジタマデッキから取り除く
+-        while (cardSource.Owner.DigitamaLibraryCards.Contains(cardSource))
+-        {
+-            cardSource.Owner.DigitamaLibraryCards.Remove(cardSource);
+-        }
++    public static async Task AddExecutingCard(CardSource cardSource, CancellationToken cancellationToken = default)
++    {
++        EngineContext context = cardSource.Context;
+ 
+-        //トラッシュから取り除く
+-        while (CardEffectCommons.IsExistOnTrash(cardSource))
++        if (CurrentZoneOf(context, cardSource.Owner, cardSource.InstanceId) == ChoiceZone.Execution)
+         {
+-            cardSource.Owner.TrashCards.Remove(cardSource);
++            return;
+         }
+ 
+-        //思い出から取り除く
+-        while (cardSource.Owner.LostCards.Contains(cardSource))
+-        {
+-            cardSource.Owner.LostCards.Remove(cardSource);
+-        }
++        await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+ 
+-        //ライフから取り除く
+-        while (cardSource.Owner.SecurityCards.Contains(cardSource))
++        if (!cardSource.IsToken)
+         {
+-            cardSource.Owner.SecurityCards.Remove(cardSource);
+-        }
++            await context.ZoneMover.MoveAsync(
++                new ZoneMoveRequest(cardSource.Owner, cardSource.InstanceId, ChoiceZone.None, ChoiceZone.Execution, FaceUp: true),
++                cancellationToken).ConfigureAwait(false);
+ 
+-        //処理領域から取り除く
+-        while (cardSource.Owner.ExecutingCards.Contains(cardSource))
+-        {
+-            cardSource.Owner.ExecutingCards.Remove(cardSource);
++            cardSource.Init();
+         }
+     }
+-    #endregion
+ 
+-    #region 手札のカードを整列する
+-    public static void AlignHand(Player player)
++    public static async Task AddSecurityCard(CardSource cardSource, bool toTop = true, bool faceUp = false, bool useEffect = true, CancellationToken cancellationToken = default)
+     {
+-        int n = player.HandTransform.childCount;
+-        float scale = player.HandTransform.transform.localScale.x;
++        _ = useEffect;
++        EngineContext context = cardSource.Context;
+ 
+-        if (n > 0)
++        var owner = new Player(context, cardSource.Owner);
++        if (!owner.SecurityCards.Any(c => c.InstanceId == cardSource.InstanceId))
+         {
+-            float CardWidth = player.HandTransform.GetChild(0).GetComponent<RectTransform>().sizeDelta.x;
+-
+-            //If it fits within the area as it is.
+-            if (n * scale * CardWidth < player.HandWidth)
+-            {
+-                player.HandTransform.GetComponent<GridLayoutGroup>().spacing = new Vector2(0, 0);
+-                //player.HandTransform.GetComponent<GridLayoutGroup>().spacing = new Vector2(7, 0);
+-            }
++            await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+ 
+-            //If it sticks out as it is
+-            else
++            if (cardSource.IsDigiEgg)
+             {
+-                float delta = (n * scale * CardWidth - player.HandWidth) / ((n - 1) * scale);
+-
+-                player.HandTransform.GetComponent<GridLayoutGroup>().spacing = new Vector2(-delta, 0);
++                await context.ZoneMover.MoveAsync(
++                    new ZoneMoveRequest(cardSource.Owner, cardSource.InstanceId, ChoiceZone.None, ChoiceZone.DigitamaLibrary),
++                    cancellationToken).ConfigureAwait(false);
+             }
+-        }
+-    }
+-    #endregion
+-
+-    #region 新しいパーマネントを生成する
+-    public static IEnumerator CreateNewPermanent(Permanent permanent, int frameID)
+-    {
+-        if (permanent.TopCard != null)
+-        {
+-            if (permanent.TopCard.Owner != null)
++            else if (!cardSource.IsToken)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(RemoveFromAllArea(permanent.TopCard));
+-
+-                if (0 <= frameID && frameID <= permanent.TopCard.Owner.FieldPermanents.Length)
+-                {
+-                    permanent.TopCard.Owner.FieldPermanents[frameID] = permanent;
+-
+-                    permanent.TopCard.Owner.fieldCardFrames[frameID].SetFramePermanent(permanent);
+-
+-                    permanent.TopCard.SetFace();
+-
+-                    FieldPermanentCard fieldPermanentCard = Instantiate(GManager.instance.fieldCardPrefab, permanent.TopCard.Owner.PermanentTransform);
+-
+-                    fieldPermanentCard.SetPermanentData(permanent, false);
+-
+-                    fieldPermanentCard.StartScale = fieldPermanentCard.transform.localScale;
++                SecurityFaceState.Stamp(context.CardInstanceRepository, cardSource.InstanceId, faceUp: faceUp);
+ 
+-                    permanent.ShowingPermanentCard = fieldPermanentCard;
++                await context.ZoneMover.AddToSecurityAsync(
++                    cardSource.Owner, cardSource.InstanceId, faceUp: faceUp, toTop: toTop,
++                    addSecurityBatchId: context.NextSecurityAddBatchId(),
++                    cancellationToken: cancellationToken).ConfigureAwait(false);
+ 
+-                    fieldPermanentCard.transform.localPosition = permanent.TopCard.Owner.fieldCardFrames[frameID].GetLocalCanvasPosition();
+ 
+-                    fieldPermanentCard.gameObject.SetActive(false);
+-                }
++                await new IAddSecurity(cardSource).AddSecurity(cancellationToken).ConfigureAwait(false);
+             }
+         }
+     }
++
+     #endregion
+ 
+-    #region leave the place
+-    public static IEnumerator RemoveField(Permanent permanent, bool ignoreOverflow = false)
+-    {
+-        if (permanent == null) yield break;
+-        if (permanent.TopCard == null) yield break;
++    #region add cards to hand
+ 
+-        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+-            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+-                new List<Permanent> { permanent },
+-                null,
+-                null
+-            ),
+-            EffectTiming.OnRemovedField));
+-
+-        if (!ignoreOverflow)
+-        {
+-            yield return ContinuousController.instance.StartCoroutine(new AceOverflowClass(permanent.cardSources).Overflow());
+-        }
+-
+-        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+-        {
+-            while (player.GetFieldPermanents().Contains(permanent))
+-            {
+-                for (int i = 0; i < permanent.TopCard.Owner.FieldPermanents.Length; i++)
+-                {
+-                    if (permanent.TopCard.Owner.FieldPermanents[i] == permanent)
+-                    {
+-                        permanent.TopCard.Owner.FieldPermanents[i] = null;
+-                        permanent.TopCard.Owner.fieldCardFrames[i].SetFramePermanent(null);
+-                    }
+-                }
+-            }
+-        }
+-
+-        if (permanent.TopCard != null)
++    public static async Task AddHandCards(List<CardSource> cardSources, bool isDraw, ICardEffect? cardEffect, CancellationToken cancellationToken = default)
++    {
++        if (cardSources.Count == 0)
+         {
+-            foreach (CardSource cardSource in permanent.cardSources)
+-            {
+-                cardSource.Init();
+-            }
+-
+-            permanent.cardSources = new List<CardSource>();
++            return;
+         }
+-    }
+-    #endregion
+ 
+-    #region add card to hand
+-    public static IEnumerator AddHandCards(List<CardSource> cardSources, bool isDraw, ICardEffect cardEffect)
+-    {
+-        if (cardSources.Count == 0) yield break;
++        EngineContext context = cardSources[0].Context;
+ 
+-        bool isFromTrash = cardSources.Some(cardSource => CardEffectCommons.IsExistOnTrash(cardSource));
++        bool isFromTrash = cardSources.Any(cardSource => CardEffectCommons.CardEffectCommons.IsExistOnTrash(cardSource));
+ 
+-        cardSources = cardSources.Filter(cardSource => cardSource != null && !cardSource.Owner.HandCards.Contains(cardSource));
++        cardSources = cardSources
++            .Where(cardSource => cardSource != null
++                && !new Player(context, cardSource.Owner).HandCards.Any(c => c.InstanceId == cardSource.InstanceId))
++            .ToList();
+ 
+         if (isFromTrash)
+         {
+-            #region "Effect of "When a card is returned from the trash to the hand"
+-
+-            #region Hashtable Setting
+-            System.Collections.Hashtable hashtable = new System.Collections.Hashtable()
+-            {
+-                {"CardSources", cardSources}
+-            };
+-            #endregion
+-
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnReturnCardsToHandFromTrash));
+-            #endregion
++            var hashtable = new System.Collections.Hashtable { { "CardSources", cardSources } };
++            await GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnReturnCardsToHandFromTrash).ConfigureAwait(false);
+         }
+ 
+         foreach (CardSource cardSource in cardSources)
+         {
+             if (cardSource.IsToken)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(RemoveFromAllArea(cardSource));
++                await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+             }
+         }
+ 
+-        List<CardSource> eggCards = cardSources.Filter(cardSource => cardSource.IsDigiEgg);
+-        List<CardSource> addedCards = cardSources.Filter(cardSource => !cardSource.IsDigiEgg && !cardSource.IsToken);
++        List<CardSource> eggCards = cardSources.Where(cardSource => cardSource.IsDigiEgg).ToList();
++        List<CardSource> addedCards = cardSources.Where(cardSource => !cardSource.IsDigiEgg && !cardSource.IsToken).ToList();
+ 
+-        if (eggCards.Count <= 0)
+-            yield return ContinuousController.instance.StartCoroutine(AddLibraryBottomCards(eggCards));
+ 
+-        if (addedCards.Count <= 0) yield break;
++        if (addedCards.Count <= 0)
++        {
++            return;
++        }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(new AceOverflowClass(addedCards).Overflow());
++        await new AceOverflowClass(addedCards).Overflow(cancellationToken).ConfigureAwait(false);
+ 
+-        foreach (CardSource cardSource in addedCards)
++        long addHandBatchId = context.NextAddHandBatchId();
++        HeadlessEntityId? cause = cardEffect?.EffectSourceCard?.InstanceId;
++        if (cause is { IsEmpty: true })
+         {
+-            yield return ContinuousController.instance.StartCoroutine(AddHandCard(cardSource, isDraw));
++            cause = null;
+         }
+ 
+-        if (GManager.instance.turnStateMachine.DoneStartGame && addedCards.Count > 0)
++        foreach (CardSource cardSource in addedCards)
+         {
+-            List<Player> Players = addedCards.Map(cardSource => cardSource.Owner).Distinct().ToList();
+-
+-            #region Effect of "When the number of cards in hand increases"
+-
+-            #region Hashtable Setting
+-            System.Collections.Hashtable _hashtable = new System.Collections.Hashtable()
+-                {
+-                    {"Players", Players},
+-                    {"CardEffect", cardEffect},
+-                    {"CardSources", addedCards},
+-                };
+-            #endregion
+-
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(_hashtable, EffectTiming.OnAddHand));
+-            #endregion
++            await AddHandCard(cardSource, isDraw, addHandBatchId, cause, cancellationToken).ConfigureAwait(false);
+         }
+-    }
+ 
+-    public static IEnumerator AddHandCard(CardSource cardSource, bool isDraw)
+-    {
+-        cardSource.Init();
+-        cardSource.SetFace();
+-
+-        if (!cardSource.Owner.HandCards.Contains(cardSource))
++        if (GManager.instance.turnStateMachine.DoneStartGame && addedCards.Count > 0)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(RemoveFromAllArea(cardSource));
+-
+-            if (!cardSource.IsToken)
+-            {
+-                cardSource.Owner.HandCards.Add(cardSource);
+-
+-                if (isDraw)
+-                {
+-                    if (GManager.instance.turnStateMachine.DoneStartGame)
+-                    {
+-                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().AddHandCardEffect(cardSource));
+-                    }
+-                }
+-
+-                else
+-                {
+-                    ContinuousController.instance.PlaySE(GManager.instance.DrawSE);
+-                }
+-
+-                HandCard handCard = Instantiate(GManager.instance.handCardPrefab, cardSource.Owner.HandTransform);
+-
+-                handCard.gameObject.name = $"handCard_{cardSource.Owner.PlayerName}";
+-
+-                handCard.GetComponent<Draggable_HandCard>().startScale = handCard.transform.localScale;
+-
+-                handCard.GetComponent<Draggable_HandCard>().DefaultY = -9;
+-
+-                handCard.SetUpHandCard(cardSource);
+-
+-                AlignHand(cardSource.Owner);
+-
+-                cardSource.SetShowingHandCard(handCard);
+-
+-                if (cardSource.Owner.isYou)
+-                {
+-                    handCard.SetUpHandCardImage();
+-                    handCard.ShowCostLevel();
+-                }
+-
+-                yield return new WaitForSeconds(Time.deltaTime);
+-
+-                #region アニメーション
+-                if (GManager.instance.turnStateMachine.DoneStartGame)
++            List<Player> Players = addedCards.Select(cardSource => cardSource.Owner).Distinct()
++                .Select(playerId => new Player(context, playerId)).ToList();
++            await GManager.instance.autoProcessing.StackSkillInfos(
++                new System.Collections.Hashtable
+                 {
+-                    cardSource.Owner.HandTransform.GetComponent<GridLayoutGroup>().enabled = false;
+-
+-                    Vector3 startPosition = Vector3.zero;
+-                    Vector3 targetPositon = handCard.transform.localPosition;
+-
+-                    if (cardSource.Owner.isYou)
+-                    {
+-                        startPosition = handCard.transform.localPosition + new Vector3(0, 70, 0);
+-                    }
+-
+-                    else
+-                    {
+-                        startPosition = handCard.transform.localPosition - new Vector3(0, 70, 0);
+-                    }
++                    { "Players", Players },
++                    { "CardEffect", cardEffect },
++                    { "CardSources", addedCards },
++                },
++                EffectTiming.OnAddHand).ConfigureAwait(false);
++        }
+ 
+-                    handCard.transform.localPosition = startPosition;
++    }
+ 
+-                    bool end = false;
+-                    var sequence = DOTween.Sequence();
+-                    sequence
+-                        .Append(handCard.transform.DOLocalMove(targetPositon, 0.08f).SetEase(Ease.OutBack))
+-                        .AppendCallback(() => { end = true; });
++    public static Task AddHandCard(CardSource cardSource, bool isDraw, CancellationToken cancellationToken = default) =>
++        AddHandCard(cardSource, isDraw, cardSource.Context.NextAddHandBatchId(), causeEffectId: null, cancellationToken);
+ 
+-                    yield return new WaitWhile(() => !end);
+-                    end = false;
++    private static async Task AddHandCard(
++        CardSource cardSource, bool isDraw, long addHandBatchId, HeadlessEntityId? causeEffectId, CancellationToken cancellationToken)
++    {
++        _ = isDraw;
+ 
+-                    cardSource.Owner.HandTransform.GetComponent<GridLayoutGroup>().enabled = true;
+-                }
+-                #endregion
++        cardSource.Init();
+ 
+-                if (cardSource.Owner.isYou)
+-                {
+-                    handCard.SetUpHandCardImage();
+-                    handCard.ShowCostLevel();
+-                }
+-            }
+-        }
+-    }
+-    #endregion
++        SecurityFaceState.Stamp(cardSource.Context.CardInstanceRepository, cardSource.InstanceId, faceUp: true);
+ 
+-    #region put the card in the trash
+-    public static IEnumerator AddTrashCard(CardSource cardSource)
+-    {
+-        if (!CardEffectCommons.IsExistOnTrash(cardSource))
++        var owner = new Player(cardSource.Context, cardSource.Owner);
++        if (!owner.HandCards.Any(c => c.InstanceId == cardSource.InstanceId))
+         {
+-            yield return ContinuousController.instance.StartCoroutine(RemoveFromAllArea(cardSource));
++            await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+ 
+             if (!cardSource.IsToken)
+             {
+-                cardSource.SetFace();
+-
+-                if (!CardEffectCommons.IsExistOnTrash(cardSource))
+-                {
+-                    cardSource.Owner.TrashCards.Insert(0, cardSource);
+-                }
+-
+-                cardSource.Init();
++                await cardSource.Context.ZoneMover.AddToHandAsync(
++                    cardSource.Owner, cardSource.InstanceId,
++                    addHandBatchId: addHandBatchId, causeEffectId: causeEffectId,
++                    cancellationToken: cancellationToken).ConfigureAwait(false);
+             }
+         }
+     }
+-    #endregion
+ 
+-    #region Put the cards together in the trash
+-    public static IEnumerator AddTrashCards(List<CardSource> cardSources)
+-    {
+-        List<CardSource> handCards = new List<CardSource>();
++    #endregion
+ 
+-        foreach (CardSource cardSource in cardSources)
+-        {
+-            if (cardSource.Owner.HandCards.Contains(cardSource))
+-            {
+-                handCards.Add(cardSource);
+-            }
+-        }
++    #region put a card at the top of the deck
+ 
+-        foreach (CardSource cardSource in handCards)
++    public static async Task AddLibraryTopCards(List<CardSource> cardSources, bool notAddLog = false, CancellationToken cancellationToken = default)
++    {
++        _ = notAddLog;
++        if (cardSources.Count <= 0)
+         {
+-            ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().DeleteHandCardEffectCoroutine(cardSource));
++            return;
+         }
+ 
+-        yield return new WaitForSeconds(GManager.instance.GetComponent<Effects>().waitTime_DeleteHandEffect);
++        EngineContext context = cardSources[0].Context;
+ 
+-        foreach (CardSource cardSource in cardSources)
+-        {
+-            if (!CardEffectCommons.IsExistOnTrash(cardSource))
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(RemoveFromAllArea(cardSource));
++        bool isFromTrash = cardSources.Any(cardSource => CardEffectCommons.CardEffectCommons.IsExistOnTrash(cardSource));
+ 
+-                if (!cardSource.IsToken)
+-                {
+-                    cardSource.SetFace();
+-
+-                    if (!CardEffectCommons.IsExistOnTrash(cardSource))
+-                    {
+-                        cardSource.Owner.TrashCards.Insert(0, cardSource);
+-                    }
+-
+-                    cardSource.Init();
+-                }
+-            }
+-        }
+-    }
+-    #endregion
+-
+-    #region place a card on top of the deck
+-    public static IEnumerator AddLibraryTopCards(List<CardSource> cardSources, bool notAddLog = false)
+-    {
+-        if (cardSources.Count <= 0) yield break;
+-
+-        bool isFromTrash = cardSources.Some(cardSource => CardEffectCommons.IsExistOnTrash(cardSource));
+-
+-        yield return ContinuousController.instance.StartCoroutine(new AceOverflowClass(cardSources).Overflow());
++        await new AceOverflowClass(cardSources).Overflow(cancellationToken).ConfigureAwait(false);
+ 
+         if (isFromTrash)
+         {
+-            #region "Effect of "When a card is returned from the trash to the deck"
+-
+-            #region Hashtable Setting
+-            System.Collections.Hashtable hashtable = new System.Collections.Hashtable()
+-            {
+-                {"CardSources", cardSources}
+-            };
+-            #endregion
+-
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnReturnCardsToLibraryFromTrash));
+-            #endregion
++            var hashtable = new System.Collections.Hashtable { { "CardSources", cardSources } };
++            await GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnReturnCardsToLibraryFromTrash).ConfigureAwait(false);
+         }
+ 
+         foreach (CardSource cardSource in cardSources)
+         {
+-            bool isFromHand = CardEffectCommons.IsExistOnHand(cardSource);
+-
+-            yield return ContinuousController.instance.StartCoroutine(RemoveFromAllArea(cardSource));
++            await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+ 
+-            if (isFromHand && GManager.instance.turnStateMachine.DoneStartGame)
+-            {
+-                yield return new WaitForSeconds(GManager.instance.GetComponent<Effects>().waitTime_DeleteHandEffect);
+-            }
+ 
+             if (!cardSource.IsToken)
+             {
+-                cardSource.SetFace();
++                SecurityFaceState.Stamp(context.CardInstanceRepository, cardSource.InstanceId, faceUp: true);
+ 
+                 if (!cardSource.IsDigiEgg)
+                 {
+-                    if (!cardSource.Owner.LibraryCards.Contains(cardSource))
+-                    {
+-                        cardSource.Owner.LibraryCards.Insert(0, cardSource);
+-                    }
++                    await context.ZoneMover.MoveToDeckTopAsync(cardSource.Owner, cardSource.InstanceId, cancellationToken).ConfigureAwait(false);
+                 }
+-
+                 else
+                 {
+-                    if (!cardSource.Owner.DigitamaLibraryCards.Contains(cardSource))
+-                    {
+-                        cardSource.Owner.DigitamaLibraryCards.Insert(0, cardSource);
+-                    }
++                    await context.ZoneMover.MoveAsync(
++                        new ZoneMoveRequest(cardSource.Owner, cardSource.InstanceId, ChoiceZone.None, ChoiceZone.DigitamaLibrary),
++                        cancellationToken).ConfigureAwait(false);
+                 }
+ 
+                 cardSource.Init();
+             }
+         }
+ 
+-        #region Log
+-        if (!notAddLog)
+-        {
+-            if (cardSources.Count >= 1)
+-            {
+-                string log = "";
+-
+-                log += $"\nDeck Top card{Utils.PluralFormSuffix(cardSources.Count)}:";
+-
+-                foreach (CardSource cardSource in cardSources)
+-                {
+-                    log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+-                }
+-
+-                log += "\n";
+-
+-                PlayLog.OnAddLog?.Invoke(log);
+-            }
+-        }
+-        #endregion
+     }
++
+     #endregion
+ 
+     #region put a card at the bottom of the deck
+-    public static IEnumerator AddLibraryBottomCards(List<CardSource> cardSources, bool notAddLog = false)
++
++    public static async Task AddLibraryBottomCards(List<CardSource> cardSources, bool notAddLog = false, CancellationToken cancellationToken = default)
+     {
+-        if (cardSources.Count <= 0) yield break;
++        _ = notAddLog;
++        if (cardSources.Count <= 0)
++        {
++            return;
++        }
+ 
+-        bool isFromTrash = cardSources.Some(cardSource => CardEffectCommons.IsExistOnTrash(cardSource));
++        EngineContext context = cardSources[0].Context;
+ 
+-        yield return ContinuousController.instance.StartCoroutine(new AceOverflowClass(cardSources).Overflow());
++        bool isFromTrash = cardSources.Any(cardSource => CardEffectCommons.CardEffectCommons.IsExistOnTrash(cardSource));
++
++        await new AceOverflowClass(cardSources).Overflow(cancellationToken).ConfigureAwait(false);
+ 
+         if (isFromTrash)
+         {
+-            #region Effect of "When a card returns from the trash to the deck"
+-
+-            #region Hashtable Setting
+-            System.Collections.Hashtable hashtable = new System.Collections.Hashtable()
+-            {
+-                {"CardSources", cardSources}
+-            };
+-            #endregion
+-
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnReturnCardsToLibraryFromTrash));
+-            #endregion
++            var hashtable = new System.Collections.Hashtable { { "CardSources", cardSources } };
++            await GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnReturnCardsToLibraryFromTrash).ConfigureAwait(false);
+         }
+ 
+-        foreach (CardSource cardSource in cardSources)
+-        {
+-            if (cardSource.PermanentOfThisCard() != null)
+-            {
+-                if (cardSource.PermanentOfThisCard().DigivolutionCards.Contains(cardSource))
+-                {
+-                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>()
+-                    .RemoveDigivolveRootEffect(cardSource, cardSource.PermanentOfThisCard()));
+-                }
+-            }
+-        }
+ 
+-        foreach (CardSource cardSource in cardSources.Clone())
++        foreach (CardSource cardSource in cardSources.ToList())
+         {
+-            bool isFromHand = CardEffectCommons.IsExistOnHand(cardSource);
++            await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+ 
+-            yield return ContinuousController.instance.StartCoroutine(RemoveFromAllArea(cardSource));
+-
+-            if (isFromHand && GManager.instance.turnStateMachine.DoneStartGame)
+-            {
+-                yield return new WaitForSeconds(GManager.instance.GetComponent<Effects>().waitTime_DeleteHandEffect);
+-            }
+ 
+             if (!cardSource.IsToken)
+             {
+-                cardSource.SetFace();
++                SecurityFaceState.Stamp(context.CardInstanceRepository, cardSource.InstanceId, faceUp: true);
+ 
+                 if (!cardSource.IsDigiEgg)
+                 {
+-                    if (!cardSource.Owner.LibraryCards.Contains(cardSource))
+-                    {
+-                        cardSource.Owner.LibraryCards.Add(cardSource);
+-                    }
++                    await context.ZoneMover.MoveToDeckBottomAsync(cardSource.Owner, cardSource.InstanceId, cancellationToken).ConfigureAwait(false);
+                 }
+-
+                 else
+                 {
+-                    if (!cardSource.Owner.DigitamaLibraryCards.Contains(cardSource))
+-                    {
+-                        cardSource.Owner.DigitamaLibraryCards.Add(cardSource);
+-                    }
++                    await context.ZoneMover.MoveAsync(
++                        new ZoneMoveRequest(cardSource.Owner, cardSource.InstanceId, ChoiceZone.None, ChoiceZone.DigitamaLibrary),
++                        cancellationToken).ConfigureAwait(false);
+                 }
+ 
+                 cardSource.Init();
+             }
+         }
+ 
+-        #region Log
+-        if (!notAddLog)
+-        {
+-            if (cardSources.Count >= 1)
+-            {
+-                string log = "";
+-
+-                log += $"\nDeck Bottom card{Utils.PluralFormSuffix(cardSources.Count)}:";
++    }
+ 
+-                foreach (CardSource cardSource in cardSources)
+-                {
+-                    log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+-                }
++    #endregion
+ 
+-                log += "\n";
++    #region Shuffle
+ 
+-                PlayLog.OnAddLog?.Invoke(log);
+-            }
+-        }
+-        #endregion
++    public static async Task Shuffle(Player player, CancellationToken cancellationToken = default)
++    {
++        await player.Context.ZoneMover
++            .ShuffleAsync(player.PlayerId, cancellationToken)
++            .ConfigureAwait(false);
+     }
++
+     #endregion
+ 
+-    #region Place the card in the processing area
+-    public static IEnumerator AddExecutingCard(CardSource cardSource)
++    private static ChoiceZone CurrentZoneOf(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId cardId)
+     {
+-        if (!cardSource.Owner.ExecutingCards.Contains(cardSource))
++        if (context.ZoneMover is not IZoneStateReader zones)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(RemoveFromAllArea(cardSource));
+-
+-            if (!cardSource.IsToken)
+-            {
+-                cardSource.SetFace();
+-
+-                cardSource.Owner.ExecutingCards.Insert(0, cardSource);
+-
+-                cardSource.Init();
+-            }
++            return ChoiceZone.None;
+         }
+-    }
+-    #endregion
+ 
+-    #region Add card to security
+-    public static IEnumerator AddSecurityCard(CardSource cardSource, bool toTop = true, bool faceUp = false, bool useEffect = true)
+-    {
+-        if (!cardSource.Owner.SecurityCards.Contains(cardSource))
++        foreach (KeyValuePair<ChoiceZone, IReadOnlyList<HeadlessEntityId>> pair in zones.Snapshot(owner))
+         {
+-            yield return ContinuousController.instance.StartCoroutine(RemoveFromAllArea(cardSource));
+-
+-            if (cardSource.IsDigiEgg)
+-            {
+-                cardSource.Owner.DigitamaLibraryCards.Add(cardSource);
+-            }
+-            else if (!cardSource.IsToken)
++            if (pair.Value.Contains(cardId))
+             {
+-                if (!faceUp)
+-                    cardSource.SetReverse();
+-                else
+-                    cardSource.SetFace();
+-
+-                cardSource.Owner.SecurityCards.Insert(0, cardSource);
+-
+-                if (!toTop)
+-                {
+-                    cardSource.Owner.SecurityCards.Remove(cardSource);
+-                    cardSource.Owner.SecurityCards.Add(cardSource);
+-                }
+-
+-                if(useEffect)
+-                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateRecoveryEffect(cardSource.Owner));
+-
+-                yield return ContinuousController.instance.StartCoroutine(new IAddSecurity(cardSource).AddSecurity());
++                return pair.Key;
+             }
+         }
+-    }
+-    #endregion
+-
+-    #region Shuffle
+-    public static IEnumerator Shuffle(Player player)
+-    {
+-        ContinuousController.instance.PlaySE(GManager.instance.ShuffleSE);
+-
+-        player.LibraryCards = RandomUtility.ShuffledDeckCards(player.LibraryCards);
+ 
+-        yield return ContinuousController.instance.StartCoroutine(player.ShuffleAnimation());
++        return ChoiceZone.None;
+     }
+-    #endregion
+-
+-    #region move permanent
+-    public static IEnumerator MovePermanent(FieldCardFrame movingPermanentFrame, bool toBreeding = false, ICardEffect effect = null)
+-    {
+-        if (movingPermanentFrame != null)
+-        {
+-            Player player = movingPermanentFrame.player;
+-
+-            Permanent movingPermanent = movingPermanentFrame.GetFramePermanent();
+-
+-            if (movingPermanent != null)
+-            {
+-                bool prevIsFrontLine = movingPermanentFrame.IsBattleAreaFrame();
+-                FieldCardFrame moveTargetFrame = movingPermanent.TopCard.PreferredFrame();
+-
+-                if (toBreeding)
+-                {
+-                    moveTargetFrame = player.fieldCardFrames.Filter(frame => frame.isBreedingAreaFrame()).ToList()[0];
+-
+-                    #region cut in effect
+-
+-                    // "When permanents would remove field" effect
+-                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+-                        CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+-                            new List<Permanent> { movingPermanent },
+-                            effect,
+-                            null
+-                        ),
+-                        EffectTiming.WhenRemoveField));
+-
+-                    if (GManager.instance.autoProcessing_CutIn.HasAwaitingActivateEffects())
+-                    {
+-                        // effect
+-                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.ShrinkSecurityDigimonDisplay());
+-
+-                        // cut in effect process
+-                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null));
+-                    }
+-                    #endregion
+-                }
+-
+-                if (moveTargetFrame != null && moveTargetFrame != null)
+-                {
+-                    if (moveTargetFrame.GetFramePermanent() == null)
+-                    {
+-                        int oldFrameID = movingPermanentFrame.FrameID;
+-                        int newFrameID = moveTargetFrame.FrameID;
+-
+-                        player.FieldPermanents[oldFrameID] = null;
+-                        player.fieldCardFrames[oldFrameID].SetFramePermanent(null);
+-                        player.FieldPermanents[newFrameID] = movingPermanent;
+-                        player.fieldCardFrames[newFrameID].SetFramePermanent(movingPermanent);
+-
+-                        #region animation
+-                        bool end = false;
+-                        var sequence = DOTween.Sequence();
+-
+-                        FieldPermanentCard movingPermanentCard = movingPermanent.ShowingPermanentCard;
+-
+-                        Vector3 TargetPosition = moveTargetFrame.GetLocalCanvasPosition();
+-
+-                        Vector3 oldPosition = movingPermanentFrame.GetLocalCanvasPosition();
+-
+-                        float GoTime = 0.2f;
+-
+-                        sequence
+-                            .Append(movingPermanentCard.transform.DOLocalMove(TargetPosition, GoTime).SetEase(Ease.OutCubic))
+-                            .AppendCallback(() =>
+-                            {
+-                                end = true;
+-                            });
+-
+-                        sequence.Play();
+-
+-                        yield return new WaitWhile(() => !end);
+-                        end = false;
+-                        #endregion
+-
+-                        if (!prevIsFrontLine)
+-                        {
+-                            movingPermanent.TopCard.SetChangedLocationTime();//register that the card moved for the purpose of the start of timestamped continuous effects
+-
+-                            #region Effect of "when moving from the training area"
+-
+-                            #region Hashtable Setting
+-                            System.Collections.Hashtable hashtable = new System.Collections.Hashtable()
+-                            {
+-                                {"Permanent", movingPermanent}
+-                            };
+-                            #endregion
+-
+-                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnMove));
+-                            #endregion
+-                        }
+-                        if (toBreeding)
+-                        {
+-                            // "When permanents leave the battle area" effect
+-                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(
+-                                CardEffectCommons.OnDeletionHashtable(
+-                                    new List<Permanent> { movingPermanent },
+-                                    effect,
+-                                    null,
+-                                    false
+-                                ),
+-                                EffectTiming.OnLeaveFieldAnyone));
+-                        }
+-                    }
+-                }
++}
+ 
+-            }
+-        }
+-    }
+-    #endregion
+ }

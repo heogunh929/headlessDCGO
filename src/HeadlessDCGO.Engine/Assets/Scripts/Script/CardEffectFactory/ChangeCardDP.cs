@@ -1,19 +1,9 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ChangeCardDP.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS ChangeCardDP.cs factory partial.
-// Returns the ported ChangeCardDPClass kind-class (CardEffects/ChangeCardDPClass.cs).
-// NOTE (P6C3 resolution): AS-IS `GManager.instance.attackProcess.SecurityDigimon == cardSource`.
-//   The mirror AttackProcess.SecurityDigimon is a HeadlessEntityId? (AS-IS it is a live CardSource
-//   reference) — the identity comparison is expressed against cardSource.InstanceId instead, the
-//   established CardSource-identity idiom (CardSource.Equals compares InstanceId+Context). UnityEngine/
-//   Photon stripped.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ChangeCardDPClass (kind-class layer)
+using UnityEngine;
+
 
 public partial class CardEffectFactory
 {
@@ -63,7 +53,7 @@ public partial class CardEffectFactory
         {
             if (cardSource != null)
             {
-                if (GManager.instance.attackProcess.SecurityDigimon == cardSource.InstanceId)
+                if (GManager.instance.attackProcess.SecurityDigimon == cardSource)
                 {
                     if (cardCondition == null || cardCondition(cardSource))
                     {

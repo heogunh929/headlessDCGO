@@ -1,7 +1,23 @@
-// Source: Assets/Scripts/CardEffect/ST18/Green/ST18_02.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST18.Green
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections.Generic;
+
+namespace DCGO.CardEffects.ST18
+{
+    public class ST18_02 : CEntity_Effect
+    {
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+        {
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+            #region Fortitude
+
+            if (timing == EffectTiming.OnDestroyedAnyone)
+            {
+                cardEffects.Add(CardEffectFactory.FortitudeSelfEffect(isInheritedEffect: false, card: card, condition: null));
+            }
+
+            #endregion
+
+            return cardEffects;
+        }
+    }
+}

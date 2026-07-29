@@ -1,72 +1,19 @@
-// Source: DCGO/Assets/Scripts/Script/SelectDigiXrosClass.cs (1048 lines)
-// (P6C1 → RD-EXT3-01 / RD-R5-04) 1:1 mirror of the AS-IS SelectDigiXrosClass component — the DigiXros pre-play
-// material-selection component the play pipeline resets/consults (PlayCardClass, CardController.cs:306/744-748/
-// 791; the AS-IS cost pipeline also reads `playCard`/`selectedDigicrossCards` in
-// CardSource.GetPayingCostWithBaseCost).
-//
-// Mirrored 1:1: the STATE surface (:12-32), the CanSelectDigiXros gate (:307-364), the interactive Select(card)
-// area-loop (:368-880), and the two AddDigivolutiuonCards apply halves (:882-1013). The AddDigivolutionCardsInfo
-// holder (:1033-1048) sits at the bottom.
-//
-// Substrate translations ONLY (logic / order / names unchanged, bigbang §5):
-//   * IEnumerator -> async Task; `yield return ContinuousController.instance.StartCoroutine(X)` / `yield return
-//     StartCoroutine(X)` -> `await X`; lone `yield return null` -> `Task.CompletedTask`; WaitForSeconds/WaitUntil
-//     UI beats stripped.
-//   * `GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer` -> `new GameContext(context)
-//     .Players_ForTurnPlayer` (the established Permanent/Player mirror idiom).
-//   * `card.Owner` (AS-IS Player) -> HeadlessPlayerId; `card.Owner.HandCards/TrashCards/GetBattleAreaPermanents()`
-//     -> `new Player(card.Context, card.Owner).*` (the BT2_023 Player-handle idiom).
-//   * `cardSource.PermanentOfThisCard()` (AS-IS Permanent, non-null-gated) -> `ICardEffect
-//     .ResolvePermanentOfThisCard(cardSource)` (returns the real mirror Permanent, null when not a permanent —
-//     the established LM_054/BT24_062 bridge; `PermanentOfThisCard()` alone returns a PermanentView).
-//   * `card.digiXrosCondition` -> `card.digiXrosCondition`; `card.HasDigiXros` -> `card.HasDigiXros` (mirror
-//     CardSource props).
-//   * The AS-IS area-choice command panel (:480-543 GManager.commandText/selectCommandPanel + the you/opponent/AI
-//     split + photonView.RPC SetTargetDigiXrossIndex + WaitUntil HasPlayerSelection + DequeuePlayerSelection<
-//     ValueSelection>) IS ONE `ChoiceType.ModeChoice` request (min 1 / max 1, synthetic labeled options carrying
-//     the action index, decoded off the id) — the SelectAppFusionEffect precedent (SelectAppFusionEffect.cs:91-108);
-//     the provider is the single decider for you/opponent/AI. The AS-IS SelectedIndex==0 default is preserved.
-//   * `cardSource.cEntity_EffectController.InitUseCountThisTurn()` -> the real mirror per-instance controller
-//     method (CEntity_EffectController.cs:225). UI-only strips (ShowCardEffect/ShowCardEffect2/OffShowCard2 /
-//     CreateDigiXrosSelectCardEffect / RemoveDigivolveRootEffect) are cited at their AS-IS anchors.
-// RD-EXT3-05 (landed): the field-permanent material branch (`isBattleAreaCard`) of the two apply halves
-//   (AS-IS :901-908 / :985-991) re-parents a battle-area material's TOP card UNDER the play card via
-//   `IPlacePermanentToDigivolutionCards` — now mirrored 1:1 in CardController.cs (the re-parent rides
-//   CardObjectController.RemoveField + Permanent.AddDigivolutionCardsBottom, NOT the PermanentFrame model as the
-//   former STOP rationale over-cautiously assumed). The hand/trash/tamer/security material branches port 1:1 via
-//   `Permanent.AddDigivolutionCardsBottom`.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
-
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
-// Inside namespace ...Script the identifier `CardEffectCommons` binds to the SIBLING NAMESPACE, not the static
-// class — alias per the SelectHandEffect.cs / SelectCardEffect.cs precedent.
-using Commons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
+using Photon;
+using Photon.Pun;
+using System;
+using UnityEngine.Events;
 
-public class SelectDigiXrosClass
+public class SelectDigiXrosClass : MonoBehaviourPunCallbacks
 {
-    // AS-IS :12-15.
     public List<CardSource> selectedDigicrossCards { get; private set; } = new List<CardSource>();
     public List<AddDigivolutionCardsInfo> addDigivolutionCardInfos { get; private set; } = new List<AddDigivolutionCardsInfo>();
     public List<CardSource> excludedCards { get; private set; } = new List<CardSource>();
     public CardSource playCard { get; private set; } = null;
 
-    private EngineContext? _context;
-
-    /// <summary>(bridge W4) The match context the AS-IS <c>GManager.instance.GetComponent&lt;…&gt;()</c> route
-    /// injects (mirrors SelectHandEffect.AttachContext). Registration on the mirror GManager sets this; a bare
-    /// <c>new SelectDigiXrosClass()</c> resolves the context off the play card instead.</summary>
-    internal void AttachContext(EngineContext context) => _context = context;
-
-    private EngineContext ContextOf(CardSource card) => _context ?? card.Context;
-
-    // AS-IS :17-22 (verbatim: excludedCards is deliberately NOT reset here).
     public void ResetSelectDigiXrosClass()
     {
         selectedDigicrossCards = new List<CardSource>();
@@ -74,20 +21,17 @@ public class SelectDigiXrosClass
         playCard = null;
     }
 
-    // AS-IS :24-27.
     public void AddDigivolutionCardInfos(AddDigivolutionCardsInfo digivolutionCardsInfo)
     {
         addDigivolutionCardInfos.Add(digivolutionCardsInfo);
     }
 
-    // AS-IS :29-32.
     public void SetExcludedCards(List<CardSource> excluded)
     {
         excludedCards = excluded;
     }
 
     #region Max Trash Count
-    // AS-IS :35-126.
     int maxTrashCount(CardSource card)
     {
         int maxTrashCount = 0;
@@ -95,10 +39,9 @@ public class SelectDigiXrosClass
         if (card != null)
         {
             List<int> maxTrashCountList = new List<int>();
-            EngineContext context = ContextOf(card);
 
             #region 選択可能トラッシュ枚数を変更する効果
-            foreach (Player player in new GameContext(context).Players_ForTurnPlayer)
+            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
             {
                 #region 場のパーマネントの効果
                 foreach (Permanent permanent in player.GetBattleAreaPermanents())
@@ -141,7 +84,7 @@ public class SelectDigiXrosClass
             }
 
             #region カード自身の効果
-            if (ICardEffect.ResolvePermanentOfThisCard(card) == null)
+            if (card.PermanentOfThisCard() == null)
             {
                 foreach (ICardEffect cardEffect in card.EffectList(EffectTiming.None))
                 {
@@ -168,10 +111,9 @@ public class SelectDigiXrosClass
                 maxTrashCount = maxTrashCountList.Max();
             }
 
-            int trashCount = new Player(context, card.Owner).TrashCards.Count;
-            if (maxTrashCount > trashCount)
+            if (maxTrashCount > card.Owner.TrashCards.Count)
             {
-                maxTrashCount = trashCount;
+                maxTrashCount = card.Owner.TrashCards.Count;
             }
 
             if (maxTrashCount < 0)
@@ -185,7 +127,6 @@ public class SelectDigiXrosClass
     #endregion
 
     #region Max Tamer Digivolution Cards Count
-    // AS-IS :129-217.
     int maxTamerDigivolutionCardsCount(CardSource card)
     {
         int maxTamerDigivolutionCardsCount = 0;
@@ -193,10 +134,9 @@ public class SelectDigiXrosClass
         if (card != null)
         {
             List<int> maxTamerDigivolutionCardsCountList = new List<int>();
-            EngineContext context = ContextOf(card);
 
             #region 選択可能テイマー進化元枚数を変更する効果
-            foreach (Player player in new GameContext(context).Players_ForTurnPlayer)
+            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
             {
                 #region 場のパーマネントの効果
                 foreach (Permanent permanent in player.GetBattleAreaPermanents())
@@ -239,7 +179,7 @@ public class SelectDigiXrosClass
             }
 
             #region カード自身の効果
-            if (ICardEffect.ResolvePermanentOfThisCard(card) == null)
+            if (card.PermanentOfThisCard() == null)
             {
                 foreach (ICardEffect cardEffect in card.EffectList(EffectTiming.None))
                 {
@@ -277,12 +217,11 @@ public class SelectDigiXrosClass
     #endregion
 
     #region Is Hand Card
-    // AS-IS :219-232.
     bool isHandCard(CardSource cardSource)
     {
         if (cardSource != null)
         {
-            if (new Player(ContextOf(cardSource), cardSource.Owner).HandCards.Contains(cardSource))
+            if (cardSource.Owner.HandCards.Contains(cardSource))
             {
                 return true;
             }
@@ -293,17 +232,15 @@ public class SelectDigiXrosClass
     #endregion
 
     #region Is Battle Area Card
-    // AS-IS :234-253.
     bool isBattleAreaCard(CardSource cardSource)
     {
         if (cardSource != null)
         {
-            Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
-            if (permanent != null)
+            if (cardSource.PermanentOfThisCard() != null)
             {
-                if (new Player(ContextOf(cardSource), cardSource.Owner).GetBattleAreaPermanents().Contains(permanent))
+                if (cardSource.Owner.GetBattleAreaPermanents().Contains(cardSource.PermanentOfThisCard()))
                 {
-                    if (cardSource == permanent.TopCard)
+                    if (cardSource == cardSource.PermanentOfThisCard().TopCard)
                     {
                         return true;
                     }
@@ -316,12 +253,11 @@ public class SelectDigiXrosClass
     #endregion
 
     #region Is Trash Card
-    // AS-IS :255-268.
     bool isTrashCard(CardSource cardSource)
     {
         if (cardSource != null)
         {
-            if (Commons.IsExistOnTrash(cardSource))
+            if (CardEffectCommons.IsExistOnTrash(cardSource))
             {
                 return true;
             }
@@ -332,12 +268,11 @@ public class SelectDigiXrosClass
     #endregion
 
     #region Is Security Card
-    // AS-IS :270-283.
     bool isSecurityCard(CardSource cardSource)
     {
         if (cardSource != null)
         {
-            if (Commons.IsExistInSecurity(cardSource, false))
+            if (CardEffectCommons.IsExistInSecurity(cardSource, false))
             {
                 return true;
             }
@@ -348,17 +283,15 @@ public class SelectDigiXrosClass
     #endregion
 
     #region is Tamer Digivolution Card
-    // AS-IS :285-304.
     bool isTamerDigivolutionCard(CardSource cardSource)
     {
         if (cardSource != null)
         {
-            Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
-            if (permanent != null)
+            if (cardSource.PermanentOfThisCard() != null)
             {
-                if (permanent.IsTamer)
+                if (cardSource.PermanentOfThisCard().IsTamer)
                 {
-                    if (permanent.DigivolutionCards.Contains(cardSource))
+                    if (cardSource.PermanentOfThisCard().DigivolutionCards.Contains(cardSource))
                     {
                         return true;
                     }
@@ -371,12 +304,11 @@ public class SelectDigiXrosClass
     #endregion
 
     #region Can Select DigiXros
-    // AS-IS :307-364.
     bool CanSelectDigiXros(DigiXrosConditionElement element, CardSource targetCard, CardSource card)
     {
         if (excludedCards.Contains(targetCard))
             return false;
-
+            
         if (card != targetCard)
         {
             if (card != null)
@@ -408,12 +340,11 @@ public class SelectDigiXrosClass
                                                 return true;
                                             }
 
-                                            Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(targetCard);
-                                            if (targetPermanent != null)
+                                            if (targetCard.PermanentOfThisCard() != null)
                                             {
-                                                if (targetCard == targetPermanent.TopCard)
+                                                if (targetCard == targetCard.PermanentOfThisCard().TopCard)
                                                 {
-                                                    if (targetPermanent.CanSubstituteForDigiXrosCondition(card))
+                                                    if (targetCard.PermanentOfThisCard().CanSubstituteForDigiXrosCondition(card))
                                                     {
                                                         return true;
                                                     }
@@ -434,8 +365,7 @@ public class SelectDigiXrosClass
     #endregion
 
     #region Select
-    // AS-IS :368-572.
-    public async Task Select(CardSource card)
+    public IEnumerator Select(CardSource card)
     {
         selectedDigicrossCards = new List<CardSource>();
 
@@ -445,37 +375,39 @@ public class SelectDigiXrosClass
         {
             if (card.HasDigiXros)
             {
-                EngineContext context = ContextOf(card);
                 DigiXrosCondition digiXrosCondition = card.digiXrosCondition;
-                Player owner = new Player(context, card.Owner);
 
                 foreach (DigiXrosConditionElement element in digiXrosCondition.elements)
                 {
-                    // AS-IS :383-386 ShowCardEffect2 "DigiXros Cards" = UI (stripped).
+
+                    if (selectedDigicrossCards.Count >= 1)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(selectedDigicrossCards, "DigiXros Cards", false, true));
+                    }
 
                     if (_endSelectDigiXros)
                     {
                         _endSelectDigiXros = false;
-                        //break; (design item RD-EXT3-01) AS-IS comment: Removed for not triggering digixros in all situations
+                        //break; TODO: Removed for not triggering digixros in all situations
                     }
 
                     bool canSelectHand = false;
 
-                    if (owner.HandCards.Count((cardSource) => CanSelectDigiXros(element, cardSource, card)) >= 1)
+                    if (card.Owner.HandCards.Count((cardSource) => CanSelectDigiXros(element, cardSource, card)) >= 1)
                     {
                         canSelectHand = true;
                     }
 
                     bool canSelectField = false;
 
-                    if (Commons.HasMatchConditionOwnersPermanent(card, (permanent) => CanSelectDigiXros(element, permanent.TopCard, card)))
+                    if (CardEffectCommons.HasMatchConditionOwnersPermanent(card, (permanent) =>  CanSelectDigiXros(element, permanent.TopCard, card)))
                     {
                         canSelectField = true;
                     }
 
                     bool canSelectTrash = false;
 
-                    if (Commons.HasMatchConditionOwnersCardInTrash(card, (cardSource) => CanSelectDigiXros(element, cardSource, card)))
+                    if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, (cardSource) => CanSelectDigiXros(element, cardSource, card)))
                     {
                         if (selectedDigicrossCards.Count(isTrashCard) < maxTrashCount(card))
                         {
@@ -485,7 +417,7 @@ public class SelectDigiXrosClass
 
                     bool canSelectTamer = false;
 
-                    if (Commons.HasMatchConditionOwnersPermanent(card, (permanent) => permanent.IsTamer && permanent.DigivolutionCards.Count((cardSource) => CanSelectDigiXros(element, cardSource, card)) >= 1))
+                    if (CardEffectCommons.HasMatchConditionOwnersPermanent(card, (permanent) => permanent.IsTamer && permanent.DigivolutionCards.Count((cardSource) => CanSelectDigiXros(element, cardSource, card)) >= 1))
                     {
                         if (selectedDigicrossCards.Count(isTamerDigivolutionCard) < maxTamerDigivolutionCardsCount(card))
                         {
@@ -493,15 +425,15 @@ public class SelectDigiXrosClass
                         }
                     }
 
-                    Func<Task> _SelectHandCard = () => SelectHandCard(digiXrosCondition, element, card);
-                    Func<Task> _SelectBattleAreaDigimon = () => SelectBattleAreaPermanent(digiXrosCondition, element, card);
-                    Func<Task> _SelectTrashCard = () => SelectTrashCard(digiXrosCondition, element, card);
-                    Func<Task> _SelectTamerDigivolutionCard = () => SelectTamerDigivolutionCard(digiXrosCondition, element, card);
-                    Func<Task> _EndSelectDigiXros = () => EndSelectDigiXros();
+                    Func<IEnumerator> _SelectHandCard = () => SelectHandCard(digiXrosCondition, element, card);
+                    Func<IEnumerator> _SelectBattleAreaDigimon = () => SelectBattleAreaPermanent(digiXrosCondition, element, card);
+                    Func<IEnumerator> _SelectTrashCard = () => SelectTrashCard(digiXrosCondition, element, card);
+                    Func<IEnumerator> _SelectTamerDigivolutionCard = () => SelectTamerDigivolutionCard(digiXrosCondition, element, card);
+                    Func<IEnumerator> _EndSelectDigiXros = () => EndSelectDigiXros();
 
-                    List<Func<Task>> actions = new List<Func<Task>>() { _SelectHandCard, _SelectBattleAreaDigimon, _SelectTrashCard, _SelectTamerDigivolutionCard, _EndSelectDigiXros };
+                    List<Func<IEnumerator>> actions = new List<Func<IEnumerator>>() { _SelectHandCard, _SelectBattleAreaDigimon, _SelectTrashCard, _SelectTamerDigivolutionCard, _EndSelectDigiXros };
 
-                    List<Func<Task>> canSelectActions = new List<Func<Task>>();
+                    List<Func<IEnumerator>> canSelectActions = new List<Func<IEnumerator>>();
 
                     if (canSelectHand)
                     {
@@ -538,66 +470,115 @@ public class SelectDigiXrosClass
                         }
                     }
 
-                    // AS-IS :473-543 area choice: count==2 auto-pick; else the ModeChoice panel (you/opponent/AI
-                    // all collapse to the one provider request — SelectAppFusion precedent).
-                    if (canSelectActions.Count == 2 && digiXrosCondition.CanTargetCondition_ByPreSelecetedList == null && !element.skipAllIfNoSelect)
+                    else if (canSelectActions.Count == 2 && digiXrosCondition.CanTargetCondition_ByPreSelecetedList == null && !element.skipAllIfNoSelect)
                     {
-                        _targetIndex = actions.IndexOf(canSelectActions[0]);
+                        SetTargetDigiXrossIndex(card.Owner.PlayerID, actions.IndexOf(canSelectActions[0]));
                     }
+
                     else
                     {
-                        var candidates = new List<ChoiceCandidate>();
-                        for (int i = 0; i < canSelectActions.Count; i++)
+                        if (card.Owner.isYou)
                         {
-                            int k = actions.IndexOf(canSelectActions[i]);
-                            string message = k switch
+                            GManager.instance.commandText.OpenCommandText($"From which area will you select {element.selectMessage}?", digiXros: true);
+
+                            List<Command_SelectCommand> command_SelectCommands = new List<Command_SelectCommand>();
+
+                            for (int i = 0; i < canSelectActions.Count; i++)
                             {
-                                0 => "Hand",
-                                1 => "Field Digimon",
-                                2 => "Trash",
-                                3 => "Tamer digivolution cards",
-                                4 => "End Selection",
-                                _ => "",
-                            };
-                            candidates.Add(new ChoiceCandidate(new HeadlessEntityId($"digiXros#{k}"), message, ChoiceZone.BattleArea, IsSelectable: true, ownerId: card.Owner));
+                                int k = actions.IndexOf(canSelectActions[i]);
+                                int spriteIndex = 0;
+
+                                string message = "";
+
+                                switch (k)
+                                {
+                                    case 0:
+                                        message = "Hand";
+                                        break;
+
+                                    case 1:
+                                        message = "Field Digimon";
+                                        break;
+
+                                    case 2:
+                                        message = "Trash";
+                                        break;
+
+                                    case 3:
+                                        message = "Tamer digivolution cards";
+                                        break;
+
+                                    case 4:
+                                        message = "End Selection";
+                                        spriteIndex = 1;
+                                        break;
+                                }
+
+                                command_SelectCommands.Add(new Command_SelectCommand(message, () => photonView.RPC("SetTargetDigiXrossIndex", RpcTarget.All, card.Owner.PlayerID, k), spriteIndex));
+                            }
+
+                            GManager.instance.selectCommandPanel.SetUpCommandButton(command_SelectCommands);
                         }
 
-                        var request = new ChoiceRequest(
-                            ChoiceType.ModeChoice, card.Owner, $"From which area will you select {element.selectMessage}?",
-                            minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.BattleArea, candidates);
-                        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
-
-                        _targetIndex = 0;   // AS-IS SelectedIndex default (:548 `seletion != null ? … : 0`).
-                        if (!result.IsSkipped && result.SelectedIds.Count > 0)
+                        else
                         {
-                            string[] parts = result.SelectedIds[0].Value.Split('#');
-                            if (int.TryParse(parts.Length > 1 ? parts[1] : null, out int picked))
+                            GManager.instance.commandText.OpenCommandText($"The opponent is choosing from which area to select {element.selectMessage}.", digiXros: true);
+
+                            #region AIモード
+                            if (GManager.instance.IsAI)
                             {
-                                _targetIndex = picked;
+                                List<int> indexes = new List<int>();
+
+                                for (int i = 0; i < canSelectActions.Count; i++)
+                                {
+                                    int k = actions.IndexOf(canSelectActions[i]);
+
+                                    indexes.Add(k);
+                                }
+
+                                SetTargetDigiXrossIndex(card.Owner.PlayerID, UnityEngine.Random.Range(0, indexes.Count));
                             }
+                            #endregion
                         }
                     }
 
-                    // AS-IS :553-561.
+                    yield return new WaitUntil(() => card.Owner.HasPlayerSelection());
+
+                    ValueSelection seletion = card.Owner.DequeuePlayerSelection<ValueSelection>();
+                    _targetIndex = seletion != null ? seletion.ValueAsInt() : 0;
+
+                    GManager.instance.commandText.CloseCommandText();
+                    yield return new WaitWhile(() => GManager.instance.commandText.gameObject.activeSelf);
+
                     if (0 <= _targetIndex && _targetIndex <= actions.Count - 1)
                     {
-                        await actions[_targetIndex]().ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(actions[_targetIndex]());
+
+                        if (!card.Owner.isYou && GManager.instance.IsAI)
+                        {
+                            yield return new WaitForSeconds(0.3f);
+                        }
                     }
                 }
             }
         }
 
-        // AS-IS :566-571 ShowCard UI beats (stripped).
+        if (selectedDigicrossCards.Count >= 1)
+        {
+            yield return new WaitForSeconds(0.4f);
+        }
+
+        GManager.instance.GetComponent<Effects>().OffShowCard2();
     }
     #endregion
 
     #region Select Hand Card
-    // AS-IS :575-631.
-    async Task SelectHandCard(DigiXrosCondition digiXrosCondition, DigiXrosConditionElement element, CardSource card)
+
+    IEnumerator SelectHandCard(DigiXrosCondition digiXrosCondition, DigiXrosConditionElement element, CardSource card)
     {
         bool CanSelectCardCondition(CardSource cardSource) => CanSelectDigiXros(element, cardSource, card);
 
-        if (new Player(ContextOf(card), card.Owner).HandCards.Count(CanSelectCardCondition) >= 1)
+        if (card.Owner.HandCards.Count(CanSelectCardCondition) >= 1)
         {
             int maxCount = 1;
 
@@ -621,16 +602,16 @@ public class SelectDigiXrosClass
             selectHandEffect.SetUpCustomMessage_ShowCard("Selected Hand Card");
             selectHandEffect.SetDigiXros();
 
-            await selectHandEffect.Activate().ConfigureAwait(false);
+            yield return StartCoroutine(selectHandEffect.Activate());
 
-            Task SelectCardCoroutine(CardSource cardSource)
+            IEnumerator SelectCardCoroutine(CardSource cardSource)
             {
                 selectedDigicrossCards.Add(cardSource);
 
-                return Task.CompletedTask;
+                yield return null;
             }
 
-            Task AfterSelectCardCoroutine(List<CardSource> cardSources)
+            IEnumerator AfterSelectCardCoroutine(List<CardSource> cardSources)
             {
                 if (cardSources.Count == 0)
                 {
@@ -638,29 +619,26 @@ public class SelectDigiXrosClass
                     {
                         if (digiXrosCondition.CanTargetCondition_ByPreSelecetedList != null || element.skipAllIfNoSelect)
                         {
-                            _ = EndSelectDigiXros();
+                            EndSelectDigiXros();
                         }
                     }
                 }
 
-                return Task.CompletedTask;
+                yield return null;
             }
         }
     }
     #endregion
 
     #region Select Battle Area Permanent
-    // AS-IS :633-689.
-    async Task SelectBattleAreaPermanent(DigiXrosCondition digiXrosCondition, DigiXrosConditionElement element, CardSource card)
+    IEnumerator SelectBattleAreaPermanent(DigiXrosCondition digiXrosCondition, DigiXrosConditionElement element, CardSource card)
     {
-        bool CanSelectPermanentCondition(Permanent permanent) =>
-            new Player(ContextOf(card), permanent.TopCard.Owner).GetBattleAreaPermanents().Contains(permanent)
-            && CanSelectDigiXros(element, permanent.TopCard, card);
+        bool CanSelectPermanentCondition(Permanent permanent) => permanent.TopCard.Owner.GetBattleAreaPermanents().Contains(permanent) && CanSelectDigiXros(element, permanent.TopCard, card);
 
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect("", null, card);
 
-        if (Commons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+        if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
         {
             int maxCount = 1;
 
@@ -682,16 +660,16 @@ public class SelectDigiXrosClass
             selectPermanentEffect.SetUpCustomMessage($"Select {element.selectMessage}.", $"The opponent is selecting {element.selectMessage}.");
             selectPermanentEffect.SetDigiXros();
 
-            await selectPermanentEffect.Activate().ConfigureAwait(false);
+            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-            Task SelectPermanentCoroutine(Permanent permanent)
+            IEnumerator SelectPermanentCoroutine(Permanent permanent)
             {
                 selectedDigicrossCards.Add(permanent.TopCard);
 
-                return Task.CompletedTask;
+                yield return null;
             }
 
-            Task AfterSelectPermanentCoroutine(List<Permanent> permanents)
+            IEnumerator AfterSelectPermanentCoroutine(List<Permanent> permanents)
             {
                 if (permanents.Count == 0)
                 {
@@ -699,32 +677,28 @@ public class SelectDigiXrosClass
                     {
                         if (digiXrosCondition.CanTargetCondition_ByPreSelecetedList != null || element.skipAllIfNoSelect)
                         {
-                            _ = EndSelectDigiXros();
+                            EndSelectDigiXros();
                         }
                     }
                 }
 
-                return Task.CompletedTask;
+                yield return null;
             }
         }
     }
     #endregion
 
     #region Select Tamer Digivolution Card
-    // AS-IS :691-810.
-    async Task SelectTamerDigivolutionCard(DigiXrosCondition digiXrosCondition, DigiXrosConditionElement element, CardSource card)
+    IEnumerator SelectTamerDigivolutionCard(DigiXrosCondition digiXrosCondition, DigiXrosConditionElement element, CardSource card)
     {
-        EngineContext context = ContextOf(card);
-
         bool CanSelectCardCondition(CardSource cardSource) => CanSelectDigiXros(element, cardSource, card);
 
-        bool CanSelectPermanentCondition(Permanent permanent) =>
-            permanent.TopCard.Owner == card.Owner && permanent.IsTamer && permanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1;
+        bool CanSelectPermanentCondition(Permanent permanent) => permanent.TopCard.Owner == card.Owner && permanent.IsTamer && permanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1;
 
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect("", null, card);
 
-        if (new Player(context, card.Owner).GetBattleAreaPermanents().Count(CanSelectPermanentCondition) >= 1)
+        if (card.Owner.GetBattleAreaPermanents().Count(CanSelectPermanentCondition) >= 1)
         {
             Permanent selectedPermanent = null;
 
@@ -748,16 +722,16 @@ public class SelectDigiXrosClass
             selectPermanentEffect.SetUpCustomMessage($"Select a Tamer that has {element.selectMessage} in digivolution cards.", $"The opponent is selecting a Tamer that has {element.selectMessage} in digivolution cards.");
             selectPermanentEffect.SetDigiXros();
 
-            await selectPermanentEffect.Activate().ConfigureAwait(false);
+            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-            Task SelectPermanentCoroutine(Permanent permanent)
+            IEnumerator SelectPermanentCoroutine(Permanent permanent)
             {
                 selectedPermanent = permanent;
 
-                return Task.CompletedTask;
+                yield return null;
             }
 
-            Task AfterSelectPermanentCoroutine(List<Permanent> permanents)
+            IEnumerator AfterSelectPermanentCoroutine(List<Permanent> permanents)
             {
                 if (permanents.Count == 0)
                 {
@@ -765,12 +739,12 @@ public class SelectDigiXrosClass
                     {
                         if (digiXrosCondition.CanTargetCondition_ByPreSelecetedList != null || element.skipAllIfNoSelect)
                         {
-                            _ = EndSelectDigiXros();
+                            EndSelectDigiXros();
                         }
                     }
                 }
 
-                return Task.CompletedTask;
+                yield return null;
             }
 
             if (selectedPermanent != null)
@@ -794,7 +768,7 @@ public class SelectDigiXrosClass
                                 isShowOpponent: true,
                                 mode: SelectCardEffect.Mode.Custom,
                                 root: SelectCardEffect.Root.Custom,
-                                customRootCardList: selectedPermanent.DigivolutionCards.ToList(),
+                                customRootCardList: selectedPermanent.DigivolutionCards,
                                 canLookReverseCard: true,
                                 selectPlayer: card.Owner,
                                 cardEffect: null);
@@ -803,16 +777,16 @@ public class SelectDigiXrosClass
                     selectCardEffect.SetUpCustomMessage_ShowCard("Selected Digivolution Card");
                     selectCardEffect.SetDigiXros();
 
-                    await selectCardEffect.Activate().ConfigureAwait(false);
+                    yield return StartCoroutine(selectCardEffect.Activate());
 
-                    Task SelectCardCoroutine(CardSource cardSource)
+                    IEnumerator SelectCardCoroutine(CardSource cardSource)
                     {
                         selectedDigicrossCards.Add(cardSource);
 
-                        return Task.CompletedTask;
+                        yield return null;
                     }
 
-                    Task AfterSelectCardCoroutine(List<CardSource> cardSources)
+                    IEnumerator AfterSelectCardCoroutine(List<CardSource> cardSources)
                     {
                         if (cardSources.Count == 0)
                         {
@@ -820,26 +794,27 @@ public class SelectDigiXrosClass
                             {
                                 if (digiXrosCondition.CanTargetCondition_ByPreSelecetedList != null || element.skipAllIfNoSelect)
                                 {
-                                    _ = EndSelectDigiXros();
+                                    EndSelectDigiXros();
                                 }
                             }
                         }
 
-                        return Task.CompletedTask;
+                        yield return null;
                     }
                 }
             }
         }
+
+        yield return null;
     }
     #endregion
 
     #region Select Trash Card
-    // AS-IS :812-871.
-    async Task SelectTrashCard(DigiXrosCondition digiXrosCondition, DigiXrosConditionElement element, CardSource card)
+    IEnumerator SelectTrashCard(DigiXrosCondition digiXrosCondition, DigiXrosConditionElement element, CardSource card)
     {
         bool CanSelectCardCondition(CardSource cardSource) => CanSelectDigiXros(element, cardSource, card);
 
-        if (Commons.HasMatchConditionOwnersCardInTrash(card, (cardSource) => CanSelectCardCondition(cardSource)))
+        if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, (cardSource) => CanSelectCardCondition(cardSource)))
         {
             int maxCount = 1;
 
@@ -867,16 +842,16 @@ public class SelectDigiXrosClass
             selectCardEffect.SetUpCustomMessage_ShowCard("Selected Trash Card");
             selectCardEffect.SetDigiXros();
 
-            await selectCardEffect.Activate().ConfigureAwait(false);
+            yield return StartCoroutine(selectCardEffect.Activate());
 
-            Task SelectCardCoroutine(CardSource cardSource)
+            IEnumerator SelectCardCoroutine(CardSource cardSource)
             {
                 selectedDigicrossCards.Add(cardSource);
 
-                return Task.CompletedTask;
+                yield return null;
             }
 
-            Task AfterSelectCardCoroutine(List<CardSource> cardSources)
+            IEnumerator AfterSelectCardCoroutine(List<CardSource> cardSources)
             {
                 if (cardSources.Count == 0)
                 {
@@ -884,29 +859,27 @@ public class SelectDigiXrosClass
                     {
                         if (digiXrosCondition.CanTargetCondition_ByPreSelecetedList != null || element.skipAllIfNoSelect)
                         {
-                            _ = EndSelectDigiXros();
+                            EndSelectDigiXros();
                         }
                     }
                 }
 
-                return Task.CompletedTask;
+                yield return null;
             }
         }
     }
     #endregion
 
     #region End Select DigiXros
-    // AS-IS :873-879.
-    Task EndSelectDigiXros()
+    IEnumerator EndSelectDigiXros()
     {
         _endSelectDigiXros = true;
-        return Task.CompletedTask;
+        yield return null;
     }
     #endregion
 
     #region Add Digivolution Cards
-    // AS-IS :881-933.
-    public async Task AddDigivolutiuonCards(CardSource card)
+    public IEnumerator AddDigivolutiuonCards(CardSource card)
     {
         if (selectedDigicrossCards.Count >= 1)
         {
@@ -914,39 +887,37 @@ public class SelectDigiXrosClass
             {
                 if (card == playCard)
                 {
-                    Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(card);
-                    if (permanent != null)
+                    if (card.PermanentOfThisCard() != null)
                     {
-                        // AS-IS :892 ShowCardEffect "Digixros Cards" = UI (stripped).
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(selectedDigicrossCards, "Digixros Cards", true, true));
 
                         foreach (CardSource cardSource in selectedDigicrossCards)
                         {
                             if (isHandCard(cardSource))
                             {
-                                await permanent.AddDigivolutionCardsBottom(new List<CardSource>() { cardSource }, null).ConfigureAwait(false);
+                                yield return ContinuousController.instance.StartCoroutine(card.PermanentOfThisCard().AddDigivolutionCardsBottom(new List<CardSource>() { cardSource }, null));
                             }
 
                             else if (isBattleAreaCard(cardSource))
                             {
-                                // AS-IS :901-908 (RD-EXT3-05 landed): CreateDigiXrosSelectCardEffect (UI, stripped)
-                                // + IPlacePermanentToDigivolutionCards re-parents this battle-area permanent's top
-                                // card under the play permanent. Substrate: PermanentOfThisCard() →
-                                // ICardEffect.ResolvePermanentOfThisCard(...) (card's = the resolved `permanent`).
-                                IPlacePermanentToDigivolutionCards placePermanentToDigivolutionCards = new IPlacePermanentToDigivolutionCards(new List<Permanent[]>() { new Permanent[] { ICardEffect.ResolvePermanentOfThisCard(cardSource), permanent } }, false, null, isDigixros: true);
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDigiXrosSelectCardEffect(cardSource.PermanentOfThisCard()));
+
+                                IPlacePermanentToDigivolutionCards placePermanentToDigivolutionCards = new IPlacePermanentToDigivolutionCards(new List<Permanent[]>() { new Permanent[] { cardSource.PermanentOfThisCard(), card.PermanentOfThisCard() } }, false, null, isDigixros: true);
                                 placePermanentToDigivolutionCards.SetNotShowCards();
-                                await placePermanentToDigivolutionCards.PlacePermanentToDigivolutionCards().ConfigureAwait(false);
+                                yield return ContinuousController.instance.StartCoroutine(placePermanentToDigivolutionCards.PlacePermanentToDigivolutionCards());
                             }
 
                             else if (isTrashCard(cardSource))
                             {
-                                // AS-IS :910-915: CreateDigiXrosSelectCardEffect (UI) + AddDigivolutionCardsBottom.
-                                await permanent.AddDigivolutionCardsBottom(new List<CardSource>() { cardSource }, null).ConfigureAwait(false);
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDigiXrosSelectCardEffect(null, player: cardSource.Owner));
+
+                                yield return ContinuousController.instance.StartCoroutine(card.PermanentOfThisCard().AddDigivolutionCardsBottom(new List<CardSource>() { cardSource }, null));
                             }
 
                             else if (isTamerDigivolutionCard(cardSource))
                             {
-                                // AS-IS :917-921: RemoveDigivolveRootEffect (UI) + AddDigivolutionCardsBottom.
-                                await permanent.AddDigivolutionCardsBottom(new List<CardSource>() { cardSource }, null).ConfigureAwait(false);
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().RemoveDigivolveRootEffect(cardSource, cardSource.PermanentOfThisCard()));
+                                yield return ContinuousController.instance.StartCoroutine(card.PermanentOfThisCard().AddDigivolutionCardsBottom(new List<CardSource>() { cardSource }, null));
                             }
 
                             cardSource.cEntity_EffectController.InitUseCountThisTurn();
@@ -957,19 +928,19 @@ public class SelectDigiXrosClass
         }
 
         ResetSelectDigiXrosClass();
+
+        yield return null;
     }
     #endregion
 
     #region 効果によって進化元を付与(天野ユウ(BT10),シャウトモンX7スペリオルモード(BT12))
-    // AS-IS :936-1013.
-    public async Task AddDigivolutiuonCardsByEffect(CardSource card)
+    public IEnumerator AddDigivolutiuonCardsByEffect(CardSource card)
     {
         if (addDigivolutionCardInfos.Count >= 1)
         {
             if (card != null)
             {
-                Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(card);
-                if (permanent != null)
+                if (card.PermanentOfThisCard() != null)
                 {
                     List<CardSource> addedCards = new List<CardSource>();
 
@@ -990,7 +961,7 @@ public class SelectDigiXrosClass
 
                             else if (isBattleAreaCard(cardSource))
                             {
-                                digimonPermanents.Add(ICardEffect.ResolvePermanentOfThisCard(cardSource));
+                                digimonPermanents.Add(cardSource.PermanentOfThisCard());
                                 addedCards.Add(cardSource);
                             }
                             else if (isTrashCard(cardSource))
@@ -1006,52 +977,59 @@ public class SelectDigiXrosClass
                             }
                         }
 
-                        HeadlessEntityId? cause = info.cardEffect?.EffectSourceCard?.InstanceId;
-
                         if (underTamerCards.Count >= 1)
                         {
-                            await permanent.AddDigivolutionCardsBottom(underTamerCards, cause).ConfigureAwait(false);
+                            yield return ContinuousController.instance.StartCoroutine(card.PermanentOfThisCard().AddDigivolutionCardsBottom(underTamerCards, info.cardEffect));
                         }
 
                         if (digimonPermanents.Count >= 1)
                         {
-                            // AS-IS :985-991 (RD-EXT3-05 landed): one IPlacePermanentToDigivolutionCards per
-                            // battle-area material permanent, re-parenting its top card under the play permanent.
                             foreach (Permanent digimonPermanent in digimonPermanents)
                             {
-                                await new IPlacePermanentToDigivolutionCards(new List<Permanent[]>() { new Permanent[] { digimonPermanent, permanent } }, false, info.cardEffect, isDigixros: true).PlacePermanentToDigivolutionCards().ConfigureAwait(false);
+                                yield return ContinuousController.instance.StartCoroutine(new IPlacePermanentToDigivolutionCards(new List<Permanent[]>() { new Permanent[] { digimonPermanent, card.PermanentOfThisCard() } }, false, info.cardEffect, isDigixros: true).PlacePermanentToDigivolutionCards());
                             }
                         }
 
                         if (trashCards.Count >= 1)
                         {
-                            await permanent.AddDigivolutionCardsBottom(trashCards, cause).ConfigureAwait(false);
+                            yield return ContinuousController.instance.StartCoroutine(card.PermanentOfThisCard().AddDigivolutionCardsBottom(trashCards, info.cardEffect));
                         }
 
                         if (secuirtyCards.Count >= 1)
                         {
-                            await permanent.AddDigivolutionCardsBottom(secuirtyCards, cause).ConfigureAwait(false);
+                            yield return ContinuousController.instance.StartCoroutine(card.PermanentOfThisCard().AddDigivolutionCardsBottom(secuirtyCards, info.cardEffect));
                         }
                     }
 
-                    // AS-IS :1004 ShowCardEffect2 "Digivolution Cards" = UI (stripped).
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(addedCards, "Digivolution Cards", true, true));
                 }
             }
         }
 
         addDigivolutionCardInfos = new List<AddDigivolutionCardsInfo>();
+
+        yield return null;
     }
     #endregion
 
-    // AS-IS :1015-1030 (_targetIndex / _endSelectDigiXros / the RPC SetTargetDigiXrossIndex — the RPC is subsumed
-    // by the ChoiceType.ModeChoice request in Select).
     int _targetIndex = 0;
 
     bool _endSelectDigiXros = false;
+
+    [PunRPC]
+    public void SetTargetDigiXrossIndex(int playerID, int targetIndex)
+    {
+        Player selectionPlayer = GManager.instance.GetPlayerFromID(playerID);
+
+        if (selectionPlayer == null)
+        {
+            return;
+        }
+
+        selectionPlayer.QueuePlayerSelection(new ValueSelection(targetIndex));
+    }
 }
 
-/// <summary>(P6C1) 1:1 mirror of AS-IS <c>AddDigivolutionCardsInfo</c> (SelectDigiXrosClass.cs:1033-1048): one
-/// "these cards were stacked under by this effect" record of the DigiXros/Assembly stacking bookkeeping.</summary>
 public class AddDigivolutionCardsInfo
 {
     public AddDigivolutionCardsInfo(ICardEffect cardEffect, List<CardSource> cardSources)

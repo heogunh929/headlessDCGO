@@ -1,17 +1,13 @@
-// Source: Assets/Scripts/CardEffect/BT1/Green/BT1_068.cs
-// Decision: PORT
-// Category: CardEffect
-//
-// 1:1 mirror of the original BT1_068: inherited [All Turns] while it is the owner's turn, this card's
-// permanent (top of its own stack) is Lv6+ and its top card carries a printed level, Security Attack +1.
-// -> ChangeSelfSAttackStaticEffect (inherited, conditional). Same shape as ST4_01 (DP +1000 analog).
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class BT1_068 : CEntity_Effect
+public class BT1_068 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -25,12 +21,9 @@ public sealed class BT1_068 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        // AS-IS BT1_068: `card.PermanentOfThisCard().Level >= 6` then `.TopCard.HasLevel`
-                        // (Permanent/CardSource direct-read; PermanentOfThisCard() = the canonical Permanent view).
-                        Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(card);
-                        if (permanent.Level >= 6)
+                        if (card.PermanentOfThisCard().Level >= 6)
                         {
-                            if (permanent.TopCard.HasLevel)
+                            if (card.PermanentOfThisCard().TopCard.HasLevel)
                             {
                                 return true;
                             }

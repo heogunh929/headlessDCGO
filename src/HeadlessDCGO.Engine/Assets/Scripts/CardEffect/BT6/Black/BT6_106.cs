@@ -1,29 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT6/Black/BT6_106.cs (59 lines) — TRUE AS-IS 1:1 re-port.
-// Witness card for the freshly-relocated IsMaxCost predicate (MinMax_DP_Cost_Level/Cost/IsMaxCost.cs).
-//   [Main]     Delete all of your opponent's Digimon with the highest play cost (OptionSkill).
-//   [Security] The same Main effect, custom description (SecuritySkill).
-// Structure kept verbatim from the original inline `new ActivateClass()` + `DestroyPermanentsClass(...).Destroy()`
-// (the BT9_111 sibling idiom); no invented helpers.
-// Substrate translations only:
-//   * IEnumerator -> async Task, `yield return ContinuousController.instance.StartCoroutine(X)` -> `await X`
-//     (BT9_111 idiom).
-//   * `card.Owner.Enemy.GetBattleAreaDigimons()` -> `new Player(card.Context, card.Owner).Enemy!
-//     .GetBattleAreaDigimons()` (BT9_111 idiom).
-//   * AS-IS `CardEffectCommons.IsMaxCost(permanent, card.Owner.Enemy, true)` (a `Player Enemy` owner arg) ->
-//     the mirror overload `IsMaxCost(Permanent?, HeadlessPlayerId, bool)`; `card.Owner.Enemy` ->
-//     `CardEffectCommons.OpponentOf(card)` (BT25_019 idiom). Predicate is evaluated, NOT flattened — the
-//     `IsPermanentExistsOnOpponentBattleAreaDigimon` guard is kept verbatim ahead of it.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT6.Black;
-
 using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT6_106 : CEntity_Effect
+public class BT6_106 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -45,7 +28,7 @@ public sealed class BT6_106 : CEntity_Effect
             {
                 if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (CardEffectCommons.IsMaxCost(permanent, CardEffectCommons.OpponentOf(card), true))
+                    if (CardEffectCommons.IsMaxCost(permanent, card.Owner.Enemy, true))
                     {
                         return true;
                     }
@@ -59,10 +42,10 @@ public sealed class BT6_106 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                List<Permanent> destroyTargetPermanents = new Player(card.Context, card.Owner).Enemy!.GetBattleAreaDigimons().Filter(PermanentCondition);
-                await new DestroyPermanentsClass(destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy();
+                List<Permanent> destroyTargetPermanents = card.Owner.Enemy.GetBattleAreaDigimons().Filter(PermanentCondition);
+                yield return ContinuousController.instance.StartCoroutine(new DestroyPermanentsClass(destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy());
             }
         }
 

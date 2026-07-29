@@ -1,17 +1,62 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/GiveEffect/GiveEffectToPlayer/ChangePlayCost.cs
-// (EFFECT-MODEL REBUILD / bridge W1) AS-IS-signature `Task` overload; delegates to the verified substrate
-// `ChangePlayCostPlayerEffect` (CardEffectCommons.cs:3372).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using System.Collections;
+using System.Collections.Generic;
 using System;
-using System.Threading.Tasks;
+using System.Linq;
+using UnityEngine;
+using System.Runtime.CompilerServices;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.ChangePlayCostPlayerEffect(...)</c> (GiveEffect/GiveEffectToPlayer/ChangePlayCost.cs:11) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
-    public static async Task ChangePlayCostPlayerEffect(Func<Permanent, bool> permanentCondition, int changeValue, bool setFixedCost, EffectDuration effectDuration, ICardEffect activateClass)
+    #region Player gains effect to change play cost
+    public static IEnumerator ChangePlayCostPlayerEffect(
+        Func<Permanent, bool> permanentCondition,
+        int changeValue,
+        bool setFixedCost,
+        EffectDuration effectDuration,
+        ICardEffect activateClass)
     {
-        ChangePlayCostPlayerEffect(permanentCondition, changeValue, setFixedCost, effectDuration, activateClass?.EffectSourceCard);
-        await Task.CompletedTask;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+        if (changeValue == 0) yield break;
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            if (IsPermanentExistsOnBattleArea(permanent))
+            {
+                if (!permanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    if (permanentCondition == null || permanentCondition(permanent))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        bool CanUseCondition()
+        {
+            return true;
+        }
+
+        ChangeCostClass changeCostClass = CardEffectFactory.ChangePlayCostStaticEffect(
+            changeValue: changeValue,
+            permanentCondition: PermanentCondition,
+            isInheritedEffect: false,
+            card: activateClass.EffectSourceCard,
+            condition: CanUseCondition,
+            setFixedCost: setFixedCost);
+
+        AddEffectToPlayer(effectDuration: effectDuration, card: activateClass.EffectSourceCard, cardEffect: changeCostClass, timing: EffectTiming.None);
+
+        foreach (Permanent permanent in GManager.instance.turnStateMachine.gameContext.PermanentsForTurnPlayer)
+        {
+            if (PermanentCondition(permanent))
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(permanent));
+            }
+        }
     }
+    #endregion
 }

@@ -1,16 +1,9 @@
-// Source: DCGO/Assets/Scripts/Script/IEnumerableExtension.cs
-// (EFFECT-MODEL REBUILD / P2) 1:1 mirror of the AS-IS list/array extension helpers the effect model uses
-// pervasively (Map/Filter/Some/Flat/Reduce/Clone/Every/GetRandom). `CEntity_Effect.GetCardEffects` /
-// `CardSource.EffectList` call `.Filter`, several kind-classes call `.Map`, etc. Pure LINQ; only `using
-// UnityEngine;` was stripped (substrate). Verbatim otherwise.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
-
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using UnityEngine;
 
 public static class IEnumerableExtension
 {

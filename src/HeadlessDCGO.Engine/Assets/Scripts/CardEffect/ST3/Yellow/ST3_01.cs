@@ -1,21 +1,13 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST3/Yellow/ST3_01.cs
-// TRUE AS-IS-verbatim re-port (ST3 Yellow batch). 1:1 mirror of the original ST3_01 (ST3/Yellow).
-//   [Your Turn][Once Per Turn] When an opponent's Digimon is deleted by dropping to 0 DP, this Digimon
-//   gets +1000 DP for the turn.
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelfDpBuffTriggerEffect(...)` call (an invented
-// helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` structure.
-// AS-IS structure kept verbatim: inline ActivateClass, SetIsInheritedEffect(true), SetHashString.
-// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// `card.PermanentOfThisCard()` used as a `Permanent` argument -> `ICardEffect.ResolvePermanentOfThisCard(card)`.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST3.Yellow;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class ST3_01 : CEntity_Effect
+
+public class ST3_01 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -69,13 +61,13 @@ public sealed class ST3_01 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await CardEffectCommons.ChangeDigimonDP(
-                    targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card),
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonDP(
+                    targetPermanent: card.PermanentOfThisCard(),
                     changeValue: 1000,
                     effectDuration: EffectDuration.UntilEachTurnEnd,
-                    activateClass: activateClass);
+                    activateClass: activateClass));
             }
         }
 

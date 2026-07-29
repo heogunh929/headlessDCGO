@@ -1,37 +1,18 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/White/BT1_084.cs (a White Digimon, two branches)
-// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [When Digivolving]
-// delete branch (branch 1); the [When Attacking] return-and-unsuspend branch (branch 2) is already ported as
-// SelectDigivolutionSourceToHandThenSelfFollowUpEffect (not an ActivatedEffect) and is UNCHANGED.
-//   [When Digivolving] Choose 1 of your opponent's Digimon. Delete all of your opponent's Digimon that share a
-//   name with it.
-// AS-IS branch 1: ActivateClass declared under OnEnterFieldAnyone but CanUseCondition = CanTriggerWhenDigivolving
-//   -> registered under the mirror WhenDigivolving key (BT1_074/ST1_08/BT1_017 dispatch-remap idiom); the gate
-//   itself is verbatim. CanActivateCondition = IsExistOnBattleArea && HasMatchConditionPermanent(CanSelect),
-//   CanSelect = IsPermanentExistsOnOpponentBattleAreaDigimon. ORDER=-1, ISOPTIONAL=false. ActivateCoroutine:
-//   maxCount = Min(1, MatchConditionPermanentCount); SelectPermanentEffect.SetUp(mode: Custom, canNoSelect:false,
-//   canEndNotMax:false, selectPermanentCoroutine) picks 1 reference; SelectPermanentCoroutine derives
-//   destroyTargetPermanents = card.Owner.Enemy.GetBattleAreaDigimons().Filter(p => p.TopCard.HasSameCardName(
-//   reference.TopCard)) and deletes them via new DestroyPermanentsClass(targets, hashtable).Destroy() (reflexive).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` kept
-//   verbatim on the canonical shape (id-flip 3b); `card.Owner.Enemy` -> `new Player(
-//   card.Context, card.Owner).Enemy!` (established Player mirror route); GManager.GetComponent -> bridge W4.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.White;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_084 : CEntity_Effect
+public class BT1_084 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        if (timing == EffectTiming.WhenDigivolving)
+        if (timing == EffectTiming.OnEnterFieldAnyone)
         {
             ActivateClass activateClass = new ActivateClass();
             activateClass.SetUpICardEffect("Delete Digimon", CanUseCondition, card);
@@ -57,7 +38,7 @@ public sealed class BT1_084 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                     {
                         return true;
                     }
@@ -66,9 +47,9 @@ public sealed class BT1_084 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -87,24 +68,16 @@ public sealed class BT1_084 : CEntity_Effect
 
                 selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon.", "The opponent is selecting 1 Digimon.");
 
-                await selectPermanentEffect.Activate();
+                yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                async Task SelectPermanentCoroutine(Permanent permanent)
+                IEnumerator SelectPermanentCoroutine(Permanent permanent)
                 {
-                    List<Permanent> destroyTargetPermanents = new Player(card.Context, card.Owner).Enemy!.GetBattleAreaDigimons().Filter((permanent1) => permanent1.TopCard.HasSameCardName(permanent.TopCard));
-                    await new DestroyPermanentsClass(destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy();
+                    List<Permanent> destroyTargetPermanents = card.Owner.Enemy.GetBattleAreaDigimons().Filter((permanent1) => permanent1.TopCard.HasSameCardName(permanent.TopCard));
+                    yield return ContinuousController.instance.StartCoroutine(new DestroyPermanentsClass(destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy());
                 }
             }
         }
 
-        // [When Attacking] "You can unsuspend this Digimon by returning 1 of this Digimon's level 6
-        // digivolution cards to your hand." (이연③-d) Re-ported the invented
-        // SelectDigivolutionSourceToHandThenSelfFollowUpEffect -> the literal AS-IS inline ActivateClass:
-        // SelectCardEffect(mode: AddHand, root: Custom over this permanent's DigivolutionCards, canNoSelect:false,
-        // maxCount 1) THEN `new IUnsuspendPermanents(self).Unsuspend()` — both live mirror components (BT9_043 /
-        // BT9_081 idiom). Substrate: IEnumerator->Task, StartCoroutine->await; `card.PermanentOfThisCard()` ->
-        // `ICardEffect.ResolvePermanentOfThisCard(card)` (returns the mirror Permanent whose DigivolutionCards is
-        // the List<CardSource> customRootCardList / IUnsuspendPermanents target).
         if (timing == EffectTiming.OnAllyAttack)
         {
             ActivateClass activateClass = new ActivateClass();
@@ -142,7 +115,7 @@ public sealed class BT1_084 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Count(CanSelectCardCondition) >= 1)
+                    if (card.PermanentOfThisCard().DigivolutionCards.Count(CanSelectCardCondition) >= 1)
                     {
                         return true;
                     }
@@ -151,9 +124,9 @@ public sealed class BT1_084 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+                Permanent selectedPermanent = card.PermanentOfThisCard();
 
                 if (selectedPermanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1)
                 {
@@ -174,14 +147,14 @@ public sealed class BT1_084 : CEntity_Effect
                                 isShowOpponent: true,
                                 mode: SelectCardEffect.Mode.AddHand,
                                 root: SelectCardEffect.Root.Custom,
-                                customRootCardList: selectedPermanent.DigivolutionCards.ToList(),
+                                customRootCardList: selectedPermanent.DigivolutionCards,
                                 canLookReverseCard: true,
                                 selectPlayer: card.Owner,
                                 cardEffect: activateClass);
 
-                    await selectCardEffect.Activate();
+                    yield return StartCoroutine(selectCardEffect.Activate());
 
-                    await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend();
+                    yield return ContinuousController.instance.StartCoroutine(new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend());
                 }
             }
         }

@@ -1,12 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenDeleteOpponentDigimon.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger "when a Digimon deletes opponent's Digimon" effect
     public static bool CanTriggerWhenDeleteOpponentDigimon(
@@ -40,7 +38,7 @@ public static partial class CardEffectCommons
                         return true;
                     }
                 }
-
+                
             }
 
             if (battle != null)

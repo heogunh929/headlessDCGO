@@ -1,17 +1,28 @@
-// Source: DCGO/Assets/Scripts/Script/MainPhaseAction/PassAction.cs (Photon transport stripped — see
-// MainPhaseAction.cs).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using ExitGames.Client.Photon;
 
 public class PassAction : MainPhaseAction
 {
+    
     public PassAction()
     {
     }
 
-    public override async Task Execute(TurnStateMachine stateMachine)
+    public PassAction(byte[] bytes)
     {
-        // AS-IS PassTurn fire-and-forgets EndTurnProcess (StartCoroutine); the async translation awaits it
-        // inline — same single-threaded interleaving outcome (the wait loop idles until the phase leaves Main).
-        await stateMachine.PassTurn();
+        Deserialize(bytes);
+    }
+
+    public override void Execute(TurnStateMachine stateMachine)
+    {
+        stateMachine.PassTurn();
+    }
+
+    public override void Deserialize(byte[] bytes)
+    {
+    }
+
+    public override byte[] Serialize()
+    {
+        return null;
     }
 }

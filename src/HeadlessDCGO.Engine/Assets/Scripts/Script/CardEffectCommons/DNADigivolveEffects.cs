@@ -1,285 +1,75 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/DNADigivolveEffects.cs
-// (EFFECT-MODEL REBUILD / bridge W3) AS-IS-signature `Task` overloads for the two card-called DNA-digivolve
-// mutation helpers of this AS-IS file (docs/audit/mutation_helper_bridge_map.md rows):
-//   - DNADigivolvePermanentsIntoHandOrTrashCard  (AS-IS :458, 55 card calls — near-1:1 substrate delegation)
-//   - DNADigivolveWithHandOrTrashCardIntoHandOrTrash (AS-IS :256, 2 calls — STOP kept, declared at the AS-IS
-//     signature so verbatim card code COMPILES and fails loudly at activation, never silently)
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using Photon;
+using Photon.Pun;
+using Photon.Realtime;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Services;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    #region DNA digivolve permanents into a hand/trash card (AS-IS DNADigivolveEffects.cs:458)
+    #region DNA With Hand Or Trash Card into Hand or Trash Card
 
-    /// <summary>AS-IS <c>DNADigivolvePermanentsIntoHandOrTrashCard</c> (DNADigivolveEffects.cs:458-624), 1:1.
-    /// (SpecialPlay re-migration) This body REPLACES the monolith's invented <c>CardSource</c>-form substrate
-    /// overload, whose recipe currency was the deleted <c>SpecialPlayRecipeRegistry</c> /
-    /// <c>SpecialPlayAction</c> pair: the AS-IS flow is (1) pick the DNA card out of the hand/trash, (2) let
-    /// <see cref="SelectJogressEffect.SelectDigivolutionRoots"/> pick the two battle-area evo roots against the
-    /// card's OWN <c>jogressCondition</c> (declared by AddJogressConditionClass), (3) play it with
-    /// <c>PlayCardClass.SetJogress</c>. SUBSTRATE (established, per this file's header): IEnumerator→Task,
-    /// StartCoroutine(X)→await X, lone `yield return null` body→Task.CompletedTask, `.Some`→`.Any`,
-    /// `.Map`→`.Select`, `owner` (AS-IS Player) → `new Player(context, ownerId)`.
-    /// STRIPPED: the AS-IS `SetJogressEvoRootsController` + `photonView.RPC(SetJogressEvoRootsFrameIDs)` +
-    /// `WaitUntil(HasPlayerSelection)` + `DequeuePlayerSelection&lt;PermanentSelection&gt;` round trip is the
-    /// NETWORK echo of the pick just made locally (MultipleSkills.cs:364 / OptionalSkill.cs:12 precedent) —
-    /// the mirror consumes the locally-captured `_jogressEvoRootsFrameIDs` directly; `ShowCardEffect` and
-    /// `commandText` are UI. AS-IS QUIRKS KEPT: the local <c>CanJogressCondition</c> is declared and never
-    /// used; the <paramref name="payCost"/> parameter is likewise never read (AS-IS hardcodes
-    /// <c>isPayCost: true</c> / <c>payCost: true</c> at both use sites); <paramref name="isOptional"/> is
-    /// likewise never read (AS-IS hardcodes <c>canNoSelect: true</c> on the root pick and passes
-    /// <c>canNoSelect: isOptional</c> only on the hand/trash pick).
-    /// SOLE DEVIATION: AS-IS's under-2-Digimon early exit calls <c>failedProcess()</c> UNGUARDED (an NRE when
-    /// the caller passed none — both live callers do); the mirror null-guards it rather than reproduce a crash.</summary>
-    public static async Task DNADigivolvePermanentsIntoHandOrTrashCard(
-        Func<CardSource, bool> canSelectDNACardCondition,
-        bool payCost,
-        bool isHand,
-        ICardEffect activateClass,
-        Func<Permanent, bool>[] permanentConditions = null,
-        Func<CardSource, Task> successProcess = null,
-        bool ignoreSelection = false,
-        Func<Task> failedProcess = null,
-        bool isOptional = true)
+    /// <summary>
+    /// Creates a temporary permanent. Calling method can later ensure clear the frame
+    /// </summary>
+    /// <param name="card">Card to make a permanent of</param>
+    /// <param name="finalCard">If true, CardObjectController will be used to more properly create the permanent so it works fully with the jogress, so this will not place the permanent into any frames</param>
+    /// <returns>The created Permanent</returns>
+    private static Permanent PlayTempPermanent(CardSource card, bool finalCard = false)
     {
-        // AS-IS guards — activateClass/EffectSourceCard null → silent no-op.
-        if (activateClass?.EffectSourceCard == null)
+        Permanent playedPermanent = null;
+        if (card != null)
         {
-            return;
-        }
+            int frameID = card.PreferredFrame().FrameID;
 
-        _ = payCost;
-
-        EngineContext context = activateClass.EffectSourceCard.Context;
-        Player owner = new Player(context, activateClass.EffectSourceCard.Owner);
-        CardSource dnaTarget = null;
-
-        const int DnaPermanentCount = 2;
-
-        Task SelectCardCoroutine(CardSource cardSource)
-        {
-            dnaTarget = cardSource;
-
-            return Task.CompletedTask;
-        }
-
-        // AS-IS :481-485 — declared, never referenced (kept verbatim per the no-simplification rule).
-        bool CanJogressCondition(CardSource cardSource)
-        {
-            return (canSelectDNACardCondition == null || canSelectDNACardCondition(cardSource))
-                && cardSource.CanPlayJogress(true);
-        }
-
-        if (owner.GetBattleAreaDigimons().Count < DnaPermanentCount)
-        {
-            // AS-IS :489 `StartCoroutine(failedProcess())` — null-guarded, see the summary's SOLE DEVIATION.
-            if (failedProcess != null)
+            if (0 <= frameID && frameID < card.Owner.fieldCardFrames.Count)
             {
-                await failedProcess().ConfigureAwait(false);
-            }
+                playedPermanent = new Permanent(new List<CardSource>() { card }) { IsSuspended = false };
 
-            return;
-        }
-
-        int maxCount = 1;
-
-        if (ignoreSelection)
-        {
-            dnaTarget = activateClass.EffectSourceCard;
-        }
-        else if (isHand && owner.HandCards.Any(canSelectDNACardCondition))
-        {
-            SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
-
-            selectHandEffect.SetUp(
-                selectPlayer: owner.PlayerId,
-                canTargetCondition: canSelectDNACardCondition,
-                canTargetCondition_ByPreSelecetedList: null,
-                canEndSelectCondition: null,
-                maxCount: maxCount,
-                canNoSelect: isOptional,
-                canEndNotMax: false,
-                isShowOpponent: true,
-                selectCardCoroutine: SelectCardCoroutine,
-                afterSelectCardCoroutine: null,
-                mode: SelectHandEffect.Mode.Custom,
-                cardEffect: activateClass);
-
-            selectHandEffect.SetUpCustomMessage("Select 1 card to DNA digivolve.", "The opponent is selecting 1 card to DNA digivolve.");
-            selectHandEffect.SetNotShowCard();
-
-            await selectHandEffect.Activate().ConfigureAwait(false);
-        }
-        else if (!isHand && owner.TrashCards.Any(canSelectDNACardCondition))
-        {
-            SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
-
-            selectCardEffect.SetUp(
-                canTargetCondition: canSelectDNACardCondition,
-                canTargetCondition_ByPreSelecetedList: null,
-                canEndSelectCondition: null,
-                canNoSelect: () => isOptional,
-                selectCardCoroutine: SelectCardCoroutine,
-                afterSelectCardCoroutine: null,
-                message: "Select 1 card to digivolve.",
-                maxCount: maxCount,
-                canEndNotMax: false,
-                isShowOpponent: true,
-                mode: SelectCardEffect.Mode.Custom,
-                root: SelectCardEffect.Root.Trash,
-                customRootCardList: null,
-                canLookReverseCard: true,
-                selectPlayer: owner.PlayerId,
-                cardEffect: activateClass);
-
-            selectCardEffect.SetUpCustomMessage("Select 1 card to DNA digivolve.", "The opponent is selecting 1 card to DNA digivolve.");
-            selectCardEffect.SetUpCustomMessage_ShowCard("Selected Card");
-
-            await selectCardEffect.Activate().ConfigureAwait(false);
-        }
-
-        bool processSuccessful = false;
-        if (dnaTarget != null)
-        {
-            // AS-IS :551-553 `SetJogressEvoRootsController` component + :572 `photonView.RPC` = network echo (stripped).
-            int[] _jogressEvoRootsFrameIDs = new int[0];
-
-            SelectJogressEffect selectJogressEffect = GManager.instance.selectJogressEffect;
-
-            selectJogressEffect.SetUp_SelectDigivolutionRoots
-                                        (card: dnaTarget,
-                                        isLocal: true,
-                                        isPayCost: true,
-                                        canNoSelect: true,
-                                        endSelectCoroutine_SelectDigivolutionRoots: EndSelectCoroutine_SelectDigivolutionRoots,
-                                        noSelectCoroutine: null);
-
-            if (permanentConditions != null)
-                selectJogressEffect.SetUpCustomPermanentConditions(permanentConditions);
-
-            await selectJogressEffect.SelectDigivolutionRoots().ConfigureAwait(false);
-
-            Task EndSelectCoroutine_SelectDigivolutionRoots(List<Permanent> permanents)
-            {
-                if (permanents.Count == DnaPermanentCount)
+                if (!finalCard)
                 {
-                    _jogressEvoRootsFrameIDs = permanents.Distinct().ToArray().Select(permanent => permanent.PermanentFrame.FrameID).ToArray();
+                    card.Owner.FieldPermanents[frameID] = playedPermanent;
                 }
-
-                return Task.CompletedTask;
-            }
-
-            // AS-IS :575-580 `WaitUntil(HasPlayerSelection)` + `DequeuePlayerSelection<PermanentSelection>()`
-            // = the network echo of the frame ids just captured locally (stripped, see the summary).
-            if (_jogressEvoRootsFrameIDs.Length == DnaPermanentCount)
-            {
-                // AS-IS :584 `ShowCardEffect(... "Played Card" ...)` = UI (stripped).
-                PlayCardClass playCard = new PlayCardClass(
-                    cardSources: new List<CardSource>() { dnaTarget },
-                    hashtable: CardEffectHashtable(activateClass),
-                    payCost: true,
-                    targetPermanent: null,
-                    isTapped: false,
-                    root: isHand ? SelectCardEffect.Root.Hand : SelectCardEffect.Root.Trash,
-                    activateETB: true);
-
-                playCard.SetJogress(_jogressEvoRootsFrameIDs);
-
-                await playCard.PlayCard().ConfigureAwait(false);
-
-                processSuccessful = IsExistOnBattleArea(dnaTarget);
+                return playedPermanent;
             }
         }
-
-        if (processSuccessful && successProcess != null)
-        {
-            await successProcess(dnaTarget).ConfigureAwait(false);
-        }
-        else if (!processSuccessful && failedProcess != null)
-        {
-            await failedProcess().ConfigureAwait(false);
-        }
+        return null;
     }
 
-    #endregion
-
-    #region DNA digivolve WITH a hand/trash card into a hand/trash card (AS-IS DNADigivolveEffects.cs:256) — PORTED
-
-    // ══════════════════════════════════════════════════════════════════════════════════════════════════════
-    // RD-S3-EX6_072 (temp-material DNA family): the AS-IS-signature helper + its private co-eval dependencies
-    // (AS-IS DNADigivolveEffects.cs:20-452), ported 1:1. The ONLY substrate translation is the RD-S3-BT17_095
-    // OPTION-2 mapping (proven load-bearing by tests/DNATEMP-Witness): the AS-IS entity-less transient
-    //   `new Permanent(new List<CardSource>(){card}){IsSuspended=false}` + `FieldPermanents[frameID]=transient`
-    //   (a raw slot write with NO ETB/trigger, nulled back after the check)
-    // = a READ-ONLY mirror `Permanent` VIEW over the card's OWN instance id carrying `snapshotZone:BattleArea`
-    //   (TopCard = the card → every TopCard-property predicate identical; the field-membership sub-check the
-    //    jogress `EvoRootCondition` wrapper (IsPermanentExistsOnOwnerBattleAreaDigimon) gates on answers TRUE
-    //    from the snapshot, WITHOUT any zone mutation or trigger — 1:1 with the AS-IS zero-side-effect slot write).
-    // The AS-IS `PlayTempPermanent(card, finalCard:false)` (co-eval) → that snapshot view; the AS-IS null-slot
-    // restore (`owner.FieldPermanents[…]=null`) → a no-op (no slot was written). The AS-IS materialisation
-    // `PlayTempPermanent(card, true)` + `CreateNewPermanent(permanent, frameID)` → the frameless
-    // `CardObjectController.CreateNewPermanent(card, isSuspended:false)` (the RD-P6C1-1/-2 no-slot/no-capacity
-    // adaptation — the AS-IS empty-frame search + `0<=frameID<fieldCardFrames.Count` guard is the slot-capacity
-    // gate the frameless zone-append subsumes; PlayTempPermanent's null return is unreachable here). Rollback
-    // `CardObjectController.AddHandCard/AddTrashCard` and the jogress `CanJogressFromTargetPermanents` +
-    // `PlayCardClass.SetJogress` are all live. Standard translations: IEnumerator→Task; `.Some/.Filter/.Map`→
-    // `.Any/.Where/.Select`; `activateClass.EffectSourceCard.Owner` (HeadlessPlayerId) → `new Player(ctx, owner)`;
-    // AS-IS card-less `HasMatchConditionPermanent(cond)` → the mirror `(anchorCard, cond)` overload;
-    // `jogressTarget.jogressCondition` → the `JogressConditionOf()` accessor; the AS-IS Func<Permanent,bool>
-    // SelectPermanentEffect predicate → the id-shaped W4 adapter. Live witness: EX6_072 (hand→hand DNA
-    // digivolve), tests/DNATEMP-Witness.
-    // ══════════════════════════════════════════════════════════════════════════════════════════════════════
-
-    /// <summary>AS-IS <c>PlayTempPermanent</c> co-eval role (DNADigivolveEffects.cs:20-39, <c>finalCard:false</c>):
-    /// the entity-less transient jointly evaluated against the DNA recipe. The mirror is a read-only
-    /// <see cref="Permanent"/> VIEW over the card's own id + <c>snapshotZone:BattleArea</c> (RD-S3-BT17_095
-    /// Option 2) — no <c>FieldPermanents</c> slot write / null-back (frameless substrate). AS-IS returned null on a
-    /// bad frame (→ the requirement fails); the view always materialises (the documented capacity-gate
-    /// subsumption), so callers keep the AS-IS null-guard shape but it is unreachable.</summary>
-    private static Permanent TempMaterialView(CardSource card) =>
-        new Permanent(card.Context, card.InstanceId, card.Owner, ChoiceZone.BattleArea);
-
-    /// <summary>AS-IS <c>CardFulfillsRequirement</c> (DNADigivolveEffects.cs:50-95): can <paramref name="cardSource"/>
-    /// be a jogress root of <paramref name="jogressTarget"/>? If <paramref name="firstCondition"/> is null it must
-    /// fill slot[0] with SOME battle-area permanent filling slot[1]; otherwise it fills slot[1] with the fixed
-    /// first root in slot[0].</summary>
-    private static bool CardFulfillsRequirement(Player owner, CardSource cardSource, CardSource jogressTarget, Permanent? firstCondition, Func<Permanent, bool>? permanentCondition = null, Func<CardSource, bool>? cardCondition = null)
+    /// <summary>
+    /// Check for if a cardSource can meet the jogress requirements of another given card
+    /// </summary>
+    /// <param name="cardSource">The Card to verify if it is a potential jogress root</param>
+    /// <param name="jogressTarget">Card that will be DNA digivolved into</param>
+    /// <param name="firstCondition">If the first root has already been found, it is passed here so we only check if this card can fulfill the second root. Otherwise we check if this card can fulfill the first root and some permanent can fulfill the second</param>
+    /// <param name="permanentCondition">Condition to filter which permaments may be used for this effect</param>
+    /// <param name="cardCondition">Condition to filter which cards may be used for this effect</param>
+    /// <returns></returns>
+    private static bool CardFulfillsRequirement(Player owner, CardSource cardSource, CardSource jogressTarget, Permanent firstCondition, Func<Permanent, bool> permanentCondition = null, Func<CardSource, bool> cardCondition = null)
     {
-        if (jogressTarget.JogressConditionOf().Count <= 0)
-        {
+        if (jogressTarget.jogressCondition.Count <= 0)
             return false;
-        }
-
         bool isValid = false;
-        if (cardCondition == null || cardCondition(cardSource))
+        if(cardCondition == null || cardCondition(cardSource))
         {
-            Permanent tempPermanent = TempMaterialView(cardSource);
+            Permanent tempPermanent = PlayTempPermanent(cardSource);
+            if (tempPermanent == null)
+                return false;
             if (firstCondition == null)
             {
-                foreach (JogressCondition DNACondition in jogressTarget.JogressConditionOf())
+                foreach (JogressCondition DNACondition in jogressTarget.jogressCondition)
                 {
-                    if (isValid)
-                    {
+                    if(isValid)
                         break;
-                    }
-
                     if (DNACondition.elements[0].EvoRootCondition(tempPermanent))
                     {
-                        foreach (Permanent secondPermanent in owner.GetBattleAreaDigimons().Where(permanent => permanentCondition == null || permanentCondition(permanent)))
+                        foreach(Permanent secondPermanent in owner.GetBattleAreaDigimons().Filter(permanent => permanentCondition == null || permanentCondition(permanent)))
                         {
                             if (secondPermanent == tempPermanent)
-                            {
                                 continue;
-                            }
-
-                            if (DNACondition.elements[1].EvoRootCondition(secondPermanent))
+                            if(DNACondition.elements[1].EvoRootCondition(secondPermanent))
                             {
                                 isValid = true;
                                 break;
@@ -290,7 +80,7 @@ public static partial class CardEffectCommons
             }
             else
             {
-                foreach (JogressCondition DNACondition in jogressTarget.JogressConditionOf())
+                foreach (JogressCondition DNACondition in jogressTarget.jogressCondition)
                 {
                     if (DNACondition.elements[0].EvoRootCondition(firstCondition) && DNACondition.elements[1].EvoRootCondition(tempPermanent))
                     {
@@ -299,22 +89,17 @@ public static partial class CardEffectCommons
                     }
                 }
             }
-
-            // AS-IS :92 `owner.FieldPermanents[tempPermanent.PermanentFrame.FrameID] = null` — no-op (no slot was
-            // written; the SnapshotZone co-eval view is read-only).
+            owner.FieldPermanents[tempPermanent.PermanentFrame.FrameID] = null;
         }
-
         return isValid;
     }
 
-    /// <summary>AS-IS <c>SelectHandCard</c> (DNADigivolveEffects.cs:97-119): pick 1 hand card that fills the
-    /// remaining jogress root.</summary>
-    private static async Task SelectHandCard(Player owner, CardSource jogressTarget, Permanent? firstCondition, bool isOptional, ICardEffect activateClass, Func<CardSource, Task> SelectCardCoroutine, Func<Permanent, bool>? permanentCondition = null, Func<CardSource, bool>? digivolutionCardCondition = null)
+    private static IEnumerator SelectHandCard(Player owner, CardSource jogressTarget, Permanent firstCondition, bool isOptional, ICardEffect activateClass, Func<CardSource, IEnumerator> SelectCardCoroutine, Func<Permanent, bool> permanentCondition = null, Func<CardSource, bool> digivolutionCardCondition = null)
     {
         SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
 
         selectHandEffect.SetUp(
-            selectPlayer: owner.PlayerId,
+            selectPlayer: owner,
             canTargetCondition: cardSource => CardFulfillsRequirement(owner, cardSource, jogressTarget, firstCondition, permanentCondition, digivolutionCardCondition),
             canTargetCondition_ByPreSelecetedList: null,
             canEndSelectCondition: null,
@@ -330,12 +115,10 @@ public static partial class CardEffectCommons
         selectHandEffect.SetUpCustomMessage("Select 1 Digimon to DNA digivolve.", "The opponent is selecting DNA digivolution cards.");
         selectHandEffect.SetNotShowCard();
 
-        await selectHandEffect.Activate();
+        yield return ContinuousController.instance.StartCoroutine(selectHandEffect.Activate());
     }
 
-    /// <summary>AS-IS <c>SelectTrashCard</c> (DNADigivolveEffects.cs:121-147): the trash-root variant of
-    /// <see cref="SelectHandCard"/>.</summary>
-    private static async Task SelectTrashCard(Player owner, CardSource jogressTarget, Permanent? firstCondition, bool isOptional, ICardEffect activateClass, Func<CardSource, Task> SelectCardCoroutine, Func<Permanent, bool>? permanentCondition = null, Func<CardSource, bool>? digivolutionCardCondition = null)
+    private static IEnumerator SelectTrashCard(Player owner, CardSource jogressTarget, Permanent firstCondition, bool isOptional, ICardEffect activateClass, Func<CardSource, IEnumerator> SelectCardCoroutine, Func<Permanent, bool> permanentCondition = null, Func<CardSource, bool> digivolutionCardCondition = null)
     {
         SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
 
@@ -354,47 +137,50 @@ public static partial class CardEffectCommons
             root: SelectCardEffect.Root.Trash,
             customRootCardList: null,
             canLookReverseCard: true,
-            selectPlayer: owner.PlayerId,
+            selectPlayer: owner,
             cardEffect: activateClass);
 
         selectCardEffect.SetNotShowCard();
         selectCardEffect.SetNotAddLog();
 
-        await selectCardEffect.Activate();
+        yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
     }
 
-    /// <summary>AS-IS <c>PermanentFulfillsRequirement</c> (DNADigivolveEffects.cs:159-205): can
-    /// <paramref name="permanent"/> be a jogress root of <paramref name="jogressTarget"/>? Symmetric to
-    /// <see cref="CardFulfillsRequirement"/> — when <paramref name="firstCondition"/> is null the permanent fills
-    /// slot[0] with SOME hand/trash card filling slot[1]; otherwise it fills slot[1] against the fixed
-    /// first root.</summary>
-    private static bool PermanentFulfillsRequirement(Player owner, Permanent permanent, CardSource jogressTarget, Permanent? firstCondition, bool isWithHandCard, Func<Permanent, bool>? permanentCondition = null, Func<CardSource, bool>? cardCondition = null)
+    /// <summary>
+    /// Check for if a permanent can meet the jogress requirements of another given card. 
+    /// </summary>
+    /// <param name="permanent">The Permanent to verify if it is a potential jogress root</param>
+    /// <param name="jogressTarget">Card that will be DNA digivolved into</param>
+    /// <param name="firstCondition">If the first root has already been found, it is passed here so we only check if this permanent can fulfill the second root. Otherwise we check if this permanent can fulfill the first root and some card can fulfill the second</param>
+    /// <param name="isWithHand">If the cardsource for the second condition is coming form hand, otherwise it will be taken from trash</param>
+    /// <param name="permanentCondition">Condition to filter which permaments may be used for this effect</param>
+    /// <param name="cardCondition">Condition to filter which cards may be used for this effect</param>
+    /// <returns></returns>
+    private static bool PermanentFulfillsRequirement(Player owner, Permanent permanent, CardSource jogressTarget, Permanent firstCondition, bool isWithHandCard, Func<Permanent, bool> permanentCondition = null, Func<CardSource, bool> cardCondition = null)
     {
-        if (jogressTarget.JogressConditionOf().Count <= 0 || jogressTarget.CanNotEvolve(permanent))
-        {
+        if (jogressTarget.jogressCondition.Count <= 0 || jogressTarget.CanNotEvolve(permanent))
             return false;
-        }
-
-        if (permanentCondition == null || permanentCondition(permanent))
+        if(permanentCondition == null || permanentCondition(permanent))
         {
             if (firstCondition == null)
             {
-                foreach (JogressCondition DNACondition in jogressTarget.JogressConditionOf())
+                foreach (JogressCondition DNACondition in jogressTarget.jogressCondition)
                 {
                     if (DNACondition.elements[0].EvoRootCondition(permanent))
                     {
                         List<CardSource> sources = isWithHandCard ? owner.HandCards : owner.TrashCards;
 
-                        foreach (CardSource cardSource in sources.Where(cardSource => cardCondition == null || cardCondition(cardSource)))
+                        foreach(CardSource cardSource in sources.Filter(cardSource => cardCondition == null || cardCondition(cardSource)))
                         {
-                            Permanent tempPermanent = TempMaterialView(cardSource);
+                            Permanent tempPermanent = PlayTempPermanent(cardSource);
+                            if (tempPermanent == null)
+                                continue;
                             bool isValid = DNACondition.elements[1].EvoRootCondition(tempPermanent);
+                            owner.FieldPermanents[tempPermanent.PermanentFrame.FrameID] = null;
 
-                            // AS-IS :179 null-slot restore — no-op (read-only SnapshotZone view).
-                            if (isValid)
-                            {
+                            if(isValid)
                                 return true;
-                            }
+
                         }
                     }
                 }
@@ -405,8 +191,7 @@ public static partial class CardEffectCommons
                 {
                     return false;
                 }
-
-                foreach (JogressCondition DNACondition in jogressTarget.JogressConditionOf())
+                foreach (JogressCondition DNACondition in jogressTarget.jogressCondition)
                 {
                     if (DNACondition.elements[0].EvoRootCondition(firstCondition) && DNACondition.elements[1].EvoRootCondition(permanent))
                     {
@@ -419,17 +204,15 @@ public static partial class CardEffectCommons
         return false;
     }
 
-    /// <summary>AS-IS <c>SelectPermanent</c> (DNADigivolveEffects.cs:207-229): pick 1 battle-area permanent that
-    /// fills a jogress root. The AS-IS <c>Func&lt;Permanent,bool&gt;</c> target predicate is adapted to the mirror
-    /// id-shaped <see cref="SelectPermanentEffect"/> canTargetCondition (the W4 bridge idiom); DNA roots are
-    /// owner-scoped, so the candidate view carries the owner's id (BT17_095 precedent).</summary>
-    private static async Task SelectPermanent(Player owner, CardSource jogressTarget, Permanent? firstCondition, bool isOptional, ICardEffect activateClass, bool isWithHand, Func<Permanent, Task> SelectPermanentCoroutine, Func<Permanent, bool>? permanentCondition = null, Func<CardSource, bool>? digivolutionCardCondition = null)
+    private static IEnumerator SelectPermanent(Player owner, CardSource jogressTarget, Permanent firstCondition, bool isOptional, ICardEffect activateClass, bool isWithHand, Func<Permanent, IEnumerator> SelectPermanentCoroutine, Func<Permanent, bool> permanentCondition = null, Func<CardSource, bool> digivolutionCardCondition = null)
     {
+        Permanent selectedPermanent = null;
+
         SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
         selectPermanentEffect.SetUp(
-            selectPlayer: owner.PlayerId,
-            canTargetCondition: (Permanent permanent) => PermanentFulfillsRequirement(owner, permanent, jogressTarget, firstCondition, isWithHand, permanentCondition, digivolutionCardCondition),
+            selectPlayer: owner,
+            canTargetCondition: permanent => PermanentFulfillsRequirement(owner, permanent, jogressTarget, firstCondition, isWithHand, permanentCondition, digivolutionCardCondition),
             canTargetCondition_ByPreSelecetedList: null,
             canEndSelectCondition: null,
             maxCount: 1,
@@ -442,91 +225,84 @@ public static partial class CardEffectCommons
 
         selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to DNA digivolve.", "The opponent is selecting 1 Digimon to DNA digivolve.");
 
-        await selectPermanentEffect.Activate();
+        yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
     }
 
-    /// <summary>AS-IS <c>CanJogressWithHandOrTrash</c> (DNADigivolveEffects.cs:231-240) — the faithful co-eval
-    /// gate (the DNA card sits in hand/trash, passes <paramref name="targetCardCondition"/>, has a recipe, and
-    /// SOME permanent+card OR two cards fill it). This is the full-fidelity 7-arg AS-IS overload (Player owner +
-    /// permanent/digivolution conditions); the 5-arg SpecialPlay-registry probe in CardEffectCommons.cs is a
-    /// separate, distinct signature.</summary>
-    public static bool CanJogressWithHandOrTrash(CardSource source, Player owner, bool isWithHandCard, bool isIntoHandCard, Func<CardSource, bool>? targetCardCondition = null, Func<Permanent, bool>? permanentCondition = null, Func<CardSource, bool>? digivolutionCardCondition = null)
+    public static bool CanJogressWithHandOrTrash(CardSource source, Player owner, bool isWithHandCard, bool isIntoHandCard, Func<CardSource, bool> targetCardCondition = null, Func<Permanent, bool> permanentCondition = null, Func<CardSource, bool> digivolutionCardCondition = null)
     {
         return (isIntoHandCard ? IsExistOnHand(source) : IsExistOnTrash(source))
-            && (targetCardCondition == null || targetCardCondition(source))
-            && source.JogressConditionOf().Count > 0
-            && (HasMatchConditionPermanent(source, permanent => PermanentFulfillsRequirement(owner, permanent, source, null, isWithHandCard, permanentCondition, digivolutionCardCondition))
-                || (isWithHandCard
-                    ? owner.HandCards.Any(cardSource => CardFulfillsRequirement(owner, cardSource, source, null, permanentCondition, digivolutionCardCondition))
-                    : owner.TrashCards.Any(cardSource => CardFulfillsRequirement(owner, cardSource, source, null, permanentCondition, digivolutionCardCondition))));
+            && (targetCardCondition == null || targetCardCondition(source)) 
+            && source.jogressCondition.Count > 0
+            && (HasMatchConditionPermanent(permanent => PermanentFulfillsRequirement(owner, permanent, source, null, isWithHandCard, permanentCondition, digivolutionCardCondition)) 
+                || (isWithHandCard ?
+                    owner.HandCards.Some(cardSource => CardFulfillsRequirement(owner, cardSource, source, null, permanentCondition, digivolutionCardCondition)) : 
+                    owner.TrashCards.Some(cardSource => CardFulfillsRequirement(owner, cardSource, source, null, permanentCondition, digivolutionCardCondition))));
     }
 
-    /// <summary>AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> (DNADigivolveEffects.cs:256-452),
-    /// ported 1:1 (temp-material DNA family, RD-S3-EX6_072 — witnessed by EX6_072 + tests/DNATEMP-Witness). Selects
-    /// a DNA-capable card from hand/trash to DNA-digivolve into, using ONE battle-area permanent and ONE hand/trash
-    /// card (materialised via <see cref="CardObjectController.CreateNewPermanent"/>) as the two roots; executes the
-    /// jogress via <see cref="PlayCardClass.SetJogress"/>; un-plays the temp material on abort. See the file-header
-    /// substrate note for the Option-2 SnapshotZone mapping. (<paramref name="successProcess"/>/
-    /// <paramref name="failedProcess"/> are threaded at the AS-IS signature; the AS-IS body never invokes them —
-    /// kept verbatim.)</summary>
-    public static async Task DNADigivolveWithHandOrTrashCardIntoHandOrTrash(
-        Func<CardSource, bool> targetCardCondition,
-        Func<Permanent, bool> permanentCondition,
+    /// <summary>
+    /// Method that allows the user to DNA digivolve a Permanent on the field with a card in hand or trash as the other DNA root into a card in the hand or trash
+    /// </summary>
+    /// <param name="targetCardCondition">CardCondition for the digimon that will be DNA Digivolved into</param>
+    /// <param name="permanentCondition">PermanentCondition for the permanent which will make one of the roots</param>
+    /// <param name="digivolutionCardCondition">CardCondition for the card that will become one of the roots</param>
+    /// <param name="payCost">If the pay cost for the digivolution must be payed</param>
+    /// <param name="isWithHandCard">If the card that will a root is coming from the Hand, if false it comes from trash</param>
+    /// <param name="isIntoHandCard">If the card to be DNA digivolved into is coming from hand, if false it comes from trash</param>
+    /// <param name="activateClass">ActivateClass for the effect causing this DNA Digivolution</param>
+    /// <param name="successProcess">IEnumerator to run on success</param>
+    /// <param name="failedProcess">IEnumerator to run on failure</param>
+    /// <param name="isOptional">If this effect is optional. If true, the user may no select at any time</param>
+    /// <returns></returns>
+    public static IEnumerator DNADigivolveWithHandOrTrashCardIntoHandOrTrash(
+        Func<CardSource, bool> targetCardCondition, 
+        Func<Permanent, bool> permanentCondition, 
         Func<CardSource, bool> digivolutionCardCondition,
         bool payCost,
-        bool isWithHandCard,
+        bool isWithHandCard, 
         bool isIntoHandCard,
         ICardEffect activateClass,
-        Func<Task>? successProcess,
+        IEnumerator successProcess,
         bool ignoreSelection = false,
-        Func<Task>? failedProcess = null,
+        IEnumerator failedProcess = null,
         bool isOptional = true)
     {
-        _ = successProcess;
-        _ = failedProcess;
+        CardSource dnaTarget = null;
+        Permanent selectedPermanent = null;
+        CardSource selectedCardSource = null;
+        Permanent playedPermanent = null;
+        Player owner = activateClass.EffectSourceCard.Owner;
 
-        // AS-IS :273 `Player owner = activateClass.EffectSourceCard.Owner`. Guard the AS-IS deref (null source →
-        // no-op, matching the DNADigivolvePermanentsIntoHandOrTrashCard overload's guard).
-        if (activateClass?.EffectSourceCard is not { } sourceCard)
-        {
-            return;
-        }
-
-        Player owner = new Player(sourceCard.Context, sourceCard.Owner);
-
-        CardSource? dnaTarget = null;
-        Permanent? selectedPermanent = null;
-        CardSource? selectedCardSource = null;
-        Permanent? playedPermanent = null;
-
-        Task SelectDNACardCoroutine(CardSource source)
+        IEnumerator SelectDNACardCoroutine(CardSource source)
         {
             dnaTarget = source;
-            return Task.CompletedTask;
+
+            yield return null;
         }
 
-        Task SelectPermanentCoroutine(Permanent permanent)
+        IEnumerator SelectPermanentCoroutine(Permanent permanent)
         {
             selectedPermanent = permanent;
-            return Task.CompletedTask;
+
+            yield return null;
         }
 
-        Task SelectCardCoroutine(CardSource cardSource)
+        IEnumerator SelectCardCoroutine(CardSource cardSource)
         {
             selectedCardSource = cardSource;
-            return Task.CompletedTask;
+
+            yield return null;
         }
 
-        if (ignoreSelection)
+        if(ignoreSelection)
         {
-            dnaTarget = sourceCard;
+            dnaTarget = activateClass.EffectSourceCard;
         }
-        else if (isIntoHandCard && owner.HandCards.Any(cardSource => CanJogressWithHandOrTrash(cardSource, owner, isWithHandCard, isIntoHandCard, targetCardCondition, permanentCondition, digivolutionCardCondition)))
+        else if (isIntoHandCard && owner.HandCards.Some(cardSource => CanJogressWithHandOrTrash(cardSource, owner, isWithHandCard, isIntoHandCard, targetCardCondition, permanentCondition, digivolutionCardCondition)))
         {
             SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
 
             selectHandEffect.SetUp(
-                selectPlayer: owner.PlayerId,
+                selectPlayer: owner,
                 canTargetCondition: cardSource => CanJogressWithHandOrTrash(cardSource, owner, isWithHandCard, isIntoHandCard, targetCardCondition, permanentCondition, digivolutionCardCondition),
                 canTargetCondition_ByPreSelecetedList: null,
                 canEndSelectCondition: null,
@@ -541,110 +317,102 @@ public static partial class CardEffectCommons
 
             selectHandEffect.SetUpCustomMessage("Select 1 Digimon to DNA digivolve.", "The opponent is selecting 1 Digimon to DNA digivolve.");
 
-            await selectHandEffect.Activate();
+            yield return ContinuousController.instance.StartCoroutine(selectHandEffect.Activate());
         }
-        else if (!isIntoHandCard && owner.TrashCards.Any(cardSource => CanJogressWithHandOrTrash(cardSource, owner, isWithHandCard, isIntoHandCard, targetCardCondition, permanentCondition, digivolutionCardCondition)))
+        else if (!isIntoHandCard && owner.TrashCards.Some(cardSource => CanJogressWithHandOrTrash(cardSource, owner, isWithHandCard, isIntoHandCard, targetCardCondition, permanentCondition, digivolutionCardCondition)))
         {
             SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
 
             selectCardEffect.SetUp(
-                canTargetCondition: cardSource => CanJogressWithHandOrTrash(cardSource, owner, isWithHandCard, isIntoHandCard, targetCardCondition, permanentCondition, digivolutionCardCondition),
-                canTargetCondition_ByPreSelecetedList: null,
-                canEndSelectCondition: null,
-                canNoSelect: () => isOptional,
-                selectCardCoroutine: SelectDNACardCoroutine,
-                afterSelectCardCoroutine: null,
-                message: "Select 1 Digimon to DNA digivolve.",
-                maxCount: 1,
-                canEndNotMax: false,
-                isShowOpponent: false,
-                mode: SelectCardEffect.Mode.Custom,
-                root: SelectCardEffect.Root.Trash,
-                customRootCardList: null,
-                canLookReverseCard: true,
-                selectPlayer: owner.PlayerId,
-                cardEffect: activateClass);
+            canTargetCondition: cardSource => CanJogressWithHandOrTrash(cardSource, owner, isWithHandCard, isIntoHandCard, targetCardCondition, permanentCondition, digivolutionCardCondition),
+            canTargetCondition_ByPreSelecetedList: null,
+            canEndSelectCondition: null,
+            canNoSelect: () => isOptional,
+            selectCardCoroutine: SelectDNACardCoroutine,
+            afterSelectCardCoroutine: null,
+            message: "Select 1 Digimon to DNA digivolve.",
+            maxCount: 1,
+            canEndNotMax: false,
+            isShowOpponent: false,
+            mode: SelectCardEffect.Mode.Custom,
+            root: SelectCardEffect.Root.Trash,
+            customRootCardList: null,
+            canLookReverseCard: true,
+            selectPlayer: owner,
+            cardEffect: activateClass);
 
             selectCardEffect.SetNotShowCard();
             selectCardEffect.SetNotAddLog();
 
-            await selectCardEffect.Activate();
+            yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
         }
 
         if (dnaTarget == null)
-        {
-            return;
-        }
+            yield break;
 
-        bool validPermanent = HasMatchConditionPermanent(sourceCard, permanent => PermanentFulfillsRequirement(owner, permanent, dnaTarget, null, isWithHandCard, permanentCondition, digivolutionCardCondition));
-        bool validHandOrTrash = isWithHandCard
-            ? owner.HandCards.Any(cardSource => CardFulfillsRequirement(owner, cardSource, dnaTarget, null, permanentCondition, digivolutionCardCondition))
-            : owner.TrashCards.Any(cardSource => CardFulfillsRequirement(owner, cardSource, dnaTarget, null, permanentCondition, digivolutionCardCondition));
+        bool validPermanent = HasMatchConditionPermanent(permanent => PermanentFulfillsRequirement(owner, permanent, dnaTarget, null, isWithHandCard, permanentCondition, digivolutionCardCondition));
+        bool validHandOrTrash = isWithHandCard ?
+                    owner.HandCards.Some(cardSource => CardFulfillsRequirement(owner, cardSource, dnaTarget, null, permanentCondition, digivolutionCardCondition)) : 
+                    owner.TrashCards.Some(cardSource => CardFulfillsRequirement(owner, cardSource, dnaTarget, null, permanentCondition, digivolutionCardCondition));
 
-        if (validPermanent || validHandOrTrash)
+        if(validPermanent || validHandOrTrash)
         {
             #region select source cards
             if (validPermanent && validHandOrTrash)
             {
                 List<SelectionElement<bool>> selectionElements = new List<SelectionElement<bool>>()
                 {
-                    new SelectionElement<bool>(message: $"From Battle Area", value: true, spriteIndex: 0),
-                    new SelectionElement<bool>(message: isWithHandCard ? $"From Hand" : $"From Trash", value: false, spriteIndex: 1),
+                    new SelectionElement<bool>(message: $"From Battle Area", value : true, spriteIndex: 0),
+                    new SelectionElement<bool>(message: isWithHandCard ? $"From Hand" : $"From Trash", value : false, spriteIndex: 1),
                 };
 
                 string selectPlayerMessage = "From where will you select the first digimon?";
                 string notSelectPlayerMessage = "The opponent is selecting 1 Digimon to DNA digivolve.";
 
-                GManager.instance.userSelectionManager.SetBoolSelection(selectionElements: selectionElements, selectPlayer: owner.PlayerId, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
+                GManager.instance.userSelectionManager.SetBoolSelection(selectionElements: selectionElements, selectPlayer: owner, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
             }
             else
             {
                 GManager.instance.userSelectionManager.SetBool(validPermanent);
             }
 
-            await GManager.instance.userSelectionManager.WaitForEndSelect();
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.userSelectionManager.WaitForEndSelect());
 
             bool isPermanentFirst = GManager.instance.userSelectionManager.SelectedBoolValue;
             if (isPermanentFirst)
             {
-                await SelectPermanent(owner, dnaTarget, null, isOptional, activateClass, isWithHandCard, SelectPermanentCoroutine, permanentCondition, digivolutionCardCondition);
+                yield return ContinuousController.instance.StartCoroutine(SelectPermanent(owner, dnaTarget, null, isOptional, activateClass, isWithHandCard, SelectPermanentCoroutine, permanentCondition, digivolutionCardCondition));
 
                 if (selectedPermanent != null)
                 {
                     if (isWithHandCard)
-                    {
-                        await SelectHandCard(owner, dnaTarget, selectedPermanent, isOptional, activateClass, SelectCardCoroutine, permanentCondition, digivolutionCardCondition);
-                    }
-                    else
-                    {
-                        await SelectTrashCard(owner, dnaTarget, selectedPermanent, isOptional, activateClass, SelectCardCoroutine, permanentCondition, digivolutionCardCondition);
-                    }
-
+                        yield return ContinuousController.instance.StartCoroutine(SelectHandCard(owner, dnaTarget, selectedPermanent, isOptional, activateClass, SelectCardCoroutine, permanentCondition, digivolutionCardCondition));
+                    else 
+                        yield return ContinuousController.instance.StartCoroutine(SelectTrashCard(owner, dnaTarget, selectedPermanent, isOptional, activateClass, SelectCardCoroutine, permanentCondition, digivolutionCardCondition));
                     if (selectedCardSource != null)
                     {
-                        // AS-IS :394-396 `PlayTempPermanent(selectedCardSource, true)` + `CreateNewPermanent(
-                        // playedPermanent, PreferredFrame().FrameID)` → the frameless materialisation (file header).
-                        playedPermanent = await CardObjectController.CreateNewPermanent(selectedCardSource, isSuspended: false);
+                        playedPermanent = PlayTempPermanent(selectedCardSource, true);
+                        if (playedPermanent != null) yield return ContinuousController.instance.StartCoroutine(CardObjectController.CreateNewPermanent(playedPermanent, selectedCardSource.PreferredFrame().FrameID));
                     }
+                            
                 }
             }
             else
             {
                 if (isWithHandCard)
-                {
-                    await SelectHandCard(owner, dnaTarget, null, isOptional, activateClass, SelectCardCoroutine, permanentCondition, digivolutionCardCondition);
-                }
+                    yield return ContinuousController.instance.StartCoroutine(SelectHandCard(owner, dnaTarget, null, isOptional, activateClass, SelectCardCoroutine, permanentCondition, digivolutionCardCondition));
                 else
-                {
-                    await SelectTrashCard(owner, dnaTarget, null, isOptional, activateClass, SelectCardCoroutine, permanentCondition, digivolutionCardCondition);
-                }
+                    yield return ContinuousController.instance.StartCoroutine(SelectTrashCard(owner, dnaTarget, null, isOptional, activateClass, SelectCardCoroutine, permanentCondition, digivolutionCardCondition));
 
-                if (selectedCardSource != null)
+                if(selectedCardSource != null)
                 {
-                    // AS-IS :409-414 materialise the temp material, THEN pick the field root against it.
-                    playedPermanent = await CardObjectController.CreateNewPermanent(selectedCardSource, isSuspended: false);
-
-                    await SelectPermanent(owner, dnaTarget, playedPermanent, isOptional, activateClass, isWithHandCard, SelectPermanentCoroutine, permanentCondition, digivolutionCardCondition);
+                    playedPermanent = PlayTempPermanent(selectedCardSource, true);
+                    if (playedPermanent != null)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.CreateNewPermanent(playedPermanent, selectedCardSource.PreferredFrame().FrameID));
+                        
+                        yield return ContinuousController.instance.StartCoroutine(SelectPermanent(owner, dnaTarget, playedPermanent, isOptional, activateClass, isWithHandCard, SelectPermanentCoroutine, permanentCondition, digivolutionCardCondition));
+                    }                  
                 }
             }
             #endregion
@@ -652,13 +420,13 @@ public static partial class CardEffectCommons
             if (selectedPermanent != null && playedPermanent != null)
             {
                 List<Permanent> orderedRoots = isPermanentFirst ? new List<Permanent>() { selectedPermanent, playedPermanent } : new List<Permanent>() { playedPermanent, selectedPermanent };
-                int[] JogressEvoRootsFrameIDs = orderedRoots.Select(permanent => permanent.PermanentFrame.FrameID).ToArray();
+                int[] JogressEvoRootsFrameIDs = orderedRoots.Map(permanent => permanent.PermanentFrame.FrameID).ToArray();
 
                 if (dnaTarget.CanJogressFromTargetPermanents(orderedRoots, payCost))
                 {
                     PlayCardClass playCard = new PlayCardClass(
                         cardSources: new List<CardSource>() { dnaTarget },
-                        hashtable: CardEffectHashtable(activateClass),
+                        hashtable: CardEffectCommons.CardEffectHashtable(activateClass),
                         payCost: payCost,
                         targetPermanent: null,
                         isTapped: false,
@@ -667,47 +435,207 @@ public static partial class CardEffectCommons
 
                     playCard.SetJogress(JogressEvoRootsFrameIDs);
 
-                    await playCard.PlayCard();
+                    yield return ContinuousController.instance.StartCoroutine(playCard.PlayCard());
                 }
             }
         }
-
-        // AS-IS :442-451 rollback: if the DNA target never became a live permanent (jogress aborted), un-play the
-        // materialised temp material back to its origin zone.
         if (dnaTarget == null || dnaTarget.PermanentOfThisCard() == null)
         {
             if (playedPermanent != null)
             {
                 if (isWithHandCard)
-                {
-                    await CardObjectController.AddHandCard(selectedCardSource!, false);
-                }
+                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCard(selectedCardSource, false));
                 else
-                {
-                    await CardObjectController.AddTrashCard(selectedCardSource!);
-                }
+                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(selectedCardSource));
             }
         }
     }
 
     #endregion
 
-    #region Create Jogress Conditions from Permanent Conditions (P6C3, AS-IS DNADigivolveEffects.cs:630-649)
+    #region digivolve Permanents on Field into Hand or Trash Card
 
-    /// <summary>1:1 mirror of AS-IS <c>GetJogressConditions</c> — two material-slot predicates, verbatim
-    /// (including the AS-IS quirk that <c>permanentCondition1</c>/<c>permanentCondition2</c> are used AS-IS,
-    /// UNCOMPOSED with the local <c>PermanentCondition</c>/<c>FullPermanentCondition{1,2}</c> helpers below —
-    /// those are declared but never referenced by the returned <see cref="JogressCondition"/>, dead code in the
-    /// original kept verbatim per the no-simplification rule).</summary>
+    public static IEnumerator DNADigivolvePermanentsIntoHandOrTrashCard(
+        Func<CardSource, bool> canSelectDNACardCondition,
+        bool payCost,
+        bool isHand,
+        ICardEffect activateClass,
+        Func<Permanent, bool>[] permanentConditions = null,
+        Func<CardSource, IEnumerator> successProcess = null,
+        bool ignoreSelection = false,
+        Func<IEnumerator> failedProcess = null,
+        bool isOptional = true)
+    {
+        Player owner = activateClass.EffectSourceCard.Owner;
+        CardSource dnaTarget = null;
+
+        const int DnaPermanentCount = 2;
+
+        IEnumerator SelectCardCoroutine(CardSource cardSource)
+        {
+            dnaTarget = cardSource;
+
+            yield return null;
+        }
+
+        bool CanJogressCondition(CardSource cardSource)
+        {
+            return (canSelectDNACardCondition == null || canSelectDNACardCondition(cardSource))
+                && cardSource.CanPlayJogress(true);
+        }
+
+        if (owner.GetBattleAreaDigimons().Count < DnaPermanentCount)
+        {
+            yield return ContinuousController.instance.StartCoroutine(failedProcess());
+            yield break;
+        }
+
+        int maxCount = 1;
+
+        if (ignoreSelection)
+        {
+            dnaTarget = activateClass.EffectSourceCard;
+        }
+        else if (isHand && owner.HandCards.Some(canSelectDNACardCondition))
+        {
+            SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+
+            selectHandEffect.SetUp(
+                selectPlayer: owner,
+                canTargetCondition: canSelectDNACardCondition,
+                canTargetCondition_ByPreSelecetedList: null,
+                canEndSelectCondition: null,
+                maxCount: maxCount,
+                canNoSelect: isOptional,
+                canEndNotMax: false,
+                isShowOpponent: true,
+                selectCardCoroutine: SelectCardCoroutine,
+                afterSelectCardCoroutine: null,
+                mode: SelectHandEffect.Mode.Custom,
+                cardEffect: activateClass);
+
+            selectHandEffect.SetUpCustomMessage("Select 1 card to DNA digivolve.", "The opponent is selecting 1 card to DNA digivolve.");
+            selectHandEffect.SetNotShowCard();
+
+            yield return ContinuousController.instance.StartCoroutine(selectHandEffect.Activate());
+        } 
+        else if(!isHand && owner.TrashCards.Some(canSelectDNACardCondition))
+        {
+            SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+                selectCardEffect.SetUp(
+                    canTargetCondition: canSelectDNACardCondition,
+                    canTargetCondition_ByPreSelecetedList: null,
+                    canEndSelectCondition: null,
+                    canNoSelect: () => isOptional,
+                    selectCardCoroutine: SelectCardCoroutine,
+                    afterSelectCardCoroutine: null,
+                    message: "Select 1 card to digivolve.",
+                    maxCount: maxCount,
+                    canEndNotMax: false,
+                    isShowOpponent: true,
+                    mode: SelectCardEffect.Mode.Custom,
+                    root: SelectCardEffect.Root.Trash,
+                    customRootCardList: null,
+                    canLookReverseCard: true,
+                    selectPlayer: owner,
+                    cardEffect: activateClass);
+
+            selectCardEffect.SetUpCustomMessage("Select 1 card to DNA digivolve.", "The opponent is selecting 1 card to DNA digivolve.");
+            selectCardEffect.SetUpCustomMessage_ShowCard("Selected Card");
+
+            yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
+        }
+
+        bool processSuccessful = false;
+        if (dnaTarget != null)
+        {
+            Component component = activateClass.EffectSourceCard.cEntity_EffectController.gameObject.AddComponent(typeof (SetJogressEvoRootsController));
+            SetJogressEvoRootsController controller = (SetJogressEvoRootsController)component;
+            int[] _jogressEvoRootsFrameIDs = new int[0];
+
+            if (owner.isYou || GManager.instance.IsAI)
+            {
+                GManager.instance.selectJogressEffect.SetUp_SelectDigivolutionRoots
+                                            (card: dnaTarget,
+                                            isLocal: true,
+                                            isPayCost: true,
+                                            canNoSelect: true,
+                                            endSelectCoroutine_SelectDigivolutionRoots: EndSelectCoroutine_SelectDigivolutionRoots,
+                                            noSelectCoroutine: null);
+
+                if(permanentConditions != null)
+                    GManager.instance.selectJogressEffect.SetUpCustomPermanentConditions(permanentConditions);
+
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.selectJogressEffect.SelectDigivolutionRoots());
+
+                IEnumerator EndSelectCoroutine_SelectDigivolutionRoots(List<Permanent> permanents)
+                {
+                    if (permanents.Count == DnaPermanentCount)
+                    {
+                        _jogressEvoRootsFrameIDs = permanents.Distinct().ToArray().Map(permanent => permanent.PermanentFrame.FrameID);
+                    }
+
+                    yield return null;
+                }
+
+                controller.photonView.RPC("SetJogressEvoRootsFrameIDs", RpcTarget.All, owner.PlayerID, _jogressEvoRootsFrameIDs);
+            }
+            else
+            {
+                GManager.instance.commandText.OpenCommandText("The opponent is choosing a card to DNA digivolve.");
+            }
+
+            yield return new WaitUntil(() => owner.HasPlayerSelection());
+            PermanentSelection permanentSelection = owner.DequeuePlayerSelection<PermanentSelection>();
+
+            GManager.instance.commandText.CloseCommandText();
+            yield return new WaitWhile(() => GManager.instance.commandText.gameObject.activeSelf);
+
+            if (permanentSelection.PermanentIDList.Length == DnaPermanentCount)
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(new List<CardSource>() { dnaTarget }, "Played Card", true, true));
+
+                PlayCardClass playCard = new PlayCardClass(
+                    cardSources: new List<CardSource>() { dnaTarget },
+                    hashtable: CardEffectCommons.CardEffectHashtable(activateClass),
+                    payCost: true,
+                    targetPermanent: null,
+                    isTapped: false,
+                    root: isHand ? SelectCardEffect.Root.Hand : SelectCardEffect.Root.Trash,
+                    activateETB: true);
+
+                playCard.SetJogress(permanentSelection.PermanentIDList);
+
+                yield return ContinuousController.instance.StartCoroutine(playCard.PlayCard());
+
+                processSuccessful = CardEffectCommons.IsExistOnBattleArea(dnaTarget);
+            }
+        }
+
+        if (processSuccessful && successProcess != null)
+        {
+            yield return ContinuousController.instance.StartCoroutine(successProcess(dnaTarget));
+        }
+        else if (!processSuccessful && failedProcess != null)
+        {
+            yield return ContinuousController.instance.StartCoroutine(failedProcess());
+        }
+    }
+
+    #endregion
+
+    #region Create Jogress Conditions from Permanent Conditions
+
     public static JogressCondition GetJogressConditions(Func<Permanent, bool> permanentCondition1, string description1, Func<Permanent, bool> permanentCondition2, string description2, CardSource card, int cost = 0)
     {
-        JogressConditionElement[] elements =
-        {
-            new JogressConditionElement(permanentCondition1, description1),
-            new JogressConditionElement(permanentCondition2, description2),
-        };
+        JogressConditionElement[] elements = 
+            {
+                new JogressConditionElement(permanentCondition1, description1),
+                new JogressConditionElement(permanentCondition2, description2)
+            };
 
-        JogressCondition jogressCondition = new(elements, cost);
+        JogressCondition jogressCondition = new (elements, cost);
 
         return jogressCondition;
 
@@ -724,6 +652,23 @@ public static partial class CardEffectCommons
 
         bool FullPermanentCondition2(Permanent permanent) => PermanentCondition(permanent) && permanentCondition2 != null && permanentCondition2(permanent);
     }
+
+    //Private class used to register the callback so this doesn't need to be defined in every card that uses DNA by effect
+    private class SetJogressEvoRootsController : MonoBehaviourPunCallbacks
+    {
+        [PunRPC]
+        public void SetJogressEvoRootsFrameIDs(int playerID, int[] jogressEvoRootsFrameIDs)
+        {
+            Player selectionPlayer = GManager.instance.GetPlayerFromID(playerID);
+
+            if (selectionPlayer == null)
+            {
+                return;
+            }
+
+            selectionPlayer.QueuePlayerSelection(new PermanentSelection(null, jogressEvoRootsFrameIDs));
+        }
+    } 
 
     #endregion
 }

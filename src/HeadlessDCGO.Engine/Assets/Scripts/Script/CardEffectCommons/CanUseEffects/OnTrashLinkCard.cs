@@ -1,12 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnTrashLinkCard.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger "When this Link card is trashed" effect
     public static bool CanTriggerOnTrashSelfLinkCard(Hashtable hashtable, Func<ICardEffect, bool> cardEffectCondition, CardSource card)

@@ -1,32 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST4/Green/ST4_15.cs
-// TRUE AS-IS-verbatim re-port (batch 3). 1:1 mirror of the original ST4_15 (ST4/Green) — an Option.
-//   [Main]     Suspend 1 of your opponent's Digimon.
-//   [Security] Suspend 1 of your opponent's Digimon. Then, add this card to your hand.
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndSuspendEffect(...)` call (an invented
-// helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` +
-// `GManager.instance.GetComponent<SelectPermanentEffect>()` + `SetUp(...)` (Mode.Tap) structure (see
-// BT1_043.cs / ST4_13.cs for the identically-shaped select+Mode precedent within this batch).
-// [Security] block (uniform-사멸 flip): `CardEffectCommons.AddActivateMainOptionSecurityEffect(...,
-// afterMainEffect: new AddThisCardToHandEffect(card, ...))` — the AS-IS "reuse [Main] then afterMainEffect"
-// SecuritySkill shape; the follow-up is the same AddThisCardToHandEffect kind the EX1_072/BT9_109 [Security]
-// add-to-hand path resolves (mirrors AS-IS AddThisCardToHand exactly). Replaces the retired uniform
-// `ActivatedEffect` + `SelfToHandBody` carrier.
-// Substrate translation only: IEnumerator->Task; `yield return ContinuousController.instance.StartCoroutine(X)`
-// -> `await X`; the AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` is kept Permanent-shaped as the
-// local `PermanentCondition(Permanent)` fed directly to HasMatchConditionPermanent/MatchConditionPermanentCount
-// AND SelectPermanentEffect.SetUp's canTargetCondition (id-flip 3b canonical overload — no id-shape sibling
-// needed).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST4.Green;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class ST4_15 : CEntity_Effect
+public class ST4_15 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -44,7 +24,7 @@ public sealed class ST4_15 : CEntity_Effect
                 return "[Main] Suspend 1 of your opponent's Digimon.";
             }
 
-            bool PermanentCondition(Permanent permanent)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
                 return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
@@ -54,17 +34,17 @@ public sealed class ST4_15 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, PermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, PermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: PermanentCondition,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -75,27 +55,24 @@ public sealed class ST4_15 : CEntity_Effect
                         mode: SelectPermanentEffect.Mode.Tap,
                         cardEffect: activateClass);
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                 }
             }
         }
 
         if (timing == EffectTiming.SecuritySkill)
         {
-            // [Security] reuse [Main] (suspend 1 opponent Digimon), THEN add this card to hand — the AS-IS
-            // afterMainEffect callback, VERBATIM: `IEnumerator AfterMainEffect(ICardEffect activateClass) =>
-            // AddThisCardToHand(card, activateClass)` (substrate IEnumerator->Task; the mirror
-            // `AddThisCardToHand(card1, sourceCard)` takes sourceCard = the cause card = `card`, the ST3_13
-            // convention since SetUpICardEffect sets EffectSourceCard = card).
-            CardEffectCommons.AddActivateMainOptionSecurityEffect(
-                card: card, cardEffects: ref cardEffects,
-                effectName: "Suspend 1 Digimon and add this card to hand",
-                afterMainEffect: AfterMainEffect);
-
-            async Task AfterMainEffect(ICardEffect activateClass)
+            string EffectDiscription()
             {
-                await CardEffectCommons.AddThisCardToHand(card, card);
+                return "[Security] Suspend 1 of your opponent's Digimon. Then, add this card to your hand.";
             }
+
+            IEnumerator AfterMainEffect(ICardEffect activateClass)
+            {
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.AddThisCardToHand(card, activateClass));
+            }
+
+            CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $"Suspend 1 Digimon and add this card to hand", effectDiscription: EffectDiscription(), afterMainEffect: AfterMainEffect);
         }
 
         return cardEffects;

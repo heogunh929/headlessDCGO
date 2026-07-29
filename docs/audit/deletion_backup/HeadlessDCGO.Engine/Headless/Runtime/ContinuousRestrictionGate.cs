@@ -1,0 +1,110 @@
+// ============================================================================
+// ⛔ DELETION-TARGET · DO-NOT-REFERENCE
+// 원장(docs/audit/filelist/merged_files_no_cards.csv): 삭제대상여부=Y · 결함여부=Y
+// 분류: substrate 오배치(other)
+// 미러 원가(재이관 대상): DCGO/Assets/Scripts/Script/Permanent.cs::Permanent.CanAttack/CanBlock/CanAttackTargetDigimon/CanUnsuspend/CanSuspend/CanBeDestroyedBySkill (ICanNotAttack*·ICanNotBlock 인터페이스 순회 스캔) + CardSource.CanNot
+// 이 파일은 AS-IS 원본에 동일-경로 대응이 없는 오배치/발명 코드다.
+// 규칙 로직은 위 미러 원가로 재이관 후 이 파일은 삭제 예정.
+// 서브에이전트/포팅 작업 시: 이 파일의 심볼을 참조·모방·확장하지 말 것.
+// ============================================================================
+namespace HeadlessDCGO.Engine.Headless.Runtime;
+
+using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Services;
+
+/// <summary>
+/// (X-04, C5-1) Continuous restriction gate feeding legal-action generation. (C5-1) The former empty-union
+/// ContinuousEffectEvaluator path was retired (producer 0; the type is now deleted); the live restrictions are the joint
+/// NewModelContinuousScan scans (EvaluateAttack/Block/Digivolve/…) below.
+/// Mirrors Unity AS-IS <c>ContinuousController</c>'s constant re-evaluation: before a
+/// candidate (attack / block) is offered, the registry is queried for continuous effects targeting
+/// the entity and the resulting <see cref="CannotRestriction"/> set is checked. This complements the
+/// existing static <c>CardInstanceRecord</c>/<c>CardRecord</c> metadata checks — those stay in place;
+/// this gate adds restrictions sourced from other cards' continuous effects.
+///
+/// The gate queries continuous-role registry bindings only (card/instance metadata restrictions are
+/// already enforced by the action validators), so it is a pure no-op until continuous effects are
+/// registered (Phase 4 card pool).
+///
+/// (R1-d) 잔존 사유: the AS-IS Permanent restriction predicates (CanUnsuspend/CanSuspend/CanBeDestroyed*)
+/// now live on the mirror <c>Permanent</c> getters and their consumers were rewired to them. What REMAINS
+/// here is NOT R1-d's:
+///  * EvaluateDigivolve — AS-IS <c>CardSource.CanNotEvolve</c>: (R1-e) CanNotEvolve is now an AS-IS-literal
+///    ICanNotDigivolveEffect scan on the mirror CardSource and no longer delegates here. 잔존=R2 몫: the surviving
+///    EvaluateDigivolve call sites are the DigivolveAction / fusion pipeline legality checks (플레이 파이프라인
+///    내부 판정) + ActivatedEffects / CardEffectCommons rule-process filters + BT1_078 (card) — they fold away as
+///    those consumers are rehoused in R2.
+///  * EvaluateAttack / EvaluateBeAttacked / EvaluateBlock / EvaluateBeBlocked — AS-IS Permanent.CanAttack(
+///    TargetDigimon)/CanBlock, but consumed by the attack/block FLOW validators (AttackPermanentAction /
+///    BlockTiming) at fine-grained points; folding them back into the monolithic Permanent.CanAttack/CanBlock
+///    is the attack/block flow restructure = R2/R3 몫 (leave the scan wiring intact until then).
+///  * EvaluateDeleteBySkill — AS-IS Permanent.CanBeDestroyedBySkill, but consumed by the deletion machine
+///    (MatchStateMutationSink) = R2 몫.
+/// </summary>
+public static class ContinuousRestrictionGate
+{
+    /// <summary>Query scope used for continuous re-evaluation (matches the evaluator unit tests).</summary>
+    public const string Scope = "ContinuousRecalculation";
+
+    // (C5-1) The registry Evaluate(context, entityId) method was DELETED — it had ZERO consumers
+    // (`grep "ContinuousRestrictionGate.Evaluate(" → 0`) and returned the empty-union
+    // ContinuousScopeEvaluation.EvaluateForCard result set. The live restriction path is the joint
+    // NewModelContinuousScan scan below (EvaluateAttack/Block/Digivolve/…).
+
+    public static CannotRestrictionResult EvaluateAttack(
+        EngineContext context,
+        HeadlessEntityId attackerId,
+        HeadlessEntityId? defenderId = null) =>
+        // (joint-migration) AS-IS Permanent.CanAttack: SCAN every field effect and evaluate the joint
+        // CanNotAttack(attacker, defender). A defender-conditional effect's predicate returns false for a
+        // non-matching defender, so it does not restrict that pairing (subsumes the FR-P3 counterpart-softening logic).
+        JointResult(context, RestrictionHelpers.CannotAttackKey, attackerId, defenderId, "cannotAttack", "attack");
+
+    /// <summary>(joint-migration) Canonical evaluator: SCAN all field effects for a joint restriction of
+    /// <paramref name="kind"/> forbidding (<paramref name="subjectId"/>, <paramref name="counterpartId"/>).
+    /// Mirrors AS-IS <c>Permanent.CanX</c> (a single joint predicate over every field effect).</summary>
+    private static CannotRestrictionResult JointResult(
+        EngineContext context, string kind, HeadlessEntityId subjectId, HeadlessEntityId? counterpartId,
+        string appliedTag, string noun) =>
+        // (④) The legacy registry RestrictionScan arm is RETIRED (JointRestrictionEffect producer 0 → the
+        // registry scan was permanently empty); the live behavior is the new-model interface scan alone (AS-IS
+        // Permanent.CanSuspend/CanUnsuspend/CanBlock/CanAttackTargetDigimon, CardSource.CanNotEvolve — ported
+        // kind-classes CanNotUnsuspendClass/CannotBlockClass/… register no binding, so this is their only path).
+        (Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.IsRestrictedNewModel(context, kind, subjectId, counterpartId))
+            ? CannotRestrictionResult.Success(true, $"Cannot {noun}.", new[] { appliedTag }, Array.Empty<string>(), new Dictionary<string, object?>())
+            : CannotRestrictionResult.Success(false, $"No {noun} restriction.", Array.Empty<string>(), Array.Empty<string>(), new Dictionary<string, object?>());
+
+    public static CannotRestrictionResult EvaluateBlock(
+        EngineContext context,
+        HeadlessEntityId blockerId,
+        HeadlessEntityId? attackerId = null) =>
+        JointResult(context, RestrictionHelpers.CannotBlockKey, blockerId, attackerId, "cannotBlock", "block");
+
+    // (D-A5) Continuous "cannot digivolve" restriction targeting the under-card being evolved.
+    public static CannotRestrictionResult EvaluateDigivolve(
+        EngineContext context,
+        HeadlessEntityId targetCardId,
+        HeadlessEntityId? sourceEntityId = null) =>
+        JointResult(context, RestrictionHelpers.CannotDigivolveKey, targetCardId, sourceEntityId, "cannotDigivolve", "digivolve");
+
+    // (R1-d) EvaluateUnsuspend / EvaluateSuspend REMOVED — AS-IS Permanent.CanUnsuspend / Permanent.CanSuspend
+    // are now housed on the mirror getters and their consumers read `permanent.CanUnsuspend` / `permanent.CanSuspend`
+    // directly. (R2-D) the last laggard, MatchStateMutationSink's SuspendKind case, was rewired to the getter too,
+    // so NewModelContinuousScan.CanNotSuspend was DELETED (no remaining consumer).
+
+    // (PRIM-W3) Continuous "cannot be blocked" restriction on the attacker — consulted when enumerating blockers.
+    // (W6-G) blocker-conditional form supported (AS-IS GainCanNotBeBlocked defenderCondition, embedded in the joint predicate).
+    public static CannotRestrictionResult EvaluateBeBlocked(EngineContext context, HeadlessEntityId attackerId, HeadlessEntityId? blockerId = null) =>
+        JointResult(context, RestrictionHelpers.CannotBeBlockedKey, attackerId, blockerId, "cannotBeBlocked", "be blocked");
+
+    // (PRIM-W3) Continuous "cannot be deleted by effect/skill" restriction — consulted by the effect-delete path.
+    public static CannotRestrictionResult EvaluateDeleteBySkill(EngineContext context, HeadlessEntityId targetId) =>
+        JointResult(context, RestrictionHelpers.CannotBeDeletedBySkillKey, targetId, null, "cannotBeDeletedBySkill", "be deleted by skill");
+
+    // (PRIM-W4) Continuous "cannot be attacked" restriction on the defender — consulted by AttackPermanentAction.
+    // (W6-G) attacker-conditional form supported (AS-IS GainCanNotBeAttacked attackerCondition, embedded in the joint predicate).
+    public static CannotRestrictionResult EvaluateBeAttacked(EngineContext context, HeadlessEntityId defenderId, HeadlessEntityId? attackerId = null) =>
+        JointResult(context, RestrictionHelpers.CannotBeAttackedKey, defenderId, attackerId, "cannotBeAttacked", "be attacked");
+}

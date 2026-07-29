@@ -1,0 +1,1871 @@
+--- DCGO/Assets/Scripts/Script/CardEffectFactory.cs	2026-05-18 20:03:15.679130600 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectFactory.cs	2026-07-29 01:02:24.004030914 +0900
+@@ -1,22 +1,69 @@
+-using System;
++namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++
+ using System.Collections;
+-using System.Collections.Generic;
+-using System.Linq;
+-using UnityEngine;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
++using HeadlessDCGO.Engine.Headless.Bridge;
++using HeadlessDCGO.Engine.Headless.Choices;
++using HeadlessDCGO.Engine.Headless.Runtime;
++using HeadlessDCGO.Engine.Headless.Services;
++using HeadlessDCGO.Engine.Headless.State;
++using SelectPermanentEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPermanentEffect;
++using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition;
++
+ 
+-public partial class CardEffectFactory
++public static partial class CardEffectFactory
+ {
+-    #region Tamer's effect to set Memory to 3
+ 
+-    public static ICardEffect SetMemoryTo3TamerEffect(CardSource card)
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++    internal static Func<bool>? LinkedGate(CardSource card, bool isLinkedEffect, Func<bool>? condition) =>
++        !isLinkedEffect
++            ? condition
++            : () => card.IsLinked && (condition?.Invoke() ?? true);
++
++    internal static Func<CardSource, bool>? ScopePred(Func<Permanent, bool>? permanentCondition) =>
++        permanentCondition is null ? null : cs => permanentCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner));
++
++
++
++
++    public static ICardEffect Gain1MemoryTamerOpponentDigimonEffect(CardSource card)
+     {
+         ActivateClass activateClass = new ActivateClass();
+-        activateClass.SetUpICardEffect("Set Memory to 3", CanUseCondition, card);
++        activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+ 
+         string EffectDiscription()
+         {
+-            return "[Start of Your Turn] If you have 2 or less memory, set your memory to 3.";
++            return "[Start of Your Main Phase] If your opponent has a Digimon, gain 1 memory.";
+         }
+ 
+         bool CanUseCondition(Hashtable hashtable)
+@@ -36,7 +83,7 @@
+         {
+             if (CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass))
+             {
+-                if (card.Owner.MemoryForPlayer <= 2)
++                if ((new Player(card.Context, card.Owner).Enemy?.GetBattleAreaDigimons().Count ?? 0) >= 1)
+                 {
+                     if (card.Owner.CanAddMemory(activateClass))
+                     {
+@@ -48,77 +95,329 @@
+             return false;
+         }
+ 
+-        IEnumerator ActivateCoroutine(Hashtable _hashtable)
++        async Task ActivateCoroutine(Hashtable _hashtable)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(card.Owner.SetFixedMemory(3, activateClass));
++            await card.Owner.AddMemory(1, activateClass);
+         }
+ 
+         return activateClass;
+     }
+ 
+-    #endregion
++    public static ICardEffect Gain2MemoryOptionDelayEffect(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
+ 
+-    #region Tamer's effect to Gain 1 Memory if opponent has a digimon
++        ActivateClass activateClass = new ActivateClass();
++        activateClass.SetUpICardEffect("Memory +2", CanUseCondition, card);
++        activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+ 
+-    public static ICardEffect Gain1MemoryTamerOpponentDigimonEffect(CardSource card)
++        string EffectDiscription()
++        {
++            return "[Main] <Delay> (Trash this card in your battle area to activate the effect below. You can't activate this effect the turn this card enters play.) - Gain 2 memory.";
++        }
++
++        bool CanUseCondition(Hashtable hashtable)
++        {
++            return CardEffectCommons.CanDeclareOptionDelayEffect(card);
++        }
++
++        async Task ActivateCoroutine(Hashtable _hashtable)
++        {
++            bool deleted = false;
++
++            await CardEffectCommons.DeletePeremanentAndProcessAccordingToResult(
++                targetPermanents: new List<Permanent>() { new Permanent(card.Context, card.InstanceId, card.Owner) },
++                sourceCard: card,
++                successProcess: SuccessProcess,
++                failureProcess: null);
++
++            Task SuccessProcess(IReadOnlyList<Permanent> _permanents)
++            {
++                deleted = true;
++                return Task.CompletedTask;
++            }
++
++            if (deleted)
++            {
++                await card.Owner.AddMemory(2, activateClass);
++            }
++        }
++
++        return activateClass;
++    }
++
++
++
++
++
++
++    public static ICardEffect ReplaceBottomSecurityWithFaceUpOptionMainEffect(CardSource card)
+     {
+         ActivateClass activateClass = new ActivateClass();
+-        activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+-        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
++        activateClass.SetUpICardEffect("Replace your bottom security card with this face-up card", CanUseCondition, card);
++        activateClass.SetUpActivateClass(null, _ => ReplaceBottomSecurityWithFaceUpOptionEffect(card, activateClass), -1, false, EffectDescription());
+ 
+-        string EffectDiscription()
++        string EffectDescription()
+         {
+-            return "[Start of Your Main Phase] If your opponent has a Digimon, gain 1 memory.";
++            return "[Main] Add your bottom security card to the hand. Then, place this card face up as the bottom security card.";
+         }
+ 
+         bool CanUseCondition(Hashtable hashtable)
+         {
+-            if (CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass))
++            return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
++        }
++
++        return activateClass;
++    }
++
++    public static async Task ReplaceBottomSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
++    {
++        if (new Player(card.Context, card.Owner).SecurityCards.Count >= 1)
++        {
++            CardSource bottomCard = new Player(card.Context, card.Owner).SecurityCards.Last();
++
++            await CardObjectController.AddHandCards(new List<CardSource>() { bottomCard }, false, activateClass);
++
++            await new IReduceSecurity(card.Context, card.Owner, refCollector: null, activateClass).ReduceSecurity();
++        }
++
++        if (new Player(card.Context, card.Owner).CanAddSecurity(activateClass.EffectSourceCard?.InstanceId))
++        {
++            await CardObjectController.AddSecurityCard(card, toTop: false, faceUp: true);
++
++
++            await new IAddSecurity(card).AddSecurity();
++        }
++    }
++
++
++
++
++
++
++    public static IgnoreColorConditionClass UseRequirements(CardSource card, Func<CardSource, bool> cardCondition)
++    {
++        IgnoreColorConditionClass ignoreColorConditionClass = new IgnoreColorConditionClass();
++        ignoreColorConditionClass.SetUpICardEffect("Ignore color requirements", CanUseCondition, card);
++        ignoreColorConditionClass.SetUpIgnoreColorConditionClass(cardCondition: CardCondition);
++        return ignoreColorConditionClass;
++
++        bool PermanentCondition(Permanent permanent)
++        {
++            if (cardCondition == null)
++                return false;
++
++            return (permanent.IsDigimon || permanent.IsTamer)
++                && cardCondition(permanent.TopCard);
++        }
++
++        bool CanUseCondition(Hashtable hashtable)
++        {
++            return CardEffectCommons.HasMatchConditionOwnersPermanent(card, PermanentCondition)
++                || CardEffectCommons.HasMatchConditionOwnersBreedingPermanent(card, PermanentCondition);
++        }
++
++        bool CardCondition(CardSource cardSource)
++        {
++            return cardSource == card;
++        }
++    }
++
++
++
++
++
++    public static ICardEffect CanNotReduceCostStaticEffect(
++        Func<Player, bool> playerCondition, Func<CardSource, bool> cardCondition,
++        bool isInheritedEffect, CardSource card, Func<bool>? condition,
++        Func<List<Permanent>, bool>? targetPermanentsCondition = null)
++    {
++        ArgumentNullException.ThrowIfNull(playerCondition);
++        ArgumentNullException.ThrowIfNull(cardCondition);
++
++        var effect = new CardEffects.CannotReduceCostClass();
++        effect.SetUpICardEffect("Can't reduce cost", CanUseCondition, card);
++        effect.SetUpCannotReduceCostClass(
++            playerCondition: PlayerCondition,
++            targetPermanentsCondition: targetPermanentsCondition ?? (_ => true),
++            cardCondition: cardCondition);
++        effect.SetNotShowUI(true);
++        if (isInheritedEffect)
++        {
++            effect.SetIsInheritedEffect(true);
++        }
++
++        return effect;
++
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
++        bool PlayerCondition(Player player) => player != null && playerCondition(player);
++    }
++
++    public static ICardEffect CanNotAddSecurityStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null)
++    {
++        var effect = new CardEffects.CannotAddSecurityClass();
++        effect.SetUpICardEffect("Can't add security", CanUseCondition, card);
++        effect.SetUpCannotAddSecurityClass(PlayerCondition: PlayerCondition, CardEffectCondition: CardEffectCondition);
++        effect.SetNotShowUI(true);
++        if (isInheritedEffect)
++        {
++            effect.SetIsInheritedEffect(true);
++        }
++
++        return effect;
++
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
++        bool PlayerCondition(Player player) => player.PlayerId == scopePlayer;
++        bool CardEffectCondition(ICardEffect cardEffect) =>
++            causingEffectPredicate is null || (cardEffect?.EffectSourceCard is { } src && causingEffectPredicate(src));
++    }
++
++    public static ICardEffect CanNotAddMemoryStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null)
++    {
++        var effect = new CardEffects.CannotAddMemoryClass();
++        effect.SetUpICardEffect("Can't add memory", CanUseCondition, card);
++        effect.SetUpCannotAddMemoryClass(PlayerCondition: PlayerCondition, CardEffectCondition: CardEffectCondition);
++        effect.SetNotShowUI(true);
++        if (isInheritedEffect)
++        {
++            effect.SetIsInheritedEffect(true);
++        }
++
++        return effect;
++
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
++        bool PlayerCondition(Player player) => player.PlayerId == scopePlayer;
++        bool CardEffectCondition(ICardEffect cardEffect) =>
++            causingEffectPredicate is null || (cardEffect?.EffectSourceCard is { } src && causingEffectPredicate(src));
++    }
++
++
++
++
++
++
++    public static ICardEffect ImmuneFromDeDigivolveStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)
++    {
++        var effect = new CardEffects.ImmuneFromDeDigivolveClass();
++        effect.SetUpICardEffect("Isn't affected by <De-Digivolve>", CanUseCondition, card);
++        effect.SetUpImmuneFromDeDigivolveClass(PermanentCondition: PermanentCondition);
++        effect.SetNotShowUI(true);
++        if (isInheritedEffect)
++        {
++            effect.SetIsInheritedEffect(true);
++        }
++
++        return effect;
++
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
++
++        bool PermanentCondition(Permanent permanent)
++        {
++            if (permanentCondition is null)
+             {
+-                if (CardEffectCommons.IsOwnerTurn(card))
+-                {
+-                    return true;
+-                }
++                Permanent? own = ICardEffect.ResolvePermanentOfThisCard(card);
++                return own is not null && permanent == own;
+             }
+ 
+-            return false;
++            return permanent.OwnerId == card.Owner && permanentCondition(permanent);
+         }
++    }
+ 
+-        bool CanActivateCondition(Hashtable hashtable)
++    public static ICardEffect CanNotSelectBySkillStaticEffect(Func<CardSource, CardSource, bool> predicate, CardSource card, Func<bool>? condition = null) =>
++        new CanNotSelectBySkillEffect(card, predicate, condition);
++
++
++    public static ICardEffect CanNotMoveStaticEffect(Func<CardSource, CardSource?, bool> predicate, CardSource card, Func<bool>? condition = null) =>
++        new CanNotMoveEffect(card, predicate, condition);
++
++    public static ICardEffect DontHaveDPStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool scopeAnyPlayer = false)
++    {
++        var effect = new CardEffects.DontHaveDPClass();
++        effect.SetUpICardEffect("Don't have DP", CanUseCondition, card);
++        effect.SetUpDontHaveDPClass(PermanentCondition: PermanentCondition);
++        effect.SetNotShowUI(true);
++        if (isInheritedEffect)
+         {
+-            if (CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass))
++            effect.SetIsInheritedEffect(true);
++        }
++
++        return effect;
++
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
++
++        bool PermanentCondition(Permanent permanent)
++        {
++            if (permanentCondition is null)
+             {
+-                if (card.Owner.Enemy.GetBattleAreaDigimons().Count >= 1)
+-                {
+-                    if (card.Owner.CanAddMemory(activateClass))
+-                    {
+-                        return true;
+-                    }
+-                }
++                Permanent? own = ICardEffect.ResolvePermanentOfThisCard(card);
++                return own is not null && permanent == own;
+             }
+ 
+-            return false;
++            return (scopeAnyPlayer || permanent.OwnerId == card.Owner) && permanentCondition(permanent);
+         }
++    }
++
++    public static ICardEffect DontBattleSecurityDigimonStaticEffect(Func<CardSource, bool> cardSourceCondition, CardSource card, Func<bool>? condition)
++    {
++        var effect = new CardEffects.DontBattleSecurityDigimonClass();
++        effect.SetUpICardEffect("Ignore Battle", CanUseCondition, card);
++        effect.SetUpDontBattleSecurityDigimonClass(CardSourceCondition: cardSourceCondition);
++        effect.SetIsSecurityEffect(true);
++        effect.SetNotShowUI(true);
++        return effect;
++
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
++    }
++
++    public static ICardEffect CannotIgnoreDigivolutionConditionStaticEffect(Func<CardSource, CardSource, bool> predicate, CardSource card, Func<bool>? condition = null)
++    {
++        var effect = new CardEffects.CannotIgnoreDigivolutionConditionClass();
++        effect.SetUpICardEffect("Players can't ignore digivolution requirements", CanUseCondition, card);
++        effect.SetUpCannotIgnoreDigivolutionConditionClass(
++            (player, targetPermanent, cardSource) => predicate(cardSource, targetPermanent.TopCard));
++        return effect;
++
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
++    }
+ 
+-        IEnumerator ActivateCoroutine(Hashtable _hashtable)
++    public static ICardEffect ChangeEndTurnMinMemoryStaticEffect(int minMemory, bool isInheritedEffect, CardSource card, Func<bool>? condition)
++    {
++        var effect = new CardEffects.ChangeEndTurnMinMemoryClass();
++        effect.SetUpICardEffect("The turn end condition min-memory", CanUseCondition, card);
++        effect.SetUpChangeEndTurnMinMemoryClass(_ => minMemory);
++        if (isInheritedEffect)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
++            effect.SetIsInheritedEffect(true);
+         }
+ 
+-        return activateClass;
++        return effect;
++
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+     }
+ 
+-    #endregion
++    public static ICardEffect ChangeBaseCardNameStaticEffect(string newName, CardSource card, Func<bool>? condition = null)
++    {
++        ArgumentException.ThrowIfNullOrWhiteSpace(newName);
++        var effect = new CardEffects.ChangeBaseCardNameClass();
++        effect.SetUpICardEffect("Change base card name", CanUseCondition, card);
++        effect.SetUpChangeBaseCardNamesClass((_, _) => new List<string> { newName });
++        return effect;
+ 
+-    #region Tamer's effect to Gain 1 Memory if owner has condition digimon
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
++    }
+ 
+-    public static ICardEffect Gain1MemoryTamerOwnerDigimonConditionalEffect(string effectDescription, Func<Permanent, bool> permamentCondition, Func<bool> condition, CardSource card)
++
++
++
++
++    public static ICardEffect Gain1MemoryTamerOwnerDigimonConditionalEffect(string effectDescription, Func<Permanent, bool>? permanentCondition, Func<bool>? condition, CardSource card)
+     {
+         ActivateClass activateClass = new ActivateClass();
+         activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+ 
+-        string EffectDiscription() => effectDescription;
++        string EffectDiscription() =>
++            string.IsNullOrWhiteSpace(effectDescription) ? "[Start of Your Main Phase] Gain 1 memory." : effectDescription;
+ 
+         bool CanUseCondition(Hashtable hashtable)
+         {
+@@ -129,70 +428,115 @@
+         {
+             return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass)
+                 && card.Owner.CanAddMemory(activateClass)
+-                && condition()
+-                && card.Owner.GetBattleAreaDigimons().Any(permamentCondition);
++                && (condition is null || condition())
++                && (permanentCondition is null || card.Owner.GetBattleAreaDigimons().Any(permanentCondition));
+         }
+ 
+-        IEnumerator ActivateCoroutine(Hashtable _hashtable)
++        async Task ActivateCoroutine(Hashtable _hashtable)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
++            await card.Owner.AddMemory(1, activateClass);
+         }
+ 
+         return activateClass;
+     }
+ 
+-    #endregion
++    internal static bool OwnerControlsMatchingDigimon(CardSource card, Func<Permanent, bool> predicate, params ChoiceZone[] searchZones)
++    {
++        if (card.Context.ZoneMover is not IZoneStateReader zones)
++        {
++            return false;
++        }
++
++        ChoiceZone[] zonesToSearch = searchZones is { Length: > 0 } ? searchZones : new[] { ChoiceZone.BattleArea };
++        foreach (ChoiceZone zone in zonesToSearch)
++        {
++            foreach (HeadlessEntityId id in zones.GetCards(card.Owner, zone))
++            {
++                if (predicate(new Permanent(card.Context, id, card.Owner)))
++                {
++                    return true;
++                }
++            }
++        }
+ 
+-    #region Tamer's Security effect to play oneself
++        return false;
++    }
+ 
+-    public static ICardEffect PlaySelfTamerSecurityEffect(CardSource card)
++    public static ICardEffect EoTLose3Memory(CardSource card)
+     {
+-        ActivateClass activateClass = new ActivateClass();
+-        activateClass.SetUpICardEffect("Play this card", CanUseCondition, card);
+-        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+-        activateClass.SetIsSecurityEffect(true);
++        ActivateClass activateClass1 = new ActivateClass();
++        activateClass1.SetUpICardEffect("Memory -3", CanUseCondition1, card);
++        activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription1());
++        return activateClass1;
+ 
+-        string EffectDiscription()
++        string EffectDiscription1()
+         {
+-            return "[Security] Play this card without paying its memory cost.";
++            return "Lose 3 memory.";
+         }
+ 
+-        bool CanUseCondition(Hashtable hashtable)
++        bool CanUseCondition1(Hashtable hashtable)
+         {
+-            return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
++            return true;
+         }
+ 
+-        bool CanActivateCondition(Hashtable hashtable)
++        bool CanActivateCondition1(Hashtable hashtable)
+         {
+-            if (card.Owner.ExecutingCards.Contains(card))
+-            {
+-                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass))
+-                {
+-                    return true;
+-                }
+-            }
++            return true;
++        }
+ 
+-            return false;
++        async Task ActivateCoroutine1(Hashtable _hashtable1)
++        {
++            await card.Owner.AddMemory(-3, activateClass1);
++        }
++    }
++
++
++
++
++
++
++    public static ICardEffect ImmuneStackTrashingClass(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
++        CanNotBeTrashedBySkillStaticEffect(null!, null!, isInheritedEffect, card, condition!, "Isn't affected by trashing any stacked card");
++
++    public static ICardEffect ReplaceTopSecurityWithFaceUpOptionMainEffect(CardSource card)
++    {
++        ActivateClass activateClass = new ActivateClass();
++        activateClass.SetUpICardEffect("Replace your top security card with this face-up card", CanUseCondition, card);
++        activateClass.SetUpActivateClass(null, _ => ReplaceTopSecurityWithFaceUpOptionEffect(card, activateClass), -1, false, EffectDescription());
++
++        string EffectDescription()
++        {
++            return "[Main] Add your top security card to the hand. Then, place this card face up as the top security card.";
+         }
+ 
+-        IEnumerator ActivateCoroutine(Hashtable _hashtable)
++        bool CanUseCondition(Hashtable hashtable)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(
+-                CardEffectCommons.PlayPermanentCards(
+-                    cardSources: new List<CardSource>() { card },
+-                    activateClass: activateClass,
+-                    payCost: false,
+-                    isTapped: false,
+-                    root: SelectCardEffect.Root.Execution,
+-                    activateETB: true));
++            return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+         }
+ 
+         return activateClass;
+     }
+ 
+-    #endregion
++    public static async Task ReplaceTopSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
++    {
++        if (new Player(card.Context, card.Owner).SecurityCards.Count >= 1)
++        {
++            CardSource topCard = new Player(card.Context, card.Owner).SecurityCards.First();
++
++            await CardObjectController.AddHandCards(new List<CardSource>() { topCard }, false, activateClass);
++
++            await new IReduceSecurity(card.Context, card.Owner, refCollector: null, activateClass).ReduceSecurity();
++        }
++
++        if (new Player(card.Context, card.Owner).CanAddSecurity(activateClass.EffectSourceCard?.InstanceId))
++        {
++            await CardObjectController.AddSecurityCard(card, toTop: true, faceUp: true);
++
++
++            await new IAddSecurity(card).AddSecurity();
++        }
++    }
+ 
+-    #region Mind Link Tamer's effect to play themself from digivolution cards
+     public static ICardEffect PlayMindLinkTamerFromDigivolutionCards(CardSource card, string cardName, string effectDescription)
+     {
+         ActivateClass activateClass = new ActivateClass();
+@@ -214,14 +558,14 @@
+         bool CanActivateCondition(Hashtable hashtable)
+         {
+             return CardEffectCommons.IsExistOnBattleArea(card)
+-                && card.PermanentOfThisCard().DigivolutionCards.Count(CanSelectCardCondition) >= 1;
++                && ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Count(CanSelectCardCondition) >= 1;
+         }
+ 
+-        IEnumerator ActivateCoroutine(Hashtable _hashtable)
++        async Task ActivateCoroutine(Hashtable _hashtable)
+         {
+             if (CardEffectCommons.IsExistOnBattleArea(card))
+             {
+-                Permanent selectedPermanent = card.PermanentOfThisCard();
++                Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+ 
+                 if (selectedPermanent != null)
+                 {
+@@ -246,7 +590,7 @@
+                                     isShowOpponent: true,
+                                     mode: SelectCardEffect.Mode.Custom,
+                                     root: SelectCardEffect.Root.Custom,
+-                                    customRootCardList: selectedPermanent.DigivolutionCards,
++                                    customRootCardList: selectedPermanent.DigivolutionCards.ToList(),
+                                     canLookReverseCard: true,
+                                     selectPlayer: card.Owner,
+                                     cardEffect: activateClass);
+@@ -255,32 +599,110 @@
+                             "The opponent is selecting 1 digivolution card to play.");
+                         selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
++                        await selectCardEffect.Activate();
+ 
+-                        IEnumerator SelectCardCoroutine(CardSource cardSource)
++                        async Task SelectCardCoroutine(CardSource cardSource)
+                         {
+                             selectedCards.Add(cardSource);
+ 
+-                            yield return null;
++                            await Task.CompletedTask;
+                         }
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(
++                        await CardEffectCommons.PlayPermanentCards(
+                             cardSources: selectedCards,
+                             activateClass: activateClass,
+                             payCost: false,
+                             isTapped: false,
+                             root: SelectCardEffect.Root.DigivolutionCards,
+-                            activateETB: true));
++                            activateETB: true);
+                     }
+                 }
+             }
+         }
+ 
+         return activateClass;
+-    }   
+-    #endregion
++    }
+ 
+-    #region Digimon's Security effect to play oneself after battle
++
++
++    public static ICardEffect ActivateMainOptionSecurityEffect(CardSource card, string effectName, string effectDiscription = "", Func<ICardEffect, Task> afterMainEffect = null)
++    {
++        ActivateClass mainActivateClass = CardEffectCommons.OptionMainEffect(card);
++
++        ActivateClass activateClass = new ActivateClass();
++        activateClass.SetUpICardEffect(EffectName(), CanUseCondition, card);
++        activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
++        activateClass.SetIsSecurityEffect(true);
++
++        string EffectName()
++        {
++            if (!string.IsNullOrEmpty(effectName)) return effectName;
++            if (mainActivateClass != null) return mainActivateClass.EffectName;
++            return "";
++        }
++
++        string EffectDiscription()
++        {
++            if (!string.IsNullOrEmpty(effectDiscription)) return effectDiscription;
++            if (mainActivateClass != null) return mainActivateClass.EffectDiscription.Replace("[Main]", "[Security]");
++            return "";
++        }
++
++        bool CanUseCondition(Hashtable hashtable)
++        {
++            return CardEffectCommons.CanTriggerSecurityEffect(CardEffectCommons.OptionMainCheckHashtable(card), card);
++        }
++
++        async Task ActivateCoroutine(Hashtable _hashtable)
++        {
++            if (mainActivateClass != null)
++            {
++                await mainActivateClass.Activate(CardEffectCommons.OptionMainCheckHashtable(card));
++            }
++
++            if (afterMainEffect != null)
++            {
++                await afterMainEffect(activateClass);
++            }
++        }
++
++        return activateClass;
++    }
++
++    public static ICardEffect PlaceSelfDelayOptionSecurityEffect(CardSource card)
++    {
++        ActivateClass activateClass = new ActivateClass();
++        activateClass.SetUpICardEffect("Place this card in battle area", CanUseCondition, card);
++        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
++        activateClass.SetIsSecurityEffect(true);
++
++        string EffectDiscription()
++        {
++            return "[Security] Place this card in its owner's battle area.";
++        }
++
++        bool CanUseCondition(Hashtable hashtable)
++        {
++            return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
++        }
++
++        bool CanActivateCondition(Hashtable hashtable)
++        {
++            if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass, isPlayOption: true))
++            {
++                return true;
++            }
++
++            return false;
++        }
++
++        async Task ActivateCoroutine(Hashtable _hashtable)
++        {
++            await CardEffectCommons.PlaceDelayOptionCards(card: card, cardEffect: activateClass);
++        }
++
++        return activateClass;
++    }
+ 
+     public static ICardEffect PlaySelfDigimonAfterBattleSecurityEffect(CardSource card, EffectDuration deleteDigimon = EffectDuration.UntilEndBattle)
+     {
+@@ -304,17 +726,12 @@
+             return CardEffectCommons.IsExistOnExecutingArea(card);
+         }
+ 
+-        IEnumerator ActivateCoroutine(Hashtable _hashtable)
++        async Task ActivateCoroutine(Hashtable _hashtable)
+         {
+-            yield return null;
+-
+-            ContinuousController.instance.PlaySE(GManager.instance.GetComponent<Effects>().BuffSE);
+-
+-            #region Play Card
+             ActivateClass activateClass1 = new ActivateClass();
+             activateClass1.SetUpICardEffect("Play this card", CanUseCondition1, card);
+             activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription1());
+-            card.Owner.UntilEndBattleEffects.Add(GetCardEffect1);
++            new Player(card.Context, card.Owner).UntilEndBattleEffects.Add(GetCardEffect1);
+ 
+             string EffectDiscription1()
+             {
+@@ -328,9 +745,10 @@
+ 
+             bool CanActivateCondition1(Hashtable hashtable)
+             {
+-                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1, root: SelectCardEffect.Root.Security))
++                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1))
+                 {
+-                    if (!card.Owner.LibraryCards.Contains(card) && !card.Owner.SecurityCards.Contains(card))
++                    Player owner = new Player(card.Context, card.Owner);
++                    if (!owner.LibraryCards.Contains(card) && !owner.SecurityCards.Contains(card))
+                     {
+                         return true;
+                     }
+@@ -339,109 +757,105 @@
+                 return false;
+             }
+ 
+-            IEnumerator ActivateCoroutine1(Hashtable _hashtable1)
++            async Task ActivateCoroutine1(Hashtable _hashtable1)
+             {
+-                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1, root: SelectCardEffect.Root.Security))
++                Player owner = new Player(card.Context, card.Owner);
++                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1)
++                    && !owner.LibraryCards.Contains(card) && !owner.SecurityCards.Contains(card))
+                 {
+-                    if (!card.Owner.LibraryCards.Contains(card) && !card.Owner.SecurityCards.Contains(card))
++                    await CardEffectCommons.PlayPermanentCards(
++                        cardSources: new List<CardSource>() { card },
++                        sourceCard: card,
++                        payCost: false,
++                        isTapped: false,
++                        root: ChoiceZone.Execution,
++                        activateETB: true);
++
++                    if (deleteDigimon != EffectDuration.UntilEndBattle)
+                     {
+-                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(
+-                            cardSources: new List<CardSource>() { card },
+-                            activateClass: activateClass1,
+-                            payCost: false,
+-                            isTapped: false,
+-                            root: SelectCardEffect.Root.Security,
+-                            activateETB: true));
++                        Permanent playedDigimon = ICardEffect.ResolvePermanentOfThisCard(card);
++
++                        ActivateClass activateClass2 = new ActivateClass();
++                        activateClass2.SetUpICardEffect("Delete this Digimon", CanUseCondition2, card);
++                        activateClass2.SetUpActivateClass(CanActivateCondition2, ActivateCoroutine2, -1, false, EffectDiscription2());
++                        activateClass2.SetEffectSourcePermanent(playedDigimon);
++                        playedDigimon.UntilOpponentTurnEndEffects.Add(GetCardEffect);
+ 
+-                        if (deleteDigimon != EffectDuration.UntilEndBattle)
++                        string EffectDiscription2()
+                         {
+-                            yield return new WaitForSeconds(0.2f);
++                            if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
++                            {
++                                return "[End of Your Turn] Delete this Digimon.";
++                            }
+ 
+-                            #region Delete Digimon Played
+-                            Permanent playedDigimon = card.PermanentOfThisCard();
++                            if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
++                            {
++                                return "[End of Opponents Turn] Delete this Digimon.";
++                            }
++
++                            if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
++                            {
++                                return "[End of Turn] Delete this Digimon.";
++                            }
+ 
+-                            ActivateClass activateClass2 = new ActivateClass();
+-                            activateClass2.SetUpICardEffect("Delete this Digimon", CanUseCondition2, card);
+-                            activateClass2.SetUpActivateClass(CanActivateCondition2, ActivateCoroutine2, -1, false, EffectDiscription2());
+-                            activateClass2.SetEffectSourcePermanent(playedDigimon);
+-                            playedDigimon.UntilOpponentTurnEndEffects.Add(GetCardEffect);
++                            return "";
++                        }
+ 
+-                            string EffectDiscription2()
++                        bool CanUseCondition2(Hashtable hashtable1)
++                        {
++                            if (CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(playedDigimon, card))
+                             {
+                                 if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
+                                 {
+-                                    return "[End of Your Turn] Delete this Digimon.";
++                                    return CardEffectCommons.IsOwnerTurn(card);
+                                 }
+ 
+                                 if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
+                                 {
+-                                    return "[End of Opponents Turn] Delete this Digimon.";
++                                    return CardEffectCommons.IsOpponentTurn(card);
+                                 }
+ 
+                                 if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
+                                 {
+-                                    return "[End of Turn] Delete this Digimon.";
++                                    return CardEffectCommons.IsOwnerTurn(card)
++                                        || CardEffectCommons.IsOpponentTurn(card);
+                                 }
+-                                return "";
+                             }
+ 
+-                            bool CanUseCondition2(Hashtable hashtable1)
+-                            {
+-                                if (CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(playedDigimon, playedDigimon.TopCard))
+-                                {
+-                                    if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
+-                                    {
+-                                        return CardEffectCommons.IsOwnerTurn(card);
+-                                    }
+-
+-                                    if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
+-                                    {
+-                                        return CardEffectCommons.IsOpponentTurn(card);
+-                                    }
+-
+-                                    if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
+-                                    {
+-                                        return CardEffectCommons.IsOwnerTurn(card)
+-                                            || CardEffectCommons.IsOpponentTurn(card);
+-                                    }
+-                                }
+-
+-                                return false;
+-                            }
++                            return false;
++                        }
+ 
+-                            bool CanActivateCondition2(Hashtable hashtable1)
++                        bool CanActivateCondition2(Hashtable hashtable1)
++                        {
++                            if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
+                             {
+-                                if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
++                                if (!playedDigimon.TopCard.CanNotBeAffected(activateClass2))
+                                 {
+-                                    if (!playedDigimon.TopCard.CanNotBeAffected(activateClass2))
+-                                    {
+-                                        return true;
+-                                    }
++                                    return true;
+                                 }
+-
+-                                return false;
+                             }
+ 
+-                            IEnumerator ActivateCoroutine2(Hashtable _hashtable1)
++                            return false;
++                        }
++
++                        async Task ActivateCoroutine2(Hashtable _hashtable2)
++                        {
++                            if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
+                             {
+-                                if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
+-                                {
+-                                    yield return ContinuousController.instance.StartCoroutine(new DestroyPermanentsClass(
++                                await new DestroyPermanentsClass(
+                                     new List<Permanent>() { playedDigimon },
+-                                    CardEffectCommons.CardEffectHashtable(activateClass2)).Destroy());
+-                                }
++                                    CardEffectCommons.CardEffectHashtable(activateClass2)).Destroy();
+                             }
++                        }
+ 
+-                            ICardEffect GetCardEffect(EffectTiming _timing)
++                        ICardEffect GetCardEffect(EffectTiming _timing)
++                        {
++                            if (_timing == EffectTiming.OnEndTurn)
+                             {
+-                                if (_timing == EffectTiming.OnEndTurn)
+-                                {
+-                                    return activateClass2;
+-                                }
+-
+-                                return null;
++                                return activateClass2;
+                             }
+-                            #endregion
++
++                            return null;
+                         }
+                     }
+                 }
+@@ -456,299 +870,279 @@
+ 
+                 return null;
+             }
+-            #endregion
+-
+         }
+ 
+         return activateClass;
+     }
+ 
+-    #endregion
+-
+-    #region Delay Option's Effect to gain 2 Memory
+-
+-    public static ICardEffect Gain2MemoryOptionDelayEffect(CardSource card)
++    public static OptionResolutionClass PlaceToSecurityEffect(CardSource card, bool toTop, bool isFaceUp = false, Func<bool> Condition = null)
+     {
+-        ActivateClass activateClass = new ActivateClass();
+-        activateClass.SetUpICardEffect("Memory +2", CanUseCondition, card);
+-        activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+-
+-        string EffectDiscription()
+-        {
+-            return "[Main] <Delay> (Trash this card in your battle area to activate the effect below. You can't activate this effect the turn this card enters play.) - Gain 2 memory.";
+-        }
++        if (card == null) return null;
++        string location = toTop ? "top" : "bottom";
++        string facing = isFaceUp ? "face up" : "face down";
++        string effectName = $"Place the used Option card on {location} of security {facing}.";
++        OptionResolutionClass placeToSecurityEffect = new();
++        placeToSecurityEffect.SetUpICardEffect(effectName, CanUseCondition, card);
++        placeToSecurityEffect.SetUpOptionResolutionClass(ResolutionCoroutine, CanResolveCondition);
++        return placeToSecurityEffect;
+ 
+         bool CanUseCondition(Hashtable hashtable)
+         {
+-            return CardEffectCommons.CanDeclareOptionDelayEffect(card);
++            return Condition == null || Condition();
+         }
+ 
+-        IEnumerator ActivateCoroutine(Hashtable _hashtable)
+-        {
+-            bool deleted = false;
++        bool CanResolveCondition(CardSource optionCard) =>
++            new Player(optionCard.Context, optionCard.Owner).CanAddSecurity(placeToSecurityEffect.EffectSourceCard?.InstanceId);
+ 
+-            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.DeletePeremanentAndProcessAccordingToResult(targetPermanents: new List<Permanent>() { card.PermanentOfThisCard() }, activateClass: activateClass, successProcess: permanents => SuccessProcess(), failureProcess: null));
++        async Task ResolutionCoroutine(CardSource optionCard)
++        {
++            await CardObjectController.AddSecurityCard(optionCard, toTop, isFaceUp);
++        }
++    }
+ 
+-            IEnumerator SuccessProcess()
+-            {
+-                deleted = true;
++    #region Add detail for Display
++    public static AddDetailClass AddDetailClass(Func<Hashtable, bool> canUseCondition, Func<Permanent, bool> permanentCondition, string detail, bool triggerEffect, CardSource card)
++    {
++        AddDetailClass addDetailClass = new();
++        addDetailClass.SetUpICardEffect("Added Detail", canUseCondition, card);
++        addDetailClass.SetUpAddDetailClass(permanentCondition, detail, triggerEffect);
++        return addDetailClass;
++    }
++    #endregion
+ 
+-                yield return null;
+-            }
+ 
+-            if (deleted)
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(2, activateClass));
+-            }
+-        }
+ 
+-        return activateClass;
+-    }
+ 
+-    #endregion
+ 
+-    #region Delay Option's Security effect to place oneself in battle area
+ 
+-    public static ICardEffect PlaceSelfDelayOptionSecurityEffect(CardSource card)
++    public static ICardEffect SetMemoryTo3TamerEffect(CardSource card)
+     {
+         ActivateClass activateClass = new ActivateClass();
+-        activateClass.SetUpICardEffect("Place this card in battle area", CanUseCondition, card);
++        activateClass.SetUpICardEffect("Set Memory to 3", CanUseCondition, card);
+         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+-        activateClass.SetIsSecurityEffect(true);
+ 
+         string EffectDiscription()
+         {
+-            return "[Security] Place this card in its owner's battle area.";
++            return "[Start of Your Turn] If you have 2 or less memory, set your memory to 3.";
+         }
+ 
+         bool CanUseCondition(Hashtable hashtable)
+         {
+-            return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
++            if (CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass))
++            {
++                if (CardEffectCommons.IsOwnerTurn(card))
++                {
++                    return true;
++                }
++            }
++
++            return false;
+         }
+ 
+         bool CanActivateCondition(Hashtable hashtable)
+         {
+-            if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass, isPlayOption: true))
++            if (CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass))
+             {
+-                return true;
++                if (new Player(card.Context, card.Owner).MemoryForPlayer <= 2)
++                {
++                    if (card.Owner.CanAddMemory(activateClass))
++                    {
++                        return true;
++                    }
++                }
+             }
+ 
+             return false;
+         }
+ 
+-        IEnumerator ActivateCoroutine(Hashtable _hashtable)
++        async Task ActivateCoroutine(Hashtable _hashtable)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlaceDelayOptionCards(card: card, cardEffect: activateClass));
++            await card.Owner.SetFixedMemory(3, activateClass);
+         }
+ 
+         return activateClass;
+     }
+ 
+-    #endregion
+ 
+-    #region Option's Security effect that "Activate this card's Main effect"
+ 
+-    public static ICardEffect ActivateMainOptionSecurityEffect(CardSource card, string effectName, string effectDiscription = "", Func<ICardEffect, IEnumerator> afterMainEffect = null)
+-    {
+-        ActivateClass mainActivateClass = CardEffectCommons.OptionMainEffect(card);
+ 
++
++    public static ICardEffect PlaySelfTamerSecurityEffect(CardSource card)
++    {
+         ActivateClass activateClass = new ActivateClass();
+-        activateClass.SetUpICardEffect(EffectName(), CanUseCondition, card);
+-        activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
++        activateClass.SetUpICardEffect("Play this card", CanUseCondition, card);
++        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+         activateClass.SetIsSecurityEffect(true);
+ 
+-        string EffectName()
+-        {
+-            if (!string.IsNullOrEmpty(effectName)) return effectName;
+-            if (mainActivateClass != null) return mainActivateClass.EffectName;
+-            return "";
+-        }
+-
+         string EffectDiscription()
+         {
+-            if (!string.IsNullOrEmpty(effectDiscription)) return effectDiscription;
+-            if (mainActivateClass != null) return mainActivateClass.EffectDiscription.Replace("[Main]", "[Security]");
+-            return "";
++            return "[Security] Play this card without paying its memory cost.";
+         }
+ 
+         bool CanUseCondition(Hashtable hashtable)
+         {
+-            return CardEffectCommons.CanTriggerSecurityEffect(CardEffectCommons.OptionMainCheckHashtable(card), card);
++            return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
+         }
+ 
+-        IEnumerator ActivateCoroutine(Hashtable _hashtable)
++        bool CanActivateCondition(Hashtable hashtable)
+         {
+-            if (mainActivateClass != null)
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(mainActivateClass.Activate(CardEffectCommons.OptionMainCheckHashtable(card)));
+-            }
+-
+-            if (afterMainEffect != null)
++            if (CardEffectCommons.IsExistOnExecutingArea(card))
+             {
+-                yield return ContinuousController.instance.StartCoroutine(afterMainEffect(activateClass));
++                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass))
++                {
++                    return true;
++                }
+             }
+-        }
+-
+-        return activateClass;
+-    }
+ 
+-    #endregion
+-
+-    #region Option's Main Effect to replace bottom security card with this card face up
+-
+-    public static ICardEffect ReplaceBottomSecurityWithFaceUpOptionMainEffect(CardSource card)
+-    {
+-        ActivateClass activateClass = new ActivateClass();
+-        activateClass.SetUpICardEffect("Replace your bottom security card with this face-up card", CanUseCondition, card);
+-        activateClass.SetUpActivateClass(null, _ => ReplaceBottomSecurityWithFaceUpOptionEffect(card, activateClass), -1, false, EffectDescription());
+-
+-        string EffectDescription()
+-        {
+-            return "[Main] Add your bottom security card to the hand. Then, place this card face up as the bottom security card.";
++            return false;
+         }
+ 
+-        bool CanUseCondition(Hashtable hashtable)
++        async Task ActivateCoroutine(Hashtable _hashtable)
+         {
+-            return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
++            await CardEffectCommons.PlayPermanentCards(
++                    cardSources: new List<CardSource>() { card },
++                    activateClass: activateClass,
++                    payCost: false,
++                    isTapped: false,
++                    root: SelectCardEffect.Root.Execution,
++                    activateETB: true);
+         }
+ 
+         return activateClass;
+     }
+ 
+-    #endregion
+ 
+-    #region Option's Effect to replace top security card with this card face up
+ 
+-    public static ICardEffect ReplaceTopSecurityWithFaceUpOptionMainEffect(CardSource card)
+-    {
+-        ActivateClass activateClass = new ActivateClass();
+-        activateClass.SetUpICardEffect("Replace your top security card with this face-up card", CanUseCondition, card);
+-        activateClass.SetUpActivateClass(null, _ => ReplaceTopSecurityWithFaceUpOptionEffect(card, activateClass), -1, false, EffectDescription());
+ 
+-        string EffectDescription()
+-        {
+-            return "[Main] Add your top security card to the hand. Then, place this card face up as the top security card.";
+-        }
+ 
+-        bool CanUseCondition(Hashtable hashtable)
+-        {
+-            return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+-        }
+ 
+-        return activateClass;
+-    }
+ 
+-    #endregion
+ 
+-    #region Option's Effect to replace bottom security card with this card face up
+ 
+-    public static IEnumerator ReplaceBottomSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
++
++
++    public static ICardEffect CanNotAffectedStaticEffect(Func<Permanent, bool>? permanentCondition, Func<ICardEffect, bool>? skillCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)
+     {
+-        if (card.Owner.SecurityCards.Count >= 1)
++        var effect = new CardEffects.CanNotAffectedClass();
++        effect.SetUpICardEffect("Isn't affected by opponent's effect", CanUseCondition, card);
++        effect.SetUpCanNotAffectedClass(CardCondition: CardCondition, SkillCondition: SkillCondition);
++        if (isInheritedEffect)
+         {
+-            #region Add Bottom Security Card to Hand
++            effect.SetIsInheritedEffect(true);
++        }
+ 
+-            CardSource bottomCard = card.Owner.SecurityCards.Last();
++        return effect;
+ 
+-            yield return ContinuousController.instance.StartCoroutine(
+-                CardObjectController.AddHandCards(new List<CardSource>() { bottomCard }, false, activateClass));
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+ 
+-            yield return ContinuousController.instance.StartCoroutine(new IReduceSecurity(
+-                player: card.Owner,
+-                refSkillInfos: ref ContinuousController.instance.nullSkillInfos,
+-                activateClass).ReduceSecurity());
++        bool CardCondition(CardSource protectedCard)
++        {
++            if (permanentCondition is null)
++            {
++                return protectedCard.InstanceId == card.InstanceId;
++            }
+ 
+-            #endregion
++            return permanentCondition(new Permanent(protectedCard.Context, protectedCard.InstanceId, protectedCard.Owner));
+         }
+ 
+-        #region Place Face up as Bottom Security Card
+-
+-        if (card.Owner.CanAddSecurity(activateClass))
++        bool SkillCondition(ICardEffect causingEffect)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddSecurityCard(
+-                card, toTop: false, faceUp: true));
+-
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>()
+-                .CreateRecoveryEffect(card.Owner));
++            if (skillCondition is not null)
++            {
++                return skillCondition(causingEffect);
++            }
+ 
+-            yield return ContinuousController.instance.StartCoroutine(new IAddSecurity(card).AddSecurity());
++            return causingEffect.EffectSourceCard is not null && causingEffect.EffectSourceCard.Owner != card.Owner;
+         }
+-
+-        #endregion
+     }
+ 
+-    #endregion
+-
+-    #region Option's Effect to replace top security card with this card face up
+-
+-    public static IEnumerator ReplaceTopSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
++    public static ICardEffect CanNotTrashFromDigivolutionCardsStaticEffect(
++        Func<CardSource, bool> cardCondition, Func<ICardEffect, bool> cardEffectCondition,
++        bool isInheritedEffect, CardSource card, Func<bool>? condition)
+     {
+-        if (card.Owner.SecurityCards.Count >= 1)
++        var effect = new CardEffects.CanNotTrashFromDigivolutionCardsClass();
++        effect.SetUpICardEffect("[Digivolution cards] under this Digimon can't be trashed", CanUseCondition, card);
++        effect.SetUpCanNotTrashFromDigivolutionCardsClass(CardCondition: cardCondition, CardEffectCondition: cardEffectCondition);
++        if (isInheritedEffect)
+         {
+-            #region Add Top Security Card to Hand
++            effect.SetIsInheritedEffect(true);
++        }
+ 
+-            CardSource topCard = card.Owner.SecurityCards.First();
++        return effect;
+ 
+-            yield return ContinuousController.instance.StartCoroutine(
+-                CardObjectController.AddHandCards(new List<CardSource>() { topCard }, false, activateClass));
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
++    }
+ 
+-            yield return ContinuousController.instance.StartCoroutine(new IReduceSecurity(
+-                player: card.Owner,
+-                refSkillInfos: ref ContinuousController.instance.nullSkillInfos,
+-                activateClass).ReduceSecurity());
+ 
+-            #endregion
+-        }
++    public static ICardEffect ChangeCardNamesStaticEffect(string addedName, bool isInheritedEffect, CardSource card, Func<bool>? condition)
++    {
++        ArgumentException.ThrowIfNullOrWhiteSpace(addedName);
++        ArgumentNullException.ThrowIfNull(card);
+ 
+-        #region Place Face up as Top Security Card
++        bool CanUseCondition(Hashtable hashtable)
++        {
++            return condition == null || condition();
++        }
+ 
+-        if (card.Owner.CanAddSecurity(activateClass))
++        List<string> ChangeCardNames(CardSource cardSource, List<string> cardNames)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddSecurityCard(
+-                card, toTop: true, faceUp: true));
++            if (cardSource == card)
++            {
++                cardNames.Add(addedName);
++            }
+ 
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>()
+-                .CreateRecoveryEffect(card.Owner));
++            return cardNames;
++        }
+ 
+-            yield return ContinuousController.instance.StartCoroutine(new IAddSecurity(card).AddSecurity());
++        CardEffects.ChangeCardNamesClass changeCardNamesClass = new CardEffects.ChangeCardNamesClass();
++        changeCardNamesClass.SetUpICardEffect($"Also treated as having [{addedName}] in its name", CanUseCondition, card);
++        changeCardNamesClass.SetUpChangeCardNamesClass(changeCardNames: ChangeCardNames);
++        if (isInheritedEffect)
++        {
++            changeCardNamesClass.SetIsInheritedEffect(true);
+         }
+ 
+-        #endregion
++        return changeCardNamesClass;
+     }
+ 
+-    #endregion
+ 
+-    #region Use Requirements
+-    public static IgnoreColorConditionClass UseRequirements(CardSource card, Func<CardSource, bool> cardCondition)
++    public static AddDigiXrosConditionClass DigiXrosEffectFromNames(CardSource card, int CostReduction, Func<List<CardSource>, CardSource, bool> CanTargetCondition_ByPreSelecetedList, params string[] names)
+     {
+-        IgnoreColorConditionClass ignoreColorConditionClass = new IgnoreColorConditionClass();
+-        ignoreColorConditionClass.SetUpICardEffect("Ignore color requirements", CanUseCondition, card);
+-        ignoreColorConditionClass.SetUpIgnoreColorConditionClass(cardCondition: CardCondition);
+-        return ignoreColorConditionClass;
++        AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();
++        addDigiXrosConditionClass.SetUpICardEffect($"DigiXros", CanUseCondition, card);
++        addDigiXrosConditionClass.SetUpAddDigiXrosConditionClass(getDigiXrosCondition: GetDigiXros);
++        addDigiXrosConditionClass.SetNotShowUI(true);
++        return addDigiXrosConditionClass;
+ 
+-        bool PermanentCondition(Permanent permanent)
++        bool CanUseCondition(Hashtable hashtable) => true;
++
++        DigiXrosCondition GetDigiXros(CardSource cardSource)
+         {
+-            if (cardCondition == null)
+-                return false;
++            if (cardSource == card)
++            {
++                return CardEffectCommons.GetDigiXrosConditionsFromNames(card, 2, null, names);
++            }
+ 
+-            return (permanent.IsDigimon || permanent.IsTamer)
+-                && cardCondition(permanent.TopCard); 
++            return null;
+         }
++    }
+ 
+-        bool CanUseCondition(Hashtable hashtable)
+-        {
+-            return CardEffectCommons.HasMatchConditionOwnersPermanent(card, PermanentCondition)
+-                || CardEffectCommons.HasMatchConditionOwnersBreedingPermanent(card, PermanentCondition);
+-        }
+ 
+-        bool CardCondition(CardSource cardSource)
+-        {
+-            return cardSource == card;
+-        }
++
++
++    public static ICardEffect AddJogressLevelsEffect(
++        CardSource card, Func<CardSource, Permanent, List<int>> getLevels, Func<bool>? condition = null,
++        string name = "Also treated as additional levels for DNA Digivolution")
++    {
++        var effect = new CardEffects.AddJogressLevelsClass();
++        effect.SetUpICardEffect(name, CanUseCondition, card);
++        effect.SetUpAddJogressLevelsClass(getLevels);
++        return effect;
++
++        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+     }
+-    #endregion
+ 
+-    #region Jogress Condition Class
++
+     public static AddJogressConditionClass GetJogressConditionClass(Func<Permanent, bool> permanentCondition1, string description1, Func<Permanent, bool> permanentCondition2, string description2, CardSource card, int cost = 0, Func<Hashtable, bool> canUseCondition = null)
+     {
+         AddJogressConditionClass addJogressConditionClass = new AddJogressConditionClass();
+@@ -767,10 +1161,10 @@
+             if (cardSource == card)
+             {
+                 return CardEffectCommons.GetJogressConditions(
+-                    permanentCondition1, 
+-                    description1, 
+-                    permanentCondition2, 
+-                    description2, 
++                    permanentCondition1,
++                    description1,
++                    permanentCondition2,
++                    description2,
+                     card
+                     );
+             }
+@@ -778,62 +1172,31 @@
+             return null;
+         }
+     }
+-    #endregion
+ 
+-    #region DigiXrosEffect by Name
+-    public static AddDigiXrosConditionClass DigiXrosEffectFromNames(CardSource card, int CostReduction, Func<List<CardSource>, CardSource, bool> CanTargetCondition_ByPreSelecetedList, params string[] names)
+-    {
+-        AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();
+-        addDigiXrosConditionClass.SetUpICardEffect($"DigiXros", CanUseCondition, card);
+-        addDigiXrosConditionClass.SetUpAddDigiXrosConditionClass(getDigiXrosCondition: GetDigiXros);
+-        addDigiXrosConditionClass.SetNotShowUI(true);
+-        return addDigiXrosConditionClass;
+ 
+-        bool CanUseCondition(Hashtable hashtable) => true;
+ 
+-        DigiXrosCondition GetDigiXros(CardSource cardSource)
+-        {
+-            if (cardSource == card)
+-            {
+-                return CardEffectCommons.GetDigiXrosConditionsFromNames(card, 2, null, names);
+-            }
+ 
+-            return null;
+-        }
+-    }
+-    #endregion
+-    
++
++
++
++
++
++
++
++    //
++    //
++
+     #region Shared Effect Condition Creators
+ 
+-    /// Method that can be used to quickly set up effects with multiple trigger conditions
+-    /// Example: [When Digivolving] [When Attacking] (Do Something) can be set up with whenDigivolving = true and whenAttacking = true
+-    /// Does not support sharing with Link or Inherited effect, purposefully to ensure they don't accidentally share a hashValue on Once Per Turn effects
+-    /// 
+-    /// Always pass in the cardEffects, timing and card variables from the calling card script, this ensures the below methods are added to that card's effects for the correct timing
+-    /// 
+-    /// The minimal conditions for triggering and activating the timings are included automatically,
+-    /// further checks can be added to all created CanUseConditions and CanActivateConditions by passing those additonal checks with additionalUseCondition and additionalActivateCondition
+-    /// For example, if a effect read "[On Play] [When Attacking] By trashing 1 card in hand..." you might create 
+-    /// bool AdditionalActivateCondition(Hashtable hashtable) => card.Owner.HandCards.Count >= 1;
+-    /// and pass such a method into this function.
+-    /// 
+-    /// By default, the effects are no optional and have no max per turn count. You can omit those parameters when this is the case and only change them when needed.
+-    /// To ensure correct behaviour of X Per Turn, the hashValue is shared as the effect is once per turn regardless of how it is triggered.
+-    /// 
+-    /// Finally, for whichever combination of effects you want, you will set the corresponding booleans to true. Order does not matter when refering to them by name
+-    /// Examples: 
+-    /// "[when Moving] [When Digivolving] [When Attacking] ..." => (... whenMoving: true, whenDigivolving: true, whenAttacking: true)
+-    /// "[When Digivolving] [On Deletion] ..." => (... whenDigivolving: true, onDeletion: true)
+-    /// "[End of Attack] [End of Opponent's Turn] ..." => (... endOfAttack: true, endOfOpponentTurn: true)
+     public static List<ICardEffect> ActivateClassesForSharedEffects(ref List<ICardEffect> cardEffects,
+-                                                                    EffectTiming timing, 
++                                                                    EffectTiming timing,
+                                                                     CardSource card,
+-                                                                    string effectName, 
+-                                                                    Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine, 
++                                                                    string effectName,
++                                                                    Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                                     Func<string, string> effectDescription,
+                                                                     bool optional,
+                                                                     Func<Hashtable, ActivateClass, bool> additionalUseCondition = null,
+-                                                                    Func<Hashtable, ActivateClass, bool> additionalActivateCondition = null, 
++                                                                    Func<Hashtable, ActivateClass, bool> additionalActivateCondition = null,
+                                                                     Func<Hashtable, bool> isSkippableFunction = null,
+                                                                     bool isSkippable = false,
+                                                                     int maxCountPerTurn = -1,
+@@ -911,7 +1274,7 @@
+                                                 string effectName,
+                                                 Func<Hashtable, ActivateClass, bool> canUseCondition,
+                                                 Func<Hashtable, ActivateClass, bool> canActivateCondition,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -939,7 +1302,7 @@
+ 
+     public static ActivateClass WhenMovingClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -954,19 +1317,19 @@
+ 
+         bool PermanentCondition(Permanent permanent)
+         {
+-            return permanent == card.PermanentOfThisCard();
++            return permanent == ICardEffect.ResolvePermanentOfThisCard(card);
+         }
+ 
+         bool CanUseCondition(Hashtable hashtable, ActivateClass activateClass)
+         {
+             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass) &&
+-                    CardEffectCommons.CanTriggerOnMove(hashtable, PermanentCondition) && 
++                    CardEffectCommons.CanTriggerOnMove(hashtable, PermanentCondition) &&
+                     (additionalUseCondition == null || additionalUseCondition(hashtable, activateClass));
+         }
+ 
+         bool CanActivateCondition(Hashtable hashtable, ActivateClass activateClass)
+         {
+-            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) && 
++            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) &&
+                 (additionalActivateCondition == null || additionalActivateCondition(hashtable, activateClass));
+         }
+     }
+@@ -977,7 +1340,7 @@
+ 
+     public static ActivateClass OnPlayClass(CardSource card,
+                                             string effectName,
+-                                            Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                            Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                             string effectDescription,
+                                             bool optional,
+                                             Func<Hashtable, bool> isSkippableFunction = null,
+@@ -993,13 +1356,13 @@
+         bool CanUseCondition(Hashtable hashtable, ActivateClass activateClass)
+         {
+             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass) &&
+-                CardEffectCommons.CanTriggerOnPlay(hashtable, card) && 
++                CardEffectCommons.CanTriggerOnPlay(hashtable, card) &&
+                 (additionalUseCondition == null || additionalUseCondition(hashtable, activateClass));
+         }
+ 
+         bool CanActivateCondition(Hashtable hashtable, ActivateClass activateClass)
+         {
+-            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) && 
++            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) &&
+                 (additionalActivateCondition == null || additionalActivateCondition(hashtable, activateClass));
+         }
+     }
+@@ -1010,7 +1373,7 @@
+ 
+     public static ActivateClass WhenDigivolvingClass(CardSource card,
+                                                         string effectName,
+-                                                        Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                        Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                         string effectDescription,
+                                                         bool optional,
+                                                         Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1027,13 +1390,13 @@
+         bool CanUseCondition(Hashtable hashtable, ActivateClass activateClass)
+         {
+             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass) &&
+-                CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card) && 
++                CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card) &&
+                 (additionalUseCondition == null || additionalUseCondition(hashtable, activateClass));
+         }
+ 
+         bool CanActivateCondition(Hashtable hashtable, ActivateClass activateClass)
+         {
+-            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) && 
++            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) &&
+                 (additionalActivateCondition == null || additionalActivateCondition(hashtable, activateClass));
+         }
+     }
+@@ -1043,7 +1406,7 @@
+     #region When Attacking
+     public static ActivateClass WhenAttackingClass(CardSource card,
+                                                     string effectName,
+-                                                    Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                    Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                     string effectDescription,
+                                                     bool optional,
+                                                     Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1060,13 +1423,13 @@
+         bool CanUseCondition(Hashtable hashtable, ActivateClass activateClass)
+         {
+             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass) &&
+-                CardEffectCommons.CanTriggerOnAttack(hashtable, card) && 
++                CardEffectCommons.CanTriggerOnAttack(hashtable, card) &&
+                 (additionalUseCondition == null || additionalUseCondition(hashtable, activateClass));
+         }
+ 
+         bool CanActivateCondition(Hashtable hashtable, ActivateClass activateClass)
+         {
+-            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) && 
++            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass) &&
+                 (additionalActivateCondition == null || additionalActivateCondition(hashtable, activateClass));
+         }
+     }
+@@ -1077,7 +1440,7 @@
+ 
+     public static ActivateClass OnDeletionClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1093,7 +1456,7 @@
+ 
+         bool CanUseCondition(Hashtable hashtable, ActivateClass activateClass)
+         {
+-            return CardEffectCommons.CanTriggerOnDeletion(hashtable, card) && 
++            return CardEffectCommons.CanTriggerOnDeletion(hashtable, card) &&
+                 (additionalUseCondition == null || additionalUseCondition(hashtable, activateClass));
+         }
+ 
+@@ -1110,7 +1473,7 @@
+ 
+     public static ActivateClass WhenLinkingClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1145,7 +1508,7 @@
+ 
+     public static ActivateClass SecurityClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1169,7 +1532,7 @@
+ 
+     public static ActivateClass EndOfAttackClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1187,7 +1550,7 @@
+         {
+             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass)
+                 && CardEffectCommons.CanTriggerOnAttack(hashtable, card)
+-                && (additionalUseCondition == null 
++                && (additionalUseCondition == null
+                     || additionalUseCondition(hashtable, activateClass));
+         }
+ 
+@@ -1205,7 +1568,7 @@
+ 
+     public static ActivateClass CounterClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1225,7 +1588,7 @@
+         {
+             return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass)
+                 && CardEffectCommons.CanTriggerOnPermanentAttack(hashtable, permanent => CardEffectCommons.IsOpponentPermanent(permanent, card))
+-                && (additionalUseCondition == null 
++                && (additionalUseCondition == null
+                     || additionalUseCondition(hashtable, activateClass));
+         }
+ 
+@@ -1242,12 +1605,12 @@
+     #region Start/End of Turn/Phase, Your/Opponent's/All Turns
+ 
+ /**
+- *  Can be used for Your Turn, Opponent's Turn, All Turns, End of [Your|Opponent's|All] Turn, Start of Turn/Phase effects 
++ *  Can be used for Your Turn, Opponent's Turn, All Turns, End of [Your|Opponent's|All] Turn, Start of Turn/Phase effects
+  *  based on the timing it is used at and additional use conditions passed
+  */
+     public static ActivateClass TurnTimingClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1285,7 +1648,7 @@
+ 
+     public static ActivateClass StartOfYourTurnClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1302,7 +1665,7 @@
+ 
+     public static ActivateClass StartOfYourMainPhaseClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1319,7 +1682,7 @@
+ 
+     public static ActivateClass EndOfYourTurnClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1336,7 +1699,7 @@
+ 
+     public static ActivateClass YourTurnClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1357,7 +1720,7 @@
+ 
+     public static ActivateClass StartOfOpponentsTurnClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1374,7 +1737,7 @@
+ 
+     public static ActivateClass StartOfYourOpponentsMainPhaseClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1391,7 +1754,7 @@
+ 
+     public static ActivateClass EndOfYourOpponentsTurnClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1408,7 +1771,7 @@
+ 
+     public static ActivateClass OpponentsTurnClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1429,7 +1792,7 @@
+ 
+     public static ActivateClass EndOfAllTurnsClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1446,7 +1809,7 @@
+ 
+     public static ActivateClass AllTurnsClass(CardSource card,
+                                                 string effectName,
+-                                                Func<Hashtable, ActivateClass, IEnumerator> activateCoroutine,
++                                                Func<Hashtable, ActivateClass, Task> activateCoroutine,
+                                                 string effectDescription,
+                                                 bool optional,
+                                                 Func<Hashtable, bool> isSkippableFunction = null,
+@@ -1462,70 +1825,5 @@
+     }
+ 
+     #endregion
++}
+ 
+-    #region At end of turn lose 3 memory
+-    public static ActivateClass EoTLose3Memory(CardSource card)
+-    {
+-        ActivateClass activateClass1 = new ActivateClass();
+-        activateClass1.SetUpICardEffect("Memory -3", CanUseCondition1, card);
+-        activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription1());
+-        return activateClass1;
+-
+-        string EffectDiscription1()
+-        {
+-            return "Lose 3 memory.";
+-        }
+-
+-        bool CanUseCondition1(Hashtable hashtable)
+-        {
+-            return true;
+-        }
+-
+-        bool CanActivateCondition1(Hashtable hashtable)
+-        {
+-            return true;
+-        }
+-
+-        IEnumerator ActivateCoroutine1(Hashtable _hashtable1)
+-        {
+-            yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(-3, activateClass1));
+-        }
+-    }
+-    #endregion
+-
+-    #region Place used Options in Security instead of trash effect
+-    public static OptionResolutionClass PlaceToSecurityEffect(CardSource card, bool toTop, bool isFaceUp = false, Func<bool> Condition = null)
+-    {
+-        if (card == null) return null;
+-        string location = toTop ? "top" : "bottom";
+-        string facing = isFaceUp ? "face up" : "face down";
+-        string effectName = $"Place the used Option card on {location} of security {facing}.";
+-        OptionResolutionClass placeToSecurityEffect = new();
+-        placeToSecurityEffect.SetUpICardEffect(effectName, CanUseCondition, card);
+-        placeToSecurityEffect.SetUpOptionResolutionClass(ResolutionCoroutine, CanResolveCondition);
+-        return placeToSecurityEffect;
+-
+-        bool CanUseCondition(Hashtable hashtable)
+-        {
+-            return Condition == null || Condition();
+-        }
+-
+-        bool CanResolveCondition(CardSource optionCard) => optionCard.Owner.CanAddSecurity(placeToSecurityEffect);
+-        
+-        IEnumerator ResolutionCoroutine(CardSource optionCard)
+-        {
+-            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddSecurityCard(optionCard, toTop, isFaceUp));
+-        }
+-    }
+-    #endregion
+-
+-    #region Add detail for Display
+-    public static AddDetailClass AddDetailClass(Func<Hashtable, bool> canUseCondition, Func<Permanent, bool> permanentCondition, string detail, bool triggerEffect, CardSource card)
+-    {
+-        AddDetailClass addDetailClass = new();
+-        addDetailClass.SetUpICardEffect("Added Detail", canUseCondition, card);
+-        addDetailClass.SetUpAddDetailClass(permanentCondition, detail, triggerEffect);
+-        return addDetailClass;
+-    }
+-    #endregion
+-}
+\ 파일 끝 개행 문자 없음

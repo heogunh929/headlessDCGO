@@ -1,14 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/TreatAsDigimon.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of AS-IS TreatAsDigimon.cs factory partial.
-// Returns the ported TreatAsDigimonClass kind-class (CardEffects/TreatAsDigimonClass.cs).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // TreatAsDigimonClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {

@@ -1,23 +1,11 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST3/Yellow/ST3_16.cs
-// TRUE AS-IS-verbatim re-port (ST3 Yellow batch). 1:1 mirror of the original ST3_16 (ST3/Yellow) — an Option.
-//   [Main]     1 of your opponent's Digimon gets -10000 DP for the turn.
-//   [Security] (reuse the [Main] skill from security)
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndBuffDpEffect` call (an invented helper
-// with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` structure for [Main] (see
-// ST3_13/ST3_14 headers for the general translation rationale). [Security] already used the genuine AS-IS
-// `CardEffectCommons.AddActivateMainOptionSecurityEffect(...)` call (verified against AS-IS ST3_16.cs) —
-// kept unchanged.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST3.Yellow;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class ST3_16 : CEntity_Effect
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class ST3_16 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -35,7 +23,7 @@ public sealed class ST3_16 : CEntity_Effect
                 return "[Main] 1 of your opponent's Digimon gets -10000 DP for the turn.";
             }
 
-            bool PermanentCondition(Permanent permanent)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
                 return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
@@ -45,17 +33,17 @@ public sealed class ST3_16 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, PermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, PermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: PermanentCondition,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -68,11 +56,11 @@ public sealed class ST3_16 : CEntity_Effect
 
                     selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get DP -10000.", "The opponent is selecting 1 Digimon that will get DP -10000.");
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
-                        await CardEffectCommons.ChangeDigimonDP(targetPermanent: permanent, changeValue: -10000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass);
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonDP(targetPermanent: permanent, changeValue: -10000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass));
                     }
                 }
             }
@@ -80,7 +68,7 @@ public sealed class ST3_16 : CEntity_Effect
 
         if (timing == EffectTiming.SecuritySkill)
         {
-            CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: "DP -10000");
+            CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $"DP -10000");
         }
 
         return cardEffects;

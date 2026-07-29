@@ -1,221 +1,29 @@
-// Source: Assets/Scripts/Script/SelectPermanentEffect.cs
-// Decision: PORT
-// Category: AIUseful
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script
-//
-// AS-IS mirror of the original DCGO SelectPermanentEffect (a MonoBehaviour selection flow).
-// The original SetUp(...) captures a target predicate, max count, the canNoSelect/canEndNotMax
-// rules, and a Mode that decides what is done to each selected Permanent. Headless port keeps the
-// same authoring shape but is deterministic:
-//   (1) BuildRequest  — enumerate the live board, filter by the target predicate, and build a
-//                       Permanent ChoiceRequest honouring max/canNoSelect/canEndNotMax (CV-A2 / F-2).
-//   (2) BuildMutations — map the selection Mode to MatchStateMutation(s) per selected target,
-//                       reusing the existing mutation vocabulary (CV-A2 / F-2.3 / F-2.5).
-// Resolution itself runs through the DeferredChoiceProvider; the request is built via
-// EffectChoiceHelpers.CreatePermanentRequest / Candidate. This class only owns candidate
-// enumeration and the Mode→mutation mapping.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
-
+﻿using Photon.Pun;
+using System;
 using System.Collections;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
 
-public sealed class SelectPermanentEffect
+
+
+public class SelectPermanentEffect : MonoBehaviourPunCallbacks
 {
-    // 1:1 with the original SelectPermanentEffect.Mode.
-    public enum Mode
-    {
-        Tap,
-        UnTap,
-        Destroy,
-        Bounce,
-        PutLibraryBottom,
-        PutLibraryTop,
-        PutSecurityBottom,
-        PutSecurityTop,
-        Degenerate,
-        Attack,
-        Custom,
-    }
-
-    private HeadlessPlayerId _selectPlayer;
-    // (R3 id-flip 3a / D2) AS-IS SelectPermanentEffect.cs:100 — the per-permanent target predicate is the
-    // AS-IS Func<Permanent,bool> shape; the id-form invented SetUp/SetAttackOptions/SetCanEndSelectCondition
-    // surfaces were physically retired (RD-IDFLIP-01, id-surface flip batch 4).
-    private Func<Permanent, bool> _canTargetCondition = static _ => true;
-    private int _maxCount = 1;
-    private bool _canNoSelect;
-    private bool _canEndNotMax;
-    private Mode _mode = Mode.Custom;
-    private HeadlessEntityId _sourceEntityId = new("select");
-    private EngineContext? _context;
-    private string _message = "Select target permanent(s).";
-    private bool _faceUp;
-    private int _degenerationCount = 1;
-    private bool _canAttackPlayer = true;
-    // (R3 id-flip 3a / D2; P2-1) AS-IS :123 `Func<Permanent,bool> _defenderCondition = (permanent) => true` —
-    // the Mode.Attack defender narrowing (SetDefenderCondition). The AS-IS non-null allow-all default is adopted
-    // verbatim (no null-vs-allow-all seam); the Attack sub-flow always evaluates it.
-    private Func<Permanent, bool> _defenderCondition = static _ => true;
-    // (R3 id-flip 3a / D2) AS-IS :104 Func<List<Permanent>,bool> _canEndSelectCondition — the selection-SET
-    // combination gate.
-    private Func<List<Permanent>, bool>? _canEndSelectCondition;
-
-    // ===== (bridge W4) AS-IS SetUp(...).Activate() surface state (SelectPermanentEffect.cs:98-149) =========
-    // The AS-IS-verbatim card corpus reaches this class via GManager.instance.GetComponent<SelectPermanentEffect>()
-    // + the 11-param AS-IS SetUp + Activate(); these fields mirror the AS-IS private fields that surface uses.
-    // AS-IS field names are kept where free; where the name is taken by a legacy mirror member of a DIFFERENT
-    // shape, the W3 naming convention applies (…_Permanents suffix for the AS-IS List<Permanent> shapes).
-    private Func<List<Permanent>, Permanent, bool>? _canTargetCondition_ByPreSelecetedList;
-    private Func<Permanent, Task>? _selectPermanentCoroutine;
-    private Func<List<Permanent>, Task>? _afterSelectPermanentCoroutine;
-    private ICardEffect? _cardEffect;
-    private bool _isLocal;                       // AS-IS Photon marker — no headless effect (single process).
-    private bool _isdigiXros;                    // AS-IS UI banner flag — no headless effect.
-    private string? _customMessage;
-    private string? _customMessage_Enemy;        // AS-IS opponent-side UI text — no headless effect.
-    private string? _customBackButtonMessage;    // AS-IS "No Selection" button label — no headless effect.
-
-    // AS-IS `List<Permanent> _targetPermanents` (:142) — the selected permanents of the last Activate().
-    private List<Permanent> _targetPermanents = new();
-
-    /// <summary>AS-IS public field <c>_noSelect</c> (SelectPermanentEffect.cs:144) — set by Activate() when the
-    /// select player took the "No Selection" opt-out.</summary>
-    public bool _noSelect;
-
-    /// <summary>(bridge W4) The match context the AS-IS <c>GManager.instance.GetComponent&lt;…&gt;()</c> route
-    /// injects (the AS-IS component reads the same state through the GManager singleton).</summary>
-    internal void AttachContext(EngineContext context) => _context = context;
-
-    public void SetUpCustomMessage(string message)
-    {
-        if (!string.IsNullOrWhiteSpace(message))
-        {
-            _message = message;
-            // (bridge W4) a 1-arg call from an AS-IS-verbatim card (AS-IS SetUpCustomMessage has optional
-            // parameters, so 1-arg calls bind HERE by C# no-optional-fill preference) must also reach the
-            // AS-IS Activate() prompt channel; legacy consumers never read _customMessage, so this is inert
-            // for them.
-            _customMessage = message;
-        }
-    }
-
-    /// <summary>(PutSecurity*) whether returned cards are placed face up.</summary>
-    public void SetFaceUp(bool faceUp) => _faceUp = faceUp;
-
-    /// <summary>(B5) AS-IS <c>_degenerationCount</c> — how many sources <see cref="Mode.Degenerate"/>
-    /// removes per selected permanent (default 1).</summary>
-    public void SetDegenerationCount(int count) => _degenerationCount = Math.Max(1, count);
-
-    /// <summary>(B5) whether <paramref name="selection"/> satisfies the AS-IS combination gate (true when
-    /// none is configured).</summary>
-    public bool IsValidSelection(IReadOnlyList<HeadlessEntityId> selection)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        // (D2) materialise the ids to AS-IS Permanent views for the flipped combination gate.
-        return _canEndSelectCondition is null
-            || _canEndSelectCondition(selection.Select(id => new Permanent(_context!, id)).ToList());
-    }
-
-    /// <summary>Enumerate the battle areas of <paramref name="players"/>, filter by the target predicate,
-    /// and build the Permanent ChoiceRequest. Count rules follow the original:
-    /// canNoSelect ⇒ may finish with zero (skippable); canEndNotMax ⇒ may finish below max (min 1);
-    /// otherwise an exact pick of max is required. Counts clamp to the available candidate pool.</summary>
-    public ChoiceRequest BuildRequest(IZoneStateReader zones, IEnumerable<HeadlessPlayerId> players)
-    {
-        ArgumentNullException.ThrowIfNull(zones);
-        ArgumentNullException.ThrowIfNull(players);
-
-        var candidates = new List<ChoiceCandidate>();
-        foreach (HeadlessPlayerId player in players)
-        {
-            foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea))
-            {
-                // (d-remediation) AS-IS Permanent.CanSelectBySkill — a permanent with an untargetability
-                // restriction is excluded from the candidate pool entirely (never offered as a choice).
-                // (D2) AS-IS :169-171 — materialise the candidate to a Permanent view and evaluate the predicate.
-                if (_canTargetCondition(new Permanent(_context!, id)) && !IsUntargetableBySkill(id))
-                {
-                    candidates.Add(EffectChoiceHelpers.Candidate(id, id.Value, ChoiceZone.BattleArea, isSelectable: true, player));
-                }
-            }
-        }
-
-        int available = candidates.Count;
-        int maxCount = Math.Min(_maxCount, available);
-        int minCount = _canNoSelect ? 0 : (_canEndNotMax ? Math.Min(1, maxCount) : maxCount);
-        bool canSkip = _canNoSelect;
-
-        ChoiceRequest request = EffectChoiceHelpers.CreatePermanentRequest(_selectPlayer, _message, minCount, maxCount, canSkip, candidates);
-        // (P2) the AS-IS combination gate (CanEndSelect) rides on the request so the choice controller
-        // rejects an illegal SET centrally (try-reject-retry).
-        return _canEndSelectCondition is null
-            ? request
-            : request with { SelectionValidator = ids => _canEndSelectCondition(ids.Select(id => new Permanent(_context!, id)).ToList()) };
-    }
-
-    /// <summary>(d-remediation; R3-W3c-4c D-1 flip) AS-IS <c>!Permanent.CanSelectBySkill(skill)</c>: a candidate is
-    /// untargetable when the AS-IS-literal LIVE getter <see cref="Permanent.CanSelectBySkill"/> reports it cannot be
-    /// chosen (it scans every field permanent's <c>EffectList(None)</c> for a usable <c>ICanNotSelectBySkillEffect</c>
-    /// whose joint predicate matches — identical to the CanTargetAsIs path). The selecting skill is the effect's
-    /// live <c>_cardEffect</c> when set (AS-IS <c>_cardEffect</c>), else a bare cause resolving <c>_sourceEntityId</c>
-    /// to its source card (only its <c>EffectSourceCard</c> is read by the untargetability predicate). Was the
-    /// registry-backed RestrictionScan; the joint carrier now implements <c>ICanNotSelectBySkillEffect</c> so the
-    /// live scan sees it. No context (legacy call path) ⇒ not untargetable.</summary>
-    private bool IsUntargetableBySkill(HeadlessEntityId candidateId)
-    {
-        if (_context is null || candidateId.IsEmpty)
-        {
-            return false;
-        }
-
-        ICardEffect skill = _cardEffect ?? BareCauseEffect.For(_context, _sourceEntityId);
-        return !new Permanent(_context, candidateId).CanSelectBySkill(skill);
-    }
-
-    // (EFFECT-ATTACK re-migration) `TryOpenAttack` is RETIRED. It queued the selected attackers on the substrate
-    // `EffectDrivenAttack` (a second, parallel implementation of the AS-IS SelectAttackEffect flow: its own target
-    // enumeration, its own deferred ChoiceType.EffectAttack request and its own MetadataActionProcessor resolve
-    // branch). AS-IS :1009-1028 simply runs the AS-IS `SelectAttackEffect` sub-flow per selected attacker,
-    // SEQUENTIALLY and INLINE — which the mirror `SelectAttackEffect` port supports verbatim, so the Mode.Attack
-    // arm below is now the AS-IS loop and the queue/option/resolve triple is gone.
-
-    // ================================================================================================
-    // (bridge W4 / R3 id-flip 3a) AS-IS SetUp(...).Activate() surface — 1:1 with DCGO
-    // SelectPermanentEffect.cs, the `GManager.instance.GetComponent<SelectPermanentEffect>()` flow
-    // verbatim card ports use (BT1_017/023/092/094 pattern). Substrate translations only (IEnumerator→Task,
-    // Player→HeadlessPlayerId); the AS-IS `Func<Permanent,bool> canTargetCondition` shape is the CANONICAL
-    // surface (id-flip 3a) — the transitional id-form authoring surfaces were physically retired (RD-IDFLIP-01,
-    // batch 4). UI/Photon statements stripped with their AS-IS line anchors cited in Activate().
-    // See docs/audit/rebuild_bridge_w4_notes.md.
-    // ================================================================================================
-
-    /// <summary>(id-flip 3a — CANONICAL) AS-IS <c>SetUp</c> (SelectPermanentEffect.cs:12-46) — the 11-param
-    /// overload the card corpus calls, on the AS-IS <c>Func&lt;Permanent,bool&gt; canTargetCondition</c> shape
-    /// (:14). Resets exactly the fields AS-IS resets (<c>_isLocal</c>/<c>_isdigiXros</c>/custom messages/
-    /// <c>_degenerationCount</c>); AS-IS quirk KEPT: <c>_canAttackPlayer</c>/<c>_defenderCondition</c>/
-    /// <c>_isFaceUp</c>(=<see cref="_faceUp"/>) are NOT reset and persist across uses of the shared
-    /// component instance.</summary>
-    public void SetUp(
-        HeadlessPlayerId selectPlayer,
+    public void SetUp
+        (Player selectPlayer,
         Func<Permanent, bool> canTargetCondition,
-        Func<List<Permanent>, Permanent, bool>? canTargetCondition_ByPreSelecetedList,
-        Func<List<Permanent>, bool>? canEndSelectCondition,
+        Func<List<Permanent>, Permanent, bool> canTargetCondition_ByPreSelecetedList,
+        Func<List<Permanent>, bool> canEndSelectCondition,
         int maxCount,
         bool canNoSelect,
         bool canEndNotMax,
-        Func<Permanent, Task>? selectPermanentCoroutine,
-        Func<List<Permanent>, Task>? afterSelectPermanentCoroutine,
+        Func<Permanent, IEnumerator> selectPermanentCoroutine,
+        Func<List<Permanent>, IEnumerator> afterSelectPermanentCoroutine,
         Mode mode,
         ICardEffect cardEffect)
     {
         _selectPlayer = selectPlayer;
-        _canTargetCondition = canTargetCondition ?? (static _ => false);
+        _canTargetCondition = canTargetCondition;
         _canTargetCondition_ByPreSelecetedList = canTargetCondition_ByPreSelecetedList;
         _canEndSelectCondition = canEndSelectCondition;
         _maxCount = maxCount;
@@ -225,9 +33,6 @@ public sealed class SelectPermanentEffect
         _afterSelectPermanentCoroutine = afterSelectPermanentCoroutine;
         _mode = mode;
         _cardEffect = cardEffect;
-        _sourceEntityId = cardEffect?.EffectSourceCard?.InstanceId is { IsEmpty: false } sourceId
-            ? sourceId
-            : new HeadlessEntityId("select");
 
         _isLocal = false;
         _isdigiXros = false;
@@ -240,16 +45,17 @@ public sealed class SelectPermanentEffect
         _degenerationCount = 1;
     }
 
-    /// <summary>AS-IS <c>SetIsLocal</c> (:48-51) — Photon RPC bypass marker; the headless engine is always
-    /// single-process, so this is state-only.</summary>
-    public void SetIsLocal() => _isLocal = true;
+    public void SetIsLocal()
+    {
+        _isLocal = true;
+    }
 
-    /// <summary>AS-IS <c>SetDigiXros</c> (:53-56) — UI banner flag only.</summary>
-    public void SetDigiXros() => _isdigiXros = true;
+    public void SetDigiXros()
+    {
+        _isdigiXros = true;
+    }
 
-    /// <summary>AS-IS <c>SetUpCustomMessage</c> (:58-71) — the custom prompt text (and the AS-IS 2-element
-    /// array override). The player-facing text becomes the ChoiceRequest message.</summary>
-    public void SetUpCustomMessage(string CustomMessage = "", string CustomMessage_Enemy = "", string[]? customMessageArray = null)
+    public void SetUpCustomMessage(string CustomMessage = "", string CustomMessage_Enemy = "", string[] customMessageArray = null)
     {
         _customMessage = CustomMessage;
         _customMessage_Enemy = CustomMessage_Enemy;
@@ -264,26 +70,84 @@ public sealed class SelectPermanentEffect
         }
     }
 
-    /// <summary>AS-IS <c>SetUpCustomBackButtonMessage</c> (:73-76) — "No Selection" button label (UI-only;
-    /// the skip option itself is the ChoiceRequest's canSkip).</summary>
-    public void SetUpCustomBackButtonMessage(string CustomBackButtonMessage) =>
+    public void SetUpCustomBackButtonMessage(string CustomBackButtonMessage)
+    {
         _customBackButtonMessage = CustomBackButtonMessage;
+    }
 
-    /// <summary>AS-IS <c>SetCanNotAttackPlayer</c> (:83-86) — Mode.Attack may not target the player.</summary>
-    public void SetCanNotAttackPlayer() => _canAttackPlayer = false;
+    public void SetDegenerationCount(int degenerationCount)
+    {
+        _degenerationCount = degenerationCount;
+    }
 
-    /// <summary>AS-IS <c>SetDefenderCondition</c> (:87-90) — Mode.Attack defender narrowing, AS-IS
-    /// <c>Func&lt;Permanent,bool&gt;</c> shape (wrapped onto the id-shape substrate option at Activate time).</summary>
-    public void SetDefenderCondition(Func<Permanent, bool> defenderCondition) =>
+    public void SetCanNotAttackPlayer()
+    {
+        _canAttackPlayer = false;
+    }
+    public void SetDefenderCondition(Func<Permanent, bool> defenderCondition)
+    {
         _defenderCondition = defenderCondition;
+    }
 
-    /// <summary>AS-IS <c>SetPlaceFaceUp</c> (:92-95) — PutSecurity* places the cards face up.</summary>
-    public void SetPlaceFaceUp() => _faceUp = true;
+    public void SetPlaceFaceUp()
+    {
+        _isFaceUp = true;
+    }
 
-    /// <summary>AS-IS <c>CanTarget</c> (:150-178): the joint per-permanent gate — the CanSelectBySkill
-    /// untargetability scan applies only to permanents owned by NEITHER the effect-source owner NOR the
-    /// select player (AS-IS :158), then the card predicate, then the face-down exclusion.</summary>
-    private bool CanTargetAsIs(EngineContext context, Permanent permanent)
+    //Player to select
+    Player _selectPlayer = null;
+    //Conditions of units that can be selected
+    Func<Permanent, bool> _canTargetCondition = null;
+    //Whether the unit can be selected with the current selection list status
+    Func<List<Permanent>, Permanent, bool> _canTargetCondition_ByPreSelecetedList = null;
+    //Conditions under which a selection can be terminated (see list of selection termination points)
+    Func<List<Permanent>, bool> _canEndSelectCondition = null;
+    //Maximum number of sheets to be selected
+    int _maxCount = 0;
+    //Whether you can choose not to choose
+    bool _canNoSelect = false;
+    //Can you finish your selection with less than the maximum number?
+    bool _canEndNotMax = false;
+    //(Limited to Mode.Custom) Processing to be performed by selecting
+    Func<Permanent, IEnumerator> _selectPermanentCoroutine = null;
+    //選択した後にする処理
+    Func<List<Permanent>, IEnumerator> _afterSelectPermanentCoroutine = null;
+    //Classification of processing to be done by selection
+    Mode _mode = Mode.Custom;
+    //Skill in making unit selections
+    ICardEffect _cardEffect = null;
+    bool _isLocal = false;
+    bool _isdigiXros = false;
+    int _degenerationCount = 1;
+    bool _canAttackPlayer = true;
+    Func<Permanent, bool> _defenderCondition = (permanent) => true;
+    bool _isFaceUp = false;
+
+    public enum Mode
+    {
+        Tap,
+        UnTap,
+        Destroy,
+        Bounce,
+        PutLibraryBottom,
+        PutLibraryTop,
+        PutSecurityBottom,
+        PutSecurityTop,
+        Degenerate,
+        Attack,
+        Custom
+    }
+
+    //Selected unit list
+    List<Permanent> _targetPermanents = new List<Permanent>();
+    //No Selection Flag
+    public bool _noSelect = false;
+
+    string _customMessage = null;
+    string _customMessage_Enemy = null;
+
+    string _customBackButtonMessage = null;
+    bool CanTarget(Permanent permanent)
     {
         if (_cardEffect != null)
         {
@@ -293,8 +157,6 @@ public sealed class SelectPermanentEffect
                 {
                     if (permanent.TopCard.Owner != _cardEffect.EffectSourceCard.Owner && permanent.TopCard.Owner != _selectPlayer)
                     {
-                        // (R1-d) AS-IS permanent.CanSelectBySkill(_cardEffect) — now the mirror Permanent getter
-                        // (AS-IS-literal ICanNotSelectBySkillEffect EffectList scan), was the unioned registry scan.
                         if (!permanent.CanSelectBySkill(_cardEffect))
                         {
                             return false;
@@ -306,40 +168,46 @@ public sealed class SelectPermanentEffect
 
         if (_canTargetCondition != null)
         {
-            // (D2) AS-IS :171 — the predicate takes the Permanent directly.
             if (_canTargetCondition(permanent))
             {
-                return !permanent.TopCard!.IsFlipped;
+                return !permanent.TopCard.IsFlipped;
             }
         }
 
         return false;
     }
 
-    /// <summary>AS-IS <c>active()</c> (:181-217): any candidate at all; and for a forced-count selection
-    /// (neither canNoSelect nor canEndNotMax) enough candidates AND at least one max-count combination
-    /// satisfying <see cref="CanEndSelectAsIs"/> (AS-IS ParameterComparer.Enumerate; combination enumeration
-    /// implemented locally — no mirror ParameterComparer — and short-circuited when no combination gate is
-    /// configured, where every max-count combination trivially passes).</summary>
+    #region 選択が可能かどうか
     public bool active()
     {
-        EngineContext context = RequireContext();
-        List<Permanent> canSelectedPermanents = FieldCandidates(context);
+        List<Permanent> CanSelectedPermanets = new List<Permanent>();
 
-        if (canSelectedPermanents.Count == 0)
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                if (CanTarget(permanent))
+                {
+                    CanSelectedPermanets.Add(permanent);
+                }
+            }
+        }
+
+        if (CanSelectedPermanets.Count == 0)
         {
             return false;
         }
 
         if (!_canNoSelect && !_canEndNotMax)
         {
-            if (canSelectedPermanents.Count < _maxCount)
+            if (CanSelectedPermanets.Count < _maxCount)
             {
                 return false;
             }
 
-            if (_canEndSelectCondition != null &&
-                !Combinations(canSelectedPermanents, _maxCount).Any(permanents => CanEndSelectAsIs(permanents)))
+            List<Permanent[]> permanentsList = ParameterComparer.Enumerate(CanSelectedPermanets, _maxCount).ToList();
+
+            if (permanentsList.Count((permanents) => CanEndSelect(permanents.ToList())) == 0)
             {
                 return false;
             }
@@ -347,17 +215,18 @@ public sealed class SelectPermanentEffect
 
         return true;
     }
+    #endregion
 
-    /// <summary>AS-IS <c>CanEndSelect</c> (:221-239) — the selection-set termination gate.</summary>
-    private bool CanEndSelectAsIs(List<Permanent> permanents)
+    #region 終了できるか判定
+    bool CanEndSelect(List<Permanent> permanents)
     {
-        // 選択枚数が必要枚数に達していない場合 (AS-IS :224)
+        //選択枚数が必要枚数に達していない場合
         if (!(permanents.Count == _maxCount || (permanents.Count <= _maxCount && _canEndNotMax)))
         {
             return false;
         }
 
-        // 特定の条件により失敗 (AS-IS :230)
+        //特定の条件により失敗
         if (_canEndSelectCondition != null)
         {
             if (!_canEndSelectCondition(permanents))
@@ -368,380 +237,819 @@ public sealed class SelectPermanentEffect
 
         return true;
     }
+    #endregion
 
-    /// <summary>(bridge W4) AS-IS <c>Activate()</c> (SelectPermanentEffect.cs:242-1039) — the full selection
-    /// flow: candidate scan → forced-selection shortcut / player choice (batch or per-pick incremental) →
-    /// per-selected custom coroutine → the Mode action batch → the always-run after-coroutine.
-    /// UI/Photon strips (AS-IS anchors): IsSelecting save/restore (:244/:293/:1038 — the choice-pause
-    /// substrate replaces the polling flag, MIG6/RD-W4-4), trash-card display (:263-285), Off*Target
-    /// (:287-291), message/side-bar/outline/back-button plumbing (:297-360, :404-575), the RPC/WaitUntil
-    /// selection transport (:579-723 — the ChoiceProvider request IS the transport), the reset region
-    /// (:725-746), target arrows + WaitForSeconds (:767-870, :928-937), PlayLog (:755-761, :940-947).</summary>
-    public async Task Activate()
+    public IEnumerator Activate()
     {
+        bool oldIsSelecting = GManager.instance.turnStateMachine.IsSelecting;
+
         _targetPermanents = new List<Permanent>();
+
+        List<Permanent> destroyPermanents = new List<Permanent>();
+        List<Permanent> tapPermanents = new List<Permanent>();
+        List<Permanent> untapPermanents = new List<Permanent>();
+        List<Permanent> libraryBottomPermanents = new List<Permanent>();
+        List<Permanent> libraryTopPermanents = new List<Permanent>();
+        List<Permanent> securityBottomPermanents = new List<Permanent>();
+        List<Permanent> securityTopPermanents = new List<Permanent>();
+        List<Permanent> handBouncePermanents = new List<Permanent>();
+        List<Permanent> degeneratePermanents = new List<Permanent>();
+        List<Permanent> attackPermanents = new List<Permanent>();
 
         _noSelect = false;
 
         if (active())
         {
-            EngineContext context = RequireContext();
-            List<Permanent> pool = FieldCandidates(context);
-
-            bool forcesSelection = false;
-
-            // AS-IS forced selection (:366-399): with neither opt-out nor early-end, an exactly-max candidate
-            // pool is auto-selected without a player choice (AS-IS EndSelect_RPC fires directly).
-            if (!_canNoSelect && !_canEndNotMax && pool.Count == _maxCount)
+            #region Show trash cards
+            if (_cardEffect != null)
             {
-                _targetPermanents = new List<Permanent>(pool);
-                forcesSelection = true;
-            }
-
-            if (!forcesSelection)
-            {
-                (List<Permanent> selected, bool noSelect) = await RunAsIsSelectionAsync(context, pool).ConfigureAwait(false);
-                _targetPermanents = selected;
-                _noSelect = noSelect;
-            }
-
-            if (CanEndSelectAsIs(_targetPermanents))
-            {
-                // AS-IS builds hashtable {"CardEffect": _cardEffect} (:750-751); the sink mutations carry the
-                // same cause as SourceEntityId (set from the effect source in SetUp).
-                if (!_noSelect)
+                if (_cardEffect.EffectSourceCard != null)
                 {
-                    // AS-IS per-selected processing (:873-925): the Custom coroutine runs per target IN
-                    // SELECTION ORDER before the mode batch (a single Activate has a single Mode, so the
-                    // AS-IS per-mode buckets each collapse to "all selected targets").
-                    if (_selectPermanentCoroutine != null)
+                    if (_cardEffect.EffectSourceCard.Owner.TrashCards.Contains(_cardEffect.EffectSourceCard) || _cardEffect.EffectSourceCard.Owner.LostCards.Contains(_cardEffect.EffectSourceCard))
                     {
-                        foreach (Permanent targetPermanent in _targetPermanents)
+                        if (_cardEffect.EffectSourceCard.Owner.TrashHandCard != null)
                         {
-                            await _selectPermanentCoroutine(targetPermanent).ConfigureAwait(false);
+                            if (!_cardEffect.EffectSourceCard.Owner.TrashHandCard.gameObject.activeSelf)
+                            {
+                                _cardEffect.EffectSourceCard.Owner.TrashHandCard.gameObject.SetActive(true);
+                                _cardEffect.EffectSourceCard.Owner.TrashHandCard.SetUpHandCard(_cardEffect.EffectSourceCard);
+                                _cardEffect.EffectSourceCard.Owner.TrashHandCard.SetUpHandCardImage();
+                                _cardEffect.EffectSourceCard.Owner.TrashHandCard.OnOutline();
+                                _cardEffect.EffectSourceCard.Owner.TrashHandCard.SetBlueOutline();
+                                _cardEffect.EffectSourceCard.Owner.TrashHandCard.transform.localScale = new Vector3(1.4f, 1.4f, 1.4f);
+                            }
+                        }
+                    }
+                }
+            }
+            #endregion
+
+            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+            {
+                GManager.instance.turnStateMachine.OffFieldCardTarget(player);
+                GManager.instance.turnStateMachine.OffHandCardTarget(player);
+            }
+
+            GManager.instance.turnStateMachine.IsSelecting = true;
+
+            if (_selectPlayer.isYou)
+            {
+                #region Message display
+                if (!string.IsNullOrEmpty(_customMessage))
+                {
+                    GManager.instance.commandText.OpenCommandText(_customMessage, _isdigiXros);
+                }
+
+                else
+                {
+                    string message = "";
+
+                    switch (_mode)
+                    {
+                        case Mode.Tap:
+                            message = "Select cards to suspend.";
+                            break;
+
+                        case Mode.UnTap:
+                            message = "Select cards to unsuspend.";
+                            break;
+
+                        case Mode.Destroy:
+                            message = "Select cards to delete.";
+                            break;
+
+                        case Mode.Bounce:
+                            message = "Select cards to return to hand.";
+                            break;
+
+                        case Mode.PutLibraryBottom:
+                            message = "Select cards to put on bottom of the deck.";
+                            break;
+
+                        case Mode.PutLibraryTop:
+                            message = "Select cards to put on top of the deck.";
+                            break;
+
+                        case Mode.PutSecurityBottom:
+                            message = "Select cards to put on bottom of security.";
+                            break;
+
+                        case Mode.PutSecurityTop:
+                            message = "Select cards to put on top of security.";
+                            break;
+
+                        case Mode.Degenerate:
+                            message = $"Select cards to De-Digivolve {_degenerationCount}.";
+                            break;
+
+                        case Mode.Attack:
+                            message = "Select a Digimon to attack with.";
+                            break;
+
+                        case Mode.Custom:
+                            message = "Select cards.";
+                            break;
+                    }
+
+                    if (!string.IsNullOrEmpty(message))
+                    {
+                        GManager.instance.commandText.OpenCommandText(message, _isdigiXros);
+                    }
+                }
+
+                #endregion
+
+                List<Permanent> PreSelectedPermanents = new List<Permanent>();
+
+                bool forcesSelection = false;
+
+                #region forced selection
+                if (!_canNoSelect && !_canEndNotMax)
+                {
+                    int canSelectCount = 0;
+
+                    foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+                    {
+                        foreach (Permanent chara in player.GetFieldPermanents())
+                        {
+                            if (CanTarget(chara))
+                            {
+                                canSelectCount++;
+                            }
                         }
                     }
 
-                    await ApplyAsIsModeBatchAsync(context).ConfigureAwait(false);
+                    if (canSelectCount == _maxCount)
+                    {
+                        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+                        {
+                            foreach (Permanent chara in player.GetFieldPermanents())
+                            {
+                                if (CanTarget(chara))
+                                {
+                                    PreSelectedPermanents.Add(chara);
+                                }
+                            }
+                        }
+
+                        forcesSelection = true;
+
+                        EndSelect_RPC();
+                    }
+                }
+                #endregion
+
+                if (!forcesSelection)
+                {
+                    GManager.instance.sideBar.SetUpSideBar();
+
+                    List<FieldPermanentCard> candidates = new List<FieldPermanentCard>();
+
+                    foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+                    {
+                        foreach (Permanent permanent in player.GetFieldPermanents())
+                        {
+                            if (CanTarget(permanent))
+                            {
+                                permanent.ShowingPermanentCard.AddClickTarget(OnClickFieldPermanentCard);
+                                candidates.Add(permanent.ShowingPermanentCard);
+                            }
+                        }
+                    }
+
+                    if (candidates.Count >= 1)
+                    {
+                        GManager.instance.hideCannotSelectObject.SetUpHideCannotSelectObject(candidates, false);
+                    }
+
+                    CheckEndSelect();
+
+                    #region Processing when a permanent on the field is clicked
+                    void OnClickFieldPermanentCard(FieldPermanentCard feldPermanentCard)
+                    {
+                        if (PreSelectedPermanents.Contains(feldPermanentCard.ThisPermanent))
+                        {
+                            PreSelectedPermanents.Remove(feldPermanentCard.ThisPermanent);
+                        }
+
+                        else
+                        {
+                            bool CanNotSelected = false;
+
+                            if (_canTargetCondition_ByPreSelecetedList != null)
+                            {
+                                if (!_canTargetCondition_ByPreSelecetedList(PreSelectedPermanents, feldPermanentCard.ThisPermanent))
+                                {
+                                    CanNotSelected = true;
+                                }
+                            }
+
+                            if (CanNotSelected)
+                            {
+                                return;
+                            }
+
+                            if (PreSelectedPermanents.Count < _maxCount)
+                            {
+                                PreSelectedPermanents.Add(feldPermanentCard.ThisPermanent);
+                            }
+
+                            else
+                            {
+                                if (PreSelectedPermanents.Count > 0)
+                                {
+                                    PreSelectedPermanents.RemoveAt(PreSelectedPermanents.Count - 1);
+                                    PreSelectedPermanents.Add(feldPermanentCard.ThisPermanent);
+                                }
+                            }
+
+                            if (!ContinuousController.instance.checkBeforeEndingSelection
+                            && !_canNoSelect
+                            && !_canEndNotMax
+                            && _maxCount == PreSelectedPermanents.Count)
+                            {
+                                EndSelect_RPC();
+                                return;
+                            }
+                        }
+
+                        CheckEndSelect();
+                    }
+                    #endregion
+
+                    #region Determining whether the selection can be completed and displaying the outline
+                    void CheckEndSelect()
+                    {
+                        #region UI display depending on whether it can be terminated
+                        if (CanEndSelect(PreSelectedPermanents))
+                        {
+                            GManager.instance.selectCommandPanel.SetUpCommandButton(new List<Command_SelectCommand>()
+                            {
+                                new Command_SelectCommand("End Selection", EndSelect_RPC, 0)
+                            });
+                        }
+
+                        else
+                        {
+                            GManager.instance.selectCommandPanel.Off(false);
+                            GManager.instance.sideBar.SetUpSideBar();
+                        }
+                        #endregion
+
+                        #region Outline display by selection list
+                        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+                        {
+                            foreach (Permanent permanent in player.GetFieldPermanents())
+                            {
+                                permanent.ShowingPermanentCard.RemoveSelectEffect();
+
+                                if (CanTarget(permanent))
+                                {
+                                    if (PreSelectedPermanents.Contains(permanent))
+                                    {
+                                        permanent.ShowingPermanentCard.OnSelectEffect(1.1f);
+                                        permanent.ShowingPermanentCard.SetOrangeOutline();
+                                    }
+
+                                    else
+                                    {
+                                        permanent.ShowingPermanentCard.OnSelectEffect(1.1f);
+                                        permanent.ShowingPermanentCard.SetBlueOutline();
+
+                                        bool CanNotSelected = false;
+
+                                        if (_canTargetCondition_ByPreSelecetedList != null)
+                                        {
+                                            if (!_canTargetCondition_ByPreSelecetedList(PreSelectedPermanents, permanent))
+                                            {
+                                                CanNotSelected = true;
+                                            }
+                                        }
+
+                                        if (CanNotSelected)
+                                        {
+                                            permanent.ShowingPermanentCard.RemoveSelectEffect();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        #endregion
+
+                        if (PreSelectedPermanents.Count >= 1)
+                        {
+                            GManager.instance.BackButton.CloseSelectCommandButton();
+                        }
+
+                        else
+                        {
+                            if (_canNoSelect)
+                            {
+                                string backButtonMessage = "No Selection";
+
+                                if (!string.IsNullOrEmpty(_customBackButtonMessage))
+                                {
+                                    backButtonMessage = _customBackButtonMessage;
+                                }
+
+                                GManager.instance.BackButton.OpenSelectCommandButton(backButtonMessage, () => NoSelect_RPC(), 0);
+
+                                void NoSelect_RPC()
+                                {
+                                    if (!_isLocal)
+                                    {
+                                        photonView.RPC("SetTargetFrames", RpcTarget.All, _selectPlayer.PlayerID, null, null);
+                                    }
+
+                                    else
+                                    {
+                                        SetTargetFrames(_selectPlayer.PlayerID, null, null);
+                                    }
+                                }
+                            }
+                        }
+
+                        GManager.instance.sideBar.SetUpSideBar();
+                    }
+
+                    #endregion
+                }
+
+                #region Selection finished
+                void EndSelect_RPC()
+                {
+                    foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+                    {
+                        foreach (Permanent unit in player.GetFieldPermanents())
+                        {
+                            unit.ShowingPermanentCard.RemoveSelectEffect();
+                            unit.ShowingPermanentCard.RemoveClickTarget();
+                        }
+                    }
+
+                    List<bool> isTurnPlayer = new List<bool>();
+                    List<int> CharaIndex = new List<int>();
+
+                    foreach (Permanent chara in PreSelectedPermanents)
+                    {
+                        isTurnPlayer.Add(chara.TopCard.Owner == GManager.instance.turnStateMachine.gameContext.TurnPlayer);
+                        CharaIndex.Add(chara.TopCard.Owner.GetFieldPermanents().IndexOf(chara));
+                    }
+
+                    if (!_isLocal)
+                    {
+                        photonView.RPC("SetTargetFrames", RpcTarget.All, _selectPlayer.PlayerID, isTurnPlayer.ToArray(), CharaIndex.ToArray());
+                    }
+
+                    else
+                    {
+                        SetTargetFrames(_selectPlayer.PlayerID, isTurnPlayer.ToArray(), CharaIndex.ToArray());
+                    }
+
+                    GManager.instance.BackButton.CloseSelectCommandButton();
+                }
+                #endregion
+            }
+
+            else
+            {
+                #region Message display
+                if (!string.IsNullOrEmpty(_customMessage_Enemy))
+                {
+                    GManager.instance.commandText.OpenCommandText(_customMessage_Enemy, _isdigiXros);
+                }
+
+                else
+                {
+                    GManager.instance.commandText.OpenCommandText("The opponent is selecting cards.", _isdigiXros);
+                }
+                #endregion
+
+                #region AI
+                if (GManager.instance.IsAI)
+                {
+                    List<Permanent> ValidCharas = new List<Permanent>();
+
+                    foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+                    {
+                        foreach (Permanent unit in player.GetFieldPermanents())
+                        {
+                            if (_canTargetCondition(unit))
+                            {
+                                ValidCharas.Add(unit);
+                            }
+                        }
+                    }
+
+                    IList<int> indexList = Enumerable.Range(0, ValidCharas.Count).ToList();
+
+                    if (ValidCharas.Count >= _maxCount)
+                    {
+                        for (int i = 0; i < 200; i++)
+                        {
+                            List<int> GetIndexes = indexList.GetRandom(_maxCount).ToList();
+
+                            List<Permanent> GetCharas = new List<Permanent>();
+
+                            foreach (int index in GetIndexes)
+                            {
+                                GetCharas.Add(ValidCharas[index]);
+                            }
+
+                            if (_canEndSelectCondition != null)
+                            {
+                                if (!_canEndSelectCondition(GetCharas))
+                                {
+                                    continue;
+                                }
+                            }
+
+                            List<bool> isTurnPlayer = new List<bool>();
+                            List<int> UnitIDs = new List<int>();
+
+                            foreach (Permanent chara in GetCharas)
+                            {
+                                if (chara.TopCard != null)
+                                {
+                                    isTurnPlayer.Add(chara.TopCard.Owner == GManager.instance.turnStateMachine.gameContext.TurnPlayer);
+                                    UnitIDs.Add(chara.TopCard.Owner.GetFieldPermanents().IndexOf(chara));
+                                }
+                            }
+
+                            SetTargetFrames(_selectPlayer.PlayerID, isTurnPlayer.ToArray(), UnitIDs.ToArray());
+                            break;
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            //Wait until selection is complete
+            yield return new WaitUntil(() => _selectPlayer.HasPlayerSelection());
+            PermanentSelection permanentSelection = _selectPlayer.DequeuePlayerSelection<PermanentSelection>();
+
+            if (permanentSelection != null)
+            {
+                _targetPermanents = new List<Permanent>();
+
+                if (permanentSelection.IsTurnPlayerList != null && permanentSelection.PermanentIDList != null)
+                {
+                    for (int i = 0; i < permanentSelection.IsTurnPlayerList.Length; i++)
+                    {
+                        Player player = null;
+
+                        if (permanentSelection.IsTurnPlayerList[i])
+                        {
+                            player = GManager.instance.turnStateMachine.gameContext.TurnPlayer;
+                        }
+
+                        else
+                        {
+                            player = GManager.instance.turnStateMachine.gameContext.NonTurnPlayer;
+                        }
+
+                        Permanent chara = player.GetFieldPermanents()[permanentSelection.PermanentIDList[i]];
+
+                        _targetPermanents.Add(chara);
+                    }
+
+                    _noSelect = false;
+                }
+                else
+                {
+                    GManager.instance.selectCommandPanel.CloseSelectCommandPanel();
+                    _noSelect = true;
+                }
+            }
+
+            #region reset
+            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+            {
+                GManager.instance.turnStateMachine.OffFieldCardTarget(player);
+                GManager.instance.turnStateMachine.OffHandCardTarget(player);
+
+                foreach (Permanent chara in player.GetFieldPermanents())
+                {
+                    chara.ShowingPermanentCard.RemoveSelectEffect();
+                }
+            }
+
+            GManager.instance.hideCannotSelectObject.Close();
+
+            GManager.instance.selectCommandPanel.CloseSelectCommandPanel();
+            GManager.instance.BackButton.CloseSelectCommandButton();
+
+            GManager.instance.commandText.CloseCommandText();
+            yield return new WaitWhile(() => GManager.instance.commandText.gameObject.activeSelf);
+
+            GManager.instance.sideBar.OffSideBar();
+            #endregion
+
+            if (CanEndSelect(_targetPermanents))
+            {
+                Hashtable hashtable = new Hashtable();
+                hashtable.Add("CardEffect", _cardEffect);
+
+                if (!_noSelect)
+                {
+                    string log = "";
+
+                    log += $"\nSelected Cards:";
+
+                    foreach (Permanent targetPermanent in _targetPermanents)
+                    {
+                        log += $"\n{targetPermanent.TopCard.BaseENGCardNameFromEntity}({targetPermanent.TopCard.CardID})";
+
+                        FieldPermanentCard fieldPermanentCard = targetPermanent.ShowingPermanentCard;
+
+                        fieldPermanentCard.OnSelectEffect(1.1f);
+
+                        #region target arrow display
+                        if (_cardEffect != null)
+                        {
+                            if (_cardEffect.EffectSourceCard != null)
+                            {
+                                if (_cardEffect.EffectSourceCard.PermanentOfThisCard() == null)
+                                {
+                                    #region processing area card
+                                    if (_cardEffect.EffectSourceCard.Owner.ExecutingCards.Contains(_cardEffect.EffectSourceCard) || _cardEffect.EffectSourceCard.Owner.brainStormObject.BrainStormHandCards.Count((handCard) => handCard.cardSource == _cardEffect.EffectSourceCard && handCard.gameObject.activeSelf) >= 1)
+                                    {
+                                        if (_cardEffect.EffectSourceCard.Owner.isYou)
+                                        {
+                                            yield return GManager.instance.OnTargetArrow(
+                                            new Vector3(-840, -100, 0),
+                                            fieldPermanentCard.GetLocalCanvasPosition() + fieldPermanentCard.ThisPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+                                            null,
+                                            null);
+                                        }
+
+                                        else
+                                        {
+                                            yield return GManager.instance.OnTargetArrow(
+                                            new Vector3(810, 240, 0),
+                                            fieldPermanentCard.GetLocalCanvasPosition() + fieldPermanentCard.ThisPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+                                            null,
+                                            null);
+                                        }
+                                    }
+                                    #endregion
+
+                                    #region Cards in the trash or lost zone or deck
+                                    else if (_cardEffect.EffectSourceCard.Owner.TrashCards.Contains(_cardEffect.EffectSourceCard) || _cardEffect.EffectSourceCard.Owner.LostCards.Contains(_cardEffect.EffectSourceCard) || _cardEffect.EffectSourceCard.Owner.LibraryCards.Contains(_cardEffect.EffectSourceCard))
+                                    {
+                                        if (_cardEffect.EffectSourceCard.Owner.isYou)
+                                        {
+                                            yield return GManager.instance.OnTargetArrow(
+                                            new Vector3(725, -220, 0),
+                                            fieldPermanentCard.GetLocalCanvasPosition() + fieldPermanentCard.ThisPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+                                            null,
+                                            null);
+                                        }
+
+                                        else
+                                        {
+                                            yield return GManager.instance.OnTargetArrow(
+                                            new Vector3(-684, 287, 0),
+                                            fieldPermanentCard.GetLocalCanvasPosition() + fieldPermanentCard.ThisPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+                                            null,
+                                            null);
+                                        }
+                                    }
+                                    #endregion
+
+                                    #region cards in hand
+                                    else if (_cardEffect.EffectSourceCard.Owner.HandCards.Contains(_cardEffect.EffectSourceCard) && (_cardEffect.IsDeclarative || _cardEffect.EffectName.Contains("Digisorption")))
+                                    {
+
+                                        if (_cardEffect.EffectSourceCard.Owner.isYou)
+                                        {
+                                            yield return GManager.instance.OnTargetArrow(
+                                            new Vector3(0, -380, 0),
+                                            fieldPermanentCard.GetLocalCanvasPosition() + fieldPermanentCard.ThisPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+                                            null,
+                                            null);
+                                        }
+
+                                        else
+                                        {
+                                            yield return GManager.instance.OnTargetArrow(
+                                            new Vector3(0, 480, 0),
+                                            fieldPermanentCard.GetLocalCanvasPosition() + fieldPermanentCard.ThisPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+                                            null,
+                                            null);
+                                        }
+
+                                    }
+                                    #endregion
+
+                                    #region Other area cards
+                                    else
+                                    {
+
+                                    }
+                                    #endregion
+                                }
+
+                                else
+                                {
+                                    #region character card in place
+                                    if (_cardEffect.EffectSourceCard.PermanentOfThisCard().ShowingPermanentCard != null)
+                                    {
+                                        yield return GManager.instance.OnTargetArrow(
+                                            _cardEffect.EffectSourceCard.PermanentOfThisCard().ShowingPermanentCard.GetLocalCanvasPosition() + _cardEffect.EffectSourceCard.Owner.playerUIObjectParent.localPosition,
+                                            fieldPermanentCard.GetLocalCanvasPosition() + fieldPermanentCard.ThisPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+                                            _cardEffect.EffectSourceCard.PermanentOfThisCard().ShowingPermanentCard,
+                                            fieldPermanentCard);
+                                    }
+                                    #endregion
+                                }
+                            }
+                        }
+
+                        yield return new WaitForSeconds(0.2f);
+                        #endregion
+
+                        #region Perform processing on the selected unit
+                        if (_selectPermanentCoroutine != null)
+                        {
+                            yield return StartCoroutine(_selectPermanentCoroutine(targetPermanent));
+                        }
+
+                        switch (_mode)
+                        {
+                            case Mode.Tap:
+
+                                tapPermanents.Add(targetPermanent);
+                                break;
+
+                            case Mode.UnTap:
+
+                                untapPermanents.Add(targetPermanent);
+                                break;
+
+                            case Mode.Destroy:
+
+                                destroyPermanents.Add(targetPermanent);
+                                break;
+
+                            case Mode.Bounce:
+
+                                handBouncePermanents.Add(targetPermanent);
+                                break;
+
+                            case Mode.PutLibraryBottom:
+
+                                libraryBottomPermanents.Add(targetPermanent);
+                                break;
+
+                            case Mode.PutLibraryTop:
+                                libraryTopPermanents.Add(targetPermanent);
+                                break;
+
+                            case Mode.PutSecurityBottom:
+
+                                securityBottomPermanents.Add(targetPermanent);
+                                break;
+
+                            case Mode.PutSecurityTop:
+                                securityTopPermanents.Add(targetPermanent);
+                                break;
+
+                            case Mode.Degenerate:
+                                degeneratePermanents.Add(targetPermanent);
+                                break;
+
+                            case Mode.Attack:
+                                attackPermanents.Add(targetPermanent);
+                                break;
+                        }
+                        #endregion
+
+                        for (int i = 0; i < 1; i++)
+                        {
+                            GManager.instance.OffTargetArrow();
+                            yield return new WaitForSeconds(Time.deltaTime);
+                        }
+
+                        if (fieldPermanentCard != null)
+                        {
+                            fieldPermanentCard.RemoveSelectEffect();
+                        }
+                    }
+
+                    #region Add log
+                    if (_targetPermanents.Count >= 1)
+                    {
+                        log += "\n";
+
+                        PlayLog.OnAddLog?.Invoke(log);
+                    }
+                    #endregion
+
+                    if (destroyPermanents.Count > 0)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(new DestroyPermanentsClass(destroyPermanents, hashtable).Destroy());
+                    }
+
+                    if (tapPermanents.Count > 0)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(new SuspendPermanentsClass(tapPermanents, hashtable).Tap());
+                    }
+
+                    if (untapPermanents.Count > 0)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(new IUnsuspendPermanents(untapPermanents, _cardEffect).Unsuspend());
+                    }
+
+                    if (libraryBottomPermanents.Count > 0)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(new DeckBottomBounceClass(libraryBottomPermanents, hashtable).DeckBounce());
+                    }
+
+                    if (libraryTopPermanents.Count > 0)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(new DeckTopBounceClass(libraryTopPermanents, hashtable).DeckBounce());
+                    }
+
+                    if (securityBottomPermanents.Count > 0)
+                    {
+                        if (_cardEffect.EffectSourceCard.Owner.CanAddSecurity(_cardEffect))
+                        {
+                            foreach (Permanent targetPermanent in securityBottomPermanents)
+                            {
+                                yield return ContinuousController.instance.StartCoroutine(new IPutSecurityPermanent(targetPermanent, CardEffectCommons.CardEffectHashtable(_cardEffect), false, _isFaceUp).PutSecurity());
+                            }
+                        }
+                    }
+
+                    if (securityTopPermanents.Count > 0)
+                    {
+                        if (_cardEffect.EffectSourceCard.Owner.CanAddSecurity(_cardEffect))
+                        {
+                            foreach (Permanent targetPermanent in securityTopPermanents)
+                            {
+                                yield return ContinuousController.instance.StartCoroutine(new IPutSecurityPermanent(targetPermanent, CardEffectCommons.CardEffectHashtable(_cardEffect), true, _isFaceUp).PutSecurity());
+                            }
+                        }
+                    }
+
+                    if (handBouncePermanents.Count > 0)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(new HandBounceClaass(handBouncePermanents, hashtable).Bounce());
+                    }
+
+                    if (degeneratePermanents.Count > 0)
+                    {
+                        foreach (Permanent selectedPermanent in degeneratePermanents)
+                        {
+                            yield return ContinuousController.instance.StartCoroutine(new IDegeneration(selectedPermanent, _degenerationCount, _cardEffect).Degeneration());
+                        }
+                    }
+
+                    if (attackPermanents.Count > 0)
+                    {
+                        foreach (Permanent selectedPermanent in attackPermanents)
+                        {
+                            if (selectedPermanent.CanAttack(_cardEffect))
+                            {
+                                SelectAttackEffect selectAttackEffect = GManager.instance.GetComponent<SelectAttackEffect>();
+
+                                selectAttackEffect.SetUp(
+                                    attacker: selectedPermanent,
+                                    canAttackPlayerCondition: () => _canAttackPlayer,
+                                    defenderCondition: _defenderCondition,
+                                    cardEffect: _cardEffect);
+
+                                if (!_canNoSelect) selectAttackEffect.SetCanNotSelectNotAttack();
+
+                                yield return ContinuousController.instance.StartCoroutine(selectAttackEffect.Activate());
+                            }
+                        }
+                    }
                 }
             }
         }
 
         if (_afterSelectPermanentCoroutine != null)
         {
-            await _afterSelectPermanentCoroutine(_targetPermanents).ConfigureAwait(false);
+            yield return StartCoroutine(_afterSelectPermanentCoroutine(_targetPermanents));
         }
+
+        GManager.instance.turnStateMachine.IsSelecting = oldIsSelecting;
     }
 
-    /// <summary>The AS-IS Activate mode batches (SelectPermanentEffect.cs:949-1028), in AS-IS statement order,
-    /// each Mode calling its 1:1 mirror mutation class directly (AS-IS pattern — the single OnDeletion/
-    /// OnLeaveField/window collapse happens once per class call, NOT per target): Destroy/Bounce/PutLibrary*
-    /// make ONE batch call over the whole selected list (DestroyPermanentsClass/HandBounceClaass/
-    /// Deck*BounceClass); Tap/UnTap use SuspendPermanentsClass/IUnsuspendPermanents (one batch call);
-    /// PutSecurity*/Degenerate resolve SEQUENTIALLY per permanent (IPutSecurityPermanent/IDegeneration);
-    /// Attack uses the established queued effect-attack flow. The AS-IS cause is the {"CardEffect": _cardEffect}
-    /// hashtable (AS-IS :750-751).</summary>
-    private async Task ApplyAsIsModeBatchAsync(EngineContext context)
+    #region 選択決定
+    [PunRPC]
+    public void SetTargetFrames(int playerID, bool[] isTurnPlayer, int[] UnitIndex)
     {
-        if (_targetPermanents.Count == 0)
+        Player selectionPlayer = GManager.instance.GetPlayerFromID(playerID);
+
+        if (selectionPlayer == null)
         {
             return;
         }
 
-        HeadlessEntityId? causeId = _cardEffect?.EffectSourceCard?.InstanceId;
-
-        // AS-IS :750-751 — Hashtable hashtable = new Hashtable(); hashtable.Add("CardEffect", _cardEffect);
-        Hashtable hashtable = new Hashtable();
-        hashtable.Add("CardEffect", _cardEffect);
-
-        switch (_mode)
-        {
-            case Mode.Destroy:   // AS-IS :949-952 — ONE DestroyPermanentsClass call = ONE delete batch.
-                await new DestroyPermanentsClass(new List<Permanent>(_targetPermanents), hashtable)
-                    .Destroy().ConfigureAwait(false);
-                break;
-
-            case Mode.Bounce:    // AS-IS :996-999 — ONE HandBounceClaass call = ONE add-hand batch.
-                await new HandBounceClaass(new List<Permanent>(_targetPermanents), hashtable)
-                    .Bounce().ConfigureAwait(false);
-                break;
-
-            case Mode.PutLibraryBottom:   // AS-IS :964-967 — ONE DeckBottomBounceClass call.
-                await new DeckBottomBounceClass(new List<Permanent>(_targetPermanents), hashtable)
-                    .DeckBounce().ConfigureAwait(false);
-                break;
-
-            case Mode.PutLibraryTop:      // AS-IS :969-972 — ONE DeckTopBounceClass call.
-                await new DeckTopBounceClass(new List<Permanent>(_targetPermanents), hashtable)
-                    .DeckBounce().ConfigureAwait(false);
-                break;
-
-            case Mode.Tap:   // AS-IS :954-957 SuspendPermanentsClass(tapPermanents, hashtable).Tap().
-                await new SuspendPermanentsClass(new List<Permanent>(_targetPermanents), _cardEffect, isBlock: false)
-                    .Tap().ConfigureAwait(false);
-                break;
-
-            case Mode.UnTap: // AS-IS :959-962 IUnsuspendPermanents(untapPermanents, _cardEffect).Unsuspend().
-                await new IUnsuspendPermanents(new List<Permanent>(_targetPermanents), _cardEffect)
-                    .Unsuspend().ConfigureAwait(false);
-                break;
-
-            case Mode.PutSecurityBottom:  // AS-IS :974-983 — batch gated on the EFFECT-SOURCE owner's CanAddSecurity.
-                if (new Player(context, _cardEffect!.EffectSourceCard.Owner).CanAddSecurity(causeId))
-                {
-                    // AS-IS :978-981 — per-permanent IPutSecurityPermanent, SEQUENTIAL, toTop:false.
-                    foreach (Permanent targetPermanent in _targetPermanents)
-                    {
-                        await new IPutSecurityPermanent(targetPermanent, hashtable, toTop: false, isFaceup: _faceUp)
-                            .PutSecurity().ConfigureAwait(false);
-                    }
-                }
-
-                break;
-
-            case Mode.PutSecurityTop:     // AS-IS :985-994.
-                if (new Player(context, _cardEffect!.EffectSourceCard.Owner).CanAddSecurity(causeId))
-                {
-                    // AS-IS :989-991 — per-permanent IPutSecurityPermanent, SEQUENTIAL, toTop:true.
-                    foreach (Permanent targetPermanent in _targetPermanents)
-                    {
-                        await new IPutSecurityPermanent(targetPermanent, hashtable, toTop: true, isFaceup: _faceUp)
-                            .PutSecurity().ConfigureAwait(false);
-                    }
-                }
-
-                break;
-
-            case Mode.Degenerate: // AS-IS :1001-1007 per-permanent IDegeneration(selected, count, _cardEffect).
-                foreach (Permanent selectedPermanent in _targetPermanents)
-                {
-                    await new IDegeneration(selectedPermanent, _degenerationCount, causeId, cardEffect: _cardEffect)
-                        .Degeneration().ConfigureAwait(false);
-                }
-
-                break;
-
-            case Mode.Attack:     // AS-IS :1009-1028 — per-permanent CanAttack + SelectAttackEffect, SEQUENTIAL.
-            {
-                foreach (Permanent selectedPermanent in _targetPermanents)
-                {
-                    if (selectedPermanent.CanAttack(_cardEffect))
-                    {
-                        SelectAttackEffect selectAttackEffect = GManager.instance.GetComponent<SelectAttackEffect>();
-
-                        selectAttackEffect.SetUp(
-                            attacker: selectedPermanent,
-                            canAttackPlayerCondition: () => _canAttackPlayer,
-                            defenderCondition: _defenderCondition,
-                            cardEffect: _cardEffect);
-
-                        if (!_canNoSelect) selectAttackEffect.SetCanNotSelectNotAttack();
-
-                        await selectAttackEffect.Activate().ConfigureAwait(false);
-                    }
-                }
-
-                break;
-            }
-
-            case Mode.Custom:     // The per-selected coroutine (already run) is the whole action.
-                break;
-        }
+        selectionPlayer.QueuePlayerSelection(new PermanentSelection(isTurnPlayer, UnitIndex));
     }
-
-    /// <summary>The AS-IS candidate scan (:183-194 / :406-418): every field permanent (battle + breeding, both
-    /// players — AS-IS <c>gameContext.Players → GetFieldPermanents()</c>) passing <see cref="CanTargetAsIs"/>.</summary>
-    private List<Permanent> FieldCandidates(EngineContext context)
-    {
-        var candidates = new List<Permanent>();
-        foreach (Player player in new GameContext(context).Players)
-        {
-            foreach (Permanent permanent in player.GetFieldPermanents())
-            {
-                if (CanTargetAsIs(context, permanent))
-                {
-                    candidates.Add(permanent);
-                }
-            }
-        }
-
-        return candidates;
-    }
-
-    /// <summary>The player selection (AS-IS panel semantics, SelectPermanentEffect.cs:402-576 / the AI branch
-    /// :629-684 — both collapse to the same ChoiceProvider request): batch request when no path-dependent
-    /// per-pick filter; incremental one-pick-at-a-time loop when <c>canTargetCondition_ByPreSelecetedList</c>
-    /// is present (the AS-IS panel re-filters clickable permanents per pick, :439-450/:519-533). The
-    /// termination rule is <see cref="CanEndSelectAsIs"/> verbatim (count==max, OR any count ≤ max with
-    /// canEndNotMax — including zero, AS-IS :224), so the batch request's minimum is 0 when either opt-out
-    /// exists; "No Selection" (canNoSelect) maps to the request skip and sets <see cref="_noSelect"/>.
-    /// (When canNoSelect AND canEndNotMax both hold, an empty result is reported as the skip — the AS-IS
-    /// back-button-vs-EndSelect distinction is unobservable downstream: both leave zero targets. RD-W4-5.)</summary>
-    private async Task<(List<Permanent> Selected, bool NoSelect)> RunAsIsSelectionAsync(EngineContext context, List<Permanent> pool)
-    {
-        string message = BuildAsIsMessage();
-
-        if (_canTargetCondition_ByPreSelecetedList == null)
-        {
-            int maxCount = Math.Min(_maxCount, pool.Count);
-            int minCount = (_canNoSelect || _canEndNotMax) ? 0 : maxCount;
-            var candidates = pool
-                .Select(permanent => EffectChoiceHelpers.Candidate(
-                    permanent.InstanceId, permanent.InstanceId.Value, ChoiceZone.BattleArea,
-                    isSelectable: true, permanent.OwnerId))
-                .ToList();
-
-            ChoiceRequest request = EffectChoiceHelpers.CreatePermanentRequest(
-                _selectPlayer, message, minCount, maxCount, _canNoSelect, candidates);
-            if (_canEndSelectCondition != null)
-            {
-                // The AS-IS combination gate rides the request as the SelectionValidator (the established
-                // try-reject-retry route, same as the legacy BuildRequest path).
-                request = request with
-                {
-                    SelectionValidator = ids => CanEndSelectAsIs(
-                        ids.Select(id => pool.First(permanent => permanent.InstanceId == id)).ToList()),
-                };
-            }
-
-            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
-            if (result.IsSkipped)
-            {
-                return (new List<Permanent>(), true);
-            }
-
-            var selected = new List<Permanent>();
-            foreach (HeadlessEntityId id in result.SelectedIds)
-            {
-                Permanent? pick = pool.FirstOrDefault(permanent => permanent.InstanceId == id);
-                if (pick is not null && !selected.Contains(pick))
-                {
-                    selected.Add(pick);
-                }
-            }
-
-            return (selected, false);
-        }
-
-        // Incremental path — AS-IS OnClickFieldPermanentCard's per-pick byPreSelectedList filter. The one
-        // panel corner a one-pick loop cannot reproduce (UN-picking at maxCount to satisfy the combination
-        // gate) is unreachable for prefix-monotone AS-IS conditions — design item RD-W4-2 (== RD-W3-1).
-        var picked = new List<Permanent>();
-        while (picked.Count < _maxCount)
-        {
-            List<Permanent> legal = pool
-                .Where(permanent => !picked.Contains(permanent)
-                    && _canTargetCondition_ByPreSelecetedList(picked, permanent))
-                .ToList();
-            if (legal.Count == 0)
-            {
-                break;
-            }
-
-            bool canEndNow = (_canNoSelect && picked.Count == 0) || CanEndSelectAsIs(picked);
-            var request = new ChoiceRequest(
-                ChoiceType.Permanent, _selectPlayer, message,
-                minCount: canEndNow ? 0 : 1, maxCount: 1, canSkip: canEndNow, ChoiceZone.BattleArea,
-                legal.Select(permanent => EffectChoiceHelpers.Candidate(
-                    permanent.InstanceId, permanent.InstanceId.Value, ChoiceZone.BattleArea,
-                    isSelectable: true, permanent.OwnerId)).ToList());
-            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
-            if (result.IsSkipped || result.SelectedIds.Count == 0)
-            {
-                if (picked.Count == 0 && _canNoSelect)
-                {
-                    return (picked, true);
-                }
-
-                break;
-            }
-
-            Permanent? pick = legal.FirstOrDefault(permanent => permanent.InstanceId == result.SelectedIds[0]);
-            if (pick is null)
-            {
-                break;
-            }
-
-            picked.Add(pick);
-        }
-
-        return (picked, false);
-    }
-
-    /// <summary>The AS-IS player-facing prompt (:297-358): the custom message when set, else the per-Mode
-    /// default text, verbatim.</summary>
-    private string BuildAsIsMessage()
-    {
-        if (!string.IsNullOrEmpty(_customMessage))
-        {
-            return _customMessage!;
-        }
-
-        return _mode switch
-        {
-            Mode.Tap => "Select cards to suspend.",
-            Mode.UnTap => "Select cards to unsuspend.",
-            Mode.Destroy => "Select cards to delete.",
-            Mode.Bounce => "Select cards to return to hand.",
-            Mode.PutLibraryBottom => "Select cards to put on bottom of the deck.",
-            Mode.PutLibraryTop => "Select cards to put on top of the deck.",
-            Mode.PutSecurityBottom => "Select cards to put on bottom of security.",
-            Mode.PutSecurityTop => "Select cards to put on top of security.",
-            Mode.Degenerate => $"Select cards to De-Digivolve {_degenerationCount}.",
-            Mode.Attack => "Select a Digimon to attack with.",
-            Mode.Custom => "Select cards.",
-            _ => "Select cards.",
-        };
-    }
-
-    private EngineContext RequireContext() =>
-        _context
-        ?? _cardEffect?.EffectSourceCard?.Context
-        ?? throw new InvalidOperationException(
-            "SelectPermanentEffect has no EngineContext — obtain the instance via " +
-            "GManager.instance.GetComponent<SelectPermanentEffect>() (bridge W4) or pass a context to SetUp.");
-
-    private static HeadlessPlayerId OwnerOf(EngineContext context, HeadlessEntityId id) =>
-        context.CardInstanceRepository.TryGetInstance(id, out var record) && record is not null
-            ? record.OwnerId
-            : default;
-
-    /// <summary>AS-IS <c>ParameterComparer.Enumerate(list, k)</c> — all k-element combinations (no mirror
-    /// ParameterComparer exists; local index-based enumeration, lazily yielded).</summary>
-    private static IEnumerable<List<Permanent>> Combinations(List<Permanent> pool, int size)
-    {
-        if (size <= 0)
-        {
-            yield return new List<Permanent>();
-            yield break;
-        }
-
-        if (size > pool.Count)
-        {
-            yield break;
-        }
-
-        int[] indices = Enumerable.Range(0, size).ToArray();
-        while (true)
-        {
-            yield return indices.Select(index => pool[index]).ToList();
-
-            int position = size - 1;
-            while (position >= 0 && indices[position] == pool.Count - size + position)
-            {
-                position--;
-            }
-
-            if (position < 0)
-            {
-                yield break;
-            }
-
-            indices[position]++;
-            for (int next = position + 1; next < size; next++)
-            {
-                indices[next] = indices[next - 1] + 1;
-            }
-        }
-    }
+    #endregion
 }

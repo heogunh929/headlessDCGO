@@ -1,12 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenRemoveField.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger "When this permanent would leave the battle area" effects of 1 card
 
@@ -23,7 +21,7 @@ public static partial class CardEffectCommons
         List<Permanent> permanents = GetPermanentsFromHashtable(hashtable);
 
         if (permanents != null && permanentCondition != null)
-        {
+        {            
             if (permanents.Count((permanent) => permanent != null && permanent.TopCard != null && permanentCondition(permanent)) >= 1)
             {
                 return true;

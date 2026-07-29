@@ -1,15 +1,9 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/AddLinkRequirement.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS AddLinkRequirement.cs factory partial.
-// Returns the ported AddLinkConditionClass kind-class (CardEffects/AddLinkConditionClass.cs).
-// UnityEngine/Photon and the AS-IS stray `using System.Net.NetworkInformation;` (unused) stripped.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // AddLinkConditionClass (kind-class layer)
+using UnityEngine;
+using System.Net.NetworkInformation;
 
 public partial class CardEffectFactory
 {
@@ -92,9 +86,9 @@ public partial class CardEffectFactory
             return null;
         }
 
+        
 
-
-
+        
 
         return addLinkConditionClass;
     }

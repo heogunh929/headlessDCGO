@@ -1,7 +1,22 @@
-// Source: Assets/Scripts/CardEffect/BT3/Purple/BT3_080.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT3.Purple
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+
+public class BT3_080 : CEntity_Effect
+{
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+        if (timing == EffectTiming.OnDestroyedAnyone)
+        {
+            cardEffects.Add(CardEffectFactory.RetaliationSelfEffect(isInheritedEffect: true, card: card, condition: null));
+        }
+
+        return cardEffects;
+    }
+}

@@ -1,79 +1,213 @@
-// Mirrored from DCGO/Assets/Scripts/Script/MemoryObject.cs (213 lines).
-// NO-OP PRESENTATION SEAM for substrate root S1 (phase A1). The original is the memory-gauge widget: a row of
-// MemoryTab positions (-10..10), the DOTween slide of the current-memory marker, and the "prediction line"
-// preview. Verified: it only READS `GManager.instance.turnStateMachine.gameContext.Memory` and
-// `GManager.instance.You.PlayerID` — it never writes game state; `oldMemory` is display bookkeeping for the
-// tween. Mirror logic (CardController.cs:3662 anchor "AS-IS :801 OffMemoryPredictionLine()") had these call
-// sites deleted; this file re-creates the type so they can be restored.
-//
-// SIGNATURE CHANGES (rule 4 — no Unity types):
-//   - `IEnumerator SetMemory()`          -> `Task SetMemory()`                (coroutine translation)
-//   - `MemoryTab.public GameObject tabObject` -> `public object? tabObject`
-//   - `MemoryTab.public GameObject Light`     -> `public object? Light`, always null: the original returns
-//     `tabObject.transform.GetChild(childCount-2).gameObject` and already returns null when `tabObject` is
-//     null / has fewer than 2 children (MemoryObject.cs:190-204) — headless `tabObject` is always null, so
-//     null is the original's own absent-display-object answer (rule 2).
-//
-// OMITTED MEMBERS (all private / Unity-serialized in the original):
-//   - `CurrentMemoryObject` (GameObject), `memoryPredictionLine` (MemoryPredictionLine — no mirror type), and
-//     `oldMemory`.
-//   - `AssignMemoryTab()` is PUBLIC in the original and IS mirrored below; it assigns each tab its Memory value
-//     from the seat orientation, which is pure display layout.
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
-
-/// <summary>Headless no-op stand-in for the AS-IS <c>MemoryObject</c> memory-gauge widget. Member names, order
-/// and parameter lists mirror DCGO/Assets/Scripts/Script/MemoryObject.cs; all behaviour is stripped.</summary>
-public class MemoryObject
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using System;
+using DG.Tweening;
+public class MemoryObject : MonoBehaviour
 {
-    /// <summary>AS-IS <c>public List&lt;MemoryTab&gt; memoryTabs</c> (MemoryObject.cs:11) — the 21 gauge
-    /// positions. Empty headless (they are populated from the Unity scene).</summary>
+    [SerializeField] GameObject CurrentMemoryObject;
+
     public List<MemoryTab> memoryTabs = new List<MemoryTab>();
 
-    /// <summary>AS-IS <c>Init()</c> (MemoryObject.cs:16) — assigns tab values and inits every tab/the
-    /// prediction line.</summary>
+    [SerializeField] MemoryPredictionLine memoryPredictionLine;
+
+    int oldMemory = 0;
     public void Init()
     {
+        AssignMemoryTab();
+        memoryPredictionLine.Init();
+
+        foreach (MemoryTab memoryTab in memoryTabs)
+        {
+            memoryTab.Init();
+        }
     }
 
-    /// <summary>AS-IS <c>AssignMemoryTab()</c> (MemoryObject.cs:27) — numbers the tabs -10..10 (or reversed for
-    /// the non-master seat).</summary>
     public void AssignMemoryTab()
     {
+        bool isMasterClient = GManager.instance.You.PlayerID == 0;
+
+        for (int i = 0; i < memoryTabs.Count; i++)
+        {
+            if (isMasterClient)
+            {
+                memoryTabs[i].Memory = i - 10;
+            }
+
+            else
+            {
+                memoryTabs[i].Memory = 10 - i;
+            }
+        }
     }
 
-    /// <summary>AS-IS <c>IEnumerator SetMemory()</c> (MemoryObject.cs:45) — lights the tabs between the old and
-    /// new memory value and tweens the marker onto the new tab.</summary>
-    public Task SetMemory() => Task.CompletedTask;
+    public IEnumerator SetMemory()
+    {
+        if (oldMemory != GManager.instance.turnStateMachine.gameContext.Memory)
+        {
+            bool isMasterClient = GManager.instance.You.PlayerID == 0;
 
-    /// <summary>AS-IS <c>ShowMemoryPredictionLine(int)</c> (MemoryObject.cs:139) — draws the preview line from
-    /// the current memory tab to the clamped (-10..10) next value.</summary>
+            MemoryTab targetMemoryTab = null;
+            MemoryTab currentMemoryTab = null;
+
+            foreach (MemoryTab memoryTab in memoryTabs)
+            {
+                if (memoryTab.Memory == GManager.instance.turnStateMachine.gameContext.Memory)
+                {
+                    targetMemoryTab = memoryTab;
+                }
+
+                if (memoryTab.Memory == oldMemory)
+                {
+                    currentMemoryTab = memoryTab;
+                }
+            }
+
+            if (targetMemoryTab != null)
+            {
+                List<MemoryTab> lightMemoryTabs = new List<MemoryTab>();
+
+                int startIndex = memoryTabs.IndexOf(currentMemoryTab);
+                int endIndex = memoryTabs.IndexOf(targetMemoryTab);
+
+                if (startIndex < endIndex)
+                {
+                    for (int i = 0; i < memoryTabs.Count; i++)
+                    {
+                        if (startIndex <= i && i <= endIndex)
+                        {
+                            lightMemoryTabs.Add(memoryTabs[i]);
+                        }
+                    }
+                }
+
+                else
+                {
+                    for (int i = 0; i < memoryTabs.Count; i++)
+                    {
+                        if (endIndex <= i && i <= startIndex)
+                        {
+                            lightMemoryTabs.Add(memoryTabs[i]);
+                        }
+                    }
+                }
+
+                foreach (MemoryTab memoryTab in lightMemoryTabs)
+                {
+                    if (memoryTab.Light != null)
+                    {
+                        memoryTab.Light.SetActive(true);
+                    }
+                }
+
+
+                #region ???
+                bool end = false;
+                var sequence = DOTween.Sequence();
+
+                Vector3 TargetPosition = targetMemoryTab.tabObject.transform.localPosition;
+
+                float GoTime = 0.2f;
+
+                sequence
+                    .Append(CurrentMemoryObject.transform.DOLocalMove(TargetPosition, GoTime).SetEase(Ease.OutCubic))
+                    .AppendCallback(() =>
+                    {
+                        end = true;
+                    });
+
+                sequence.Play();
+
+                yield return new WaitWhile(() => !end);
+                end = false;
+                #endregion
+            }
+        }
+
+        foreach (MemoryTab memoryTab in memoryTabs)
+        {
+            if (memoryTab.Light != null)
+            {
+                memoryTab.Light.SetActive(false);
+            }
+        }
+
+        oldMemory = GManager.instance.turnStateMachine.gameContext.Memory;
+    }
+
     public void ShowMemoryPredictionLine(int nextMemory)
     {
+        if (nextMemory >= 10)
+        {
+            nextMemory = 10;
+        }
+
+        else if (nextMemory <= -10)
+        {
+            nextMemory = -10;
+        }
+
+        MemoryTab currentMemoryTab = null;
+        MemoryTab nextMemoryTab = null;
+
+        foreach (MemoryTab memoryTab in memoryTabs)
+        {
+            if (memoryTab.Memory == GManager.instance.turnStateMachine.gameContext.Memory)
+            {
+                currentMemoryTab = memoryTab;
+            }
+
+            if (memoryTab.Memory == nextMemory)
+            {
+                nextMemoryTab = memoryTab;
+            }
+        }
+
+        if (currentMemoryTab != null && nextMemoryTab != null)
+        {
+            memoryPredictionLine.SetMemoryPredictionLine(currentMemoryTab, nextMemoryTab);
+        }
+
+        else
+        {
+            OffMemoryPredictionLine();
+        }
     }
 
-    /// <summary>AS-IS <c>OffMemoryPredictionLine()</c> (MemoryObject.cs:178) — hides the preview line.</summary>
     public void OffMemoryPredictionLine()
     {
+        memoryPredictionLine.gameObject.SetActive(false);
     }
 }
 
-/// <summary>Headless no-op stand-in for the AS-IS <c>[Serializable] MemoryTab</c> (MemoryObject.cs:185) — one
-/// position on the memory gauge.</summary>
+[Serializable]
 public class MemoryTab
 {
-    /// <summary>AS-IS <c>public int Memory { get; set; }</c> (MemoryObject.cs:187) — the memory value this tab
-    /// represents. Real state (a plain auto-property in the original too).</summary>
     public int Memory { get; set; }
+    public GameObject tabObject;
 
-    /// <summary>AS-IS <c>public GameObject tabObject</c> (MemoryObject.cs:188). Always null headless.</summary>
-    public object? tabObject;
+    public GameObject Light
+    {
+        get
+        {
+            if (tabObject != null)
+            {
+                if (tabObject.transform.childCount >= 2)
+                {
+                    return tabObject.transform.GetChild(tabObject.transform.childCount - 2).gameObject;
+                }
+            }
 
-    /// <summary>AS-IS <c>public GameObject Light { get; }</c> (MemoryObject.cs:190) — the highlight child of
-    /// <see cref="tabObject"/>. Always null headless (see file header).</summary>
-    public object? Light => null;
+            return null;
+        }
+    }
 
-    /// <summary>AS-IS <c>Init()</c> (MemoryObject.cs:206) — hides the highlight.</summary>
     public void Init()
     {
+        if (Light != null)
+        {
+            Light.SetActive(false);
+        }
     }
 }

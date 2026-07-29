@@ -1,8 +1,12 @@
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class BT1_034 : CEntity_Effect
+public class BT1_034 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {

@@ -1,0 +1,604 @@
+--- DCGO/Assets/Scripts/CardEffect/BT25/Green/BT25_056.cs	2026-05-18 20:03:15.028434500 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/CardEffect/BT25/Green/BT25_056.cs	2026-07-29 01:02:22.782910308 +0900
+@@ -1,335 +1,339 @@
++namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT25.Green;
++
++using System;
+ using System.Collections;
+ using System.Collections.Generic;
+ using System.Linq;
++using System.Threading.Tasks;
++using HeadlessDCGO.Engine.Assets.Scripts.Script;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
++using HeadlessDCGO.Engine.Headless.Services;
+ 
+-namespace DCGO.CardEffects.BT25
++public class BT25_056 : CEntity_Effect
+ {
+-    // Bootmon
+-    public class BT25_056 : CEntity_Effect
++    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+     {
+-        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+-        {
+-            List<ICardEffect> cardEffects = new List<ICardEffect>();
++        List<ICardEffect> cardEffects = new List<ICardEffect>();
+ 
+-            #region Alternative Digivolution Condition
+-            if (timing == EffectTiming.None)
++        #region Alternative Digivolution Condition
++        if (timing == EffectTiming.None)
++        {
++            bool PermanentCondition(Permanent targetPermanent)
+             {
+-                bool PermanentCondition(Permanent targetPermanent)
+-                {
+-                    return targetPermanent.TopCard.HasSuperAppTraits;
+-                }
+-
+-                cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(permanentCondition: PermanentCondition, digivolutionCost: 3, ignoreDigivolutionRequirement: false, card: card, condition: null));
++                return targetPermanent.TopCard.EqualsTraits("Sup.");
+             }
+-            #endregion
+ 
+-            #region Link Condition
++            cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(permanentCondition: PermanentCondition, digivolutionCost: 3, ignoreDigivolutionRequirement: false, card: card, condition: null));
++        }
++        #endregion
+ 
+-            if (timing == EffectTiming.None)
+-            {
+-                static bool PermanentCondition(Permanent targetPermanent)
+-                {
+-                    return targetPermanent.TopCard.HasAppmonTraits;
+-                }
++        #region Link Condition
+ 
+-                cardEffects.Add(CardEffectFactory.AddSelfLinkConditionStaticEffect(permanentCondition: PermanentCondition, linkCost: 3, card: card));
++        if (timing == EffectTiming.None)
++        {
++            static bool PermanentCondition(Permanent targetPermanent)
++            {
++                return targetPermanent.TopCard.EqualsTraits("Appmon");
+             }
+ 
+-            #endregion
++            cardEffects.Add(CardEffectFactory.AddSelfLinkConditionStaticEffect(permanentCondition: PermanentCondition, linkCost: 3, card: card));
++        }
+ 
+-            #region App Fusion (Logimon & Craftmon)
++        #endregion
+ 
+-            if (timing == EffectTiming.None)
+-            {
+-                cardEffects.Add(CardEffectFactory.AddAppfuseMethodByName(new List<string>() { "Logimon", "Craftmon" }, card));
++        #region App Fusion (Logimon & Craftmon)
+ 
+-            }
++        if (timing == EffectTiming.None)
++        {
++            cardEffects.Add(CardEffectFactory.AddAppfuseMethodByName(new List<string>() { "Logimon", "Craftmon" }, card));
+ 
+-            #endregion
++        }
+ 
+-            #region Barrier
+-            if (timing == EffectTiming.WhenPermanentWouldBeDeleted)
+-            {
+-                cardEffects.Add(CardEffectFactory.BarrierSelfEffect(isInheritedEffect: false, card: card, condition: null));
+-            }
+-            #endregion
++        #endregion
+ 
+-            #region Shared OP / WD / WA
++        #region Barrier
++        if (timing == EffectTiming.WhenPermanentWouldBeDeleted)
++        {
++            cardEffects.Add(CardEffectFactory.BarrierSelfEffect(isInheritedEffect: false, card: card, condition: null));
++        }
++        #endregion
+ 
+-            string SharedEffectName = "Link from hand or digivolution cards to this for -2";
++        #region Shared OP / WD / WA
+ 
+-            string SharedEffectDescription(string tag)
+-                => $"[{tag}] If it's your turn, you may link 1 [Social], [Tool] or [Game] trait Digimon card from your hand or this Digimon's digivolution cards to this Digimon with the cost reduced by 2.";
++        string SharedEffectName = "Link from hand or digivolution cards to this for -2";
+ 
+-            bool AdditionalActivateCondition(Hashtable hashtable, ActivateClass activateClass)
+-            {
+-                return CardEffectCommons.IsOwnerTurn(card)
+-                    && (CardEffectCommons.HasMatchConditionOwnersHand(card, CanLinkCardActivateCondition)
+-                        || card.PermanentOfThisCard().DigivolutionCards.Any(CanLinkCardActivateCondition));
+-            }
++        string SharedEffectDescription(string tag)
++            => $"[{tag}] If it's your turn, you may link 1 [Social], [Tool] or [Game] trait Digimon card from your hand or this Digimon's digivolution cards to this Digimon with the cost reduced by 2.";
++
++        bool AdditionalActivateCondition(Hashtable hashtable, ActivateClass activateClass)
++        {
++            return CardEffectCommons.IsOwnerTurn(card)
++                && (CardEffectCommons.HasMatchConditionOwnersHand(card, CanLinkCardActivateCondition)
++                    || ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Any(CanLinkCardActivateCondition));
++        }
+ 
+-            bool CanLinkCardActivateCondition(CardSource cardSource) => CanLinkCardCondition(cardSource, false);
++        bool CanLinkCardActivateCondition(CardSource cardSource) => CanLinkCardCondition(cardSource, false);
+ 
+-            bool CanLinkCardEffectCondition(CardSource cardSource) => CanLinkCardCondition(cardSource, true);
++        bool CanLinkCardEffectCondition(CardSource cardSource) => CanLinkCardCondition(cardSource, true);
++
++        bool CanLinkCardCondition(CardSource cardSource, bool payCost)
++        {
++            return cardSource.IsDigimon
++                && (cardSource.EqualsTraits("Social")
++                    || cardSource.EqualsTraits("Tool")
++                    || cardSource.EqualsTraits("Game"))
++                && cardSource.CanLinkToTargetPermanent(ICardEffect.ResolvePermanentOfThisCard(card), payCost);
++        }
+ 
+-            bool CanLinkCardCondition(CardSource cardSource, bool payCost)
++        CardEffectFactory.ActivateClassesForSharedEffects
++            (ref cardEffects, timing, card,
++                SharedEffectName,
++                SharedActivateCoroutine,
++                SharedEffectDescription,
++                additionalActivateCondition: AdditionalActivateCondition,
++                optional: false,
++                isSkippable: true,
++                onPlay: true,
++                whenDigivolving: true,
++                whenAttacking: true);
++
++        async Task SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
++        {
++            #region Link Cost Reduction
++            ICardEffect GetCardEffect(EffectTiming _timing)
+             {
+-                return cardSource.IsDigimon
+-                    && (cardSource.EqualsTraits("Social")
+-                        || cardSource.EqualsTraits("Tool")
+-                        || cardSource.EqualsTraits("Game"))
+-                    && cardSource.CanLinkToTargetPermanent(card.PermanentOfThisCard(), payCost);
++                if (_timing == EffectTiming.None)
++                {
++                    return CardEffectFactory.GrantedReduceLinkCostClass(
++                        card: card,
++                        reducedCost: 2,
++                        cardSourceCondition: _ => true,
++                        permanentCondition: _ => true,
++                        rootCondition: _ => true
++                    );
++                }
++
++                return null;
+             }
+ 
+-            CardEffectFactory.ActivateClassesForSharedEffects
+-                (ref cardEffects, timing, card,
+-                    SharedEffectName,
+-                    SharedActivateCoroutine,
+-                    SharedEffectDescription,
+-                    additionalActivateCondition: AdditionalActivateCondition,
+-                    optional: false,
+-                    isSkippable: true,
+-                    onPlay: true,
+-                    whenDigivolving: true,
+-                    whenAttacking: true);
++            new Player(card.Context, card.Owner).UntilCalculateFixedCostEffect.Add(GetCardEffect);
++            #endregion
++
++            bool canSelectHand = CardEffectCommons.HasMatchConditionOwnersHand(card, CanLinkCardEffectCondition);
++            bool canSelectSources = ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Any(CanLinkCardEffectCondition);
+ 
+-            IEnumerator SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
++            List<SelectionElement<int>> selectionElements = new List<SelectionElement<int>>();
++            if (canSelectHand)
+             {
+-                #region Link Cost Reduction
+-                ICardEffect GetCardEffect(EffectTiming _timing)
+-                {
+-                    if (_timing == EffectTiming.None)
+-                    {
+-                        return CardEffectFactory.GrantedReduceLinkCostClass(
+-                            card: card, 
+-                            reducedCost: 2,
+-                            cardSourceCondition: _ => true,
+-                            permanentCondition: _ => true,
+-                            rootCondition: _ => true
+-                        );
+-                    }
++                selectionElements.Add(new SelectionElement<int>(message: $"From hand", value : 1, spriteIndex: 0));
++            }
++            if (canSelectSources)
++            {
++                selectionElements.Add(new SelectionElement<int>(message: $"From digivolution cards", value : 2, spriteIndex: 0));
++            }
++            selectionElements.Add(new SelectionElement<int>(message: $"Do not Link", value : 3, spriteIndex: 1));
+ 
+-                    return null;
+-                }
++            string selectPlayerMessage = "From which area will you link a card?";
++            string notSelectPlayerMessage = "The opponent is choosing from which area to select a card.";
+ 
+-                card.Owner.UntilCalculateFixedCostEffect.Add(GetCardEffect);
+-                #endregion
++            GManager.instance.userSelectionManager.SetIntSelection(selectionElements: selectionElements, selectPlayer: card.Owner, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
+ 
+-                bool canSelectHand = CardEffectCommons.HasMatchConditionOwnersHand(card, CanLinkCardEffectCondition);
+-                bool canSelectSources = card.PermanentOfThisCard().DigivolutionCards.Any(CanLinkCardEffectCondition);
++            await GManager.instance.userSelectionManager.WaitForEndSelect();
+ 
+-                List<SelectionElement<int>> selectionElements = new List<SelectionElement<int>>();
+-                if (canSelectHand)
++            bool doLink = GManager.instance.userSelectionManager.SelectedIntValue != 3;
++            bool fromHand = GManager.instance.userSelectionManager.SelectedIntValue == 1;
++            if (doLink)
++            {
++                if (fromHand)
+                 {
+-                    selectionElements.Add(new SelectionElement<int>(message: $"From hand", value : 1, spriteIndex: 0));
++                    SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
++
++                    selectHandEffect.SetUp(
++                        selectPlayer: card.Owner,
++                        canTargetCondition: CanLinkCardEffectCondition,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        maxCount: 1,
++                        canNoSelect: true,
++                        canEndNotMax: false,
++                        isShowOpponent: true,
++                        selectCardCoroutine: SelectCardCoroutine,
++                        afterSelectCardCoroutine: null,
++                        mode: SelectHandEffect.Mode.Custom,
++                        cardEffect: activateClass);
++
++                    selectHandEffect.SetUpCustomMessage("Select 1 card to link.", "The opponent is selecting 1 card to link.");
++                    selectHandEffect.SetUpCustomMessage_ShowCard("Selected Card");
++
++                    await selectHandEffect.Activate();
++                }
++                else
++                {
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++
++                    selectCardEffect.SetUp(
++                        canTargetCondition: CanLinkCardEffectCondition,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        canNoSelect: () => true,
++                        selectCardCoroutine: SelectCardCoroutine,
++                        afterSelectCardCoroutine: null,
++                        message: "Select 1 card to add as source.",
++                        maxCount: 1,
++                        canEndNotMax: false,
++                        isShowOpponent: true,
++                        mode: SelectCardEffect.Mode.Custom,
++                        root: SelectCardEffect.Root.DigivolutionCards,
++                        customRootCardList: ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.ToList(),
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: activateClass);
++
++                    selectCardEffect.SetUpCustomMessage("Select 1 card to link.", "The opponent is selecting 1 card to link.");
++                    selectCardEffect.SetUpCustomMessage_ShowCard("Selected Card");
++
++                    await selectCardEffect.Activate();
+                 }
+-                if (canSelectSources)
++
++                async Task SelectCardCoroutine(CardSource cardSource)
+                 {
+-                    selectionElements.Add(new SelectionElement<int>(message: $"From digivolution cards", value : 2, spriteIndex: 0));
++                    await new ILinkCard(true, cardSource, ICardEffect.ResolvePermanentOfThisCard(card), activateClass).LinkCard();
+                 }
+-                selectionElements.Add(new SelectionElement<int>(message: $"Do not Link", value : 3, spriteIndex: 1));
++            }
+ 
+-                string selectPlayerMessage = "From which area will you link a card?";
+-                string notSelectPlayerMessage = "The opponent is choosing from which area to select a card.";
++            #region Remove Link Cost Reduction
++            new Player(card.Context, card.Owner).UntilCalculateFixedCostEffect.Remove(GetCardEffect);
++            #endregion
++        }
+ 
+-                GManager.instance.userSelectionManager.SetIntSelection(selectionElements: selectionElements, selectPlayer: card.Owner, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
++        #endregion
+ 
+-                yield return ContinuousController.instance.StartCoroutine(GManager.instance.userSelectionManager.WaitForEndSelect());
++        #region All Turns
++        if (timing == EffectTiming.WhenLinked)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Suspend 1 enemy Digimon or Tamer", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDescription());
++            cardEffects.Add(activateClass);
+ 
+-                bool doLink = GManager.instance.userSelectionManager.SelectedIntValue != 3;
+-                bool fromHand = GManager.instance.userSelectionManager.SelectedIntValue == 1;
+-                if (doLink)
+-                {
+-                    if (fromHand)
+-                    {
+-                        SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+-
+-                        selectHandEffect.SetUp(
+-                            selectPlayer: card.Owner,
+-                            canTargetCondition: CanLinkCardEffectCondition,
+-                            canTargetCondition_ByPreSelecetedList: null,
+-                            canEndSelectCondition: null,
+-                            maxCount: 1,
+-                            canNoSelect: true,
+-                            canEndNotMax: false,
+-                            isShowOpponent: true,
+-                            selectCardCoroutine: SelectCardCoroutine,
+-                            afterSelectCardCoroutine: null,
+-                            mode: SelectHandEffect.Mode.Custom,
+-                            cardEffect: activateClass);
+-
+-                        selectHandEffect.SetUpCustomMessage("Select 1 card to link.", "The opponent is selecting 1 card to link.");
+-                        selectHandEffect.SetUpCustomMessage_ShowCard("Selected Card");
+-
+-                        yield return StartCoroutine(selectHandEffect.Activate());
+-                    }
+-                    else
+-                    {
+-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+-
+-                        selectCardEffect.SetUp(
+-                            canTargetCondition: CanLinkCardEffectCondition,
+-                            canTargetCondition_ByPreSelecetedList: null,
+-                            canEndSelectCondition: null,
+-                            canNoSelect: () => true,
+-                            selectCardCoroutine: SelectCardCoroutine,
+-                            afterSelectCardCoroutine: null,
+-                            message: "Select 1 card to add as source.",
+-                            maxCount: 1,
+-                            canEndNotMax: false,
+-                            isShowOpponent: true,
+-                            mode: SelectCardEffect.Mode.Custom,
+-                            root: SelectCardEffect.Root.DigivolutionCards,
+-                            customRootCardList: card.PermanentOfThisCard().DigivolutionCards,
+-                            canLookReverseCard: true,
+-                            selectPlayer: card.Owner,
+-                            cardEffect: activateClass);
+-
+-                        selectCardEffect.SetUpCustomMessage("Select 1 card to link.", "The opponent is selecting 1 card to link.");
+-                        selectCardEffect.SetUpCustomMessage_ShowCard("Selected Card");
+-
+-                        yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
+-                    }
+-
+-                    IEnumerator SelectCardCoroutine(CardSource cardSource)
+-                    {
+-                        yield return ContinuousController.instance.StartCoroutine(new ILinkCard(true, cardSource, card.PermanentOfThisCard(), activateClass).LinkCard());
+-                    }
+-                }
++            string EffectDescription()
++            {
++                return "[All Turns] When this Digimon get linked, suspend 1 of your opponent's Digimon or Tamers.";
++            }
+ 
+-                #region Remove Link Cost Reduction
+-                card.Owner.UntilCalculateFixedCostEffect.Remove(GetCardEffect);
+-                #endregion
++            bool PermanentCondition(Permanent permanent)
++            {
++                return permanent == ICardEffect.ResolvePermanentOfThisCard(card);
+             }
+-            
+-            #endregion
+ 
+-            #region All Turns
+-            if (timing == EffectTiming.WhenLinked)
++            bool IsOpponentsPermanent(Permanent permanent)
+             {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Suspend 1 enemy Digimon or Tamer", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDescription());
+-                cardEffects.Add(activateClass);
++                return CardEffectCommons.IsPermanentExistsOnOpponentBattleArea(permanent, card)
++                    && (permanent.IsDigimon
++                        || permanent.IsTamer);
++            }
+ 
+-                string EffectDescription()
+-                {
+-                    return "[All Turns] When this Digimon get linked, suspend 1 of your opponent's Digimon or Tamers.";
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.IsExistOnBattleArea(card)
++                    && CardEffectCommons.CanTriggerWhenLinked(hashtable, PermanentCondition, null);
++            }
+ 
+-                bool PermanentCondition(Permanent permanent)
+-                {
+-                    return permanent == card.PermanentOfThisCard();
+-                }
++            bool CanActivateCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.IsExistOnBattleArea(card);
++            }
+ 
+-                bool IsOpponentsPermanent(Permanent permanent)
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                if (CardEffectCommons.HasMatchConditionPermanent(card, IsOpponentsPermanent))
+                 {
+-                    return CardEffectCommons.IsPermanentExistsOnOpponentBattleArea(permanent, card)
+-                        && (permanent.IsDigimon
+-                            || permanent.IsTamer);
+-                }
++                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleArea(card)
+-                        && CardEffectCommons.CanTriggerWhenLinked(hashtable, PermanentCondition, null);
+-                }
++                    selectPermanentEffect.SetUp(
++                        selectPlayer: card.Owner,
++                        canTargetCondition: IsOpponentsPermanent,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        maxCount: 1,
++                        canNoSelect: false,
++                        canEndNotMax: false,
++                        selectPermanentCoroutine: null,
++                        afterSelectPermanentCoroutine: null,
++                        mode: SelectPermanentEffect.Mode.Tap,
++                        cardEffect: activateClass);
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleArea(card);
++                    await selectPermanentEffect.Activate();
+                 }
++            }
++        }
++        #endregion
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
+-                {
+-                    if (CardEffectCommons.HasMatchConditionPermanent(IsOpponentsPermanent))
+-                    {
+-                        SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+-
+-                        selectPermanentEffect.SetUp(
+-                            selectPlayer: card.Owner,
+-                            canTargetCondition: IsOpponentsPermanent,
+-                            canTargetCondition_ByPreSelecetedList: null,
+-                            canEndSelectCondition: null,
+-                            maxCount: 1,
+-                            canNoSelect: false,
+-                            canEndNotMax: false,
+-                            selectPermanentCoroutine: null,
+-                            afterSelectPermanentCoroutine: null,
+-                            mode: SelectPermanentEffect.Mode.Tap,
+-                            cardEffect: activateClass);
++        #region Link
++        if (timing == EffectTiming.OnDeclaration)
++        {
++            cardEffects.Add(CardEffectFactory.LinkEffect(card));
++        }
++        #endregion
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+-                    }
+-                }
+-            }
+-            #endregion
++        #region When Linking
+ 
+-            #region Link
+-            if (timing == EffectTiming.OnDeclaration)
++        if (timing == EffectTiming.WhenLinked)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Bottom deck 1 of enemy suspended Digimon", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDescription());
++            activateClass.SetIsLinkedEffect(true);
++            cardEffects.Add(activateClass);
++
++            string EffectDescription()
+             {
+-                cardEffects.Add(CardEffectFactory.LinkEffect(card));
++                return "[When Linking] Return 1 of your opponent's suspended Digimon to the bottom of the deck.";
+             }
+-            #endregion
+-
+-            #region When Linking
+ 
+-            if (timing == EffectTiming.WhenLinked)
++            bool IsOpponentsDigimon(Permanent permanent)
+             {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Bottom deck 1 of enemy suspended Digimon", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDescription());
+-                activateClass.SetIsLinkedEffect(true);
+-                cardEffects.Add(activateClass);
+-
+-                string EffectDescription()
+-                {
+-                    return "[When Linking] Return 1 of your opponent's suspended Digimon to the bottom of the deck.";
+-                }
++                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
++                    && permanent.IsSuspended;
++            }
+ 
+-                bool IsOpponentsDigimon(Permanent permanent)
+-                {
+-                    return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
+-                        && permanent.IsSuspended;
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.CanTriggerWhenLinking(hashtable, null, card);
++            }
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanTriggerWhenLinking(hashtable, null, card);
+-                }
++            bool CanActivateCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.IsExistOnBattleArea(card);
++            }
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                if (CardEffectCommons.HasMatchConditionPermanent(card, IsOpponentsDigimon))
+                 {
+-                    return CardEffectCommons.IsExistOnBattleArea(card);
+-                }
++                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
+-                {
+-                    if (CardEffectCommons.HasMatchConditionPermanent(IsOpponentsDigimon))
+-                    {
+-                        SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+-
+-                        selectPermanentEffect.SetUp(
+-                            selectPlayer: card.Owner,
+-                            canTargetCondition: IsOpponentsDigimon,
+-                            canTargetCondition_ByPreSelecetedList: null,
+-                            canEndSelectCondition: null,
+-                            maxCount: 1,
+-                            canNoSelect: false,
+-                            canEndNotMax: false,
+-                            selectPermanentCoroutine: null,
+-                            afterSelectPermanentCoroutine: null,
+-                            mode: SelectPermanentEffect.Mode.PutLibraryBottom,
+-                            cardEffect: activateClass);
++                    selectPermanentEffect.SetUp(
++                        selectPlayer: card.Owner,
++                        canTargetCondition: IsOpponentsDigimon,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        maxCount: 1,
++                        canNoSelect: false,
++                        canEndNotMax: false,
++                        selectPermanentCoroutine: null,
++                        afterSelectPermanentCoroutine: null,
++                        mode: SelectPermanentEffect.Mode.PutLibraryBottom,
++                        cardEffect: activateClass);
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+-                    }
++                    await selectPermanentEffect.Activate();
+                 }
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            return cardEffects;
+-        }
++        return cardEffects;
+     }
+ }

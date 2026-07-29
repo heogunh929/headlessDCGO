@@ -1,61 +1,22 @@
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// 정본 카드 — Thomas H. Norstein (BT7_087, Tamer / Blue)
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// ① AS-IS 앵커: DCGO/Assets/Scripts/CardEffect/BT7/Blue/BT7_087.cs (4 arms)
-//    * [Security]                 (SecuritySkill)  — PlaySelfTamerSecurityEffect
-//    * [Main][Once Per Turn]      (OnDeclaration)  — 손패 [Hybrid] 5장을 이 Tamer 밑에 놓고, 이 Tamer를
-//      level-5 blue Digimon 취급하여 손패 [MagnaGarurumon]으로 진화(:235 IsPlaceToTrashDueToNotHavingDP=false,
-//      :259 =true 복원 — treat-as-Digimon 윈도우 동안 DP-없음-트래시 억제).
-//    * [Your Turn][Once Per Turn] (OnAddHand)      — 손패에 카드 추가 시 Memory +1 + Unblockable(ESS/inherited)
-//
-// ② 프리미티브 매핑 (감사 축): P:ChangeCardColorClass, P:ChangePermanentLevelClass, P:TreatAsDigimonClass,
-//    P:DontHaveDPClass, P:DigivolveIntoHandOrTrashCard(fixedCost 없음/payCost true, isHand), E:SelectHandEffect
-//    (Mode.Custom 5장), E:SelectCardEffect(Root.Custom 순서), Permanent.IsPlaceToTrashDueToNotHavingDP WRITE(신규
-//    setter — treat-as-Digimon 윈도우 동안 no-DP-trash 억제/복원).
-//
-// ③ 배선 관례 근거: [Main] 선언형 = OnDeclaration(AS-IS 그대로; BT25_104/EX8_072 관례). SetHashString
-//    ("Digivolve_BT7_085")/([Your Turn] "Memory+1_BT7_087") once-per-turn 해시 유지. OnAddHand ESS =
-//    SetIsInheritedEffect(true).
-//
-// 치환(substrate translations only):
-//    * IEnumerator→async Task, StartCoroutine(X)→await X, lone `yield return null`→Task.CompletedTask.
-//    * `card.Owner.HandCards.Count(cond)` → `new Player(card.Context, card.Owner).HandCards.Count(cond)`.
-//    * `card.PermanentOfThisCard()` → `ICardEffect.ResolvePermanentOfThisCard(card)`.
-//    * `TopCard.CardNames.Contains(name)` → `EqualsCardName(name)`(BT17_026 관례).
-//    * `AddDigivolutionCardsBottom(list, activateClass)` → `.AddDigivolutionCardsBottom(list,
-//      activateClass.EffectSourceCard?.InstanceId)`(BT17_026 미러 시그니처).
-//    * treat-as 4효과는 `card.PermanentOfThisCard().PermanentEffects.Add/Remove`(Permanent-레벨 리스트) 그대로 —
-//      BT17_026는 player-레벨이지만 BT7_087 AS-IS는 permanent-레벨(1:1 유지).
-//    * `card.PermanentOfThisCard().IsPlaceToTrashDueToNotHavingDP = false/true` → 신규 Permanent setter(1:1 WRITE).
-//    * `card.Owner.AddMemory(1, activateClass)` → HeadlessPlayerId.AddMemory 확장.
-//    * `CanTriggerOnHandAdded(hashtable, card.Owner, null)` → 미러 시그니처 `CanTriggerOnHandAdded(ctx, card,
-//      card.Owner, null)`(card 인자 삽입; Hashtable→CardEffectResolveContext 암시 변환).
-//    * `GManager.instance.GetComponent<Effects>().CreateDebuffEffect(...)` 류 UI = 스트립(BT17_026 관례).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT7.Blue;
-
-using System;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT7_087 : CEntity_Effect
+public class BT7_087 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        #region Security
         if (timing == EffectTiming.SecuritySkill)
         {
             cardEffects.Add(CardEffectFactory.PlaySelfTamerSecurityEffect(card));
         }
-        #endregion
 
-        #region Main - treat this Tamer as a level 5 blue Digimon and digivolve
         if (timing == EffectTiming.OnDeclaration)
         {
             ActivateClass activateClass = new ActivateClass();
@@ -76,14 +37,14 @@ public sealed class BT7_087 : CEntity_Effect
 
             bool CanSelectCardCondition1(CardSource cardSource)
             {
-                return cardSource.EqualsCardName("MagnaGarurumon");
+                return cardSource.CardNames.Contains("MagnaGarurumon");
             }
 
             bool CanUseCondition(Hashtable hashtable)
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (new Player(card.Context, card.Owner).HandCards.Count(CanSelectCardCondition) >= 5)
+                    if (card.Owner.HandCards.Count(CanSelectCardCondition) >= 5)
                     {
                         return true;
                     }
@@ -92,11 +53,11 @@ public sealed class BT7_087 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (new Player(card.Context, card.Owner).HandCards.Count(CanSelectCardCondition) >= 5)
+                    if (card.Owner.HandCards.Count(CanSelectCardCondition) >= 5)
                     {
                         List<CardSource> selectedCards = new List<CardSource>();
 
@@ -121,12 +82,13 @@ public sealed class BT7_087 : CEntity_Effect
                         selectHandEffect.SetUpCustomMessage("Select cards to place in Digivolution cards.", "The opponent is selecting cards to place in Digivolution cards.");
                         selectHandEffect.SetNotShowCard();
 
-                        await selectHandEffect.Activate();
+                        yield return StartCoroutine(selectHandEffect.Activate());
 
-                        Task SelectCardCoroutine(CardSource cardSource)
+                        IEnumerator SelectCardCoroutine(CardSource cardSource)
                         {
                             selectedCards.Add(cardSource);
-                            return Task.CompletedTask;
+
+                            yield return null;
                         }
 
                         List<CardSource> digivolutionCards = new List<CardSource>();
@@ -155,26 +117,26 @@ public sealed class BT7_087 : CEntity_Effect
 
                             selectCardEffect.SetUpCustomMessage_ShowCard("Digivolution Cards");
 
-                            await selectCardEffect.Activate();
+                            yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
 
-                            Task AfterSelectCardCoroutine1(List<CardSource> cardSources)
+                            IEnumerator AfterSelectCardCoroutine1(List<CardSource> cardSources)
                             {
                                 foreach (CardSource cardSource in cardSources)
                                 {
                                     digivolutionCards.Add(cardSource);
                                 }
 
-                                return Task.CompletedTask;
+                                yield return null;
                             }
                         }
 
                         if (digivolutionCards.Count == 5)
                         {
-                            await ICardEffect.ResolvePermanentOfThisCard(card).AddDigivolutionCardsBottom(digivolutionCards, activateClass.EffectSourceCard?.InstanceId);
+                            yield return ContinuousController.instance.StartCoroutine(card.PermanentOfThisCard().AddDigivolutionCardsBottom(digivolutionCards, activateClass));
 
                             #region treat as blue level 5 Digimon
 
-                            CardSource topCard = ICardEffect.ResolvePermanentOfThisCard(card).TopCard;
+                            CardSource topCard = card.PermanentOfThisCard().TopCard;
 
                             #region treat as blue
                             ChangeCardColorClass changeCardColorClass = new ChangeCardColorClass();
@@ -188,7 +150,7 @@ public sealed class BT7_087 : CEntity_Effect
                                 {
                                     if (card == topCard)
                                     {
-                                        if (topCard == ICardEffect.ResolvePermanentOfThisCard(card).TopCard)
+                                        if (topCard == card.PermanentOfThisCard().TopCard)
                                         {
                                             return true;
                                         }
@@ -219,7 +181,7 @@ public sealed class BT7_087 : CEntity_Effect
                             {
                                 if (CardEffectCommons.IsExistOnBattleArea(card))
                                 {
-                                    if (permanent == ICardEffect.ResolvePermanentOfThisCard(card))
+                                    if (permanent == card.PermanentOfThisCard())
                                     {
                                         level = 5;
                                     }
@@ -239,7 +201,7 @@ public sealed class BT7_087 : CEntity_Effect
                             {
                                 if (CardEffectCommons.IsExistOnBattleArea(card))
                                 {
-                                    if (permanent == ICardEffect.ResolvePermanentOfThisCard(card))
+                                    if (permanent == card.PermanentOfThisCard())
                                     {
                                         return true;
                                     }
@@ -266,15 +228,15 @@ public sealed class BT7_087 : CEntity_Effect
 
                             foreach (Func<EffectTiming, ICardEffect> GetCardEffect in GetCardEffects)
                             {
-                                ICardEffect.ResolvePermanentOfThisCard(card).PermanentEffects.Add(GetCardEffect);
+                                card.PermanentOfThisCard().PermanentEffects.Add(GetCardEffect);
                             }
 
-                            ICardEffect.ResolvePermanentOfThisCard(card).IsPlaceToTrashDueToNotHavingDP = false;
+                            card.PermanentOfThisCard().IsPlaceToTrashDueToNotHavingDP = false;
 
                             #endregion
 
-                            await CardEffectCommons.DigivolveIntoHandOrTrashCard(
-                                                targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card),
+                            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.DigivolveIntoHandOrTrashCard(
+                                                targetPermanent: card.PermanentOfThisCard(),
                                                 cardCondition: CanSelectCardCondition1,
                                                 payCost: true,
                                                 reduceCostTuple: null,
@@ -282,7 +244,7 @@ public sealed class BT7_087 : CEntity_Effect
                                                 ignoreDigivolutionRequirementFixedCost: -1,
                                                 isHand: true,
                                                 activateClass: activateClass,
-                                                successProcess: null);
+                                                successProcess: null));
 
                             #region release effects
 
@@ -290,10 +252,10 @@ public sealed class BT7_087 : CEntity_Effect
                             {
                                 foreach (Func<EffectTiming, ICardEffect> GetCardEffect in GetCardEffects)
                                 {
-                                    ICardEffect.ResolvePermanentOfThisCard(card).PermanentEffects.Remove(GetCardEffect);
+                                    card.PermanentOfThisCard().PermanentEffects.Remove(GetCardEffect);
                                 }
 
-                                ICardEffect.ResolvePermanentOfThisCard(card).IsPlaceToTrashDueToNotHavingDP = true;
+                                card.PermanentOfThisCard().IsPlaceToTrashDueToNotHavingDP = true;
                             }
 
                             #endregion
@@ -302,9 +264,7 @@ public sealed class BT7_087 : CEntity_Effect
                 }
             }
         }
-        #endregion
 
-        #region Your Turn - Memory +1 and gain unblockable
         if (timing == EffectTiming.OnAddHand)
         {
             ActivateClass activateClass = new ActivateClass();
@@ -325,10 +285,7 @@ public sealed class BT7_087 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        // AS-IS `CanTriggerOnHandAdded(hashtable, card.Owner, null)` — 미러의 AS-IS-형 Hashtable
-                        // 오버로드(OnCardsAddedToHand.cs): (Hashtable, Player, Func<ICardEffect,bool>). `card.Owner`
-                        // (AS-IS Player) → `new Player(card.Context, card.Owner)`.
-                        if (CardEffectCommons.CanTriggerOnHandAdded(hashtable, new Player(card.Context, card.Owner), null))
+                        if (CardEffectCommons.CanTriggerOnHandAdded(hashtable, card.Owner, null))
                         {
                             return true;
                         }
@@ -348,24 +305,20 @@ public sealed class BT7_087 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await card.Owner.AddMemory(1, activateClass);
+                yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
 
-                Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+                Permanent selectedPermanent = card.PermanentOfThisCard();
 
-                // (J-4) 미러 GainCanNotBeBlocked는 동기 bool(효과 즉시 부착) — AS-IS StartCoroutine 래핑을 대체.
-                CardEffectCommons.GainCanNotBeBlocked(
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainCanNotBeBlocked(
                     targetPermanent: selectedPermanent,
                     defenderCondition: null,
                     effectDuration: EffectDuration.UntilEachTurnEnd,
-                    sourceCard: card,
-                    effectName: "Unblockable");
-
-                await Task.CompletedTask;
+                    activateClass: activateClass,
+                    effectName: "Unblockable"));
             }
         }
-        #endregion
 
         return cardEffects;
     }

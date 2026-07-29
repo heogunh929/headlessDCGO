@@ -1,0 +1,3873 @@
+--- DCGO/Assets/Scripts/Script/CardEffectCommons.cs	2026-05-18 20:03:15.645244400 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons.cs	2026-07-29 01:02:23.724003265 +0900
+@@ -1,1448 +1,2906 @@
+-using System;
++namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
++using HeadlessDCGO.Engine.Headless.Bridge;
++using HeadlessDCGO.Engine.Headless.Choices;
++using HeadlessDCGO.Engine.Headless.Runtime;
++using HeadlessDCGO.Engine.Headless.Services;
++using HeadlessDCGO.Engine.Headless.State;
+ using System.Collections;
+-using System.Collections.Generic;
+-using System.Linq;
+-using UnityEngine;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
++using SelectPermanentEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPermanentEffect;
++using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition;
+ 
+-public partial class CardEffectCommons
+-{
+-    #region Digivolution Requirements
+ 
++public static partial class CardEffectCommons
++{
+     public enum IgnoreRequirement
+     {
+         None,
+         All,
+         Level,
+-        Color
++        Color,
+     }
+ 
+-    #endregion
+-
+-    #region Play cards as new permanents
+ 
+-    public static IEnumerator PlayPermanentCards(List<CardSource> cardSources, ICardEffect activateClass, bool payCost, bool isTapped, SelectCardEffect.Root root, bool activateETB, bool isBreedingArea = false, int fixedCost = -1)
++    public static async Task DeletePeremanentAndProcessAccordingToResult(
++        IReadOnlyList<Permanent> targetPermanents,
++        CardSource sourceCard,
++        Func<IReadOnlyList<Permanent>, Task>? successProcess,
++        Func<Task>? failureProcess,
++        CancellationToken cancellationToken = default)
+     {
+-        if (cardSources == null) yield break;
++        ArgumentNullException.ThrowIfNull(targetPermanents);
++        ArgumentNullException.ThrowIfNull(sourceCard);
+ 
+-        cardSources = cardSources
+-        .Filter(cardSource => cardSource != null)
+-        .Filter(cardSource => CanPlayAsNewPermanent(
+-            cardSource: cardSource,
+-            payCost: payCost,
+-            cardEffect: activateClass,
+-            isBreedingArea: isBreedingArea,
+-            fixedCost: fixedCost));
++        var destroyPermanentsClass = new DestroyPermanentsClass(
++            targetPermanents.Where(p => p is not null && !p.InstanceId.IsEmpty).ToList(),
++            CardEffectHashtable(BareCauseEffect.For(sourceCard)));
+ 
+-        if (cardSources.Count == 0) yield break;
++        await destroyPermanentsClass.Destroy(cancellationToken).ConfigureAwait(false);
+ 
+-        PlayCardClass playCardClass = new PlayCardClass(
+-            cardSources: cardSources,
+-            hashtable: CardEffectHashtable(activateClass),
+-            payCost: payCost,
+-            targetPermanent: null,
+-            isTapped: isTapped,
+-            root: root,
+-            activateETB: activateETB);
++        if (targetPermanents.Any(p => p is not null && destroyPermanentsClass.IsDestroyed(p)))
++        {
++            if (successProcess is not null)
++            {
++                await successProcess(destroyPermanentsClass.DestroyedPermanents).ConfigureAwait(false);
++            }
++        }
++        else if (failureProcess is not null)
++        {
++            await failureProcess().ConfigureAwait(false);
++        }
++    }
+ 
+-        if (isBreedingArea)
+-            playCardClass.SetIsBreedingArea();
++    public static async Task SuspendPeremanentAndProcessAccordingToResult(
++        IReadOnlyList<Permanent> targetPermanents,
++        CardSource sourceCard,
++        Func<IReadOnlyList<Permanent>, Task>? successProcess,
++        Func<Task>? failureProcess)
++    {
++        ArgumentNullException.ThrowIfNull(targetPermanents);
++        ArgumentNullException.ThrowIfNull(sourceCard);
+ 
+-        playCardClass.SetFixedCost(fixedCost);
++        var suspendPermanentsClass = new SuspendPermanentsClass(
++            targetPermanents.Where(p => p is not null && !p.InstanceId.IsEmpty).ToList(),
++            BareCauseEffect.For(sourceCard), isBlock: false);
+ 
+-        yield return ContinuousController.instance.StartCoroutine(playCardClass.PlayCard());
++        await suspendPermanentsClass.Tap().ConfigureAwait(false);
++
++        if (targetPermanents.Any(p => p is not null && suspendPermanentsClass.IsSuspended(p)))
++        {
++            if (successProcess is not null)
++            {
++                await successProcess(suspendPermanentsClass.SuspendedPermanents).ConfigureAwait(false);
++            }
++        }
++        else if (failureProcess is not null)
++        {
++            await failureProcess().ConfigureAwait(false);
++        }
+     }
+ 
+-    #endregion
++    public static async Task BouncePeremanentAndProcessAccordingToResult(
++        IReadOnlyList<Permanent> targetPermanents,
++        CardSource sourceCard,
++        Func<Task>? successProcess,
++        Func<Task>? failureProcess)
++    {
++        ArgumentNullException.ThrowIfNull(targetPermanents);
++        ArgumentNullException.ThrowIfNull(sourceCard);
+ 
+-    #region Play option cards
++        var bouncePermanentClass = new HandBounceClaass(
++            targetPermanents.Where(p => p is not null && !p.InstanceId.IsEmpty).ToList(),
++            CardEffectHashtable(BareCauseEffect.For(sourceCard)));
+ 
+-    public static IEnumerator PlayOptionCards(List<CardSource> cardSources, ICardEffect activateClass, bool payCost, SelectCardEffect.Root root,
+-        bool setAddSecurityEndOption = false)
++        await bouncePermanentClass.Bounce().ConfigureAwait(false);
++
++        if (targetPermanents.Any(p => p is not null && bouncePermanentClass.IsBounced(p)))
++        {
++            if (successProcess is not null)
++            {
++                await successProcess().ConfigureAwait(false);
++            }
++        }
++        else if (failureProcess is not null)
++        {
++            await failureProcess().ConfigureAwait(false);
++        }
++    }
++
++    public static async Task DeckBouncePeremanentAndProcessAccordingToResult(
++        IReadOnlyList<Permanent> targetPermanents, CardSource sourceCard,
++        Func<Task>? successProcess, Func<Task>? failureProcess)
+     {
+-        if (cardSources == null) yield break;
++        ArgumentNullException.ThrowIfNull(targetPermanents);
++        ArgumentNullException.ThrowIfNull(sourceCard);
+ 
+-        Func<EffectTiming, ICardEffect> getEffect = null;
++        var deckBounceClass = new DeckBottomBounceClass(
++            targetPermanents.Where(p => p is not null && !p.InstanceId.IsEmpty).ToList(),
++            CardEffectHashtable(BareCauseEffect.For(sourceCard)));
+ 
+-        cardSources = cardSources
+-        .Filter(cardSource => cardSource != null)
+-        .Filter(cardSource => !cardSource.CanNotPlayThisOption);
+-
+-        if (cardSources.Count == 0) yield break;
+-
+-        PlayCardClass playCard = new PlayCardClass(
+-                cardSources: cardSources,
+-                hashtable: CardEffectHashtable(activateClass),
+-                payCost: payCost,
+-                targetPermanent: null,
+-                isTapped: false,
+-                root: root,
+-                activateETB: true);
++        await deckBounceClass.DeckBounce().ConfigureAwait(false);
+ 
+-        if (activateClass != null)
+-        {
+-            playCard.SetShowEffect();
++        bool bounced = targetPermanents.Any(p => p is not null && deckBounceClass.IsDeckBounced(p));
++        await Branch(bounced, successProcess, failureProcess).ConfigureAwait(false);
++    }
+ 
+-            if (setAddSecurityEndOption)
++    public static async Task TrashDigivolutionCardsAndProcessAccordingToResult(
++        Permanent? targetPermanent, int trashCount, bool isFromTop, CardSource sourceCard,
++        Func<int, Task>? successProcess, Func<Task>? failureProcess)
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        int trashed = targetPermanent is null || targetPermanent.InstanceId.IsEmpty
++            || IsHostStackTrashGated(targetPermanent.InstanceId, sourceCard)
++            ? 0
++            : await Permanent.TrashSourcesAsync(
++                sourceCard.Context.CardInstanceRepository, sourceCard.Context.ZoneMover,
++                targetPermanent.InstanceId, trashCount, fromBottom: !isFromTop,
++                gameEventQueue: sourceCard.Context.GameEventQueue,
++                context: sourceCard.Context,
++                causingEffectSourceId: sourceCard.InstanceId).ConfigureAwait(false);
++        if (trashed > 0)
++        {
++            if (successProcess is not null)
+             {
+-                getEffect = GetCardEffect;
+-                activateClass.EffectSourceCard.Owner.UntilEachTurnEndEffects.Add(getEffect);
++                await successProcess(trashed).ConfigureAwait(false);
+             }
+         }
++        else if (failureProcess is not null)
++        {
++            await failureProcess().ConfigureAwait(false);
++        }
++    }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(playCard.PlayCard());
++    public static Task<int> TrashDigivolutionCardsFromTopOrBottom(
++        Permanent? targetPermanent, int trashCount, bool isFromTop, CardSource sourceCard) =>
++        targetPermanent is null || targetPermanent.InstanceId.IsEmpty
++            || IsHostStackTrashGated(targetPermanent.InstanceId, sourceCard)
++            ? Task.FromResult(0)
++            : Permanent.TrashSourcesAsync(
++                sourceCard.Context.CardInstanceRepository, sourceCard.Context.ZoneMover,
++                targetPermanent.InstanceId, trashCount, fromBottom: !isFromTop,
++                gameEventQueue: sourceCard.Context.GameEventQueue,
++                context: sourceCard.Context,
++                causingEffectSourceId: sourceCard.InstanceId);
+ 
+-        if (getEffect != null)
++    private static bool IsHostStackTrashGated(HeadlessEntityId hostId, CardSource sourceCard) =>
++        new Permanent(sourceCard.Context, hostId).ImmuneFromStackTrashing(BareCauseEffect.For(sourceCard.Context, sourceCard.InstanceId))
++        || new Permanent(sourceCard.Context, hostId).TopCard.CanNotBeAffected(BareCauseEffect.For(sourceCard.Context, sourceCard.InstanceId));
++
++    public static async Task TrashLinkCardsAndProcessAccordingToResult(
++        Permanent? hostPermanent, IReadOnlyList<HeadlessEntityId> linkCardIds, CardSource sourceCard,
++        Func<int, Task>? successProcess, Func<Task>? failureProcess)
++    {
++        ArgumentNullException.ThrowIfNull(linkCardIds);
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        int trashed = 0;
++        if (hostPermanent is not null && !hostPermanent.InstanceId.IsEmpty)
+         {
+-            activateClass.EffectSourceCard.Owner.UntilEachTurnEndEffects.Remove(getEffect);
++            foreach (HeadlessEntityId linkCard in linkCardIds)
++            {
++                if (await Permanent.RemoveLinkCardAsync(
++                        sourceCard.Context.CardInstanceRepository, sourceCard.Context.ZoneMover,
++                        hostPermanent.InstanceId, linkCard).ConfigureAwait(false))
++                {
++                    trashed++;
++                }
++            }
+         }
+ 
+-        ICardEffect GetCardEffect(EffectTiming timing)
++        if (trashed > 0)
+         {
+-            if (timing == EffectTiming.None)
++            if (successProcess is not null)
+             {
+-                return CardEffectFactory.PlaceToSecurityEffect(activateClass.EffectSourceCard, toTop: true);
++                await successProcess(trashed).ConfigureAwait(false);
+             }
+-            return null;
++        }
++        else if (failureProcess is not null)
++        {
++            await failureProcess().ConfigureAwait(false);
+         }
+     }
+ 
+-    #endregion
+-
+-    #region Play Delay Option cards as new permanents
+-
+-    public static IEnumerator PlaceDelayOptionCards(CardSource card, ICardEffect cardEffect, SelectCardEffect.Root root = SelectCardEffect.Root.Execution)
++    public static async Task TrashSecurityAndProcessAccordingToResult(
++        HeadlessPlayerId player, int trashAmount, bool fromTop, CardSource sourceCard,
++        Func<int, Task>? successProcess, Func<Task>? failureProcess)
+     {
+-        if (CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: cardEffect, isPlayOption: true))
+-        {
+-            PlayPermanentClass playPermanent = new PlayPermanentClass(
+-                cardSources: new List<CardSource>() { card },
+-                hashtable: CardEffectHashtable(cardEffect),
+-                targetPermanent: null,
+-                isTapped: false,
+-                root: root,
+-                ActivateETB: true);
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        EngineContext context = sourceCard.Context;
+ 
+-            playPermanent.SetISPlayOption();
++        var destroySecurity = new IDestroySecurity(
++            context, player, trashAmount, BareCauseEffect.For(sourceCard), fromTop);
+ 
+-            yield return ContinuousController.instance.StartCoroutine(playPermanent.PlayPermanent());
++        await destroySecurity.DestroySecurity().ConfigureAwait(false);
+ 
+-            if (IsExistOnBattleArea(card))
++        if (destroySecurity.DestroyedSecurity.Any())
++        {
++            if (successProcess is not null)
+             {
+-                card.PermanentOfThisCard().IsPlayedOptionPermanent = true;
++                await successProcess(destroySecurity.DestroyedSecurity.Count).ConfigureAwait(false);
+             }
+         }
++        else if (failureProcess is not null)
++        {
++            await failureProcess().ConfigureAwait(false);
++        }
+     }
+ 
+-    #endregion
+-
+-    #region Play 1 Token
+-
+-    public static IEnumerator PlayToken(CEntity_Base tokenData, ICardEffect activateClass, bool isOwnerPermanent, bool isTapped, int quantity = 1)
++    public static async Task TrashHandAndProcessAccordingToResult(
++        CardSource? handCard, CardSource sourceCard,
++        Func<Task>? successProcess, Func<Task>? failureProcess)
+     {
+-        if (activateClass == null) yield break;
+-        if (activateClass.EffectSourceCard == null) yield break;
+-        if (tokenData == null) yield break;
++        ArgumentNullException.ThrowIfNull(sourceCard);
+ 
+-        CardSource card = activateClass.EffectSourceCard;
++        bool discarded = false;
++        if (handCard is not null && !handCard.InstanceId.IsEmpty)
++        {
++            var discardHands = new IDiscardHands(
++                new List<IDiscardHand>() { new IDiscardHand(handCard) },
++                sourceCard.InstanceId, BareCauseEffect.For(sourceCard));
++            await discardHands.DiscardHands().ConfigureAwait(false);
++            discarded = discardHands.HasDiscarded;
++        }
+ 
+-        Player player = isOwnerPermanent ? card.Owner : card.Owner.Enemy;
++        await Branch(discarded, successProcess, failureProcess).ConfigureAwait(false);
++    }
+ 
+-        if (card.Owner.fieldCardFrames.Count((frame) => frame.IsEmptyFrame() && frame.IsBattleAreaFrame()) >= quantity)
++    public static async Task PlacePermanentInSecurityAndProcessAccordingToResult(
++        Permanent? targetPermanent, bool toTop, CardSource sourceCard,
++        Func<CardSource, Task>? successProcess, Func<Task>? failureProcess, bool isFaceUp = false)
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        EngineContext context = sourceCard.Context;
++        bool placed = false;
++        CardSource? placedTop = null;
++        if (targetPermanent is not null && !targetPermanent.InstanceId.IsEmpty)
+         {
+-            List<CardSource> playCards = new List<CardSource>();
++            var putSecurityPermanent = new IPutSecurityPermanent(
++                targetPermanent, CardEffectHashtable(BareCauseEffect.For(sourceCard)), toTop, isFaceUp);
+ 
+-            for (int i = 0; i < quantity; i++)
+-            {
+-                CardSource tokenCard = CardObjectController.CreateCardSource(
+-                player.PlayerID,
+-                tokenData,
+-                true);
++            CardSource topCard = targetPermanent.TopCard;
+ 
+-                playCards.Add(tokenCard);
++            if (new Player(context, sourceCard.Owner).CanAddSecurity(sourceCard.InstanceId))
++            {
++                await putSecurityPermanent.PutSecurity().ConfigureAwait(false);
+             }
+ 
+-            if (CanPlayAsNewPermanent(cardSource: playCards[0], payCost: false, cardEffect: activateClass))
++            placed = putSecurityPermanent.IsPlacedSecurity;
++            placedTop = topCard;
++        }
++
++        if (placed && placedTop is not null)
++        {
++            if (successProcess is not null)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(new PlayCardClass(
+-                    cardSources: playCards,
+-                    hashtable: CardEffectHashtable(activateClass),
+-                    payCost: false,
+-                    targetPermanent: null,
+-                    isTapped: isTapped,
+-                    root: SelectCardEffect.Root.None,
+-                    activateETB: true).PlayCard());
++                await successProcess(placedTop).ConfigureAwait(false);
+             }
+         }
++        else if (failureProcess is not null)
++        {
++            await failureProcess().ConfigureAwait(false);
++        }
+     }
+ 
+-    #endregion
++    public static async Task<bool> PlaceDelayOptionCards(CardSource card, ICardEffect? cardEffect = null, ChoiceZone root = ChoiceZone.Execution)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (!CanPlayAsNewPermanent(card, payCost: false, null, isPlayOption: true))
++        {
++            return false;
++        }
+ 
+-    #region Play 1 [Diaboromon] Token
++        EngineContext context = card.Context;
+ 
+-    public static IEnumerator PlayDiaboromonToken(ICardEffect activateClass, int quantity = 1)
+-    {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.DiaboromonToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
++        var playPermanent = new PlayPermanentClass(
++            cardSources: new List<CardSource>() { card },
++            hashtable: CardEffectHashtable(cardEffect),
++            targetPermanent: null,
+             isTapped: false,
+-            quantity: quantity
+-        ));
+-    }
++            root: RootFromZone(root),
++            ActivateETB: true);
++        playPermanent.SetISPlayOption();
++        await playPermanent.PlayPermanent().ConfigureAwait(false);
+ 
+-    #endregion
++        var zones = (IZoneStateReader)context.ZoneMover;
++        if (!zones.GetCards(card.Owner, ChoiceZone.BattleArea).Contains(card.InstanceId))
++        {
++            return false;
++        }
++
++        if (context.CardInstanceRepository.TryGetInstance(card.InstanceId, out CardInstanceRecord? record) && record is not null)
++        {
++            context.CardInstanceRepository.Upsert(record with
++            {
++                Metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
++                {
++                    [Permanent.IsPlayedOptionPermanentKey] = true,
++                }
++            });
++        }
+ 
+-    #region Play 1 [Amon of Crimson Flame] Token
++        return true;
++    }
+ 
+-    public static IEnumerator PlayAmonToken(ICardEffect activateClass)
++    private static async Task Branch(bool success, Func<Task>? successProcess, Func<Task>? failureProcess)
+     {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.AmonToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-        ));
++        if (success)
++        {
++            if (successProcess is not null)
++            {
++                await successProcess().ConfigureAwait(false);
++            }
++        }
++        else if (failureProcess is not null)
++        {
++            await failureProcess().ConfigureAwait(false);
++        }
+     }
+ 
+-    #endregion
+-
+-    #region Play 1 [Umon of Blue Thunder] Token
+-
+-    public static IEnumerator PlayUmonToken(ICardEffect activateClass)
++    private static DeletionOutcomeWatcher GetOutcomeWatcher(EngineContext context)
+     {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.UmonToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-        ));
++        if (context.TryGetService(out DeletionOutcomeWatcher? watcher) && watcher is not null)
++        {
++            return watcher;
++        }
++
++        var created = new DeletionOutcomeWatcher();
++        context.RegisterService(created);
++        return created;
+     }
+ 
+-    #endregion
++    private static HeadlessPlayerId OwnerOfInstance(EngineContext context, HeadlessEntityId id) =>
++        context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? record) && record is not null
++            ? record.OwnerId
++            : default;
+ 
+-    #region Play 1 [Fujitsumon] Token
+ 
+-    public static IEnumerator PlayFujitsumonToken(ICardEffect activateClass, bool isOwnerPermanent)
+-    {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.FujitsumonToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: isOwnerPermanent,
+-            isTapped: true
+-        ));
+-    }
+ 
+-    #endregion
++    private static HeadlessPlayerId OwnerOfId(EngineContext context, HeadlessEntityId id) =>
++        context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? record) && record is not null
++            ? record.OwnerId
++            : default;
+ 
+-    #region Play 1 [Gyuukimon] Token
+ 
+-    public static IEnumerator PlayGyuukimonToken(ICardEffect activateClass)
+-    {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.GyuukimonToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-        ));
+-    }
+ 
+-    #endregion
++    public static bool IsExistOnBattleAreaTrigger(CardSource card, ICardEffect? cardEffect = null) =>
++        IsExistOnBattleArea(card);
+ 
+-    #region Play 1 [KoHagurumon] Token
++    public static bool IsExistOnBattleAreaActivate(CardSource card, ICardEffect? cardEffect = null) =>
++        IsExistOnBattleArea(card);
+ 
+-    public static IEnumerator PlayKoHagurumonToken(ICardEffect activateClass)
+-    {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.KoHagurumonToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-        ));
+-    }
++    public static bool ChangeSecurityDigimonCardDPPlayerEffect(
++        Func<CardSource, bool>? cardCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard) =>
++        ChangeSecurityDigimonCardDPPlayerEffectImpl(cardCondition, changeValue, effectDuration, card: sourceCard);
+ 
+-    #endregion
+ 
+-    #region Play 1 [Familiar] Token
+ 
+-    public static IEnumerator PlayFamiliarToken(ICardEffect activateClass, int quantity = 1)
+-    {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.FamiliarToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false,
+-            quantity: quantity
+-        ));
+-    }
++    private static bool IsDigiEggType(CardSource cs) =>
++        cs.Context.CardInstanceRepository.TryGetInstance(cs.InstanceId, out CardInstanceRecord? i) && i is not null
++        && cs.Context.CardRepository.TryGetCard(i.DefinitionId, out CardRecord? d) && d is not null
++        && (d.IsCardType("DigiEgg") || d.IsCardType("Digitama"));
++
+ 
+-    #endregion
+ 
+-    #region Play 1 Self Deleting [Familiar] Token
+ 
+-    public static IEnumerator PlaySelfDeleteFamiliarToken(ICardEffect activateClass, int quantity = 1)
++    public static bool ChangeDigimonDP(
++        Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard,
++        ICardEffect? activateClass = null)
+     {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.SelfDeleteFamiliarToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false,
+-            quantity: quantity
+-        ));
+-    }
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        if (targetPermanent is null) return false;
++        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return false;
++        if (changeValue == 0) return false;
+ 
+-    #endregion
++        CardSource card = sourceCard;
++        CardEffects.ChangeDPClass changeDPClass = null!;
+ 
+-    #region Play 1 [Volée & Zerdrücken] Token
++        bool CanUseCondition()
++        {
++            if (IsPermanentExistsOnBattleArea(targetPermanent))
++            {
++                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass ?? changeDPClass))
++                {
++                    return true;
++                }
++            }
+ 
+-    public static IEnumerator PlayVoleeZerdrucken(ICardEffect activateClass)
+-    {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.VoleeZerdruckenToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-        ));
+-    }
++            return false;
++        }
+ 
+-    #endregion
++        changeDPClass = CardEffectFactory.ChangeTargetDPStaticEffect(
++            targetPermanent: targetPermanent,
++            changeValue: changeValue,
++            isInheritedEffect: false,
++            card: card,
++            condition: CanUseCondition);
+ 
+-    #region Play 1 [Uka-no-Mitama] Token
++        AddEffectToPermanent(
++            targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
++            cardEffect: changeDPClass, timing: EffectTiming.None);
++        return true;
++    }
+ 
+-    public static IEnumerator PlayUkaNoMitama(ICardEffect activateClass)
++    public static bool ChangeDigimonSAttack(Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard,
++        bool activateAnimation = true, string? hashstring = null, ICardEffect? activateClass = null)
+     {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.UkaNoMitamaToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-        ));
+-    }
++        _ = activateAnimation;
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        if (targetPermanent is null) return false;
++        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return false;
++        if (changeValue == 0) return false;
+ 
+-    #endregion
++        CardSource card = sourceCard;
++        CardEffects.ChangeSAttackClass changeSAttackClass = null!;
++
++        bool CanUseCondition()
++        {
++            if (IsPermanentExistsOnBattleArea(targetPermanent))
++            {
++                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass ?? changeSAttackClass))
++                {
++                    return true;
++                }
++            }
+ 
+-    #region Play 1 [WarGrowlmon] Token
++            return false;
++        }
+ 
+-    public static IEnumerator PlayWarGrowlmonToken(ICardEffect activateClass)
++        changeSAttackClass = CardEffectFactory.ChangeTargetSAttackStaticEffect(
++            targetPermanent: targetPermanent,
++            changeValue: changeValue,
++            isInheritedEffect: false,
++            card: card,
++            condition: CanUseCondition,
++            hashstring: hashstring);
++
++        AddEffectToPermanent(
++            targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
++            cardEffect: changeSAttackClass, timing: EffectTiming.None);
++        return true;
++    }
++
++    public static bool ChangeDigimonDPPlayerEffect(
++        Func<Permanent, bool>? permanentCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard,
++        ICardEffect? activateClass = null)
+     {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.WarGrowlmonToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-        ));
+-    }
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        if (changeValue == 0)
++        {
++            return false;
++        }
+ 
+-    #endregion
++        CardSource card = sourceCard;
++        CardEffects.ChangeDPClass changeDPClass = null!;
++
++        bool PermanentCondition(Permanent permanent)
++        {
++            if (IsPermanentExistsOnBattleArea(permanent))
++            {
++                if (!permanent.TopCard.CanNotBeAffected(activateClass ?? changeDPClass))
++                {
++                    if (permanentCondition == null || permanentCondition(permanent))
++                    {
++                        return true;
++                    }
++                }
++            }
+ 
+-    #region Play 1 [Taomon] Token
++            return false;
++        }
+ 
+-    public static IEnumerator PlayTaomonToken(ICardEffect activateClass)
+-    {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.TaomonToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-        ));
+-    }
++        bool CanUseCondition() => true;
+ 
+-    #endregion
++        changeDPClass = CardEffectFactory.ChangeDPStaticEffect(
++            permanentCondition: PermanentCondition,
++            changeValue: changeValue,
++            isInheritedEffect: false,
++            card: card,
++            condition: CanUseCondition,
++            effectName: null);
+ 
+-    #region Play 1 [Rapidmon] Token
++        AddEffectToPlayer(effectDuration: effectDuration, card: card, cardEffect: changeDPClass, timing: EffectTiming.None);
++        return true;
++    }
+ 
+-    public static IEnumerator PlayRapidmonToken(ICardEffect activateClass)
++    public static async Task AddThisCardToHand(CardSource card1, CardSource sourceCard)
+     {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.RapidmonToken,
+-          activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-        ));
++        ArgumentNullException.ThrowIfNull(card1);
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        await CardObjectController.AddHandCards(
++            new List<CardSource>() { card1 }, false, BareCauseEffect.For(sourceCard)).ConfigureAwait(false);
+     }
+ 
+-    #endregion
+-
+-    #region Play 1 [Pipe-Fox] Token
++    internal static SelectCardEffect.Root RootFromZone(ChoiceZone zone) => zone switch
++    {
++        ChoiceZone.Library => SelectCardEffect.Root.Library,
++        ChoiceZone.Trash => SelectCardEffect.Root.Trash,
++        ChoiceZone.Clock => SelectCardEffect.Root.Clock,
++        ChoiceZone.Security => SelectCardEffect.Root.Security,
++        ChoiceZone.Custom => SelectCardEffect.Root.Custom,
++        ChoiceZone.Hand => SelectCardEffect.Root.Hand,
++        ChoiceZone.Recollection => SelectCardEffect.Root.Recollection,
++        ChoiceZone.Execution => SelectCardEffect.Root.Execution,
++        ChoiceZone.DigivolutionCards => SelectCardEffect.Root.DigivolutionCards,
++        ChoiceZone.LinkedCards => SelectCardEffect.Root.LinkedCards,
++        _ => SelectCardEffect.Root.None,
++    };
+ 
+-    public static IEnumerator PlayPipeFox(ICardEffect activateClass)
++    public static async Task PlayPermanentCards(
++        IReadOnlyList<CardSource> cardSources, CardSource sourceCard, bool payCost, bool isTapped,
++        ChoiceZone root, bool activateETB, bool isBreedingArea = false, int fixedCost = -1)
+     {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.PipeFoxToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-        ));
+-    }
++        ArgumentNullException.ThrowIfNull(cardSources);
++        ArgumentNullException.ThrowIfNull(sourceCard);
+ 
+-    #endregion
++        var playable = cardSources
++            .Where(cs => cs is not null && CanPlayAsNewPermanent(cs, payCost, null, isPlayOption: false, fixedCost: fixedCost))
++            .ToList();
++        if (playable.Count == 0)
++        {
++            return;
++        }
+ 
+-    #region Play 1 [AthoRenePor] Token
++        var playCardClass = new PlayCardClass(
++            cardSources: playable,
++            hashtable: CardEffectHashtable(BareCauseEffect.For(sourceCard)),
++            payCost: payCost,
++            targetPermanent: null,
++            isTapped: isTapped,
++            root: RootFromZone(root),
++            activateETB: activateETB);
+ 
+-    public static IEnumerator PlayAthoRenePorToken(ICardEffect activateClass)
+-    {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.AthoRenePorToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-            ));
+-    }
++        if (isBreedingArea)
++        {
++            playCardClass.SetIsBreedingArea();
++        }
+ 
+-    #endregion
++        playCardClass.SetFixedCost(fixedCost);
+ 
+-    #region Play 1 [Hinukamuy] Token
++        await playCardClass.PlayCard().ConfigureAwait(false);
++    }
+ 
+-    public static IEnumerator PlayHinukamuyToken(ICardEffect activateClass)
++    public static Task DigivolveIntoHandOrTrashCard(
++        Permanent? targetPermanent,
++        Func<CardSource, bool>? cardCondition,
++        bool payCost,
++        (int reduceCost, Func<CardSource, bool>? reduceCostCardCondition)? reduceCostTuple,
++        (int fixedCost, Func<CardSource, bool>? fixedCostCardCondition)? fixedCostTuple,
++        int ignoreDigivolutionRequirementFixedCost,
++        bool isHand,
++        CardSource sourceCard,
++        Func<Task>? successProcess,
++        bool ignoreSelection = false,
++        IgnoreRequirement ignoreRequirements = IgnoreRequirement.None,
++        Func<Task>? failedProcess = null,
++        bool isOptional = true,
++        CancellationToken cancellationToken = default) =>
++        DigivolveIntoZoneCoreAsync(
++            targetPermanent, cardCondition, payCost, reduceCostTuple, fixedCostTuple,
++            ignoreDigivolutionRequirementFixedCost, isHand ? ChoiceZone.Hand : ChoiceZone.Trash, sourceCard,
++            successProcess, failedProcess, ignoreSelection, ignoreRequirements, isOptional, cancellationToken);
++
++    private static async Task DigivolveIntoZoneCoreAsync(
++        Permanent? targetPermanent,
++        Func<CardSource, bool>? cardCondition,
++        bool payCost,
++        (int reduceCost, Func<CardSource, bool>? reduceCostCardCondition)? reduceCostTuple,
++        (int fixedCost, Func<CardSource, bool>? fixedCostCardCondition)? fixedCostTuple,
++        int ignoreDigivolutionRequirementFixedCost,
++        ChoiceZone rootZone,
++        CardSource sourceCard,
++        Func<Task>? successProcess,
++        Func<Task>? failedProcess,
++        bool ignoreSelection,
++        IgnoreRequirement ignoreRequirements,
++        bool isOptional,
++        CancellationToken cancellationToken)
+     {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.HinukamuyToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: true,
+-            isTapped: false
+-            ));
+-    }
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        EngineContext context = sourceCard.Context;
++        bool successful = false;
++        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty || context.ZoneMover is not IZoneStateReader zones)
++        {
++            await Branch(false, successProcess, failedProcess).ConfigureAwait(false);
++            return;
++        }
+ 
+-    #endregion
++        HeadlessEntityId targetId = targetPermanent.InstanceId;
+ 
+-    #region Play [Petrification] Token(s)
++        bool CanSelect(HeadlessEntityId id)
++        {
++            var view = new CardSource(context, id, targetPermanent.OwnerId, targetPermanent.OwnerId);
++            if (!view.IsDigimon || (cardCondition is not null && !cardCondition(view)))
++            {
++                return false;
++            }
+ 
+-    public static IEnumerator PlayPetrificationToken(ICardEffect activateClass, int quantity = 1)
+-    {
+-        yield return ContinuousController.instance.StartCoroutine(PlayToken(
+-            tokenData: ContinuousController.instance.PetrificationToken,
+-            activateClass: activateClass,
+-            isOwnerPermanent: false,
+-            isTapped: false,
+-            quantity
+-            ));
+-    }
++            if (view.CanNotEvolve(targetPermanent))
++            {
++                return false;
++            }
+ 
+-    #endregion
++            return ignoreRequirements == IgnoreRequirement.All
++                || view.CanEvolve(targetPermanent, checkAvailability: false, ignore: ignoreRequirements);
++        }
+ 
+-    #region Security effect of "add this card to hand"
++        HeadlessEntityId selected = default;
++        if (ignoreSelection)
++        {
++            selected = sourceCard.InstanceId;
++        }
++        else
++        {
++            List<ChoiceCandidate> candidates = zones.GetCards(targetPermanent.OwnerId, rootZone)
++                .Where(CanSelect)
++                .Select(id => new ChoiceCandidate(id, id.Value, rootZone, IsSelectable: true, ownerId: targetPermanent.OwnerId))
++                .ToList();
++            if (candidates.Count > 0)
++            {
++                var request = new ChoiceRequest(
++                    ChoiceType.Card, targetPermanent.OwnerId, "Select 1 card to digivolve.",
++                    minCount: isOptional ? 0 : 1, maxCount: 1, canSkip: isOptional, rootZone, candidates);
++                ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
++                if (!result.IsSkipped && result.SelectedIds.Count > 0)
++                {
++                    selected = result.SelectedIds[0];
++                }
++            }
++        }
+ 
+-    public static IEnumerator AddThisCardToHand(CardSource card1, ICardEffect activateClass)
+-    {
+-        yield return new WaitForSeconds(0.5f);
++        if (!selected.IsEmpty)
++        {
++            int cost = 0;
++            if (payCost)
++            {
++                if (ignoreDigivolutionRequirementFixedCost >= 0)
++                {
++                    cost = ignoreDigivolutionRequirementFixedCost;
++                }
++                else if (fixedCostTuple is { } fixedTuple &&
++                         (fixedTuple.fixedCostCardCondition is null || fixedTuple.fixedCostCardCondition(new CardSource(context, selected, targetPermanent.OwnerId, targetPermanent.OwnerId))))
++                {
++                    cost = fixedTuple.fixedCost;
++                }
++                else
++                {
++                    cost = new CardSource(context, selected, targetPermanent.OwnerId, targetPermanent.OwnerId)
++                        .PayingCost(RootFromZone(rootZone), new List<Permanent> { targetPermanent });
++                    if (reduceCostTuple is { } reduceTuple &&
++                        (reduceTuple.reduceCostCardCondition is null || reduceTuple.reduceCostCardCondition(new CardSource(context, selected, targetPermanent.OwnerId, targetPermanent.OwnerId))))
++                    {
++                        cost -= reduceTuple.reduceCost;
++                    }
++                }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(card1.Owner.brainStormObject.CloseBrainstrorm(card1));
++                cost = Math.Max(0, cost);
++            }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCards(new List<CardSource>() { card1 }, false, activateClass));
+-    }
++            if (!payCost || context.MemoryController.CanPay(cost))
++            {
++                ChoiceZone targetZone = zones.GetCards(targetPermanent.OwnerId, ChoiceZone.BreedingArea).Contains(targetId)
++                    ? ChoiceZone.BreedingArea
++                    : ChoiceZone.BattleArea;
++                await context.ZoneMover.MoveAsync(
++                    new ZoneMoveRequest(targetPermanent.OwnerId, targetId, targetZone, ChoiceZone.None,
++                        Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
++                await context.ZoneMover.MoveAsync(
++                    new ZoneMoveRequest(targetPermanent.OwnerId, selected, rootZone, targetZone,
++                        Metadata: HeadlessDCGO.Engine.Headless.State.PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
++                if (payCost && cost > 0)
++                {
++                    context.MemoryController.Pay(cost);
++                }
+ 
+-    #endregion
++                Permanent.AttachTargetAsSource(context.CardInstanceRepository, selected, targetId);
++                if (context.CardInstanceRepository.TryGetInstance(selected, out CardInstanceRecord? placedRec) && placedRec is not null)
++                {
++                    context.CardInstanceRepository.Upsert(placedRec with
++                    {
++                        Metadata = new Dictionary<string, object?>(placedRec.Metadata, StringComparer.Ordinal)
++                        {
++                            ["digivolvedByEffectSourceId"] = sourceCard.InstanceId.Value,
++                        }
++                    });
++                }
++
++                await GManager.instance.autoProcessing.StackSkillInfos(
++                    WhenDigivolvingCheckHashtableOfCard(
++                        new CardSource(context, selected, targetPermanent.OwnerId, targetPermanent.OwnerId)),
++                    EffectTiming.WhenDigivolving).ConfigureAwait(false);
++                CardSource.Init(context, selected, targetPermanent.OwnerId);
++                successful = zones.GetCards(targetPermanent.OwnerId, targetZone).Contains(selected);
++            }
++        }
+ 
+-    #region Suspend target permanents, and the effect determines whether the permanent has been suspended or not
++        await Branch(successful, successProcess, failedProcess).ConfigureAwait(false);
++    }
+ 
+-    public static IEnumerator SuspendPeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, Func<List<Permanent>, IEnumerator> successProcess, Func<IEnumerator> failureProcess)
++    public static async Task SelectTrashDigivolutionCards(
++        Func<Permanent, bool>? permanentCondition,
++        Func<CardSource, bool>? cardCondition,
++        int maxCount,
++        bool canNoTrash,
++        bool isFromOnly1Permanent,
++        CardSource sourceCard,
++        string selectString = "Digimon",
++        Func<Permanent, IReadOnlyList<CardSource>, Task>? afterSelectionCoroutine = null,
++        bool canEndNotMax = false,
++        CancellationToken cancellationToken = default)
+     {
+-        SuspendPermanentsClass suspendPermanentsClass = new SuspendPermanentsClass(targetPermanents, CardEffectHashtable(activateClass));
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        if (maxCount <= 0)
++        {
++            return;
++        }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(suspendPermanentsClass.Tap());
++        EngineContext context = sourceCard.Context;
++        var zones = (IZoneStateReader)context.ZoneMover;
++        int trashedTotal = 0;
++        var usedHosts = new HashSet<HeadlessEntityId>();
+ 
+-        if (targetPermanents.Some((permanent) => suspendPermanentsClass.IsSuspended(permanent)))
++        bool HostQualifies(HeadlessEntityId id, HeadlessPlayerId owner)
+         {
+-            if (successProcess != null)
++            var view = new Permanent(context, id, owner);
++            if (permanentCondition is not null && !permanentCondition(view))
+             {
+-                yield return ContinuousController.instance.StartCoroutine(successProcess(suspendPermanentsClass.SuspendedPermanents));
++                return false;
+             }
++
++            return SourcesOf(id).Any(sid => SourceQualifies(sid, owner));
+         }
+-        else
++
++        bool SourceQualifies(HeadlessEntityId sid, HeadlessPlayerId owner)
+         {
+-            if (failureProcess != null)
++            if (IsTrashProtectedSource(sourceCard, sid))
+             {
+-                yield return ContinuousController.instance.StartCoroutine(failureProcess());
++                return false;
+             }
++
++            var view = new CardSource(context, sid, owner, owner);
++            return cardCondition is null || cardCondition(view);
+         }
+-    }
+ 
+-    #endregion
++        IReadOnlyList<HeadlessEntityId> SourcesOf(HeadlessEntityId hostId) =>
++            context.CardInstanceRepository.TryGetInstance(hostId, out CardInstanceRecord? host) && host is not null
++                && host.Metadata.TryGetValue(Headless.State.DigivolutionStackReader.SourceIdsKey, out object? raw)
++                && raw is IEnumerable<string> ids
++                ? ids.Select(v => new HeadlessEntityId(v)).ToArray()
++                : Array.Empty<HeadlessEntityId>();
+ 
+-    #region Delete target permanents, and the effect determines whether the permanent has been deleted or not
++        while (trashedTotal < maxCount)
++        {
++            var hostCandidates = new List<ChoiceCandidate>();
++            foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
++            {
++                if (player.IsEmpty)
++                {
++                    continue;
++                }
+ 
+-    public static IEnumerator DeletePeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, Func<List<Permanent>, IEnumerator> successProcess, Func<IEnumerator> failureProcess)
+-    {
+-        DestroyPermanentsClass destroyPermanentsClass = new DestroyPermanentsClass(targetPermanents, CardEffectHashtable(activateClass));
++                foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea))
++                {
++                    if (!usedHosts.Contains(id) && HostQualifies(id, player))
++                    {
++                        hostCandidates.Add(new ChoiceCandidate(id, id.Value, ChoiceZone.BattleArea, IsSelectable: true, ownerId: player));
++                    }
++                }
++            }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(destroyPermanentsClass.Destroy());
++            if (hostCandidates.Count == 0)
++            {
++                break;
++            }
+ 
+-        if (targetPermanents.Some((permanent) => destroyPermanentsClass.IsDestroyed(permanent)))
+-        {
+-            if (successProcess != null)
++            bool optionalNow = (canNoTrash && trashedTotal == 0) || canEndNotMax;
++            var hostRequest = new ChoiceRequest(
++                ChoiceType.Card, sourceCard.Owner, $"Select 1 {selectString} that will trash digivolution cards.",
++                minCount: optionalNow ? 0 : 1, maxCount: 1, canSkip: optionalNow, ChoiceZone.BattleArea, hostCandidates);
++            ChoiceResult hostResult = await context.ChoiceProvider.ChooseAsync(hostRequest, cancellationToken).ConfigureAwait(false);
++            if (hostResult.IsSkipped || hostResult.SelectedIds.Count == 0)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(successProcess(destroyPermanentsClass.DestroyedPermanents));
++                break;
+             }
+-        }
+-        else
+-        {
+-            if (failureProcess != null)
++
++            HeadlessEntityId hostId = hostResult.SelectedIds[0];
++            usedHosts.Add(hostId);
++            HeadlessPlayerId hostOwner = context.CardInstanceRepository.TryGetInstance(hostId, out CardInstanceRecord? hostRec) && hostRec is not null
++                ? hostRec.OwnerId
++                : sourceCard.Owner;
++
++            var sourceCandidates = SourcesOf(hostId)
++                .Where(sid => SourceQualifies(sid, hostOwner))
++                .Select(sid => new ChoiceCandidate(sid, sid.Value, ChoiceZone.DigivolutionCards, IsSelectable: true, ownerId: hostOwner))
++                .ToList();
++            int budget = Math.Min(maxCount - trashedTotal, sourceCandidates.Count);
++            var sourceRequest = new ChoiceRequest(
++                ChoiceType.Card, sourceCard.Owner, "Select digivolution cards to trash.",
++                minCount: budget >= 2 && !isFromOnly1Permanent ? 1 : budget, maxCount: budget,
++                canSkip: false, ChoiceZone.DigivolutionCards, sourceCandidates);
++            ChoiceResult sourceResult = await context.ChoiceProvider.ChooseAsync(sourceRequest, cancellationToken).ConfigureAwait(false);
++            IReadOnlyList<HeadlessEntityId> picks = sourceResult.SelectedIds;
++            int trashed = await Permanent.TrashSpecificSourcesAsync(
++                context.CardInstanceRepository, context.ZoneMover, hostId, picks, cancellationToken, context.GameEventQueue,
++                context, sourceCard.InstanceId).ConfigureAwait(false);
++            trashedTotal += trashed;
++
++            if (afterSelectionCoroutine is not null)
++            {
++                await afterSelectionCoroutine(
++                    new Permanent(context, hostId, hostOwner),
++                    picks.Select(id => new CardSource(context, id, hostOwner, hostOwner)).ToArray()).ConfigureAwait(false);
++            }
++
++            if (isFromOnly1Permanent)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(failureProcess());
++                break;
+             }
+         }
+     }
+ 
+-    #endregion
++    public sealed record TokenSpec(
++        string CardNumber, string Name, string Color, int PlayCost, int Level, int Dp,
++        string? EffectClassName = null, string? Type = null, string? Form = null, string? Attribute = null);
+ 
+-    #region Bounce target 1 permanent, and the effect determines whether the permanent has been bounced or not
++    public static readonly IReadOnlyDictionary<string, TokenSpec> TokenSpecs =
++        new Dictionary<string, TokenSpec>(StringComparer.Ordinal)
++        {
++            ["Diaboromon"] = new("BT2-082-token", "Diaboromon", "White", 14, 6, 3000, null, "Unidentified", "Mega", "Unknown"),
++            ["Amon"] = new("BT14-018-token-red", "Amon of Crimson Flame", "Red", -1, 0, 6000, "BT4_038"),
++            ["Umon"] = new("BT14-018-token-yellow", "Umon of Blue Thunder", "Yellow", -1, 0, 6000, "BT1_031"),
++            ["Fujitsumon"] = new("EX5-058-token", "Fujitsumon", "Purple", -1, 0, 3000, "EX5_058_token"),
++            ["Gyuukimon"] = new("LM-018-token", "Gyuukimon", "Purple", 7, 5, 3000, null, "Dark Animal", "Ultimate", "Virus"),
++            ["KoHagurumon"] = new("BT16-052-token", "KoHagurumon", "Black", -1, 0, 1000, "BT16_052_token"),
++            ["Familiar"] = new("EX7-030-token", "Familiar", "Yellow", -1, 0, 3000, "EX7_030_token"),
++            ["SelfDeleteFamiliar"] = new("EX7-030-token-sd", "Familiar", "Yellow", -1, 0, 3000, "P_165_token"),
++            ["VoleeZerdrucken"] = new("EX7-058-token", "Volée & Zerdrücken", "Purple", -1, 4, 5000, "EX7_058_token"),
++            ["UkaNoMitama"] = new("EX8-037-token", "Uka-no-Mitama", "Yellow", -1, 0, 9000, "EX8_037_token"),
++            ["WarGrowlmon"] = new("BT19-091-token-red", "WarGrowlmon", "Red", -1, 0, 6000),
++            ["Taomon"] = new("BT19-091-token-yellow", "Taomon", "Yellow", -1, 0, 6000),
++            ["Rapidmon"] = new("BT19-091-token-green", "Rapidmon", "Green", -1, 0, 6000),
++            ["PipeFox"] = new("BT19-040-token", "Pipe-Fox", "Yellow", -1, 0, 6000, "BT19_040_token"),
++            ["AthoRenePor"] = new("BT20-017-token", "Atho, René & Por", "White", -1, 0, 6000, "BT20_017_token"),
++            ["Hinukamuy"] = new("BT23-057-token", "HinukamuyToken", "White", -1, 0, 6000, "BT23_057_token"),
++            ["Petrification"] = new("BT21-029-token", "Petrification", "White", -1, 0, 3000, "BT21_029_token"),
++        };
+ 
+-    public static IEnumerator BouncePeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, IEnumerator successProcess, IEnumerator failureProcess)
++    public static async Task<IReadOnlyList<HeadlessEntityId>> PlayToken(
++        TokenSpec tokenData, CardSource sourceCard, bool isOwnerPermanent, bool isTapped, int quantity = 1)
+     {
+-        HandBounceClaass bouncePermanentClass = new HandBounceClaass(targetPermanents, CardEffectHashtable(activateClass));
++        ArgumentNullException.ThrowIfNull(tokenData);
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        EngineContext context = sourceCard.Context;
++        HeadlessPlayerId player = isOwnerPermanent ? sourceCard.Owner : OpponentOf(sourceCard);
++        if (player.IsEmpty || quantity <= 0)
++        {
++            return Array.Empty<HeadlessEntityId>();
++        }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(bouncePermanentClass.Bounce());
++        var definitionId = new HeadlessEntityId($"TOKEN:{tokenData.CardNumber}");
++        var defMeta = new Dictionary<string, object?>(StringComparer.Ordinal)
++        {
++            ["dp"] = tokenData.Dp,
++            ["level"] = tokenData.Level,
++            ["colors"] = new[] { tokenData.Color },
++        };
++        if (tokenData.EffectClassName is not null)
++        {
++            defMeta["effectClass"] = tokenData.EffectClassName;
++        }
+ 
+-        if (targetPermanents.Some((permanent) => bouncePermanentClass.IsBounced(permanent)))
++        if (tokenData.Type is not null)
+         {
+-            if (successProcess != null)
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(successProcess);
+-            }
++            defMeta["traits"] = new[] { tokenData.Type };
+         }
+-        else
++
++        if (tokenData.Form is not null)
+         {
+-            if (failureProcess != null)
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(failureProcess);
+-            }
++            defMeta["forms"] = new[] { tokenData.Form };
++        }
++
++        if (tokenData.Attribute is not null)
++        {
++            defMeta["attributes"] = new[] { tokenData.Attribute };
++        }
++
++        if (context.CardRepository is Headless.DataLoading.CardDatabase database)
++        {
++            database.Upsert(new CardRecord(
++                definitionId, tokenData.CardNumber, tokenData.Name, defMeta, CardType: "Digimon",
++                PlayCost: tokenData.PlayCost >= 0 ? tokenData.PlayCost : null));
++        }
++
++        var played = new List<HeadlessEntityId>();
++        var playCards = new List<CardSource>();
++        for (int index = 0; index < quantity; index++)
++        {
++            var tokenId = new HeadlessEntityId($"{player.Value}:token:{tokenData.CardNumber}:{Guid.NewGuid():N}");
++            context.CardInstanceRepository.Upsert(new CardInstanceRecord(
++                tokenId, definitionId, player,
++                Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)
++                {
++                    ["dp"] = tokenData.Dp,
++                    ["isToken"] = true,
++                    ["isSuspended"] = isTapped,
++                }));
++            playCards.Add(new CardSource(context, tokenId, player, player));
++            played.Add(tokenId);
+         }
++
++        await new PlayCardClass(
++            cardSources: playCards,
++            hashtable: CardEffectHashtable(BareCauseEffect.For(sourceCard)),
++            payCost: false,
++            targetPermanent: null,
++            isTapped: isTapped,
++            root: SelectCardEffect.Root.None,
++            activateETB: true).PlayCard().ConfigureAwait(false);
++
++        return played;
++    }
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayDiaboromonToken(CardSource sourceCard, int quantity = 1) =>
++        PlayToken(TokenSpecs["Diaboromon"], sourceCard, isOwnerPermanent: true, isTapped: false, quantity);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayAmonToken(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["Amon"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayUmonToken(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["Umon"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayFujitsumonToken(CardSource sourceCard, bool isOwnerPermanent) =>
++        PlayToken(TokenSpecs["Fujitsumon"], sourceCard, isOwnerPermanent, isTapped: true);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayGyuukimonToken(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["Gyuukimon"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayKoHagurumonToken(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["KoHagurumon"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayFamiliarToken(CardSource sourceCard, int quantity = 1) =>
++        PlayToken(TokenSpecs["Familiar"], sourceCard, isOwnerPermanent: true, isTapped: false, quantity);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlaySelfDeleteFamiliarToken(CardSource sourceCard, int quantity = 1) =>
++        PlayToken(TokenSpecs["SelfDeleteFamiliar"], sourceCard, isOwnerPermanent: true, isTapped: false, quantity);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayVoleeZerdrucken(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["VoleeZerdrucken"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayUkaNoMitama(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["UkaNoMitama"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayWarGrowlmonToken(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["WarGrowlmon"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayTaomonToken(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["Taomon"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayRapidmonToken(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["Rapidmon"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayPipeFox(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["PipeFox"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayAthoRenePorToken(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["AthoRenePor"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayHinukamuyToken(CardSource sourceCard) =>
++        PlayToken(TokenSpecs["Hinukamuy"], sourceCard, isOwnerPermanent: true, isTapped: false);
++
++    public static Task<IReadOnlyList<HeadlessEntityId>> PlayPetrificationToken(CardSource sourceCard, int quantity = 1) =>
++        PlayToken(TokenSpecs["Petrification"], sourceCard, isOwnerPermanent: false, isTapped: false, quantity);
++
++    public static bool CanActivateBlitz(CardSource cardSource)
++    {
++        ArgumentNullException.ThrowIfNull(cardSource);
++        EngineContext context = cardSource.Context;
++        return IsExistOnBattleArea(cardSource)
++            && !IsSuspended(cardSource, cardSource.PermanentOfThisCard().Stack.TopCard?.InstanceId ?? default)
++            && context.MemoryController.Current.Current <= -1
++            && !context.AttackController.Current.IsPending;
+     }
+ 
+-    #endregion
+ 
+-    #region Deck Bounce target 1 permanent, and the effect determines whether the permanent has been bounced or not
++    public static Task FortitudeProcess(CardSource card, CardSource sourceCard) =>
++        PlayPermanentCards(new[] { card }, sourceCard, payCost: false, isTapped: false, root: ChoiceZone.Trash, activateETB: true);
+ 
+-    public static IEnumerator DeckBouncePeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, IEnumerator successProcess, IEnumerator failureProcess)
++    public static void EnforceLocationCheck()
+     {
+-        DeckBottomBounceClass deckBounceClass = new DeckBottomBounceClass(targetPermanents, CardEffectHashtable(activateClass));
++    }
++
+ 
+-        yield return ContinuousController.instance.StartCoroutine(deckBounceClass.DeckBounce());
+ 
+-        if (targetPermanents.Some((permanent) => deckBounceClass.IsDeckBounced(permanent)))
++    public static async Task DrawAndDiscardCards(
++        (HeadlessPlayerId drawPlayer, HeadlessPlayerId trashPlayer) player,
++        int drawAmount, int trashAmount, CardSource sourceCard,
++        Func<CardSource, bool>? canTrashTargetCondition = null,
++        bool canNoSelect = false, bool canEndNotMax = false,
++        CancellationToken cancellationToken = default)
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        EngineContext context = sourceCard.Context;
++        if (drawAmount > 0)
+         {
+-            if (successProcess != null)
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(successProcess);
+-            }
++            await new DrawClass(context, player.drawPlayer, drawAmount, sourceCard.InstanceId).Draw().ConfigureAwait(false);
+         }
+-        else
++
++        var zones = (IZoneStateReader)context.ZoneMover;
++        List<ChoiceCandidate> candidates = zones.GetCards(player.trashPlayer, ChoiceZone.Hand)
++            .Where(id => canTrashTargetCondition is null || canTrashTargetCondition(new CardSource(context, id, player.trashPlayer, player.trashPlayer)))
++            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.Hand, IsSelectable: true, ownerId: player.trashPlayer))
++            .ToList();
++        int max = Math.Min(trashAmount, candidates.Count);
++        if (max <= 0)
+         {
+-            if (failureProcess != null)
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(failureProcess);
+-            }
++            return;
+         }
+-    }
+ 
+-    #endregion
++        var request = new ChoiceRequest(
++            ChoiceType.Card, player.trashPlayer, $"Discard {max} card(s).",
++            minCount: canNoSelect ? 0 : (canEndNotMax ? 1 : max), maxCount: max,
++            canSkip: canNoSelect, ChoiceZone.Hand, candidates);
++        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
++        if (result.SelectedIds.Count == 0)
++        {
++            return;
++        }
+ 
+-    #region Trash target digivolution cards, and the effect determines whether the digivolution cards were trashed or not
++        var discardHands = result.SelectedIds
++            .Select(id => new IDiscardHand(new CardSource(context, id, player.trashPlayer, player.trashPlayer)))
++            .ToList();
++        await new IDiscardHands(discardHands, sourceCard.InstanceId).DiscardHands().ConfigureAwait(false);
++    }
+ 
+-    public static IEnumerator TrashDigivolutionCardsAndProcessAccordingToResult(Permanent targetPermanent, List<CardSource> targetDigivolutionCards, ICardEffect activateClass, Func<List<CardSource>, IEnumerator> successProcess, Func<IEnumerator> failureProcess)
++    public static async Task ReturnRevealedCardsToLibraryBottom(
++        IReadOnlyList<CardSource> remainingCards, CardSource sourceCard, CancellationToken cancellationToken = default)
+     {
+-        ITrashDigivolutionCards trashDigivolutionCards = new ITrashDigivolutionCards(targetPermanent, targetDigivolutionCards, activateClass);
+-
+-        yield return ContinuousController.instance.StartCoroutine(trashDigivolutionCards.TrashDigivolutionCards());
++        ArgumentNullException.ThrowIfNull(remainingCards);
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        if (remainingCards.Count == 0)
++        {
++            return;
++        }
+ 
+-        if (targetDigivolutionCards.Some((sourceCard) => trashDigivolutionCards.IsTrashed(sourceCard)))
++        EngineContext context = sourceCard.Context;
++        IReadOnlyList<CardSource> ordered = remainingCards;
++        if (remainingCards.Count >= 2)
+         {
+-            if (successProcess != null)
++            var request = new ChoiceRequest(
++                ChoiceType.Card, sourceCard.Owner, "Specify the order to place the cards at the bottom of the deck.",
++                minCount: remainingCards.Count, maxCount: remainingCards.Count, canSkip: false, ChoiceZone.Library,
++                remainingCards.Select(cs => new ChoiceCandidate(cs.InstanceId, cs.InstanceId.Value, ChoiceZone.Library, IsSelectable: true, ownerId: cs.Owner)).ToArray());
++            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
++            if (result.SelectedIds.Count == remainingCards.Count)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(successProcess(trashDigivolutionCards.TrashedCards));
++                ordered = result.SelectedIds
++                    .Select(id => remainingCards.First(cs => cs.InstanceId == id))
++                    .ToArray();
+             }
+         }
+-        else
++
++        await CardObjectController.AddLibraryBottomCards(ordered.ToList(), cancellationToken: cancellationToken).ConfigureAwait(false);
++    }
++
++    public static async Task DigivolveIntoExcecutingAreaCard(
++        Permanent? targetPermanent,
++        Func<CardSource, bool>? cardCondition,
++        bool payCost,
++        (int reduceCost, Func<CardSource, bool>? reduceCostCardCondition)? reduceCostTuple,
++        (int fixedCost, Func<CardSource, bool>? fixedCostCardCondition)? fixedCostTuple,
++        int ignoreDigivolutionRequirementFixedCost,
++        CardSource sourceCard,
++        Func<Task>? successProcess,
++        bool ignoreSelection = false,
++        IgnoreRequirement ignoreRequirements = IgnoreRequirement.None,
++        CancellationToken cancellationToken = default)
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        EngineContext context = sourceCard.Context;
++        bool onlySelf = ignoreSelection ||
++            (context.ZoneMover is IZoneStateReader z &&
++             z.GetCards(sourceCard.Owner, ChoiceZone.Execution).Count(id =>
++                new CardSource(context, id, sourceCard.Owner, sourceCard.Owner).IsDigimon &&
++                (cardCondition is null || cardCondition(new CardSource(context, id, sourceCard.Owner, sourceCard.Owner)))) <= 1);
++        await DigivolveIntoZoneCoreAsync(
++            targetPermanent, cardCondition, payCost, reduceCostTuple, fixedCostTuple,
++            ignoreDigivolutionRequirementFixedCost, ChoiceZone.Execution, sourceCard,
++            successProcess, failedProcess: null, ignoreSelection: onlySelf, ignoreRequirements, isOptional: true,
++            cancellationToken).ConfigureAwait(false);
++    }
++
++    public static async Task<int> ActivateMainOfOptionSide(
++        CardSource card, CardSource sourceCard, CancellationToken cancellationToken = default,
++        Action<ICardEffect>? effectStamp = null)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        cancellationToken.ThrowIfCancellationRequested();
++        ActivateClass? mainActivateClass = OptionMainEffect(card);
++        if (mainActivateClass == null)
+         {
+-            if (failureProcess != null)
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(failureProcess());
+-            }
++            return 0;
+         }
++
++        effectStamp?.Invoke(mainActivateClass);
++        await mainActivateClass.Activate(CardEffectCommons.OptionMainCheckHashtable(card)).ConfigureAwait(false);
++        return 1;
+     }
+ 
+-    #endregion
+ 
+-    #region Trash target link cards, and the effect determines whether the link cards were trashed or not
+ 
+-    public static IEnumerator TrashLinkCardsAndProcessAccordingToResult(Permanent targetPermanent, List<CardSource> targetLinkCards, ICardEffect activateClass, Func<List<CardSource>, IEnumerator> successProcess, Func<IEnumerator> failureProcess)
++
++
++    public static Func<EffectTiming, ICardEffect> GetCardEffectByEffectTiming(EffectTiming timing, ICardEffect cardEffect)
++        => (_timing) => _timing == timing ? cardEffect : null!;
++
++
++
++
++    public static bool GainCanNotAttack(
++        Permanent? targetPermanent, Func<Permanent, bool>? defenderCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't attack") =>
++        GainCanNotAttackImpl(targetPermanent, defenderCondition, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++
++    public static bool GainCanNotBlock(
++        Permanent? targetPermanent, Func<Permanent, bool>? attackerCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't block") =>
++        GainCanNotBlockImpl(targetPermanent, attackerCondition, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++
++    public static bool GainCanNotBeAttacked(
++        Permanent? targetPermanent, Func<Permanent, bool>? attackerCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be attacked")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotBeAttackedImpl(targetPermanent, attackerCondition, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
++
++    public static bool GainCanNotBeBlocked(
++        Permanent? targetPermanent, Func<Permanent, bool>? defenderCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be blocked")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotBeBlockedImpl(targetPermanent, defenderCondition, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
++
++    public static bool GainCanNotSuspend(
++        Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard,
++        Func<bool>? condition = null, string effectName = "Can't suspend")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotSuspendImpl(targetPermanent, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), condition, effectName);
++    }
++
++    public static bool GainCantSuspendUntilOpponentTurnEnd(Permanent? targetPermanent, CardSource sourceCard) =>
++        GainCanNotSuspend(targetPermanent, EffectDuration.UntilOpponentTurnEnd, sourceCard);
++
++    public static bool GainCanNotUnsuspend(
++        Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard,
++        Func<bool>? condition = null, string effectName = "Can't unsuspend") =>
++        GainCanNotUnsuspendImpl(targetPermanent, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), condition, effectName);
++
++    public static bool GainCantUnsuspendUntilOpponentTurnEnd(Permanent? targetPermanent, CardSource sourceCard) =>
++        GainCanNotUnsuspend(targetPermanent, EffectDuration.UntilOpponentTurnEnd, sourceCard);
++
++    public static bool GainCantUnsuspendNextActivePhase(Permanent? targetPermanent, CardSource sourceCard) =>
++        GainCanNotUnsuspend(targetPermanent, EffectDuration.UntilNextUntap, sourceCard);
++
++
++    public static bool GainAlliancePlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard)
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainAlliancePlayerEffectImpl(permanentCondition, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard));
++    }
++
++    public static bool GainCanNotUnsuspendPlayerEffect(
++        Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard,
++        bool isOnlyActivePhase = false, string effectName = "Can't unsuspend") =>
++        GainCanNotUnsuspendPlayerEffectImpl(permanentCondition, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), isOnlyActivePhase, effectName);
++
++    public static bool GainCanNotSuspendPlayerEffect(
++        Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard,
++        bool isOnlyActivePhase = false, string effectName = "Can't suspend")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotSuspendPlayerEffectImpl(permanentCondition, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), isOnlyActivePhase, effectName);
++    }
++
++    public static bool GainCanNotAttackPlayerEffect(
++        Func<Permanent, bool>? attackerCondition, Func<Permanent, bool>? defenderCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't attack") =>
++        GainCanNotAttackPlayerEffectImpl(attackerCondition, defenderCondition, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++
++    public static bool GainCanNotBlockPlayerEffect(
++        Func<Permanent, bool>? attackerCondition, Func<Permanent, bool>? defenderCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't block")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotBlockPlayerEffectImpl(attackerCondition, defenderCondition, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
++
++    public static bool GainCanNotBeDeletedPlayerEffect(
++        Func<Permanent, bool>? permanentCondition,
++        Func<Permanent, Permanent, Permanent, CardSource, bool>? canNotBeDestroyedByBattleCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be deleted in battle")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotBeDeletedPlayerEffectImpl(permanentCondition, canNotBeDestroyedByBattleCondition, effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
++
++    public static bool GainCanNotReturnToHand(
++        Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotReturnToHandImpl(targetPermanent, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
++
++    public static bool GainCanNotReturnToDeck(
++        Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotReturnToDeckImpl(targetPermanent, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
++
++    public static bool GainCanNotReturnToHandPlayerEffect(
++        Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotReturnToHandPlayerEffectImpl(permanentCondition, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
++
++    public static bool GainCanNotReturnToDeckPlayerEffect(
++        Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotReturnToDeckPlayerEffectImpl(permanentCondition, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
++
++    public static bool GainImmuneFromDPMinus(
++        Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainImmuneFromDPMinusImpl(targetPermanent, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
++
++    public static bool GainImmuneFromDPMinusPlayerEffect(
++        Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus")
+     {
+-        ITrashLinkCards trashLinkCards = new ITrashLinkCards(targetPermanent, targetLinkCards, activateClass);
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainImmuneFromDPMinusPlayerEffectImpl(permanentCondition, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
++
++    private static Func<ICardEffect, bool>? LiftCauseCardCondition(Func<CardSource, bool>? cardEffectSourceCondition) =>
++        cardEffectSourceCondition is null
++            ? null
++            : (ICardEffect cardEffect) => cardEffect?.EffectSourceCard is CardSource cs && cardEffectSourceCondition(cs);
+ 
+-        yield return ContinuousController.instance.StartCoroutine(trashLinkCards.TrashLinkCards());
++    public static bool GainCanNotBeDeletedByEffect(
++        Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
++        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be deleted by effects")
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        return GainCanNotBeDeletedByEffectImpl(targetPermanent, LiftCauseCardCondition(cardEffectSourceCondition), effectDuration,
++            card: sourceCard, cause: BareCauseEffect.For(sourceCard), effectName);
++    }
+ 
+-        if (targetLinkCards.Some((sourceCard) => trashLinkCards.IsTrashed(sourceCard)))
++    public static bool ChangeDigimonSAttackPlayerEffect(
++        Func<Permanent, bool>? permanentCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard,
++        ICardEffect? activateClass = null)
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        if (changeValue == 0)
+         {
+-            if (successProcess != null)
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(successProcess(trashLinkCards.TrashedLinkCards));
+-            }
++            return false;
+         }
+-        else
++
++        CardSource card = sourceCard;
++        CardEffects.ChangeSAttackClass changeSAttackClass = null!;
++
++        bool PermanentCondition(Permanent permanent)
+         {
+-            if (failureProcess != null)
++            if (IsPermanentExistsOnBattleArea(permanent))
+             {
+-                yield return ContinuousController.instance.StartCoroutine(failureProcess());
++                if (!permanent.TopCard.CanNotBeAffected(activateClass ?? changeSAttackClass))
++                {
++                    if (permanentCondition == null || permanentCondition(permanent))
++                    {
++                        return true;
++                    }
++                }
+             }
++
++            return false;
+         }
+-    }
+ 
+-    #endregion
++        bool CanUseCondition() => true;
+ 
+-    #region Trash Security cards and the effect determines whether the security were trashed or not
++        changeSAttackClass = CardEffectFactory.ChangeSAttackStaticEffect(
++            permanentCondition: PermanentCondition,
++            changeValue: changeValue,
++            isInheritedEffect: false,
++            card: card,
++            condition: CanUseCondition);
+ 
+-    public static IEnumerator TrashSecurityAndProcessAccordingToResult(Player player, int trashAmount, ICardEffect activateClass, bool fromTop, Func<List<CardSource>, IEnumerator> successProcess, Func<IEnumerator> failureProcess)
++        AddEffectToPlayer(effectDuration: effectDuration, card: card, cardEffect: changeSAttackClass, timing: EffectTiming.None);
++        return true;
++    }
++
++    public static bool ChangePlayCostPlayerEffect(
++        Func<Permanent, bool>? permanentCondition, int changeValue, bool setFixedCost,
++        EffectDuration effectDuration, CardSource sourceCard)
+     {
+-        IDestroySecurity destroySecurity = new IDestroySecurity(player, trashAmount, activateClass, fromTop);
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        if (changeValue == 0)
++        {
++            return false;
++        }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(destroySecurity.DestroySecurity());
++        CardSource card = sourceCard;
++        CardEffects.ChangeCostClass changeCostClass = null!;
+ 
+-        if (destroySecurity.DestroyedSecurity.Any())
++        bool PermanentCondition(Permanent permanent)
+         {
+-            if (successProcess != null)
++            if (IsPermanentExistsOnBattleArea(permanent))
+             {
+-                yield return ContinuousController.instance.StartCoroutine(successProcess(destroySecurity.DestroyedSecurity));
++                if (!permanent.TopCard.CanNotBeAffected(changeCostClass))
++                {
++                    if (permanentCondition == null || permanentCondition(permanent))
++                    {
++                        return true;
++                    }
++                }
+             }
++
++            return false;
+         }
+-        else
++
++        bool CanUseCondition() => true;
++
++        changeCostClass = CardEffectFactory.ChangePlayCostStaticEffect(
++            changeValue: changeValue,
++            permanentCondition: PermanentCondition,
++            isInheritedEffect: false,
++            card: card,
++            condition: CanUseCondition,
++            setFixedCost: setFixedCost);
++
++        AddEffectToPlayer(effectDuration: effectDuration, card: card, cardEffect: changeCostClass, timing: EffectTiming.None);
++        return true;
++    }
++
++    public static bool ChangeBaseDigimonDP(
++        Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard,
++        ICardEffect? activateClass = null)
++    {
++        ArgumentNullException.ThrowIfNull(sourceCard);
++        if (targetPermanent is null) return false;
++        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return false;
++        if (changeValue == 0) return false;
++
++        CardSource card = sourceCard;
++        CardEffects.ChangeBaseDPClass changeBaseDPClass = null!;
++
++        bool CanUseCondition()
+         {
+-            if (failureProcess != null)
++            if (IsPermanentExistsOnBattleArea(targetPermanent))
+             {
+-                yield return ContinuousController.instance.StartCoroutine(failureProcess());
++                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass ?? changeBaseDPClass))
++                {
++                    return true;
++                }
+             }
++
++            return false;
+         }
++
++        changeBaseDPClass = CardEffectFactory.ChangeBaseDPStaticEffect(
++            targetPermanent: targetPermanent,
++            changeValue: changeValue,
++            isInheritedEffect: false,
++            card: card,
++            condition: CanUseCondition);
++
++        changeBaseDPClass.SetActivatedTime(DateTime.Now);
++
++        AddEffectToPermanent(
++            targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
++            cardEffect: changeBaseDPClass, timing: EffectTiming.None);
++        return true;
+     }
+ 
+-    #endregion
+ 
+-    #region Trash Hand card and the effect determines whether the security were trashed or not
++    public static bool IsOwnerTurn(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return TurnOwnershipHelpers.IsOwnerTurn(card.Context.TurnController.Current.TurnPlayerId, card.Owner);
++    }
++
++    public static bool IsUnsuspendPhase(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return card.Context.TurnController.Current.IsUnsuspendPhase;
++    }
++
++    public static int DigivolveCountThisTurn(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return card.Context.PlayerTurnCounters.Get(
++            card.Owner, Headless.Runtime.PlayerTurnCounterController.DigivolveCountKey);
++    }
++
++    public static bool IsPayCostRoot(CardSource card, Headless.Bridge.PayCostRoot root)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return card.Context.CurrentPayCostRoot == root;
++    }
++
++    public static bool IsOpponentTurn(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return TurnOwnershipHelpers.IsOpponentTurn(card.Context.TurnController.Current.TurnPlayerId, card.Owner);
++    }
++
++    public static bool IsExistOnBattleArea(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return !card.PermanentOfThisCard().IsEmpty;
++    }
+ 
+-    public static IEnumerator TrashHandAndProcessAccordingToResult(Player player, Hashtable hashtable, CardSource cardToTrash, ActivateClass activateClass, Func<CardSource, IEnumerator> successProcess, Func<IEnumerator> failureProcess)
++    public static bool IsExistOnHand(CardSource card)
+     {
+-        IDiscardHands discardHands = new IDiscardHands(new List<IDiscardHand>() { new IDiscardHand(cardToTrash, hashtable) }, activateClass);
+-        yield return ContinuousController.instance.StartCoroutine(discardHands.DiscardHands());
++        ArgumentNullException.ThrowIfNull(card);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Hand).Contains(card.InstanceId);
++    }
+ 
+ 
+-        if (discardHands.HasDiscarded)
++    public static bool IsExistOnField(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return IsExistOnBattleArea(card) || IsExistOnBreedingArea(card);
++    }
++
++    public static bool IsExistOnBreedingArea(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        var zones = (IZoneStateReader)card.Context.ZoneMover;
++        foreach (HeadlessEntityId top in zones.GetCards(card.Owner, ChoiceZone.BreedingArea))
+         {
+-            if (successProcess != null)
++            if (top == card.InstanceId)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(successProcess(cardToTrash));
++                return true;
+             }
+-        }
+-        else
+-        {
+-            if (failureProcess != null)
++
++            DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, top);
++            if (stack.UnderCards.Any(under => under.InstanceId == card.InstanceId))
+             {
+-                yield return ContinuousController.instance.StartCoroutine(failureProcess());
++                return true;
+             }
+         }
++
++        return false;
+     }
+ 
+-    #endregion
++    public static bool IsExistOnBattleAreaDigimon(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return IsExistOnBattleArea(card) && new Permanent(card.Context, (card.PermanentOfThisCard().Stack.TopCard?.InstanceId ?? default), card.Owner).IsDigimon;
++    }
++
++    public static bool IsExistOnTrash(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Trash).Contains(card.InstanceId);
++    }
+ 
+-    #region Place in security with callbacks for success or failure
+-    public static IEnumerator PlacePermanentInSecurityAndProcessAccordingToResult(Permanent targetPermanent, ICardEffect activateClass, bool toTop, Func<CardSource, IEnumerator> successProcess, Func<IEnumerator> failureProcess = null, bool isFaceUp = false)
++    public static bool IsExistOnExecutingArea(CardSource card)
+     {
+-        IPutSecurityPermanent putSecurityPermanent = new IPutSecurityPermanent(targetPermanent, CardEffectCommons.CardEffectHashtable(activateClass), toTop, isFaceUp);
++        ArgumentNullException.ThrowIfNull(card);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Execution).Contains(card.InstanceId);
++    }
+ 
+-        CardSource topCard = targetPermanent.TopCard;
+-        if (activateClass.EffectSourceCard != null
+-            && activateClass.EffectSourceCard.Owner.CanAddSecurity(activateClass))
++    public static bool IsExistInSecurity(CardSource card, bool isFlipped = false)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (!((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Security).Contains(card.InstanceId))
+         {
+-            yield return ContinuousController.instance.StartCoroutine(putSecurityPermanent.PutSecurity());
++            return false;
+         }
+ 
+-        if (putSecurityPermanent.IsPlacedSecurity)
++        bool flipped = card.Context.CardInstanceRepository.TryGetInstance(card.InstanceId, out CardInstanceRecord? i) && i is not null
++            && i.Metadata.TryGetValue("isFlipped", out object? raw) && raw is true;
++        return flipped == isFlipped;
++    }
++
++    public static bool CanPlayAsNewPermanent(CardSource cardSource, bool payCost, ICardEffect? cardEffect, bool isPlayOption = false, int fixedCost = -1)
++    {
++        _ = cardEffect;
++        if (cardSource is null || (!isPlayOption && cardSource.IsOption))
+         {
+-            if (successProcess != null)
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(successProcess(topCard));
+-            }
++            return false;
+         }
+-        else
++
++        if (!payCost)
+         {
+-            if (failureProcess != null)
+-            {
+-                yield return ContinuousController.instance.StartCoroutine(failureProcess());
+-            }
++            return true;
+         }
++
++        int baseCost = cardSource.Context.CardInstanceRepository.TryGetInstance(cardSource.InstanceId, out CardInstanceRecord? inst) && inst is not null
++            && cardSource.Context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
++            ? def.PlayCost ?? 0
++            : 0;
++        int cost = fixedCost >= 0 ? fixedCost : cardSource.GetPayingCostWithBaseCost(baseCost, SelectCardEffect.Root.None, targetPermanents: null);
++        return cardSource.Context.MemoryController.CanPay(Math.Max(0, cost));
+     }
+ 
+-    #endregion
++    public static bool IsPermanentExistsOnBattleArea(Permanent? permanent)
++    {
++        if (permanent is null || permanent.InstanceId.IsEmpty)
++        {
++            return false;
++        }
+ 
+-    #region Trash digivolution cards from top or bottom
++        if (permanent.SnapshotZone is ChoiceZone snapshot)
++        {
++            return snapshot == ChoiceZone.BattleArea;
++        }
++
++        return ((IZoneStateReader)permanent.TopCard.Context.ZoneMover)
++            .GetCards(permanent.OwnerId, ChoiceZone.BattleArea).Contains(permanent.InstanceId);
++    }
+ 
+-    public static IEnumerator TrashDigivolutionCardsFromTopOrBottom(Permanent targetPermanent, int trashCount, bool isFromTop, ICardEffect activateClass, Func<CardSource, bool> cardCondition = null)
++    public static bool IsOwnerPermanent(Permanent? permanent, CardSource card)
+     {
+-        if (activateClass == null) yield break;
+-        if (targetPermanent == null) yield break;
+-        if (targetPermanent.TopCard == null) yield break;
+-        if (targetPermanent.DigivolutionCards.Count((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(activateClass)) == 0) yield break;
+-        if (targetPermanent.TopCard.CanNotBeAffected(activateClass)) yield break;
+-        if (trashCount <= 0) yield break;
++        ArgumentNullException.ThrowIfNull(card);
++        return permanent is not null && !permanent.InstanceId.IsEmpty && permanent.OwnerId == card.Owner;
++    }
++
++    public static bool IsOpponentPermanent(Permanent? permanent, CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return permanent is not null && !permanent.InstanceId.IsEmpty && !permanent.OwnerId.IsEmpty && permanent.OwnerId != card.Owner;
++    }
+ 
+-        List<CardSource> trashTargetCards = new List<CardSource>();
++    public static bool IsPermanentExistsOnOwnerBattleArea(Permanent? permanent, CardSource card) =>
++        IsPermanentExistsOnBattleArea(permanent) && IsOwnerPermanent(permanent, card);
+ 
+-        for (int i = 0; i < targetPermanent.DigivolutionCards.Count; i++)
++    public static void RegisterDigivolutionCostDeltaForPlayer(
++        CardSource card, int delta, EffectDuration duration,
++        Func<CardSource, bool> toCardCondition, Func<CardSource, bool> targetPermanentCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(toCardCondition);
++        ArgumentNullException.ThrowIfNull(targetPermanentCondition);
++        var changeCostClass = CardEffectFactory.ChangeDigivolutionCostStaticEffect<int>(
++            changeValue: delta,
++            permanentCondition: permanent => targetPermanentCondition(permanent.TopCard),
++            cardCondition: toCardCondition,
++            rootCondition: null,
++            isInheritedEffect: false,
++            card: card,
++            condition: null,
++            setFixedCost: false);
++
++        if (changeCostClass != null)
+         {
+-            if (trashTargetCards.Count >= trashCount)
+-                break;
++            AddEffectToPlayer(effectDuration: duration, card: card, cardEffect: changeCostClass, timing: EffectTiming.None);
++        }
++    }
+ 
+-            int index = isFromTop ? i : targetPermanent.DigivolutionCards.Count - 1 - i;
++    public static bool IsPermanentExistsOnOpponentBattleArea(Permanent? permanent, CardSource card) =>
++        IsPermanentExistsOnBattleArea(permanent) && IsOpponentPermanent(permanent, card);
+ 
+-            CardSource trashTargetCard = targetPermanent.DigivolutionCards[index];
++    public static bool IsPermanentExistsOnBattleAreaDigimon(Permanent? permanent) =>
++        IsPermanentExistsOnBattleArea(permanent) && permanent!.IsDigimon;
+ 
+-            bool trashCard = true;
++    public static bool IsPermanentExistsOnOwnerBattleAreaDigimon(Permanent? permanent, CardSource card) =>
++        IsPermanentExistsOnOwnerBattleArea(permanent, card) && permanent!.IsDigimon;
+ 
+-            if (cardCondition != null)
+-                trashCard = cardCondition(trashTargetCard);
++    public static bool IsPermanentExistsOnOpponentBattleAreaDigimon(Permanent? permanent, CardSource card) =>
++        IsPermanentExistsOnOpponentBattleArea(permanent, card) && permanent!.IsDigimon;
+ 
+-            if (trashCard)
+-                trashTargetCards.Add(trashTargetCard);
+-        }
++    public static bool IsPermanentExistsOnBattleAreaTamer(Permanent? permanent) =>
++        IsPermanentExistsOnBattleArea(permanent) && permanent!.TopCard.IsTamer;
+ 
+-        yield return ContinuousController.instance.StartCoroutine(new ITrashDigivolutionCards(targetPermanent, trashTargetCards, activateClass).TrashDigivolutionCards());
+-    }
++    public static bool IsPermanentExistsOnOwnerBattleAreaTamer(Permanent? permanent, CardSource card) =>
++        IsPermanentExistsOnOwnerBattleArea(permanent, card) && permanent!.TopCard.IsTamer;
+ 
+-    #endregion
++    public static bool IsPermanentExistsOnOpponentBattleAreaTamer(Permanent? permanent, CardSource card) =>
++        IsPermanentExistsOnOpponentBattleArea(permanent, card) && permanent!.TopCard.IsTamer;
+ 
+-    #region this Option card's Main effect
++    public static bool IsPermanentExistsOnOwnerBreedingArea(Permanent? permanent, CardSource card)
++    {
++        if (permanent is null || permanent.InstanceId.IsEmpty || !IsOwnerPermanent(permanent, card))
++        {
++            return false;
++        }
+ 
+-    public static ActivateClass OptionMainEffect(CardSource card) => card.EffectList(EffectTiming.OptionSkill).Find(cardEffect => cardEffect != null && cardEffect is ActivateClass && cardEffect.EffectDiscription.Contains("[Main]")) as ActivateClass;
++        return ((IZoneStateReader)card.Context.ZoneMover)
++            .GetCards(permanent.OwnerId, ChoiceZone.BreedingArea).Contains(permanent.InstanceId);
++    }
+ 
+-    #endregion
++    public static bool HasMatchConditionOwnersSecurity(CardSource card, Func<CardSource, bool> CanSelectCardCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectCardCondition);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Security)
++            .Any(id => CanSelectCardCondition(new CardSource(card.Context, id, card.Owner, card.Owner)));
++    }
+ 
+-    #region this Option card's Security effect
++    public static bool IsExistOnBreedingAreaDigimon(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (!IsExistOnBreedingArea(card))
++        {
++            return false;
++        }
+ 
+-    public static ActivateClass OptionSecurityEffect(CardSource card) => card.EffectList(EffectTiming.SecuritySkill).Find(cardEffect => cardEffect != null && cardEffect is ActivateClass && cardEffect.EffectDiscription.Contains("[Security]")) as ActivateClass;
++        foreach (HeadlessEntityId top in ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.BreedingArea))
++        {
++            DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, top);
++            if ((top == card.InstanceId || stack.UnderCards.Any(u => u.InstanceId == card.InstanceId)) &&
++                new Permanent(card.Context, top, card.Owner).IsDigimon)
++            {
++                return true;
++            }
++        }
+ 
+-    #endregion
++        return false;
++    }
+ 
+-    #region Add Option's Security effect that "Activate this card's Main effect" to cardEffects
++    public static bool IsExistDigivolutionCards(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        PermanentView host = card.PermanentOfThisCard();
++        return !host.IsEmpty && host.DigivolutionCards.Any(u => u.InstanceId == card.InstanceId);
++    }
+ 
+-    public static void AddActivateMainOptionSecurityEffect(CardSource card, ref List<ICardEffect> cardEffects, string effectName, string effectDiscription = "", Func<ICardEffect, IEnumerator> afterMainEffect = null)
++    public static bool IsExistLinked(CardSource card)
+     {
+-        if (OptionMainEffect(card) == null) return;
++        ArgumentNullException.ThrowIfNull(card);
++        var zones = (IZoneStateReader)card.Context.ZoneMover;
++        foreach (HeadlessEntityId top in zones.GetCards(card.Owner, ChoiceZone.BattleArea))
++        {
++            if (card.Context.CardInstanceRepository.TryGetInstance(top, out CardInstanceRecord? host) && host is not null &&
++                Permanent.ReadLinkedCardIds(host.Metadata).Contains(card.InstanceId))
++            {
++                return true;
++            }
++        }
+ 
+-        cardEffects.Add(CardEffectFactory.ActivateMainOptionSecurityEffect(card, effectName, effectDiscription, afterMainEffect));
++        return false;
+     }
+ 
+-    #endregion
+-
+-    #region Activate Main of Dual Cards Option Side
+-    public static IEnumerator ActivateMainOfOptionSide(CardSource card, ICardEffect activateClass, Func<ICardEffect, IEnumerator> afterMainEffect = null, bool asEffectOfThisDigimon = false)
++    public static bool IsExistInAnyTrash(CardSource card)
+     {
+-        ActivateClass mainActivateClass = OptionMainEffect(card);
++        ArgumentNullException.ThrowIfNull(card);
++        var zones = (IZoneStateReader)card.Context.ZoneMover;
++        foreach (HeadlessPlayerId player in card.Context.TurnController.Current.PlayerOrder)
++        {
++            if (!player.IsEmpty && zones.GetCards(player, ChoiceZone.Trash).Contains(card.InstanceId))
++            {
++                return true;
++            }
++        }
+ 
+-        #region Set as option effect unless explicitly effect of the digimon
+-        mainActivateClass.SetIsDigimonEffect(asEffectOfThisDigimon);
+-        mainActivateClass.SetIsTamerEffect(false);
+-        #endregion
++        return false;
++    }
+ 
+-        if (mainActivateClass != null)
++    public static bool IsPermanentExistsOnField(Permanent? permanent) =>
++        IsPermanentExistsOnBattleArea(permanent) || IsPermanentExistsOnBreedingArea(permanent);
++
++    public static bool IsPermanentExistsOnBreedingArea(Permanent? permanent)
++    {
++        if (permanent is null || permanent.InstanceId.IsEmpty)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(mainActivateClass.Activate(CardEffectCommons.OptionMainCheckHashtable(card)));
++            return false;
+         }
+ 
+-        if (afterMainEffect != null)
++        if (permanent.SnapshotZone is ChoiceZone snapshot)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(afterMainEffect(activateClass));
++            return snapshot == ChoiceZone.BreedingArea;
+         }
++
++        return ((IZoneStateReader)permanent.TopCard.Context.ZoneMover)
++            .GetCards(permanent.OwnerId, ChoiceZone.BreedingArea).Contains(permanent.InstanceId);
+     }
+-    #endregion
+ 
+-    #region Target permanent Digivolves into Digimon card from hand or trash
++    public static bool HasMatchConditionOwnersBreedingPermanent(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectPermanentCondition);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.BreedingArea)
++            .Select(id => new Permanent(card.Context, id, card.Owner))
++            .Any(CanSelectPermanentCondition);
++    }
+ 
+-    public static IEnumerator DigivolveIntoHandOrTrashCard(
+-        Permanent targetPermanent,
+-        Func<CardSource, bool> cardCondition,
+-        bool payCost,
+-        (int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? reduceCostTuple,
+-        (int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? fixedCostTuple,
+-        int ignoreDigivolutionRequirementFixedCost,
+-        bool isHand,
+-        ICardEffect activateClass,
+-        IEnumerator successProcess,
+-        //bool ignoreLevel = false,
+-        bool ignoreSelection = false,
+-        IgnoreRequirement ignoreRequirements = IgnoreRequirement.None,
+-        IEnumerator failedProcess = null,
+-        bool isOptional = true)
++    public static bool HasMatchConditionPermanentDigivolutionCards(CardSource card, Func<CardSource, bool> CanSelectPermanentCondition)
+     {
+-        if (targetPermanent == null) yield break;
+-        if (targetPermanent.TopCard == null) yield break;
+-        if (activateClass == null) yield break;
+-        if (activateClass.EffectSourceCard == null) yield break;
+-
+-        Player owner = targetPermanent.TopCard.Owner;
+-        SelectCardEffect.Root root = isHand ? SelectCardEffect.Root.Hand : SelectCardEffect.Root.Trash;
+-        bool ignoreDigivolutionRequirement = !ignoreRequirements.Equals(IgnoreRequirement.None) || ignoreDigivolutionRequirementFixedCost >= 0;//  ignoreDigivolutionRequirementFixedCost >= 0 || ignoreRequirements;
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectPermanentCondition);
++        return card.PermanentOfThisCard().DigivolutionCards
++            .Any(u => CanSelectPermanentCondition(new CardSource(card.Context, u.InstanceId, card.Owner, card.Owner)));
++    }
+ 
+-        int fixedCost = -1;
++    public static int MatchConditionOpponentsCardCountInTrash(CardSource card, Func<CardSource, bool> CanSelectCardCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectCardCondition);
++        HeadlessPlayerId opponent = OpponentOf(card);
++        return opponent.IsEmpty
++            ? 0
++            : ((IZoneStateReader)card.Context.ZoneMover).GetCards(opponent, ChoiceZone.Trash)
++                .Count(id => CanSelectCardCondition(new CardSource(card.Context, id, opponent, opponent)));
++    }
+ 
+-        bool successful = false;
++    public static bool HasMatchConditionOpponentsCardInTrash(CardSource card, Func<CardSource, bool> CanSelectCardCondition) =>
++        MatchConditionOpponentsCardCountInTrash(card, CanSelectCardCondition) >= 1;
++
++    public static int GetUniqueColourCountOnOwnerBattleArea(CardSource card, Func<Permanent, bool> canGetCardColour) =>
++        UniqueColourCount(card, card.Owner, canGetCardColour);
+ 
+-        if (fixedCostTuple != null)
++    public static int GetUniqueColourCountOnOpponentsBattleArea(CardSource card, Func<Permanent, bool> canGetCardColour) =>
++        UniqueColourCount(card, OpponentOf(card), canGetCardColour);
++
++    private static int UniqueColourCount(CardSource card, HeadlessPlayerId player, Func<Permanent, bool> canGetCardColour)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(canGetCardColour);
++        if (player.IsEmpty)
+         {
+-            fixedCost = fixedCostTuple.Value.fixedCost;
++            return 0;
+         }
+ 
+-        if (ignoreDigivolutionRequirement)
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(player, ChoiceZone.BattleArea)
++            .Select(id => new Permanent(card.Context, id, player))
++            .Where(canGetCardColour)
++            .SelectMany(p => p.TopCard.CardColors)
++            .Distinct(StringComparer.OrdinalIgnoreCase)
++            .Count();
++    }
++
++    public static bool IsDigivolvedByTheEffect(Permanent? permanent, CardSource cardSource, CardSource effectSourceCard)
++    {
++        ArgumentNullException.ThrowIfNull(cardSource);
++        ArgumentNullException.ThrowIfNull(effectSourceCard);
++        if (permanent is null || !IsPermanentExistsOnBattleArea(permanent) ||
++            permanent.InstanceId != cardSource.InstanceId)
+         {
+-            fixedCost = ignoreDigivolutionRequirementFixedCost;
++            return false;
+         }
+ 
+-        bool CanSelectCardCondition(CardSource cardSource)
+-        {
+-            if (cardSource.IsDigimon)
+-            {
+-                if (cardCondition == null || cardCondition(cardSource))
+-                {
+-                    if (!cardSource.CanNotEvolve(targetPermanent))
+-                    {
+-                        bool isBreeding = cardSource.Owner.GetBreedingAreaPermanents().Contains(targetPermanent);
++        return cardSource.Context.CardInstanceRepository.TryGetInstance(cardSource.InstanceId, out CardInstanceRecord? rec) && rec is not null
++            && rec.Metadata.TryGetValue("digivolvedByEffectSourceId", out object? raw)
++            && raw?.ToString() == effectSourceCard.InstanceId.Value;
++    }
+ 
+-                        if (cardSource.CanPlayCardTargetFrame(
+-                            frame: targetPermanent.PermanentFrame,
+-                            PayCost: payCost,
+-                            cardEffect: activateClass,
+-                            root: root,
+-                            fixedCost: fixedCost,
+-                            ignore: ignoreRequirements,
+-                            isBreedingArea: isBreeding))
+-                        {
+-                            return true;
+-                        }
+-                    }
+-                }
+-            }
++    private static bool IsTamerPermanent(Permanent permanent) => permanent.TopCard.IsTamer;
+ 
+-            return false;
+-        }
++    public static bool HasMatchConditionPermanent(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition, bool isContainBreedingArea = false)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectPermanentCondition);
++        return EnumerateFieldPermanentViews(card, isContainBreedingArea).Any(CanSelectPermanentCondition);
++    }
+ 
+-        #region reduce cost
++    public static bool HasMatchConditionOwnersPermanent(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectPermanentCondition);
++        return EnumerateFieldPermanentViews(card, isContainBreedingArea: false)
++            .Any(p => IsOwnerPermanent(p, card) && CanSelectPermanentCondition(p));
++    }
+ 
+-        Func<EffectTiming, ICardEffect> getChangeCostEffect = null;
++    public static int MatchConditionOwnersPermanentCount(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectPermanentCondition);
++        return EnumerateFieldPermanentViews(card, isContainBreedingArea: false)
++            .Count(p => IsOwnerPermanent(p, card) && CanSelectPermanentCondition(p));
++    }
+ 
+-        if (reduceCostTuple != null)
+-        {
+-            bool PermanentCondition(Permanent permanent)
+-            {
+-                return permanent == targetPermanent;
+-            }
++    public static int MatchConditionOpponentsPermanentCount(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectPermanentCondition);
++        return EnumerateFieldPermanentViews(card, isContainBreedingArea: false)
++            .Count(p => IsOpponentPermanent(p, card) && CanSelectPermanentCondition(p));
++    }
+ 
+-            bool CardCondition(CardSource cardSource)
+-            {
+-                if (cardSource != null)
+-                {
+-                    if (cardSource.Owner == owner)
+-                    {
+-                        if (reduceCostTuple.Value.reduceCostCardCondition == null || reduceCostTuple.Value.reduceCostCardCondition(cardSource))
+-                        {
+-                            return true;
+-                        }
+-                    }
+-                }
++    public static bool HasMatchConditionOwnersHand(CardSource card, Func<CardSource, bool> CanSelectCardCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectCardCondition);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Hand)
++            .Any(id => CanSelectCardCondition(new CardSource(card.Context, id, card.Owner, card.Owner)));
++    }
+ 
+-                return false;
+-            }
++    public static int MatchConditionOwnersCardCountInHand(CardSource card, Func<CardSource, bool> CanSelectCardCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectCardCondition);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Hand)
++            .Count(id => CanSelectCardCondition(new CardSource(card.Context, id, card.Owner, card.Owner)));
++    }
+ 
+-            getChangeCostEffect = ChangeDigivolutionCostPlayerEffect(
+-                permanentCondition: PermanentCondition,
+-                cardCondition: CardCondition,
+-                rootCondition: null,
+-                changeValue: -reduceCostTuple.Value.reduceCost,
+-                activateClass: activateClass,
+-                setFixedCost: false);
++    public static bool HasMatchConditionOwnersCardInTrash(CardSource card, Func<CardSource, bool> CanSelectCardCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectCardCondition);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Trash)
++            .Any(id => CanSelectCardCondition(new CardSource(card.Context, id, card.Owner, card.Owner)));
++    }
+ 
+-            if (getChangeCostEffect != null)
+-            {
+-                AddEffectToPlayer(
+-                    effectDuration: EffectDuration.UntilCalculateFixedCost,
+-                    card: targetPermanent.TopCard,
+-                    cardEffect: null,
+-                    timing: EffectTiming.None,
+-                    getCardEffect: getChangeCostEffect);
+-            }
+-        }
++    public static int MatchConditionOwnersCardCountInTrash(CardSource card, Func<CardSource, bool> CanSelectCardCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectCardCondition);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Trash)
++            .Count(id => CanSelectCardCondition(new CardSource(card.Context, id, card.Owner, card.Owner)));
++    }
+ 
+-        #endregion
++    public static bool HasNoElement<T>(List<T> list) => list is null || list.Count <= 0;
+ 
+-        #region set fixed cost
++    public static bool IsOwnerEffect(CardSource? effectSourceCard, CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return effectSourceCard is not null && effectSourceCard.Owner == card.Owner;
++    }
+ 
+-        Func<EffectTiming, ICardEffect> getFixedCostEffect = null;
++    public static bool IsOpponentEffect(CardSource? effectSourceCard, CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return effectSourceCard is not null && !effectSourceCard.Owner.IsEmpty && effectSourceCard.Owner != card.Owner;
++    }
+ 
+-        if (fixedCostTuple != null)
++    public static bool CanActivateSuspendCostEffect(CardSource card, bool includeBreeding = false)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (IsExistOnBattleArea(card))
+         {
+-            bool PermanentCondition(Permanent permanent)
++            HeadlessEntityId top = card.PermanentOfThisCard().Stack.TopCard?.InstanceId ?? default;
++            if (!top.IsEmpty && !IsSuspended(card, top) &&
++                new Permanent(card.Context, top).CanSuspend)
+             {
+-                return permanent == targetPermanent;
++                return true;
+             }
++        }
+ 
+-            bool CardCondition(CardSource cardSource)
++        if (includeBreeding && IsExistOnBreedingArea(card))
++        {
++            var zones = (IZoneStateReader)card.Context.ZoneMover;
++            foreach (HeadlessEntityId hostId in zones.GetCards(card.Owner, ChoiceZone.BreedingArea))
+             {
+-                if (cardSource != null)
++                DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, hostId);
++                bool contains = hostId == card.InstanceId || stack.UnderCards.Any(under => under.InstanceId == card.InstanceId);
++                if (contains && !IsSuspended(card, hostId) &&
++                    new Permanent(card.Context, hostId).CanSuspend)
+                 {
+-                    if (cardSource.Owner == owner)
+-                    {
+-                        if (fixedCostTuple.Value.fixedCostCardCondition == null || fixedCostTuple.Value.fixedCostCardCondition(cardSource))
+-                        {
+-                            return true;
+-                        }
+-                    }
++                    return true;
+                 }
+-
+-                return false;
+             }
++        }
+ 
+-            getFixedCostEffect = ChangeDigivolutionCostPlayerEffect(
+-                permanentCondition: PermanentCondition,
+-                cardCondition: CardCondition,
+-                rootCondition: null,
+-                changeValue: fixedCost,
+-                activateClass: activateClass,
+-                setFixedCost: true);
++        return false;
++    }
+ 
+-            if (getChangeCostEffect != null)
+-            {
+-                AddEffectToPlayer(
+-                    effectDuration: EffectDuration.UntilCalculateFixedCost,
+-                    card: targetPermanent.TopCard,
+-                    cardEffect: null,
+-                    timing: EffectTiming.None,
+-                    getCardEffect: getFixedCostEffect);
+-            }
++    public static bool CanDeclareOptionDelayEffect(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (!IsExistOnBattleArea(card))
++        {
++            return false;
+         }
+ 
+-        #endregion
++        HeadlessEntityId top = (card.PermanentOfThisCard().Stack.TopCard?.InstanceId ?? default);
++        return !(card.Context.CardInstanceRepository.TryGetInstance(top, out CardInstanceRecord? i) && i is not null
++            && i.Metadata.TryGetValue("enteredThisTurn", out object? raw) && raw is true);
++    }
+ 
+-        #region ignore digivolution requirement
++    public static bool CanUnsuspend(Permanent? permanent)
++    {
++        if (permanent is null || permanent.InstanceId.IsEmpty)
++        {
++            return false;
++        }
+ 
+-        Func<EffectTiming, ICardEffect> getIgnoreDigivolutionRequirementEffect = null;
++        CardSource top = permanent.TopCard;
++        return IsSuspended(top, permanent.InstanceId)
++            && permanent.CanUnsuspend;
++    }
+ 
+-        if (ignoreDigivolutionRequirement)
++    private static IEnumerable<Permanent> EnumerateFieldPermanentViews(CardSource card, bool isContainBreedingArea)
++    {
++        EngineContext context = card.Context;
++        var zones = (IZoneStateReader)context.ZoneMover;
++        foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
+         {
+-            bool PermanentCondition(Permanent permanent)
++            if (player.IsEmpty)
+             {
+-                return permanent == targetPermanent;
++                continue;
+             }
+ 
+-            bool CardCondition(CardSource cardSource)
++            foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea))
+             {
+-                if (cardSource == null)
+-                {
+-                    return false;
+-                }
++                yield return new Permanent(context, id, player);
++            }
+ 
+-                if (cardSource.Owner != owner)
++            if (isContainBreedingArea)
++            {
++                foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BreedingArea))
+                 {
+-                    return false;
++                    yield return new Permanent(context, id, player);
+                 }
++            }
++        }
++    }
+ 
+-                if (cardCondition == null || cardCondition(cardSource))
+-                {
+-                    return true;
+-                }
++    public static bool IsSuspended(CardSource card, HeadlessEntityId id)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return !id.IsEmpty
++            && card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) && instance is not null
++            && instance.Metadata.TryGetValue("isSuspended", out object? raw) && raw is true;
++    }
+ 
+-                return false;
+-            }
++    public static int MemoryForPlayer(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        int memory = card.Context.MemoryController.Current.Current;
++        return card.Context.TurnController.Current.TurnPlayerId == card.Owner ? memory : -memory;
++    }
+ 
+-            getIgnoreDigivolutionRequirementEffect = GainIgnoreDigivolutionRequirementPlayerEffect(
+-                permanentCondition: PermanentCondition,
+-                cardCondition: CardCondition,
+-                ignoreDigivolutionRequirement: ignoreDigivolutionRequirement,
+-                digivolutionCost: fixedCost,
+-                activateClass: activateClass);
+ 
+-            if (getIgnoreDigivolutionRequirementEffect != null)
+-            {
+-                AddEffectToPlayer(
+-                effectDuration: EffectDuration.UntilCalculateFixedCost,
+-                card: targetPermanent.TopCard,
+-                cardEffect: null,
+-                timing: EffectTiming.None,
+-                getCardEffect: getIgnoreDigivolutionRequirementEffect);
+-            }
++
++
++
++    public static bool IsOpponentBattleAreaDigimon(CardSource card, HeadlessEntityId id) =>
++        IsBattleAreaDigimon(card, id, opponent: true);
++
++    public static bool IsOwnerBattleAreaDigimon(CardSource card, HeadlessEntityId id) =>
++        IsBattleAreaDigimon(card, id, opponent: false);
++
++    public static bool IsOpponentBattleAreaOption(CardSource card, HeadlessEntityId id)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (id.IsEmpty || !card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) || instance is null)
++        {
++            return false;
+         }
+ 
+-        #endregion
++        if (instance.OwnerId == card.Owner || instance.OwnerId.IsEmpty)
++        {
++            return false;
++        }
++
++        return IsPermanentExistsOnBattleArea(new Permanent(card.Context, id, instance.OwnerId))
++            && new CardSource(card.Context, id, instance.OwnerId, instance.OwnerId).IsOption;
++    }
+ 
+-        List<CardSource> selectedCards = new List<CardSource>();
++    public static bool IsBattleAreaDigimon(CardSource card, HeadlessEntityId id) =>
++        IsOwnerBattleAreaDigimon(card, id) || IsOpponentBattleAreaDigimon(card, id);
++
++    private static bool IsBattleAreaDigimon(CardSource card, HeadlessEntityId id, bool opponent)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (id.IsEmpty || !card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) || instance is null)
++        {
++            return false;
++        }
+ 
+-        IEnumerator SelectCardCoroutine(CardSource cardSource)
++        bool isOpponentOwned = instance.OwnerId != card.Owner;
++        if (isOpponentOwned != opponent)
+         {
+-            selectedCards.Add(cardSource);
++            return false;
++        }
+ 
+-            yield return null;
++        var zones = (IZoneStateReader)card.Context.ZoneMover;
++        if (!zones.GetCards(instance.OwnerId, ChoiceZone.BattleArea).Contains(id))
++        {
++            return false;
+         }
+ 
+-        if (isHand)
++        return card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
++            && def is not null
++            && def.IsCardType("Digimon");
++    }
++
++    public static int CurrentDp(CardSource card, HeadlessEntityId id)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        HeadlessPlayerId owner = card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) && instance is not null
++            ? instance.OwnerId
++            : card.Owner;
++        return new Permanent(card.Context, id, owner).DP;
++    }
++
++    private static int? ReadDp(IReadOnlyDictionary<string, object?> metadata)
++    {
++        foreach (string key in new[] { "dp", "DP" })
+         {
+-            if (owner.HandCards.Count(CanSelectCardCondition) >= 1)
++            if (metadata.TryGetValue(key, out object? raw))
+             {
+-                int maxCount = Mathf.Min(1, owner.HandCards.Count(CanSelectCardCondition));
++                if (raw is int i) return i;
++                if (raw is long l) return (int)l;
++                if (raw is string s && int.TryParse(s, out int p)) return p;
++            }
++        }
++
++        return null;
++    }
++
++    public static void AddActivateMainOptionSecurityEffect(
++        CardSource card, ref List<ICardEffect> cardEffects, string effectName, Func<ICardEffect, Task>? afterMainEffect = null)
++    {
++        ArgumentNullException.ThrowIfNull(cardEffects);
++        if (OptionMainEffect(card) is null)
++        {
++            return;
++        }
+ 
+-                SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
++        cardEffects.Add(CardEffectFactory.ActivateMainOptionSecurityEffect(card, effectName, afterMainEffect: afterMainEffect));
++    }
+ 
+-                selectHandEffect.SetUp(
+-                    selectPlayer: owner,
+-                    canTargetCondition: CanSelectCardCondition,
+-                    canTargetCondition_ByPreSelecetedList: null,
+-                    canEndSelectCondition: null,
+-                    maxCount: maxCount,
+-                    canNoSelect: isOptional,
+-                    canEndNotMax: false,
+-                    isShowOpponent: true,
+-                    selectCardCoroutine: SelectCardCoroutine,
+-                    afterSelectCardCoroutine: null,
+-                    mode: SelectHandEffect.Mode.Custom,
+-                    cardEffect: activateClass);
++    public static bool HasNoDigivolutionCards(CardSource card, HeadlessEntityId id)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (id.IsEmpty)
++        {
++            return false;
++        }
+ 
+-                selectHandEffect.SetUpCustomMessage("Select 1 card to digivolve.", "The opponent is selecting 1 card to digivolve.");
+-                selectHandEffect.SetUpCustomMessage_ShowCard("Selected Card");
++        DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, id);
++        return stack.UnderCards.Count == 0;
++    }
+ 
+-                yield return ContinuousController.instance.StartCoroutine(selectHandEffect.Activate());
+-            }
++    public const string TrashProtectedKey = "cannotTrashFromDigivolution";
++
++    public static int TrashableDigivolutionCount(CardSource card, HeadlessEntityId hostId)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (hostId.IsEmpty)
++        {
++            return 0;
+         }
+-        else
++
++        DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, hostId);
++        int count = 0;
++        foreach (StackedCard under in stack.UnderCards)
+         {
+-            if (HasMatchConditionOwnersCardInTrash(targetPermanent.TopCard, CanSelectCardCondition) && !ignoreSelection)
++            if (!IsTrashProtectedSource(card, under.InstanceId))
+             {
+-                int maxCount = 1;
++                count++;
++            }
++        }
++
++        return count;
++    }
+ 
+-                SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++    public static bool HasTrashableDigivolutionCards(CardSource card, HeadlessEntityId hostId) =>
++        TrashableDigivolutionCount(card, hostId) >= 1;
+ 
+-                selectCardEffect.SetUp(
+-                            canTargetCondition: CanSelectCardCondition,
+-                            canTargetCondition_ByPreSelecetedList: null,
+-                            canEndSelectCondition: null,
+-                            canNoSelect: () => isOptional,
+-                            selectCardCoroutine: SelectCardCoroutine,
+-                            afterSelectCardCoroutine: null,
+-                            message: "Select 1 card to digivolve.",
+-                            maxCount: maxCount,
+-                            canEndNotMax: false,
+-                            isShowOpponent: true,
+-                            mode: SelectCardEffect.Mode.Custom,
+-                            root: SelectCardEffect.Root.Trash,
+-                            customRootCardList: null,
+-                            canLookReverseCard: true,
+-                            selectPlayer: owner,
+-                            cardEffect: activateClass);
++    public static IReadOnlyList<HeadlessEntityId> TrashableDigivolutionSourceIds(CardSource card, HeadlessEntityId hostId)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (hostId.IsEmpty)
++        {
++            return Array.Empty<HeadlessEntityId>();
++        }
+ 
+-                selectCardEffect.SetUpCustomMessage("Select 1 card to digivolve.", "The opponent is selecting 1 card to digivolve.");
+-                selectCardEffect.SetUpCustomMessage_ShowCard("Selected Card");
++        DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, hostId);
++        IReadOnlyList<StackedCard> under = stack.UnderCards;
++        var ids = new List<HeadlessEntityId>();
+ 
+-                yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
+-            }
+-            else
++        for (int i = under.Count - 1; i >= 0; i--)
++        {
++            if (!IsTrashProtectedSource(card, under[i].InstanceId))
+             {
+-                if (ignoreSelection)
+-                    selectedCards.Add(activateClass.EffectSourceCard);
++                ids.Add(under[i].InstanceId);
+             }
+         }
+ 
+-        PlayCardClass playCardClass = new PlayCardClass(
+-            cardSources: selectedCards,
+-            hashtable: CardEffectHashtable(activateClass),
+-            payCost: payCost,
+-            targetPermanent: targetPermanent,
+-            isTapped: false,
+-            root: root,
+-            activateETB: true);
++        return ids;
++    }
++
++    internal static bool IsTrashProtectedSource(CardSource card, HeadlessEntityId sourceId) =>
++        IsTrashProtectedSource(card.Context, BareCauseEffect.For(card), sourceId);
++
++    internal static bool IsTrashProtectedSource(EngineContext context, HeadlessEntityId causeSourceId, HeadlessEntityId sourceId) =>
++        IsTrashProtectedSource(context, BareCauseEffect.For(context, causeSourceId), sourceId);
++
++    private static bool IsTrashProtectedSource(EngineContext context, BareCauseEffect cause, HeadlessEntityId sourceId)
++    {
++        if (sourceId.IsEmpty
++            || !context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance)
++            || instance is null)
++        {
++            return false;
++        }
+ 
+-        //if (ignoreRequirements.Equals(IgnoreRequirement.All) || ignoreRequirements.Equals(IgnoreRequirement.Level))
+-        //    playCardClass.SetIgnoreLevel();
+-        playCardClass.SetIgnoreRequirements(ignoreRequirements);
++        if (instance.Metadata.TryGetValue(TrashProtectedKey, out object? raw) && raw is true)
++        {
++            return true;
++        }
+ 
+-        //!ignoreRequirements
+-        if (fixedCost >= 0)
+-            playCardClass.SetFixedCost(fixedCost);
++        var sourceBeingTrashed = new CardSource(context, sourceId, instance.OwnerId, instance.OwnerId);
++        return sourceBeingTrashed.CanNotTrashFromDigivolutionCards(cause);
++    }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(playCardClass.PlayCard());
++    public static bool TopCardHasLevel(CardSource card, HeadlessEntityId id) => LevelOf(card, id) > 0;
+ 
+-        #region release effect
++    public static int LevelOf(CardSource card, HeadlessEntityId id)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (id.IsEmpty || !card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) || instance is null)
++        {
++            return 0;
++        }
+ 
+-        if (getChangeCostEffect != null) owner.UntilCalculateFixedCostEffect.Remove(getChangeCostEffect);
++        int level = new Permanent(card.Context, id, instance.OwnerId).Level;
++        return level < 0 ? 0 : level;
++    }
+ 
+-        #endregion
++    public static bool HasMatchConditionOpponentsPermanent(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        ArgumentNullException.ThrowIfNull(CanSelectPermanentCondition);
++        return EnumerateFieldPermanentViews(card, isContainBreedingArea: false)
++            .Any(p => IsOpponentPermanent(p, card) && CanSelectPermanentCondition(p));
++    }
+ 
+-        #region release effect
++    public static int SecurityCount(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Security).Count;
++    }
+ 
+-        if (getFixedCostEffect != null) owner.UntilCalculateFixedCostEffect.Remove(getFixedCostEffect);
++    public static int OpponentSecurityCount(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(OpponentOf(card), ChoiceZone.Security).Count;
++    }
+ 
+-        #endregion
++    public static bool IsOpponentOwnedDigimon(CardSource card, HeadlessEntityId id)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        if (id.IsEmpty || !card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) || instance is null)
++        {
++            return false;
++        }
+ 
+-        #region release effect
++        if (instance.OwnerId == card.Owner)
++        {
++            return false;
++        }
+ 
+-        if (getIgnoreDigivolutionRequirementEffect != null) owner.UntilCalculateFixedCostEffect.Remove(getIgnoreDigivolutionRequirementEffect);
++        return card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
++            && def is not null
++            && def.IsCardType("Digimon");
++    }
+ 
+-        #endregion
++    public static HeadlessEntityId CurrentBattleOpponent(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        HeadlessEntityId self = card.PermanentOfThisCard().TopInstanceId;
++        if (self.IsEmpty)
++        {
++            return default;
++        }
+ 
+-        if (selectedCards.Count >= 1)
++        HeadlessAttackState attack = card.Context.AttackController.Current;
++        HeadlessEntityId attacker = attack.AttackerId ?? default;
++        HeadlessEntityId defender = attack.BlockerId ?? attack.TargetId ?? default;
++        if (self == attacker)
+         {
+-            if (IsDigivolvedByTheEffect(targetPermanent, selectedCards[0], activateClass))
+-            {
+-                successful = true;
+-            }
++            return defender;
+         }
+ 
+-        if (successful)
++        if (self == defender)
+         {
+-            if (successProcess != null)
+-                yield return ContinuousController.instance.StartCoroutine(successProcess);
++            return attacker;
+         }
+-        else
++
++        return default;
++    }
++
++    public static HeadlessPlayerId OpponentOf(CardSource card)
++    {
++        ArgumentNullException.ThrowIfNull(card);
++        foreach (HeadlessPlayerId player in card.Context.TurnController.Current.PlayerOrder)
+         {
+-            if (failedProcess != null)
+-                yield return ContinuousController.instance.StartCoroutine(failedProcess);
++            if (player != card.Owner)
++            {
++                return player;
++            }
+         }
++
++        return default;
+     }
++}
+ 
+-    #endregion
++public static partial class CardEffectCommons
++{
++    public static ActivateClass? OptionMainEffect(CardSource card) =>
++        card.EffectList(EffectTiming.OptionSkill)
++            .Find(cardEffect => cardEffect != null && cardEffect is ActivateClass && cardEffect.EffectDiscription.Contains("[Main]"))
++            as ActivateClass;
++}
+ 
+-    #region Target permanent Digivolves into Digimon card execution area
++public static partial class CardEffectCommons
++{
++    #region Target permanent Digivolves into Digimon card from hand or trash (AS-IS CardEffectCommons.cs:756)
+ 
+-    public static IEnumerator DigivolveIntoExcecutingAreaCard(
++    public static async Task DigivolveIntoHandOrTrashCard(
+         Permanent targetPermanent,
+         Func<CardSource, bool> cardCondition,
+         bool payCost,
+         (int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? reduceCostTuple,
+         (int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? fixedCostTuple,
+         int ignoreDigivolutionRequirementFixedCost,
++        bool isHand,
+         ICardEffect activateClass,
+-        IEnumerator successProcess,
++        Func<Task> successProcess,
+         bool ignoreSelection = false,
+-        IgnoreRequirement ignoreRequirements = IgnoreRequirement.None)
++        IgnoreRequirement ignoreRequirements = IgnoreRequirement.None,
++        Func<Task> failedProcess = null,
++        bool isOptional = true)
+     {
+-        if (targetPermanent == null) yield break;
+-        if (targetPermanent.TopCard == null) yield break;
+-        if (activateClass == null) yield break;
+-        if (activateClass.EffectSourceCard == null) yield break;
++        if (activateClass?.EffectSourceCard == null)
++        {
++            return;
++        }
+ 
+-        Player owner = targetPermanent.TopCard.Owner;
+-        SelectCardEffect.Root root = SelectCardEffect.Root.Execution;
+-        bool ignoreDigivolutionRequirement = !ignoreRequirements.Equals(IgnoreRequirement.None) || ignoreDigivolutionRequirementFixedCost >= 0;//  ignoreDigivolutionRequirementFixedCost >= 0 || ignoreRequirements;
++        await DigivolveIntoHandOrTrashCard(
++            targetPermanent, cardCondition, payCost, reduceCostTuple, fixedCostTuple,
++            ignoreDigivolutionRequirementFixedCost, isHand, activateClass.EffectSourceCard,
++            successProcess, ignoreSelection, ignoreRequirements, failedProcess, isOptional).ConfigureAwait(false);
++    }
+ 
+-        int fixedCost = -1;
++    #endregion
+ 
+-        if (fixedCostTuple != null)
++    #region Target permanent Digivolves into Digimon card execution area (AS-IS CardEffectCommons.cs:1106)
++
++    public static async Task DigivolveIntoExcecutingAreaCard(
++        Permanent targetPermanent,
++        Func<CardSource, bool> cardCondition,
++        bool payCost,
++        (int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? reduceCostTuple,
++        (int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? fixedCostTuple,
++        int ignoreDigivolutionRequirementFixedCost,
++        ICardEffect activateClass,
++        Func<Task> successProcess,
++        bool ignoreSelection = false,
++        IgnoreRequirement ignoreRequirements = IgnoreRequirement.None)
++    {
++        if (activateClass?.EffectSourceCard == null)
+         {
+-            fixedCost = fixedCostTuple.Value.fixedCost;
++            return;
+         }
+ 
+-        if (ignoreDigivolutionRequirement)
++        await DigivolveIntoExcecutingAreaCard(
++            targetPermanent, cardCondition, payCost, reduceCostTuple, fixedCostTuple,
++            ignoreDigivolutionRequirementFixedCost, activateClass.EffectSourceCard,
++            successProcess, ignoreSelection, ignoreRequirements).ConfigureAwait(false);
++    }
++
++    #endregion
++
++    #region Trash target digivolution cards, and the effect determines the result (AS-IS CardEffectCommons.cs:541)
++
++    public static async Task TrashDigivolutionCardsAndProcessAccordingToResult(
++        Permanent targetPermanent, List<CardSource> targetDigivolutionCards, ICardEffect activateClass,
++        Func<List<CardSource>, Task> successProcess, Func<Task> failureProcess)
++    {
++        CardSource sourceCard = activateClass?.EffectSourceCard;
++        List<CardSource> targets = targetDigivolutionCards ?? new List<CardSource>();
++        var trashedCards = new List<CardSource>();
++
++        if (sourceCard != null && targetPermanent != null && !targetPermanent.InstanceId.IsEmpty &&
++            targets.Count > 0 && !IsHostStackTrashGated(targetPermanent.InstanceId, sourceCard))
+         {
+-            fixedCost = ignoreDigivolutionRequirementFixedCost;
++            EngineContext context = sourceCard.Context;
++            HashSet<HeadlessEntityId> beforeSources = targetPermanent.DigivolutionCards
++                .Select(cs => cs.InstanceId).ToHashSet();
++
++            int trashed = await Permanent.TrashSpecificSourcesAsync(
++                context.CardInstanceRepository, context.ZoneMover,
++                targetPermanent.InstanceId,
++                targets.Where(cs => cs != null).Select(cs => cs.InstanceId).ToList(),
++                gameEventQueue: context.GameEventQueue,
++                context: context,
++                causingEffectSourceId: sourceCard.InstanceId).ConfigureAwait(false);
++
++            if (trashed > 0)
++            {
++                HashSet<HeadlessEntityId> afterSources = targetPermanent.DigivolutionCards
++                    .Select(cs => cs.InstanceId).ToHashSet();
++                var zones = (IZoneStateReader)context.ZoneMover;
++                trashedCards = targets
++                    .Where(cs => cs != null
++                        && beforeSources.Contains(cs.InstanceId)
++                        && !afterSources.Contains(cs.InstanceId)
++                        && zones.GetCards(cs.Owner, ChoiceZone.Trash).Contains(cs.InstanceId))
++                    .ToList();
++            }
+         }
+-        bool CanSelectCardCondition(CardSource cardSource)
++
++        if (trashedCards.Count > 0)
+         {
+-            if (cardSource.IsDigimon)
++            if (successProcess != null)
+             {
+-                if (cardCondition == null || cardCondition(cardSource))
+-                {
+-                    if (!cardSource.CanNotEvolve(targetPermanent))
+-                    {
+-                        if (cardSource.CanPlayCardTargetFrame(
+-                            frame: targetPermanent.PermanentFrame,
+-                            PayCost: payCost,
+-                            cardEffect: activateClass,
+-                            root: root,
+-                            fixedCost: fixedCost,
+-                            ignore: ignoreRequirements))
+-                        {
+-                            return true;
+-                        }
+-                    }
+-                }
++                await successProcess(trashedCards).ConfigureAwait(false);
+             }
+-
+-            return false;
+         }
++        else if (failureProcess != null)
++        {
++            await failureProcess().ConfigureAwait(false);
++        }
++    }
+ 
+-        #region reduce cost
++    #endregion
+ 
+-        Func<EffectTiming, ICardEffect> getChangeCostEffect = null;
++    #region Trash digivolution cards from top or bottom (AS-IS CardEffectCommons.cs:675)
+ 
+-        if (reduceCostTuple != null)
++    public static async Task TrashDigivolutionCardsFromTopOrBottom(
++        Permanent targetPermanent, int trashCount, bool isFromTop, ICardEffect activateClass,
++        Func<CardSource, bool> cardCondition = null)
++    {
++        CardSource sourceCard = activateClass?.EffectSourceCard;
++        if (sourceCard == null || targetPermanent == null || targetPermanent.InstanceId.IsEmpty ||
++            targetPermanent.TopCard == null || trashCount <= 0 ||
++            IsHostStackTrashGated(targetPermanent.InstanceId, sourceCard))
+         {
+-            bool PermanentCondition(Permanent permanent)
++            return;
++        }
++
++        IReadOnlyList<CardSource> sources = targetPermanent.DigivolutionCards;
++        IEnumerable<CardSource> walk = isFromTop ? sources : sources.Reverse();
++
++        var trashTargets = new List<HeadlessEntityId>();
++        foreach (CardSource trashTargetCard in walk)
++        {
++            if (trashTargets.Count >= trashCount)
+             {
+-                return permanent == targetPermanent;
++                break;
+             }
+ 
+-            bool CardCondition(CardSource cardSource)
++            if (cardCondition == null || cardCondition(trashTargetCard))
+             {
+-                if (cardSource != null)
+-                {
+-                    if (cardSource.Owner == owner)
+-                    {
+-                        if (reduceCostTuple.Value.reduceCostCardCondition == null || reduceCostTuple.Value.reduceCostCardCondition(cardSource))
+-                        {
+-                            return true;
+-                        }
+-                    }
+-                }
+-
+-                return false;
++                trashTargets.Add(trashTargetCard.InstanceId);
+             }
++        }
+ 
+-            getChangeCostEffect = ChangeDigivolutionCostPlayerEffect(
+-                permanentCondition: PermanentCondition,
+-                cardCondition: CardCondition,
+-                rootCondition: null,
+-                changeValue: -reduceCostTuple.Value.reduceCost,
+-                activateClass: activateClass,
+-                setFixedCost: false);
++        if (trashTargets.Count == 0)
++        {
++            return;
++        }
+ 
+-            if (getChangeCostEffect != null)
++        EngineContext context = sourceCard.Context;
++        await Permanent.TrashSpecificSourcesAsync(
++            context.CardInstanceRepository, context.ZoneMover,
++            targetPermanent.InstanceId, trashTargets,
++            gameEventQueue: context.GameEventQueue,
++            context: context,
++            causingEffectSourceId: sourceCard.InstanceId).ConfigureAwait(false);
++    }
++
++    #endregion
++
++    #region Activate Main of Dual Cards Option Side (AS-IS CardEffectCommons.cs:733)
++
++    public static async Task ActivateMainOfOptionSide(
++        CardSource card, ICardEffect activateClass, Func<ICardEffect, Task> afterMainEffect = null,
++        bool asEffectOfThisDigimon = false)
++    {
++        if (card == null)
++        {
++            return;
++        }
++
++        await ActivateMainOfOptionSide(
++            card, activateClass?.EffectSourceCard!,
++            effectStamp: mainEffect =>
+             {
+-                AddEffectToPlayer(
+-                    effectDuration: EffectDuration.UntilCalculateFixedCost,
+-                    card: targetPermanent.TopCard,
+-                    cardEffect: null,
+-                    timing: EffectTiming.None,
+-                    getCardEffect: getChangeCostEffect);
+-            }
++                mainEffect.SetIsDigimonEffect(asEffectOfThisDigimon);
++                mainEffect.SetIsTamerEffect(false);
++            }).ConfigureAwait(false);
++
++        if (afterMainEffect != null)
++        {
++            await afterMainEffect(activateClass).ConfigureAwait(false);
++        }
++    }
++
++    #endregion
++
++    #region Draw and discard (AS-IS CardEffectCommons.cs:1408)
++
++    public static async Task DrawAndDiscardCards(
++        (Player drawPlayer, Player trashPlayer) player,
++        int drawAmount,
++        int trashAmount,
++        CardSource card,
++        ICardEffect activateClass,
++        Func<CardSource, bool> canTrashTargetCondition = null,
++        Func<List<CardSource>, CardSource, bool> canTargetCondition_ByPreSelecetedList = null,
++        Func<List<CardSource>, bool> canEndSelectCondition = null,
++        bool canNoSelect = false,
++        bool canEndNotMax = false,
++        bool isShowOpponent = true,
++        Func<List<CardSource>, Task> afterSelectPermanentCoroutine = null)
++    {
++        _ = card;
++        _ = isShowOpponent;
++        CardSource sourceCard = activateClass?.EffectSourceCard;
++        if (sourceCard == null || player.drawPlayer == null || player.trashPlayer == null)
++        {
++            return;
+         }
+ 
+-        #endregion
++        if (canTargetCondition_ByPreSelecetedList == null && canEndSelectCondition == null &&
++            afterSelectPermanentCoroutine == null)
++        {
++            await DrawAndDiscardCards(
++                (player.drawPlayer.PlayerId, player.trashPlayer.PlayerId), drawAmount, trashAmount,
++                sourceCard, canTrashTargetCondition, canNoSelect, canEndNotMax).ConfigureAwait(false);
++            return;
++        }
+ 
+-        #region set fixed cost
++        EngineContext context = sourceCard.Context;
+ 
+-        Func<EffectTiming, ICardEffect> getFixedCostEffect = null;
++        if (drawAmount > 0)
++        {
++            await new DrawClass(context, player.drawPlayer.PlayerId, drawAmount, activateClass).Draw().ConfigureAwait(false);
++        }
+ 
+-        if (fixedCostTuple != null)
++        var zones = (IZoneStateReader)context.ZoneMover;
++        HeadlessPlayerId trashPlayerId = player.trashPlayer.PlayerId;
++        Func<CardSource, bool> canTarget = canTrashTargetCondition ?? (_ => true);
++        List<CardSource> handPool = zones.GetCards(trashPlayerId, ChoiceZone.Hand)
++            .Select(id => new CardSource(context, id, trashPlayerId, trashPlayerId))
++            .ToList();
++        int maxCount = Math.Min(trashAmount, handPool.Count(canTarget));
++        if (maxCount < 1)
+         {
+-            bool PermanentCondition(Permanent permanent)
+-            {
+-                return permanent == targetPermanent;
+-            }
++            return;
++        }
++
++        List<CardSource> selected = await SelectCardsFromRevealPoolAsync(
++            context, trashPlayerId, handPool, canTarget,
++            canTargetCondition_ByPreSelecetedList, canEndSelectCondition,
++            maxCount, canNoSelect, canEndNotMax,
++            $"Discard {maxCount} card(s).", ChoiceZone.Hand).ConfigureAwait(false);
++
++        if (selected.Count > 0)
++        {
++            var discardHands = selected.Select(cs => new IDiscardHand(cs)).ToList();
++            await new IDiscardHands(discardHands, sourceCard.InstanceId, activateClass).DiscardHands().ConfigureAwait(false);
++        }
++
++        if (afterSelectPermanentCoroutine != null)
++        {
++            await afterSelectPermanentCoroutine(selected).ConfigureAwait(false);
++        }
++    }
++
++    #endregion
++}
++
++public static partial class CardEffectCommons
++{
++    public static async Task BouncePeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, Func<Task> successProcess, Func<Task> failureProcess)
++    {
++        await BouncePeremanentAndProcessAccordingToResult(targetPermanents, activateClass?.EffectSourceCard, successProcess, failureProcess).ConfigureAwait(false);
++    }
++
++    public static async Task DeckBouncePeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, Func<Task> successProcess, Func<Task> failureProcess)
++    {
++        await DeckBouncePeremanentAndProcessAccordingToResult(targetPermanents, activateClass?.EffectSourceCard, successProcess, failureProcess).ConfigureAwait(false);
++    }
++
++    public static async Task DeletePeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, Func<List<Permanent>, Task> successProcess, Func<Task> failureProcess)
++    {
++        Func<IReadOnlyList<Permanent>, Task>? adaptedSuccess = successProcess is null
++            ? null
++            : (destroyed => successProcess(destroyed.ToList()));
++        await DeletePeremanentAndProcessAccordingToResult(targetPermanents, activateClass?.EffectSourceCard, adaptedSuccess, failureProcess).ConfigureAwait(false);
++    }
+ 
+-            bool CardCondition(CardSource cardSource)
++    public static async Task SuspendPeremanentAndProcessAccordingToResult(List<Permanent> targetPermanents, ICardEffect activateClass, Func<List<Permanent>, Task> successProcess, Func<Task> failureProcess)
++    {
++        Func<IReadOnlyList<Permanent>, Task>? adaptedSuccess = successProcess is null
++            ? null
++            : (suspended => successProcess(suspended.ToList()));
++        await SuspendPeremanentAndProcessAccordingToResult(targetPermanents, activateClass?.EffectSourceCard, adaptedSuccess, failureProcess).ConfigureAwait(false);
++    }
++
++    public static async Task PlacePermanentInSecurityAndProcessAccordingToResult(Permanent targetPermanent, ICardEffect activateClass, bool toTop, Func<CardSource, Task> successProcess, Func<Task> failureProcess = null, bool isFaceUp = false)
++    {
++        await PlacePermanentInSecurityAndProcessAccordingToResult(targetPermanent, toTop, activateClass?.EffectSourceCard, successProcess, failureProcess, isFaceUp).ConfigureAwait(false);
++    }
++
++    public static async Task TrashHandAndProcessAccordingToResult(Player player, Hashtable hashtable, CardSource cardToTrash, ICardEffect activateClass, Func<CardSource, Task> successProcess, Func<Task> failureProcess)
++    {
++        _ = player;
++        _ = hashtable;
++        Func<Task>? adaptedSuccess = successProcess is null ? null : (() => successProcess(cardToTrash));
++        await TrashHandAndProcessAccordingToResult(cardToTrash, activateClass?.EffectSourceCard, adaptedSuccess, failureProcess).ConfigureAwait(false);
++    }
++
++    public static async Task TrashLinkCardsAndProcessAccordingToResult(Permanent targetPermanent, List<CardSource> targetLinkCards, ICardEffect activateClass, Func<List<CardSource>, Task> successProcess, Func<Task> failureProcess)
++    {
++        CardSource sourceCard = activateClass?.EffectSourceCard;
++        List<CardSource> candidates = targetLinkCards ?? new List<CardSource>();
++        IReadOnlyList<HeadlessEntityId> linkCardIds = candidates.Select(c => c.InstanceId).ToList();
++
++        Func<int, Task>? adaptedSuccess = successProcess is null
++            ? null
++            : async _ =>
+             {
+-                if (cardSource != null)
++                var trashedCards = new List<CardSource>();
++                if (sourceCard is not null)
+                 {
+-                    if (cardSource.Owner == owner)
++                    var zones = (IZoneStateReader)sourceCard.Context.ZoneMover;
++                    foreach (CardSource candidate in candidates)
+                     {
+-                        if (fixedCostTuple.Value.fixedCostCardCondition == null || fixedCostTuple.Value.fixedCostCardCondition(cardSource))
++                        if (candidate is not null && zones.GetCards(candidate.Owner, ChoiceZone.Trash).Contains(candidate.InstanceId))
+                         {
+-                            return true;
++                            trashedCards.Add(candidate);
+                         }
+                     }
+                 }
+ 
+-                return false;
+-            }
++                await successProcess(trashedCards).ConfigureAwait(false);
++            };
+ 
+-            getFixedCostEffect = ChangeDigivolutionCostPlayerEffect(
+-                permanentCondition: PermanentCondition,
+-                cardCondition: CardCondition,
+-                rootCondition: null,
+-                changeValue: fixedCost,
+-                activateClass: activateClass,
+-                setFixedCost: true);
++        await TrashLinkCardsAndProcessAccordingToResult(targetPermanent, linkCardIds, sourceCard, adaptedSuccess, failureProcess).ConfigureAwait(false);
++    }
+ 
+-            if (getChangeCostEffect != null)
++    public static async Task TrashSecurityAndProcessAccordingToResult(Player player, int trashAmount, ICardEffect activateClass, bool fromTop, Func<List<CardSource>, Task> successProcess, Func<Task> failureProcess)
++    {
++        CardSource sourceCard = activateClass?.EffectSourceCard;
++        if (player is null || sourceCard is null)
++        {
++            if (failureProcess is not null)
+             {
+-                AddEffectToPlayer(
+-                    effectDuration: EffectDuration.UntilCalculateFixedCost,
+-                    card: targetPermanent.TopCard,
+-                    cardEffect: null,
+-                    timing: EffectTiming.None,
+-                    getCardEffect: getFixedCostEffect);
++                await failureProcess().ConfigureAwait(false);
+             }
++
++            return;
+         }
+ 
+-        #endregion
++        var zones = (IZoneStateReader)sourceCard.Context.ZoneMover;
++        List<HeadlessEntityId> before = zones.GetCards(player.PlayerId, ChoiceZone.Security).ToList();
+ 
+-        #region ignore digivolution requirement
++        Func<int, Task>? adaptedSuccess = successProcess is null
++            ? null
++            : async _ =>
++            {
++                IReadOnlyList<HeadlessEntityId> after = zones.GetCards(player.PlayerId, ChoiceZone.Security);
++                List<CardSource> destroyed = before
++                    .Where(id => !after.Contains(id))
++                    .Select(id => new CardSource(sourceCard.Context, id, player.PlayerId, player.PlayerId))
++                    .ToList();
++                await successProcess(destroyed).ConfigureAwait(false);
++            };
+ 
+-        Func<EffectTiming, ICardEffect> getIgnoreDigivolutionRequirementEffect = null;
++        await TrashSecurityAndProcessAccordingToResult(player.PlayerId, trashAmount, fromTop, sourceCard, adaptedSuccess, failureProcess).ConfigureAwait(false);
++    }
++}
+ 
+-        if (ignoreDigivolutionRequirement)
++public static partial class CardEffectCommons
++{
++    #region Play cards as new permanents (AS-IS CardEffectCommons.cs:23-53)
++
++    public static async Task PlayPermanentCards(
++        List<CardSource> cardSources, ICardEffect activateClass, bool payCost, bool isTapped,
++        SelectCardEffect.Root root, bool activateETB, bool isBreedingArea = false, int fixedCost = -1)
++    {
++        if (cardSources == null)
+         {
+-            bool PermanentCondition(Permanent permanent)
+-            {
+-                return permanent == targetPermanent;
+-            }
++            return;
++        }
+ 
+-            bool CardCondition(CardSource cardSource)
+-            {
+-                if (cardSource == null)
+-                {
+-                    return false;
+-                }
++        List<CardSource> playable = cardSources
++            .Where(cardSource => cardSource != null)
++            .Where(cardSource => CanPlayAsNewPermanent(cardSource, payCost, activateClass, isPlayOption: false, fixedCost: fixedCost)
++                              && cardSource.CanEnterField(activateClass))
++            .ToList();
+ 
+-                if (cardSource.Owner != owner)
+-                {
+-                    return false;
+-                }
++        if (playable.Count == 0)
++        {
++            return;
++        }
+ 
+-                if (cardCondition == null || cardCondition(cardSource))
+-                {
+-                    return true;
+-                }
++        await PlayPermanentCards(
++            playable, activateClass?.EffectSourceCard!, payCost, isTapped,
++            MapRootToChoiceZone(root), activateETB, isBreedingArea, fixedCost).ConfigureAwait(false);
++    }
+ 
+-                return false;
+-            }
++    #endregion
++
++    #region Play option cards (AS-IS CardEffectCommons.cs:59-109 — NO-MIRROR row, imperative implementation)
++
++    public static async Task PlayOptionCards(
++        List<CardSource> cardSources, ICardEffect activateClass, bool payCost, SelectCardEffect.Root root,
++        bool setAddSecurityEndOption = false)
++    {
++        if (cardSources == null)
++        {
++            return;
++        }
++
++        CardSource effectSourceCard = activateClass?.EffectSourceCard!;
++
++        Func<EffectTiming, ICardEffect>? getEffect = null;
++
++        List<CardSource> playable = cardSources
++            .Where(cardSource => cardSource != null)
++            .Where(cardSource => !cardSource.CanNotPlayThisOption)
++            .ToList();
++
++        if (playable.Count == 0)
++        {
++            return;
++        }
++
++        EngineContext context = playable[0].Context;
+ 
+-            getIgnoreDigivolutionRequirementEffect = GainIgnoreDigivolutionRequirementPlayerEffect(
+-                permanentCondition: PermanentCondition,
+-                cardCondition: CardCondition,
+-                ignoreDigivolutionRequirement: ignoreDigivolutionRequirement,
+-                digivolutionCost: fixedCost,
+-                activateClass: activateClass);
++        var playCard = new PlayCardClass(
++            cardSources: playable,
++            hashtable: CardEffectHashtable(activateClass),
++            payCost: payCost,
++            targetPermanent: null,
++            isTapped: false,
++            root: root,
++            activateETB: true);
+ 
+-            if (getIgnoreDigivolutionRequirementEffect != null)
++        if (activateClass != null)
++        {
++            playCard.SetShowEffect();
++
++            if (setAddSecurityEndOption)
+             {
+-                AddEffectToPlayer(
+-                effectDuration: EffectDuration.UntilCalculateFixedCost,
+-                card: targetPermanent.TopCard,
+-                cardEffect: null,
+-                timing: EffectTiming.None,
+-                getCardEffect: getIgnoreDigivolutionRequirementEffect);
++                getEffect = GetCardEffect;
++                new Player(context, effectSourceCard.Owner).UntilEachTurnEndEffects.Add(getEffect);
+             }
+         }
+ 
+-        #endregion
++        await playCard.PlayCard().ConfigureAwait(false);
+ 
+-        List<CardSource> selectedCards = new List<CardSource>();
++        if (getEffect != null)
++        {
++            new Player(context, effectSourceCard.Owner).UntilEachTurnEndEffects.Remove(getEffect);
++        }
+ 
+-        IEnumerator SelectCardCoroutine(CardSource cardSource)
++        ICardEffect GetCardEffect(EffectTiming timing)
+         {
+-            selectedCards.Add(cardSource);
++            if (timing == EffectTiming.None)
++            {
++                return CardEffectFactory.PlaceToSecurityEffect(effectSourceCard, toTop: true);
++            }
+ 
+-            yield return null;
++            return null!;
+         }
++    }
++
++    #endregion
++
++    #region Play Delay Option cards as new permanents (AS-IS CardEffectCommons.cs:113-135)
+ 
+-        if (owner.ExecutingCards.Count(CanSelectCardCondition) > 1)
++    public static async Task PlaceDelayOptionCards(CardSource card, ICardEffect cardEffect, SelectCardEffect.Root root)
++    {
++        if (card == null || !card.CanEnterField(cardEffect))
+         {
+-            int maxCount = 1;
++            return;
++        }
+ 
+-            SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++        await PlaceDelayOptionCards(card, cardEffect, MapRootToChoiceZone(root)).ConfigureAwait(false);
++    }
+ 
+-            selectCardEffect.SetUp(
+-                        canTargetCondition: CanSelectCardCondition,
+-                        canTargetCondition_ByPreSelecetedList: null,
+-                        canEndSelectCondition: null,
+-                        canNoSelect: () => true,
+-                        selectCardCoroutine: SelectCardCoroutine,
+-                        afterSelectCardCoroutine: null,
+-                        message: "Select 1 card to digivolve.",
+-                        maxCount: maxCount,
+-                        canEndNotMax: false,
+-                        isShowOpponent: true,
+-                        mode: SelectCardEffect.Mode.Custom,
+-                        root: SelectCardEffect.Root.Execution,
+-                        customRootCardList: null,
+-                        canLookReverseCard: true,
+-                        selectPlayer: owner,
+-                        cardEffect: activateClass);
++    #endregion
+ 
+-            selectCardEffect.SetUpCustomMessage("Select 1 card to digivolve.", "The opponent is selecting 1 card to digivolve.");
+-            selectCardEffect.SetUpCustomMessage_ShowCard("Selected Card");
++    #region Play tokens (AS-IS CardEffectCommons.cs:140-420)
+ 
+-            yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
++    private static bool CanPlayTokens(ICardEffect activateClass, bool isOwnerPermanent, int quantity)
++    {
++        if (activateClass?.EffectSourceCard == null || quantity <= 0)
++        {
++            return false;
+         }
+-        else
++
++        CardSource card = activateClass.EffectSourceCard;
++        EngineContext context = card.Context;
++        var zones = (IZoneStateReader)context.ZoneMover;
++
++        if (BattleAreaFrameCount - zones.GetCards(card.Owner, ChoiceZone.BattleArea).Count < quantity)
+         {
+-            selectedCards.Add(activateClass.EffectSourceCard);
++            return false;
+         }
+ 
+-        PlayCardClass playCardClass = new PlayCardClass(
+-            cardSources: selectedCards,
+-            hashtable: CardEffectHashtable(activateClass),
+-            payCost: payCost,
+-            targetPermanent: targetPermanent,
+-            isTapped: false,
+-            root: root,
+-            activateETB: true);
++        HeadlessPlayerId tokenOwner = isOwnerPermanent ? card.Owner : OpponentOf(card);
++        return !tokenOwner.IsEmpty &&
++            BattleAreaFrameCount - zones.GetCards(tokenOwner, ChoiceZone.BattleArea).Count >= 1;
++    }
++
++    private const int BattleAreaFrameCount = 16;
++
++    public static async Task PlayDiaboromonToken(ICardEffect activateClass, int quantity = 1)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity))
++        {
++            await PlayToken(TokenSpecs["Diaboromon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false, quantity).ConfigureAwait(false);
++        }
++    }
+ 
+-        playCardClass.SetIgnoreRequirements(ignoreRequirements);
++    public static async Task PlayAmonToken(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["Amon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-        if (!ignoreDigivolutionRequirement && fixedCost >= 0) playCardClass.SetFixedCost(fixedCost);
++    public static async Task PlayUmonToken(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["Umon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-        yield return ContinuousController.instance.StartCoroutine(playCardClass.PlayCard());
++    public static async Task PlayFujitsumonToken(ICardEffect activateClass, bool isOwnerPermanent)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["Fujitsumon"], activateClass.EffectSourceCard, isOwnerPermanent, isTapped: true).ConfigureAwait(false);
++        }
++    }
+ 
+-        #region release effect
++    public static async Task PlayGyuukimonToken(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["Gyuukimon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-        if (getChangeCostEffect != null) owner.UntilCalculateFixedCostEffect.Remove(getChangeCostEffect);
++    public static async Task PlayKoHagurumonToken(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["KoHagurumon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-        #endregion
++    public static async Task PlayFamiliarToken(ICardEffect activateClass, int quantity = 1)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity))
++        {
++            await PlayToken(TokenSpecs["Familiar"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false, quantity).ConfigureAwait(false);
++        }
++    }
+ 
+-        #region release effect
++    public static async Task PlaySelfDeleteFamiliarToken(ICardEffect activateClass, int quantity = 1)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity))
++        {
++            await PlayToken(TokenSpecs["SelfDeleteFamiliar"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false, quantity).ConfigureAwait(false);
++        }
++    }
+ 
+-        if (getFixedCostEffect != null) owner.UntilCalculateFixedCostEffect.Remove(getFixedCostEffect);
++    public static async Task PlayVoleeZerdrucken(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["VoleeZerdrucken"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-        #endregion
++    public static async Task PlayUkaNoMitama(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["UkaNoMitama"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-        #region release effect
++    public static async Task PlayWarGrowlmonToken(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["WarGrowlmon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-        if (getIgnoreDigivolutionRequirementEffect != null) owner.UntilCalculateFixedCostEffect.Remove(getIgnoreDigivolutionRequirementEffect);
++    public static async Task PlayTaomonToken(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["Taomon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-        #endregion
++    public static async Task PlayRapidmonToken(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["Rapidmon"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-        if (selectedCards.Count >= 1)
++    public static async Task PlayPipeFox(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
+         {
+-            if (IsDigivolvedByTheEffect(targetPermanent, selectedCards[0], activateClass))
+-            {
+-                if (successProcess != null)
+-                {
+-                    yield return ContinuousController.instance.StartCoroutine(successProcess);
+-                }
+-            }
++            await PlayToken(TokenSpecs["PipeFox"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
+         }
+     }
+ 
+-    #endregion
++    public static async Task PlayAthoRenePorToken(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["AthoRenePor"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-    #region Get the effect given by EffectTiming
++    public static async Task PlayHinukamuyToken(ICardEffect activateClass)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: true, quantity: 1))
++        {
++            await PlayToken(TokenSpecs["Hinukamuy"], activateClass.EffectSourceCard, isOwnerPermanent: true, isTapped: false).ConfigureAwait(false);
++        }
++    }
+ 
+-    public static Func<EffectTiming, ICardEffect> GetCardEffectByEffectTiming(EffectTiming timing, ICardEffect cardEffect) => (_timing) => _timing == timing ? cardEffect : null;
++    public static async Task PlayPetrificationToken(ICardEffect activateClass, int quantity = 1)
++    {
++        if (CanPlayTokens(activateClass, isOwnerPermanent: false, quantity))
++        {
++            await PlayToken(TokenSpecs["Petrification"], activateClass.EffectSourceCard, isOwnerPermanent: false, isTapped: false, quantity).ConfigureAwait(false);
++        }
++    }
+ 
+     #endregion
+ 
+-    #region Draw cards and trash cards
++    #region Shared play-bridge plumbing (private)
+ 
+-    public static IEnumerator DrawAndDiscardCards((Player drawPlayer, Player trashPlayer) player,
+-                                                  int drawAmount,
+-                                                  int trashAmount,
+-                                                  CardSource card,
+-                                                  ICardEffect activateClass,
+-                                                  Func<CardSource, bool> canTrashTargetCondition = null,
+-                                                  Func<List<CardSource>, CardSource, bool> canTargetCondition_ByPreSelecetedList = null,
+-                                                  Func<List<CardSource>, bool> canEndSelectCondition = null,
+-                                                  bool canNoSelect = false,
+-                                                  bool canEndNotMax = false,
+-                                                  bool isShowOpponent = true,
+-                                                  Func<List<CardSource>, IEnumerator> afterSelectPermanentCoroutine = null)
+-    {
+-        // Callback Setup
+-        Func<List<CardSource>, IEnumerator> AfterSelectCardCoroutine = afterSelectPermanentCoroutine ?? null;
+-
+-        // Variable setup
+-        Func<CardSource, bool> targetTrashCondition = canTrashTargetCondition ?? (cs => true);
+-
+-        yield return ContinuousController.instance.StartCoroutine(new DrawClass(player.drawPlayer, drawAmount, activateClass).Draw());
+-        SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+-
+-        selectHandEffect.SetUp(
+-            selectPlayer: player.trashPlayer,
+-            canTargetCondition: targetTrashCondition,
+-            canTargetCondition_ByPreSelecetedList: canTargetCondition_ByPreSelecetedList,
+-            canEndSelectCondition: canEndSelectCondition,
+-            maxCount: trashAmount,
+-            canNoSelect: canNoSelect,
+-            canEndNotMax: canEndNotMax,
+-            isShowOpponent: isShowOpponent,
+-            selectCardCoroutine: null,
+-            afterSelectCardCoroutine: AfterSelectCardCoroutine,
+-            mode: SelectHandEffect.Mode.Discard,
+-            cardEffect: activateClass);
++    private static ChoiceZone MapRootToChoiceZone(SelectCardEffect.Root root) => root switch
++    {
++        SelectCardEffect.Root.Library => ChoiceZone.Library,
++        SelectCardEffect.Root.Trash => ChoiceZone.Trash,
++        SelectCardEffect.Root.Clock => ChoiceZone.Clock,
++        SelectCardEffect.Root.Security => ChoiceZone.Security,
++        SelectCardEffect.Root.Hand => ChoiceZone.Hand,
++        SelectCardEffect.Root.Recollection => ChoiceZone.Recollection,
++        SelectCardEffect.Root.Execution => ChoiceZone.Execution,
++        SelectCardEffect.Root.DigivolutionCards => ChoiceZone.DigivolutionCards,
++        SelectCardEffect.Root.LinkedCards => ChoiceZone.LinkedCards,
++        SelectCardEffect.Root.Custom => ChoiceZone.Custom,
++        _ => ChoiceZone.None,
++    };
+ 
+-        yield return ContinuousController.instance.StartCoroutine(selectHandEffect.Activate());
+-    }
+ 
+     #endregion
+ }

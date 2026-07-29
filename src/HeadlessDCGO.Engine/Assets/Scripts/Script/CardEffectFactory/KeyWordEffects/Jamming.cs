@@ -1,25 +1,15 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Jamming.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord SYNC slice) 1:1 mirror of the AS-IS Jamming.cs factory partial.
-// Returns the ported CanNotBeDestroyedByBattleClass kind-class (CardEffects/CanNotBeDestroyedByBattleClass.cs)
-// via CanNotBeDestroyedByBattleStaticEffect. Replaces the monolith's old invented
-// SelfKeywordEffect/ContinuousPlayerScopeKeywordEffect-based JammingSelfStaticEffect/JammingStaticEffect.
-// ADAPTATION (substrate only; logic verbatim): AS-IS card.PermanentOfThisCard() returns a PermanentView on the
-// mirror, not a Permanent -> bridge via ICardEffect.ResolvePermanentOfThisCard(card) (ICardEffect.cs).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CanNotBeDestroyedByBattleClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
     #region Static effect of [Jamming] on oneself
     public static CanNotBeDestroyedByBattleClass JammingSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool> condition, bool isLinkedEffect = false)
     {
-        bool PermanentCondition(Permanent permanent) => permanent == ICardEffect.ResolvePermanentOfThisCard(card);
+        bool PermanentCondition(Permanent permanent) => permanent == card.PermanentOfThisCard();
 
         bool CanUseCondition()
         {
@@ -54,7 +44,7 @@ public partial class CardEffectFactory
             {
                 if (DefendingCard != null)
                 {
-                    if (DefendingCard.InstanceId == GManager.instance.attackProcess.SecurityDigimon)
+                    if (DefendingCard == GManager.instance.attackProcess.SecurityDigimon)
                     {
                         return true;
                     }

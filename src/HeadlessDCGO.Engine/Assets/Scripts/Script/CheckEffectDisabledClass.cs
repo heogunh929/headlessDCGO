@@ -1,28 +1,11 @@
-// Source: DCGO/Assets/Scripts/Script/CheckEffectDisabledClass.cs
-// (EFFECT-MODEL REBUILD / FOUNDATION) 1:1 mirror of the original `CheckEffectDisabledClass` — the
-// disable-tree evaluator `ICardEffect.IsDisabled` (ICardEffect.cs:735, this goal's ICardEffect.cs) calls.
-// Builds a tree of every `IDisableCardEffect` that could disable the target (and, recursively, every effect
-// that could disable THOSE), then fixed-point-evaluates leaves-up so a disabled disabler does not itself
-// disable anything.
-//
-// No Unity/coroutine dependency in this file at all (pure LINQ/tree logic) — ported verbatim, same method
-// order. Namespace: `...Script.CardEffectCommons`, matching ICardEffect.cs (this goal).
-//
-// MISSING.md: `GManager.instance.turnStateMachine.gameContext.Players` (present on the mirror GameContext, but
-// this file threads it through unchanged like ICardEffect.cs does); `Permanent.EffectList_Added(EffectTiming)`;
-// `Permanent.cardSources`; `Permanent.LinkedCards` (this one already exists on the mirror `Permanent` —- see
-// CardEffectCommons/Permanent.cs); `Player.EffectList(EffectTiming)`.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-using System;
+using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
+using System;
 using System.Linq;
 
-/// <summary>AS-IS <c>CheckEffectDisabledClass</c> (CheckEffectDisabledClass.cs:7).</summary>
 public static class CheckEffectDisabledClass
 {
-    // AS-IS CheckEffectDisabledClass.cs:9-46.
     public static bool isDisabled(ICardEffect targetCardEffect)
     {
         if (targetCardEffect != null)
@@ -62,7 +45,6 @@ public static class CheckEffectDisabledClass
         return false;
     }
 
-    // AS-IS CheckEffectDisabledClass.cs:48-55.
     static List<ValidateCardEffectElement> CreateTree(ICardEffect cardEffect)
     {
         List<ValidateCardEffectElement> tree = new List<ValidateCardEffectElement>();
@@ -72,7 +54,6 @@ public static class CheckEffectDisabledClass
         return tree;
     }
 
-    // AS-IS CheckEffectDisabledClass.cs:57-75.
     static void CreateElement(ValidateCardEffectElement parentElement, ICardEffect cardEffect, List<ValidateCardEffectElement> tree)
     {
         ValidateCardEffectElement element = new ValidateCardEffectElement(parentElement, cardEffect, new List<ValidateCardEffectElement>());
@@ -93,7 +74,6 @@ public static class CheckEffectDisabledClass
         }
     }
 
-    // AS-IS CheckEffectDisabledClass.cs:77-85.
     static void CheckActive(ValidateCardEffectElement element, List<ValidateCardEffectElement> selectedElements)
     {
         if (!selectedElements.Contains(element))
@@ -104,9 +84,7 @@ public static class CheckEffectDisabledClass
         }
     }
 
-    #region
-
-    // AS-IS CheckEffectDisabledClass.cs:88-188.
+    #region 
     public static List<ICardEffect> PotentiallyDisablingEffects(ICardEffect targetCardEffect, List<ValidateCardEffectElement> tree)
     {
         List<ICardEffect> PotentiallyDisablingEffects = new List<ICardEffect>();
@@ -139,7 +117,7 @@ public static class CheckEffectDisabledClass
                         {
                             foreach (ICardEffect cardEffect in cardSource.cEntity_EffectController.cEntity_Effect.GetCardEffects(EffectTiming.None, cardSource))
                             {
-                                if (((cardSource == permanent.TopCard) == (cardEffect.IsInheritedEffect)) || (!cardSource.IsLinked == cardEffect.IsLinkedEffect) || (cardSource.IsFlipped))
+                                if (((cardSource == permanent.TopCard) == (cardEffect.IsInheritedEffect))  || (!cardSource.IsLinked == cardEffect.IsLinkedEffect) || (cardSource.IsFlipped))
                                 {
                                     continue;
                                 }
@@ -211,7 +189,6 @@ public static class CheckEffectDisabledClass
     #endregion
 }
 
-// AS-IS CheckEffectDisabledClass.cs:192-205.
 public class ValidateCardEffectElement
 {
     public ValidateCardEffectElement parentElement { get; set; }

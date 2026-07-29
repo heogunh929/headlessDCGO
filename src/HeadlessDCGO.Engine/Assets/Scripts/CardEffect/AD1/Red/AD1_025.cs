@@ -1,306 +1,266 @@
-// 1:1 mirror of the original AD1_025 (AD1/Red) — Omnimon (DNA Lv.7).
-//
-// Ported effects (AS-IS AD1_025.cs):
-//   * DNA Digivolution ([Lv.6 w/[Greymon] in name] + [Lv.6 w/[Garurumon] in name]) — timing None ->
-//     GetJogressConditionClass with the two Permanent predicates (name fragment + jogress-level-6). The
-//     primitive scopes each material slot to the owner's battle-area Digimon (AS-IS AddJogressConditionClass).
-//   * <Raid> — timing OnAllyAttack -> RaidSelfEffect.
-//   * <Blocker> — timing None -> BlockerSelfStaticEffect.
-//   * <Partition> ([WarGreymon]/[MetalGarurumon]) — timing WhenRemoveField -> PartitionSelfEffect with the two
-//     NAME-based PartitionCondition groups.
-//   * [All Turns] [Once Per Turn] "When any of your opponent's Digimon leave the battle area, trash 1 of their
-//     Option cards in the battle area and trash their top security card." — timing OnLeaveFieldAnyone ->
-//     P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass), AS-IS ActivateCoroutine
-//     (AD1_025.cs:181-210) mirrored 1:1: SetHashString("AD1-025_AT"), ORDER=1 ([Once Per Turn]), ISOPTIONAL=false.
-//     CanUseCondition = IsExistOnBattleArea && CanTriggerOnPermanentLeave(hashtable, IsOpponentsDigimon);
-//     CanActivateCondition = IsExistOnBattleArea; ActivateCoroutine = (guarded by HasMatchConditionOpponentsPermanent)
-//     GManager SelectPermanentEffect(Mode.Destroy, maxCount 1) over enemy Options THEN IDestroySecurity(fromTop) on
-//     the opponent's security. Substrate: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>`
-//     IsEnemyOptionPermanent (`IsPermanentExistsOnOpponentBattleArea && IsOption`) kept verbatim on the canonical
-//     Func<Permanent,bool> shape (id-flip 3b), used for both HasMatchConditionOpponentsPermanent and the
-//     SelectPermanentEffect canTargetCondition); `new IDestroySecurity(player: card.Owner.Enemy, 1,
-//     activateClass, fromTop:true)` -> the MIG3-3a mirror carrier `(EngineContext, HeadlessPlayerId, int,
-//     HeadlessEntityId? cause, bool fromTop)` (player = `CardEffectCommons.OpponentOf(card)`, cause =
-//     `activateClass.EffectSourceCard?.InstanceId`). OnLeaveFieldAnyone is an EventBroadcast bridge timing; the
-//     N-simultaneous-leaves batch collapses to ONE reactor fire at collect (WindowResolverWiring.
-//     CollectActivatedBridgeTriggers), mirroring the AS-IS single-StackSkillInfos any-match.
-//   * [On Play] / [When Digivolving] shared effect (AS-IS AD1_025.cs:76-150, SharedActivateCoroutine) — "Return
-//     all of your opponent's Digimon with as many or fewer digivolution cards as this Digimon to the bottom of
-//     the deck. Then, delete 1 of your opponent's Digimon." REVIVED (design item D2w-25): a MASS deck-bottom-bounce
-//     (non-interactive, pre-computed list) FOLLOWED BY a select-destroy whose candidate pool is enumerated AFTER
-//     the bounce commits. Ported as an ActivateClass + SharedActivateCoroutine — structurally identical to AS-IS
-//     and to the sibling exemplar BT21_030's shared OP/WD arm. The P6-stage-A ActivateICardEffect execution path
-//     RUNS the coroutine (mirror SelectPermanentEffect builds its ChoiceRequest at call time), so the former debt
-//     premise (a uniform body offering ONE up-front ChoiceRequest over the STALE pre-bounce board) does not apply:
-//     the bounce is staged on a fresh MatchStateMutationSink via the ported DeckBottomBounceEffect and FLUSHED
-//     (the commit boundary) BEFORE the SelectPermanentEffect(Mode.Destroy) re-scans the opponent's battle area —
-//     mirroring AS-IS's `DeckBottomBounceClass(...).DeckBounce()` then re-read of GetBattleAreaDigimons.
-//   * <Assembly> ([WarGreymon] + [MetalGarurumon], -6 cost) — timing None -> AddAssemblyConditionClass.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.AD1.Red;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
-using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition;
+using System.Collections.Generic;
+using System;
 
-public sealed class AD1_025 : CEntity_Effect
+// Omnimon
+namespace DCGO.CardEffects.AD1
 {
-    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public class AD1_025 : CEntity_Effect
     {
-        var cardEffects = new List<ICardEffect>();
-
-        // AS-IS AD1_025.cs:70 — shared "opponent's Digimon" predicate.
-        bool IsOpponentsDigimon(Permanent permanent) =>
-            CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
-
-        #region DNA Condition (timing None)
-        if (timing == EffectTiming.None)
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
         {
-            bool PermanentCondition1(Permanent permanent) =>
-                permanent.TopCard.ContainsCardName("Greymon")
-                && permanent.TopCard.JogressLevelsAgainst(card).Contains(6);
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-            bool PermanentCondition2(Permanent permanent) =>
-                permanent.TopCard.ContainsCardName("Garurumon")
-                && permanent.TopCard.JogressLevelsAgainst(card).Contains(6);
-
-            cardEffects.Add(CardEffectFactory.GetJogressConditionClass(
-                PermanentCondition1, "Lv.6 w/[Greymon] in name",
-                PermanentCondition2, "Lv.6 w/[Garurumon] in name",
-                card));
-        }
-        #endregion
-
-        #region Raid (timing OnAllyAttack)
-        if (timing == EffectTiming.OnAllyAttack)
-        {
-            cardEffects.Add(CardEffectFactory.RaidSelfEffect(isInheritedEffect: false, card: card, condition: null));
-        }
-        #endregion
-
-        #region Blocker (timing None)
-        if (timing == EffectTiming.None)
-        {
-            cardEffects.Add(CardEffectFactory.BlockerSelfStaticEffect(isInheritedEffect: false, card: card, condition: null));
-        }
-        #endregion
-
-        #region Partition (timing WhenRemoveField)
-        if (timing == EffectTiming.WhenRemoveField)
-        {
-            var partitionConditions = new List<PartitionCondition>
+            #region DNA Condition
+            if (timing == EffectTiming.None)
             {
-                new PartitionCondition("WarGreymon"),
-                new PartitionCondition("MetalGarurumon"),
-            };
+                cardEffects.Add(CardEffectFactory.GetJogressConditionClass(
+                    PermanentCondition1, 
+                    "Lv.6 w/[Greymon] in name", 
+                    PermanentCondition2, 
+                    "Lv.6 w/[Garurumon] in name", 
+                    card
+                ));
 
-            cardEffects.Add(CardEffectFactory.PartitionSelfEffect(
-                isInheritedEffect: false, card: card, condition: null, cardSourceConditions: partitionConditions));
-        }
-        #endregion
-
-        #region Shared OP / WD body (AS-IS AD1_025.cs:76-116, SharedActivateCoroutine)
-        // AS-IS :78/81 shared name + tag-parameterised description.
-        const string SharedEffectName = "Bottom deck all enemy Digimon with as many or fewer sources as this, then delete 1 enemy Digimon";
-
-        string SharedEffectDescription(string tag) =>
-            $"[{tag}] Return all of your opponent's Digimon with as many or fewer digivolution cards as this Digimon to the bottom of the deck. Then, delete 1 of your opponent's Digimon.";
-
-        // AS-IS :83 SharedCanActivateCondition.
-        bool SharedCanActivateCondition(Hashtable hashtable) => CardEffectCommons.IsExistOnBattleAreaDigimon(card);
-
-        // AS-IS :85-89 IsEnemyWithLessSources — enemy battle-area Digimon whose source count is <= this Digimon's.
-        bool IsEnemyWithLessSources(Permanent permanent) =>
-            CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
-            && permanent.DigivolutionCards.Count <= card.PermanentOfThisCard().DigivolutionCards.Count;
-
-        // AS-IS :91-116 SharedActivateCoroutine.
-        async Task SharedActivateCoroutine(Hashtable _hashtable, ActivateClass activateClass)
-        {
-            var context = card.Context;
-
-            // AS-IS :93 bottomDeckTargets = card.Owner.Enemy.GetBattleAreaDigimons().Filter(IsEnemyWithLessSources).
-            List<Permanent> bottomDeckTargets = new List<Permanent>();
-            foreach (Permanent permanent in new Player(context, CardEffectCommons.OpponentOf(card)).GetBattleAreaDigimons())
-            {
-                if (IsEnemyWithLessSources(permanent))
+                bool PermanentCondition1(Permanent permanent)
                 {
-                    bottomDeckTargets.Add(permanent);
+                    return permanent.TopCard.ContainsCardName("Greymon")
+                        && permanent.Levels_ForJogress(card).Contains(6);
+                }
+
+                bool PermanentCondition2(Permanent permanent)
+                {
+                    return permanent.TopCard.ContainsCardName("Garurumon")
+                        && permanent.Levels_ForJogress(card).Contains(6);
                 }
             }
+            #endregion
 
-            // AS-IS :95 new DeckBottomBounceClass(bottomDeckTargets, CardEffectHashtable(activateClass)).DeckBounce()
-            // — one batch call over the selected list (the single DeckBounce leave-window collapse). The
-            // SelectPermanent below then re-scans the POST-bounce board (AS-IS re-reads GetBattleAreaDigimons after DeckBounce).
-            if (bottomDeckTargets.Count >= 1)
+            #region Raid
+            if (timing == EffectTiming.OnAllyAttack)
             {
-                await new DeckBottomBounceClass(bottomDeckTargets, CardEffectCommons.CardEffectHashtable(activateClass))
-                    .DeckBounce().ConfigureAwait(false);
+                cardEffects.Add(CardEffectFactory.RaidSelfEffect(isInheritedEffect: false, card: card, condition: null));
+            }
+            #endregion
+
+            #region Blocker
+            if (timing == EffectTiming.None)
+            {
+                cardEffects.Add(CardEffectFactory.BlockerSelfStaticEffect(isInheritedEffect: false, card: card, condition: null));
+            }
+            #endregion
+
+            #region Partition
+            List<PartitionCondition> partitionConditions = new List<PartitionCondition>
+            {
+                new PartitionCondition("WarGreymon"),
+                new PartitionCondition("MetalGarurumon")
+            };
+
+            if (timing == EffectTiming.WhenRemoveField)
+            {
+                cardEffects.Add(CardEffectFactory.PartitionSelfEffect(
+                    isInheritedEffect: false,
+                    card: card,
+                    condition: null,
+                    cardSourceConditions: partitionConditions));
+            }
+            #endregion
+
+            #region Common Methods
+
+            bool IsOpponentsDigimon(Permanent permanent) => CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
+
+            #endregion
+
+            #region Shared OP / WD
+
+            string SharedEffectName = "Bottom deck all enemy Digimon with as many or fewer sources as this, then delete 1 enemy Digimon";
+
+            string SharedEffectDescription(string tag) 
+                => $"[{tag}] Return all of your opponent's Digimon with as many or fewer digivolution cards as this Digimon to the bottom of the deck. Then, delete 1 of your opponent's Digimon.";
+
+            bool SharedCanActivateCondition(Hashtable hashtable) => CardEffectCommons.IsExistOnBattleAreaDigimon(card);
+
+            bool IsEnemyWithLessSources(Permanent permanent)
+            {
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
+                    && permanent.DigivolutionCards.Count <= card.PermanentOfThisCard().DigivolutionCards.Count;
             }
 
-            // AS-IS :97-115 — if the opponent still has a Digimon (post-bounce), delete 1.
-            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsOpponentsDigimon))
+            IEnumerator SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
             {
-                SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+                List<Permanent> bottomDeckTargets = card.Owner.Enemy.GetBattleAreaDigimons().Filter(IsEnemyWithLessSources);
 
-                selectPermanentEffect.SetUp(
-                    selectPlayer: card.Owner,
-                    canTargetCondition: IsOpponentsDigimon,
-                    canTargetCondition_ByPreSelecetedList: null,
-                    canEndSelectCondition: null,
-                    maxCount: 1,
-                    canNoSelect: false,
-                    canEndNotMax: false,
-                    selectPermanentCoroutine: null,
-                    afterSelectPermanentCoroutine: null,
-                    mode: SelectPermanentEffect.Mode.Destroy,
-                    cardEffect: activateClass);
+                yield return ContinuousController.instance.StartCoroutine(new DeckBottomBounceClass(bottomDeckTargets, CardEffectCommons.CardEffectHashtable(activateClass)).DeckBounce());
 
-                await selectPermanentEffect.Activate().ConfigureAwait(false);
-            }
-        }
-        #endregion
-
-        #region On Play (timing OnEnterFieldAnyone)
-        if (timing == EffectTiming.OnEnterFieldAnyone)
-        {
-            ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
-            activateClass.SetUpActivateClass(SharedCanActivateCondition, hashtable => SharedActivateCoroutine(hashtable, activateClass), -1, false, SharedEffectDescription("On Play"));
-            cardEffects.Add(activateClass);
-
-            // AS-IS :128-132 — IsExistOnBattleAreaDigimon && CanTriggerOnPlay.
-            bool CanUseCondition(Hashtable hashtable)
-            {
-                return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
-                    && CardEffectCommons.CanTriggerOnPlay(hashtable, card);
-            }
-        }
-        #endregion
-
-        #region When Digivolving (AS-IS OnEnterFieldAnyone + CanTriggerWhenDigivolving -> mirror dialect WhenDigivolving key)
-        if (timing == EffectTiming.WhenDigivolving)
-        {
-            ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
-            activateClass.SetUpActivateClass(SharedCanActivateCondition, hashtable => SharedActivateCoroutine(hashtable, activateClass), -1, false, SharedEffectDescription("When Digivolving"));
-            cardEffects.Add(activateClass);
-
-            // AS-IS :144-148 — IsExistOnBattleAreaDigimon && CanTriggerWhenDigivolving.
-            bool CanUseCondition(Hashtable hashtable)
-            {
-                return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
-                    && CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
-            }
-        }
-        #endregion
-
-        #region All Turns [Once Per Turn] (timing OnLeaveFieldAnyone)
-        if (timing == EffectTiming.OnLeaveFieldAnyone)
-        {
-            ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect("Trash 1 enemy option card in the battle area and 1 card from their security.", CanUseCondition, card);
-            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDescription());
-            activateClass.SetHashString("AD1-025_AT");
-            cardEffects.Add(activateClass);
-
-            string EffectDescription()
-            {
-                return "[All Turns] [Once Per Turn] When any of your opponent's Digimon leave the battle area, trash 1 of their Option cards in the battle area and trash their top security card.";
-            }
-
-            bool CanUseCondition(Hashtable hashtable)
-            {
-                return CardEffectCommons.IsExistOnBattleArea(card)
-                    && CardEffectCommons.CanTriggerOnPermanentLeave(hashtable, IsOpponentsDigimon);
-            }
-
-            bool IsEnemyOptionPermanent(Permanent permanent)
-            {
-                return CardEffectCommons.IsPermanentExistsOnOpponentBattleArea(permanent, card)
-                    && permanent.IsOption;
-            }
-
-            bool CanActivateCondition(Hashtable hashtable)
-            {
-                return CardEffectCommons.IsExistOnBattleArea(card);
-            }
-
-            async Task ActivateCoroutine(Hashtable _hashtable)
-            {
-                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsEnemyOptionPermanent))
+                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsOpponentsDigimon))
                 {
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
-                    selectPermanentEffect.SetUp(
-                        selectPlayer: card.Owner,
-                        canTargetCondition: IsEnemyOptionPermanent,
-                        canTargetCondition_ByPreSelecetedList: null,
-                        canEndSelectCondition: null,
-                        maxCount: 1,
-                        canNoSelect: false,
-                        canEndNotMax: false,
-                        selectPermanentCoroutine: null,
-                        afterSelectPermanentCoroutine: null,
-                        mode: SelectPermanentEffect.Mode.Destroy,
-                        cardEffect: activateClass);
+                        selectPermanentEffect.SetUp(
+                            selectPlayer: card.Owner,
+                            canTargetCondition: IsOpponentsDigimon,
+                            canTargetCondition_ByPreSelecetedList: null,
+                            canEndSelectCondition: null,
+                            maxCount: 1,
+                            canNoSelect: false,
+                            canEndNotMax: false,
+                            selectPermanentCoroutine: null,
+                            afterSelectPermanentCoroutine: null,
+                            mode: SelectPermanentEffect.Mode.Destroy,
+                            cardEffect: activateClass);
 
-                    selectPermanentEffect.SetUpCustomMessage("Select option to trash.", "The opponent is selecting 1 option to trash.");
+                        yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+                }
+            }
 
-                    await selectPermanentEffect.Activate();
+            #endregion
+
+            #region On Play
+            if (timing == EffectTiming.OnEnterFieldAnyone)
+            {
+                ActivateClass activateClass = new ActivateClass();
+                activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
+                activateClass.SetUpActivateClass(SharedCanActivateCondition, hashtable => SharedActivateCoroutine(hashtable, activateClass), -1, false, SharedEffectDescription("On Play"));
+                cardEffects.Add(activateClass);
+
+                bool CanUseCondition(Hashtable hashtable)
+                {
+                    return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
+                        && CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+                }
+            }
+            #endregion
+
+            #region When Digivolving
+            if (timing == EffectTiming.OnEnterFieldAnyone)
+            {
+                ActivateClass activateClass = new ActivateClass();
+                activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
+                activateClass.SetUpActivateClass(SharedCanActivateCondition, hashtable => SharedActivateCoroutine(hashtable, activateClass), -1, false, SharedEffectDescription("When Digivolving"));
+                cardEffects.Add(activateClass);
+
+                bool CanUseCondition(Hashtable hashtable)
+                {
+                    return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
+                        && CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+                }
+            }
+            #endregion
+
+            #region All Turns
+            if (timing == EffectTiming.OnLeaveFieldAnyone)
+            {
+                ActivateClass activateClass = new ActivateClass();
+                activateClass.SetUpICardEffect("Trash 1 enemy option card in the battle area and 1 card from their security.", CanUseCondition, card);
+                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDescription());
+                activateClass.SetHashString("AD1-025_AT");
+                cardEffects.Add(activateClass);
+
+                string EffectDescription() 
+                    => "[All Turns] [Once Per Turn] When any of your opponent's Digimon leave the battle area, trash 1 of their Option cards in the battle area and trash their top security card.";
+
+                bool CanUseCondition(Hashtable hashtable)
+                {
+                    return CardEffectCommons.IsExistOnBattleArea(card)
+                        && CardEffectCommons.CanTriggerOnPermanentLeave(hashtable, IsOpponentsDigimon);
                 }
 
-                await new IDestroySecurity(
-                    card.Context,
-                    CardEffectCommons.OpponentOf(card),
-                    1,
-                    activateClass,
-                    fromTop: true).DestroySecurity();
-            }
-        }
-        #endregion
-
-        #region Assembly (timing None)
-        if (timing == EffectTiming.None)
-        {
-            var addAssemblyConditionClass = new AddAssemblyConditionClass();
-            addAssemblyConditionClass.SetUpICardEffect("Assembly", CanUseCondition, card);
-            addAssemblyConditionClass.SetUpAddAssemblyConditionClass(GetAssembly);
-            addAssemblyConditionClass.SetNotShowUI(true);
-            cardEffects.Add(addAssemblyConditionClass);
-
-            // AS-IS AD1_025.cs:223-226 — unconditional true (Hashtable-shaped CanUse gate).
-            bool CanUseCondition(Hashtable hashtable)
-            {
-                return true;
-            }
-
-            AssemblyCondition? GetAssembly(CardSource cardSource)
-            {
-                if (cardSource != card)
+                bool IsEnemyOptionPermanent(Permanent permanent)
                 {
+                    return CardEffectCommons.IsPermanentExistsOnOpponentBattleArea(permanent, card)
+                        && permanent.IsOption;
+                }
+
+                bool CanActivateCondition(Hashtable hashtable)
+                {
+                    return CardEffectCommons.IsExistOnBattleArea(card);
+                }
+
+                IEnumerator ActivateCoroutine(Hashtable hashtable)
+                {
+                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsEnemyOptionPermanent))
+                    {
+                        SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                        selectPermanentEffect.SetUp(
+                            selectPlayer: card.Owner,
+                            canTargetCondition: IsEnemyOptionPermanent,
+                            canTargetCondition_ByPreSelecetedList: null,
+                            canEndSelectCondition: null,
+                            maxCount: 1,
+                            canNoSelect: false,
+                            canEndNotMax: false,
+                            selectPermanentCoroutine: null,
+                            afterSelectPermanentCoroutine: null,
+                            mode: SelectPermanentEffect.Mode.Destroy,
+                            cardEffect: activateClass);
+
+                        selectPermanentEffect.SetUpCustomMessage("Select option to trash.", "The opponent is selecting 1 option to trash.");
+
+                        yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+                    }
+
+                    yield return ContinuousController.instance.StartCoroutine(new IDestroySecurity(
+                        player: card.Owner.Enemy,
+                        destroySecurityCount: 1,
+                        cardEffect: activateClass,
+                        fromTop: true).DestroySecurity());
+                }
+            }
+            #endregion
+
+            #region Assembly
+            if (timing == EffectTiming.None)
+            {
+                AddAssemblyConditionClass addAssemblyConditionClass = new AddAssemblyConditionClass();
+                addAssemblyConditionClass.SetUpICardEffect($"Assembly", CanUseCondition, card);
+                addAssemblyConditionClass.SetUpAddAssemblyConditionClass(getAssemblyCondition: GetAssembly);
+                addAssemblyConditionClass.SetNotShowUI(true);
+                cardEffects.Add(addAssemblyConditionClass);
+
+                bool CanUseCondition(Hashtable hashtable)
+                {
+                    return true;
+                }
+
+                AssemblyCondition GetAssembly(CardSource cardSource)
+                {
+                    if (cardSource == card)
+                    {
+                        AssemblyConditionElement element1 = new AssemblyConditionElement(CanSelectCardCondition1, selectMessage: "[WarGreymon]", elementCount: 1);
+                        AssemblyConditionElement element2 = new AssemblyConditionElement(CanSelectCardCondition2, selectMessage: "[MetalGarurumon]", elementCount: 1);
+
+                        bool CanSelectCardCondition1(CardSource cardSource)
+                        {
+                            return cardSource != null && 
+                                cardSource.Owner == card.Owner && 
+                                cardSource.IsDigimon && 
+                                cardSource.EqualsCardName("WarGreymon");
+                        }
+
+                        bool CanSelectCardCondition2(CardSource cardSource)
+                        {
+                            return cardSource != null && 
+                                cardSource.Owner == card.Owner && 
+                                cardSource.IsDigimon && 
+                                cardSource.EqualsCardName("MetalGarurumon");
+                        }
+
+                        AssemblyCondition assemblyCondition = new AssemblyCondition(
+                            elements:new List<AssemblyConditionElement>() { element1, element2 },
+                            reduceCost: 6);
+
+                        return assemblyCondition;
+                    }
+
                     return null;
                 }
-
-                bool CanSelectCardCondition1(CardSource cs) =>
-                    cs != null && cs.Owner == card.Owner && cs.IsDigimon && cs.EqualsCardName("WarGreymon");
-
-                bool CanSelectCardCondition2(CardSource cs) =>
-                    cs != null && cs.Owner == card.Owner && cs.IsDigimon && cs.EqualsCardName("MetalGarurumon");
-
-                var element1 = new AssemblyConditionElement(CanSelectCardCondition1, selectMessage: "[WarGreymon]", elementCount: 1);
-                var element2 = new AssemblyConditionElement(CanSelectCardCondition2, selectMessage: "[MetalGarurumon]", elementCount: 1);
-
-                return new AssemblyCondition(
-                    elements: new List<AssemblyConditionElement> { element1, element2 },
-                    reduceCost: 6);
             }
-        }
-        #endregion
+            #endregion
 
-        return cardEffects;
+            return cardEffects;
+        }
     }
 }

@@ -1,15 +1,11 @@
-// Source: Assets/Scripts/CardEffect/BT2/BT2_065.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect.
-//
-// 1:1 mirror of the original BT2_065: Blocker + Reboot static effects (non-inherited, no condition).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class BT2_065 : CEntity_Effect
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT2_065 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {

@@ -1,7 +1,24 @@
-// Source: Assets/Scripts/CardEffect/BT19/Yellow/BT19_040_token.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT19.Yellow
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections.Generic;
+
+namespace DCGO.CardEffects.Tokens
+{
+    public class BT19_040_token : CEntity_Effect
+    {
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+        {
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+            #region Blocker
+            if (timing == EffectTiming.None)
+            {
+                cardEffects.Add(CardEffectFactory.BlockerSelfStaticEffect(
+                    isInheritedEffect: false,
+                    card: card,
+                    condition: null));
+            }
+            #endregion
+
+            return cardEffects;
+        }
+    }
+}

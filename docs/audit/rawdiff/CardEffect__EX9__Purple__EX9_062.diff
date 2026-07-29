@@ -1,0 +1,581 @@
+--- DCGO/Assets/Scripts/CardEffect/EX9/Purple/EX9_062.cs	2026-05-18 20:03:15.444671400 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/CardEffect/EX9/Purple/EX9_062.cs	2026-07-29 01:02:23.205952112 +0900
+@@ -1,358 +1,290 @@
++namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX9.Purple;
++
+ using System;
+ using System.Collections;
+ using System.Collections.Generic;
++using System.Linq;
++using System.Threading.Tasks;
++using HeadlessDCGO.Engine.Assets.Scripts.Script;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
++using HeadlessDCGO.Engine.Headless.Services;
+ 
+-// SkullGreymon
+-namespace DCGO.CardEffects.EX9
++public class EX9_062 : CEntity_Effect
+ {
+-    public class EX9_062 : CEntity_Effect
++    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+     {
+-        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+-        {
+-            List<ICardEffect> cardEffects = new List<ICardEffect>();
++        List<ICardEffect> cardEffects = new List<ICardEffect>();
+ 
+-            #region Alternate Digivolution Requirement
++        #region Alternate Digivolution Requirement
++        if (timing == EffectTiming.None)
++        {
++            static bool PermanentCondition(Permanent targetPermanent) =>
++                targetPermanent.TopCard.IsLevel(4) && targetPermanent.TopCard.EqualsTraits("DM");
+ 
+-            if (timing == EffectTiming.None)
+-            {
+-                static bool PermanentCondition(Permanent targetPermanent)
+-                {
+-                    return targetPermanent.TopCard.IsLevel4 &&
+-                        targetPermanent.TopCard.EqualsTraits("DM");
+-                }
++            cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(permanentCondition: PermanentCondition, digivolutionCost: 3, ignoreDigivolutionRequirement: false, card: card, condition: null));
++        }
++        #endregion
+ 
+-                cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(permanentCondition: PermanentCondition, digivolutionCost: 3, ignoreDigivolutionRequirement: false, card: card, condition: null));
+-            }
++        #region Alternative Assembly Level
++        if (timing == EffectTiming.None)
++        {
++            ChangeCardLevelForAssemblyClass changeCardLevelForAssemblyClass = new ChangeCardLevelForAssemblyClass();
++            changeCardLevelForAssemblyClass.SetUpICardEffect("This card is also treated as level 4 for [Kimeramon]'s assembly.", CanUseCondition, card);
++            changeCardLevelForAssemblyClass.SetUpChangeCardLevelForAssemblyClass(changeCardLevel: ChangeCardLevel);
+ 
+-            #endregion
++            cardEffects.Add(changeCardLevelForAssemblyClass);
+ 
+-            #region Alternative Assembly Level
++            bool CanUseCondition(Hashtable hashtable) => true;
+ 
+-            if (timing == EffectTiming.None)
++            List<int> ChangeCardLevel(CardSource cardSource, List<int> level)
+             {
+-                ChangeCardLevelForAssemblyClass changeCardLevelForAssemblyClass = new ChangeCardLevelForAssemblyClass();
+-                changeCardLevelForAssemblyClass.SetUpICardEffect("This card is also treated as level 4 for [Kimeramon]'s assembly.", CanUseCondition, card);
+-                changeCardLevelForAssemblyClass.SetUpChangeCardLevelForAssemblyClass(changeCardLevel: changeCardLevel);
+-
+-                cardEffects.Add(changeCardLevelForAssemblyClass);
+-
+-                bool CanUseCondition(Hashtable hashtable)
++                if (cardSource == card)
+                 {
+-                    return true;
++                    level.Add(4);
+                 }
+ 
+-                List<int> changeCardLevel(CardSource cardSource, List<int> Level)
+-                {
+-                    if (cardSource == card)
+-                    {
+-                        Level.Add(4);
+-                    }
+-
+-                    return Level;
+-                }
++                return level;
+             }
++        }
++        #endregion
+ 
+-            #endregion
+-
+-            #region On Play
+-
+-            if (timing == EffectTiming.OnEnterFieldAnyone)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect($"Trash cards from deck, then return 1 [DM] digimon from trash to hand", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+-                cardEffects.Add(activateClass);
++        #region On Play
++        if (timing == EffectTiming.OnEnterFieldAnyone)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Trash cards from deck, then return 1 [DM] digimon from trash to hand", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
++            cardEffects.Add(activateClass);
+ 
+-                string EffectDiscription()
+-                {
+-                    return "[On Play] For each of this Digimon's face-down digivolution cards, trash the top card of your deck. Then, you may return 1 [DM] trait Digimon card from your trash to the hand.";
+-                }
++            string EffectDiscription() =>
++                "[On Play] For each of this Digimon's face-down digivolution cards, trash the top card of your deck. Then, you may return 1 [DM] trait Digimon card from your trash to the hand.";
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+-                }
++            bool CanUseCondition(Hashtable hashtable) => CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleAreaDigimon(card);
+-                }
++            bool CanActivateCondition(Hashtable hashtable) => CardEffectCommons.IsExistOnBattleAreaDigimon(card);
+ 
+-                bool CanSelectCardCondition(CardSource cardSource)
+-                {
+-                    return cardSource.IsDigimon && cardSource.EqualsTraits("DM");
+-                }
++            bool CanSelectCardCondition(CardSource cardSource) => cardSource.IsDigimon && cardSource.EqualsTraits("DM");
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                int trashCount = ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Count(x => x.IsFlipped);
++                if (trashCount >= 1)
+                 {
+-                    int trashCount = card.PermanentOfThisCard().DigivolutionCards.Filter(x => x.IsFlipped).Count;
+-                    if (trashCount >= 1)
+-                    {
+-                        IAddTrashCardsFromLibraryTop addTrashCard = new IAddTrashCardsFromLibraryTop(trashCount, card.Owner, activateClass);
+-                        addTrashCard.SetNotShowCards();
+-                        yield return ContinuousController.instance.StartCoroutine(addTrashCard.AddTrashCardsFromLibraryTop());
+-                        ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(addTrashCard.discardedCards, "Your Discarded Cards", true, true));
+-                    }
+-
+-                    if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
+-                    {
+-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+-
+-                        selectCardEffect.SetUp(
+-                                    canTargetCondition: CanSelectCardCondition,
+-                                    canTargetCondition_ByPreSelecetedList: null,
+-                                    canEndSelectCondition: null,
+-                                    canNoSelect: () => true,
+-                                    selectCardCoroutine: null,
+-                                    afterSelectCardCoroutine: null,
+-                                    message: "Select 1 [DM] digimon to add to hand",
+-                                    maxCount: 1,
+-                                    canEndNotMax: true,
+-                                    isShowOpponent: true,
+-                                    mode: SelectCardEffect.Mode.AddHand,
+-                                    root: SelectCardEffect.Root.Trash,
+-                                    customRootCardList: null,
+-                                    canLookReverseCard: true,
+-                                    selectPlayer: card.Owner,
+-                                    cardEffect: activateClass);
++                    IAddTrashCardsFromLibraryTop addTrashCard = new IAddTrashCardsFromLibraryTop(card.Context, card.Owner, trashCount, activateClass);
++                    addTrashCard.SetNotShowCards();
++                    await addTrashCard.AddTrashCardsFromLibraryTop();
++                }
++
++                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
++                {
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++
++                    selectCardEffect.SetUp(
++                        canTargetCondition: CanSelectCardCondition,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        canNoSelect: () => true,
++                        selectCardCoroutine: null,
++                        afterSelectCardCoroutine: null,
++                        message: "Select 1 [DM] digimon to add to hand",
++                        maxCount: 1,
++                        canEndNotMax: true,
++                        isShowOpponent: true,
++                        mode: SelectCardEffect.Mode.AddHand,
++                        root: SelectCardEffect.Root.Trash,
++                        customRootCardList: null,
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: activateClass);
+ 
+-                        selectCardEffect.SetUpCustomMessage("Select 1 [DM] digimon to add to hand", "The opponent is selecting 1 digimon to add to hand.");
+-                        yield return StartCoroutine(selectCardEffect.Activate());
+-                    }
++                    selectCardEffect.SetUpCustomMessage("Select 1 [DM] digimon to add to hand", "The opponent is selecting 1 digimon to add to hand.");
++                    await selectCardEffect.Activate();
+                 }
+             }
++        }
++        #endregion
+ 
+-            #endregion
+-
+-            #region When Digivolving
+-
+-            if (timing == EffectTiming.OnEnterFieldAnyone)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect($"Trash cards from deck, then return 1 [DM] digimon from trash to hand", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+-                cardEffects.Add(activateClass);
++        #region When Digivolving
++        if (timing == EffectTiming.OnEnterFieldAnyone)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Trash cards from deck, then return 1 [DM] digimon from trash to hand", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
++            cardEffects.Add(activateClass);
+ 
+-                string EffectDiscription()
+-                {
+-                    return "[When Digivolving] For each of this Digimon's face-down digivolution cards, trash the top card of your deck. Then, you may return 1 [DM] trait Digimon card from your trash to the hand.";
+-                }
++            string EffectDiscription() =>
++                "[When Digivolving] For each of this Digimon's face-down digivolution cards, trash the top card of your deck. Then, you may return 1 [DM] trait Digimon card from your trash to the hand.";
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+-                }
++            bool CanUseCondition(Hashtable hashtable) => CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleAreaDigimon(card);
+-                }
++            bool CanActivateCondition(Hashtable hashtable) => CardEffectCommons.IsExistOnBattleAreaDigimon(card);
+ 
+-                bool CanSelectCardCondition(CardSource cardSource)
+-                {
+-                    return cardSource.IsDigimon && cardSource.EqualsTraits("DM");
+-                }
++            bool CanSelectCardCondition(CardSource cardSource) => cardSource.IsDigimon && cardSource.EqualsTraits("DM");
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                int trashCount = ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Count(x => x.IsFlipped);
++                if (trashCount >= 1)
+                 {
+-                    int trashCount = card.PermanentOfThisCard().DigivolutionCards.Filter(x => x.IsFlipped).Count;
+-                    if (trashCount >= 1)
+-                    {
+-                        IAddTrashCardsFromLibraryTop addTrashCard = new IAddTrashCardsFromLibraryTop(trashCount, card.Owner, activateClass);
+-                        addTrashCard.SetNotShowCards();
+-                        yield return ContinuousController.instance.StartCoroutine(addTrashCard.AddTrashCardsFromLibraryTop());
+-                        ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect2(addTrashCard.discardedCards, "Your Discarded Cards", true, true));
+-                    }
+-
+-                    if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
+-                    {
+-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+-
+-                        selectCardEffect.SetUp(
+-                                    canTargetCondition: CanSelectCardCondition,
+-                                    canTargetCondition_ByPreSelecetedList: null,
+-                                    canEndSelectCondition: null,
+-                                    canNoSelect: () => true,
+-                                    selectCardCoroutine: null,
+-                                    afterSelectCardCoroutine: null,
+-                                    message: "Select 1 [DM] digimon to add to hand",
+-                                    maxCount: 1,
+-                                    canEndNotMax: true,
+-                                    isShowOpponent: true,
+-                                    mode: SelectCardEffect.Mode.AddHand,
+-                                    root: SelectCardEffect.Root.Trash,
+-                                    customRootCardList: null,
+-                                    canLookReverseCard: true,
+-                                    selectPlayer: card.Owner,
+-                                    cardEffect: activateClass);
++                    IAddTrashCardsFromLibraryTop addTrashCard = new IAddTrashCardsFromLibraryTop(card.Context, card.Owner, trashCount, activateClass);
++                    addTrashCard.SetNotShowCards();
++                    await addTrashCard.AddTrashCardsFromLibraryTop();
++                }
++
++                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
++                {
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++
++                    selectCardEffect.SetUp(
++                        canTargetCondition: CanSelectCardCondition,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        canNoSelect: () => true,
++                        selectCardCoroutine: null,
++                        afterSelectCardCoroutine: null,
++                        message: "Select 1 [DM] digimon to add to hand",
++                        maxCount: 1,
++                        canEndNotMax: true,
++                        isShowOpponent: true,
++                        mode: SelectCardEffect.Mode.AddHand,
++                        root: SelectCardEffect.Root.Trash,
++                        customRootCardList: null,
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: activateClass);
+ 
+-                        selectCardEffect.SetUpCustomMessage("Select 1 [DM] digimon to add to hand", "The opponent is selecting 1 digimon to add to hand.");
+-                        yield return StartCoroutine(selectCardEffect.Activate());
+-                    }
++                    selectCardEffect.SetUpCustomMessage("Select 1 [DM] digimon to add to hand", "The opponent is selecting 1 digimon to add to hand.");
++                    await selectCardEffect.Activate();
+                 }
+             }
++        }
++        #endregion
+ 
+-            #endregion
++        #region On Deletion
++        if (timing == EffectTiming.OnDestroyedAnyone)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Play 1 level 4 or less [DM] Digimon", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
++            cardEffects.Add(activateClass);
+ 
+-            #region On Deletion
++            string EffectDiscription() => "[On Deletion] you may play 1 level 4 or lower [DM] trait Digimon card from your trash without paying the cost.";
+ 
+-            if (timing == EffectTiming.OnDestroyedAnyone)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Play 1 level 4 or less [DM] Digimon", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
+-                cardEffects.Add(activateClass);
++            bool CanUseCondition(Hashtable hashtable) => CardEffectCommons.CanTriggerOnDeletion(hashtable, card);
+ 
+-                string EffectDiscription()
+-                {
+-                    return "[On Deletion] you may play 1 level 4 or lower [DM] trait Digimon card from your trash without paying the cost.";
+-                }
++            bool CanActivateCondition(Hashtable hashtable) => CardEffectCommons.CanActivateOnDeletion(hashtable, card);
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanTriggerOnDeletion(hashtable, card);
+-                }
++            bool CanSelectCardCondition(CardSource cardSource) =>
++                cardSource.IsDigimon && cardSource.Level <= 4 && cardSource.EqualsTraits("DM")
++                && CardEffectCommons.CanPlayAsNewPermanent(cardSource: cardSource, payCost: false, cardEffect: activateClass);
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
+                 {
+-                    return CardEffectCommons.CanActivateOnDeletion(hashtable, card);
+-                }
++                    CardSource? selectedCard = null;
++                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionOwnersCardCountInTrash(card, CanSelectCardCondition));
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+ 
+-                bool CanSelectCardCondition(CardSource cardSource)
+-                {
+-                    if (cardSource.IsDigimon && cardSource.Level <= 4 && cardSource.EqualsTraits("DM"))
++                    Task SelectCardCoroutine(CardSource cardSource)
+                     {
+-                        if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: cardSource, payCost: false, cardEffect: activateClass))
+-                        {
+-                            return true;
+-                        }
++                        selectedCard = cardSource;
++                        return Task.CompletedTask;
+                     }
+ 
+-                    return false;
+-                }
++                    selectCardEffect.SetUp(
++                        canTargetCondition: CanSelectCardCondition,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        canNoSelect: () => true,
++                        selectCardCoroutine: SelectCardCoroutine,
++                        afterSelectCardCoroutine: null,
++                        message: "Select 1 [DM] digimon to play",
++                        maxCount: maxCount,
++                        canEndNotMax: true,
++                        isShowOpponent: true,
++                        mode: SelectCardEffect.Mode.Custom,
++                        root: SelectCardEffect.Root.Trash,
++                        customRootCardList: null,
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: activateClass);
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
+-                {
+-                    if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
+-                    {
+-                        CardSource selectedCard = null;
+-                        int maxCount = Math.Min(1, CardEffectCommons.MatchConditionOwnersCardCountInTrash(card, CanSelectCardCondition));
+-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+-
+-                        selectCardEffect.SetUp(
+-                                    canTargetCondition: CanSelectCardCondition,
+-                                    canTargetCondition_ByPreSelecetedList: null,
+-                                    canEndSelectCondition: null,
+-                                    canNoSelect: () => true,
+-                                    selectCardCoroutine: SelectCardCoroutine,
+-                                    afterSelectCardCoroutine: null,
+-                                    message: "Select 1 [DM] digimon to play",
+-                                    maxCount: maxCount,
+-                                    canEndNotMax: true,
+-                                    isShowOpponent: true,
+-                                    mode: SelectCardEffect.Mode.Custom,
+-                                    root: SelectCardEffect.Root.Trash,
+-                                    customRootCardList: null,
+-                                    canLookReverseCard: true,
+-                                    selectPlayer: card.Owner,
+-                                    cardEffect: activateClass);
+-
+-                        selectCardEffect.SetUpCustomMessage("Select 1 [DM] digimon to play", "The opponent is selecting 1 digimon to play.");
+-                        yield return StartCoroutine(selectCardEffect.Activate());
+-
+-                        IEnumerator SelectCardCoroutine(CardSource cardSource)
+-                        {
+-                            selectedCard = cardSource;
+-                            yield return null;
+-                        }
++                    selectCardEffect.SetUpCustomMessage("Select 1 [DM] digimon to play", "The opponent is selecting 1 digimon to play.");
++                    await selectCardEffect.Activate();
+ 
+-                        if (selectedCard != null) yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(cardSources: new List<CardSource> { selectedCard }, activateClass: activateClass, payCost: false, isTapped: false, root: SelectCardEffect.Root.Trash, activateETB: true));
++                    if (selectedCard != null)
++                    {
++                        await CardEffectCommons.PlayPermanentCards(cardSources: new List<CardSource> { selectedCard }, activateClass: activateClass, payCost: false, isTapped: false, root: SelectCardEffect.Root.Trash, activateETB: true);
+                     }
+                 }
+             }
++        }
++        #endregion
+ 
+-            #endregion
++        #region ESS
++        if (timing == EffectTiming.OnDestroyedAnyone)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Play 1 level 4 or less [DM] Digimon", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
++            activateClass.SetIsInheritedEffect(true);
++            cardEffects.Add(activateClass);
+ 
+-            #region ESS
++            string EffectDiscription() => "[On Deletion] you may play 1 level 4 or lower [DM] trait Digimon card from your trash without paying the cost.";
+ 
+-            if (timing == EffectTiming.OnDestroyedAnyone)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Play 1 level 4 or less [DM] Digimon", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
+-                activateClass.SetIsInheritedEffect(true);
+-                cardEffects.Add(activateClass);
++            bool CanUseCondition(Hashtable hashtable) => CardEffectCommons.CanTriggerOnDeletion(hashtable, card);
+ 
+-                string EffectDiscription()
+-                {
+-                    return "[On Deletion] you may play 1 level 4 or lower [DM] trait Digimon card from your trash without paying the cost.";
+-                }
++            bool CanActivateCondition(Hashtable hashtable) => CardEffectCommons.CanActivateOnDeletion(hashtable, card);
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanTriggerOnDeletion(hashtable, card);
+-                }
++            bool CanSelectCardCondition(CardSource cardSource) =>
++                cardSource.IsDigimon && cardSource.Level <= 4 && cardSource.EqualsTraits("DM")
++                && CardEffectCommons.CanPlayAsNewPermanent(cardSource: cardSource, payCost: false, cardEffect: activateClass);
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
+                 {
+-                    return CardEffectCommons.CanActivateOnDeletion( hashtable, card);
+-                }
++                    CardSource? selectedCard = null;
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+ 
+-                bool CanSelectCardCondition(CardSource cardSource)
+-                {
+-                    if (cardSource.IsDigimon && cardSource.Level <= 4 && cardSource.EqualsTraits("DM"))
++                    Task SelectCardCoroutine(CardSource cardSource)
+                     {
+-                        if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: cardSource, payCost: false, cardEffect: activateClass))
+-                        {
+-                            return true;
+-                        }
++                        selectedCard = cardSource;
++                        return Task.CompletedTask;
+                     }
+ 
+-                    return false;
+-                }
++                    selectCardEffect.SetUp(
++                        canTargetCondition: CanSelectCardCondition,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        canNoSelect: () => true,
++                        selectCardCoroutine: SelectCardCoroutine,
++                        afterSelectCardCoroutine: null,
++                        message: "Select 1 [DM] digimon to play",
++                        maxCount: 1,
++                        canEndNotMax: true,
++                        isShowOpponent: true,
++                        mode: SelectCardEffect.Mode.Custom,
++                        root: SelectCardEffect.Root.Trash,
++                        customRootCardList: null,
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: activateClass);
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
+-                {
+-                    if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
+-                    {
+-                        CardSource selectedCard = null;
+-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++                    selectCardEffect.SetUpCustomMessage("Select 1 [DM] digimon to play", "The opponent is selecting 1 digimon to play.");
++                    await selectCardEffect.Activate();
+ 
+-                        selectCardEffect.SetUp(
+-                                    canTargetCondition: CanSelectCardCondition,
+-                                    canTargetCondition_ByPreSelecetedList: null,
+-                                    canEndSelectCondition: null,
+-                                    canNoSelect: () => true,
+-                                    selectCardCoroutine: SelectCardCoroutine,
+-                                    afterSelectCardCoroutine: null,
+-                                    message: "Select 1 [DM] digimon to play",
+-                                    maxCount: 1,
+-                                    canEndNotMax: true,
+-                                    isShowOpponent: true,
+-                                    mode: SelectCardEffect.Mode.Custom,
+-                                    root: SelectCardEffect.Root.Trash,
+-                                    customRootCardList: null,
+-                                    canLookReverseCard: true,
+-                                    selectPlayer: card.Owner,
+-                                    cardEffect: activateClass);
+-
+-                        selectCardEffect.SetUpCustomMessage("Select 1 [DM] digimon to play", "The opponent is selecting 1 digimon to play.");
+-                        yield return StartCoroutine(selectCardEffect.Activate());
+-
+-                        IEnumerator SelectCardCoroutine(CardSource cardSource)
+-                        {
+-                            selectedCard = cardSource;
+-                            yield return null;
+-                        }
+-
+-                        if (selectedCard != null) yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(cardSources: new List<CardSource> { selectedCard }, activateClass: activateClass, payCost: false, isTapped: false, root: SelectCardEffect.Root.Trash, activateETB: true));
++                    if (selectedCard != null)
++                    {
++                        await CardEffectCommons.PlayPermanentCards(cardSources: new List<CardSource> { selectedCard }, activateClass: activateClass, payCost: false, isTapped: false, root: SelectCardEffect.Root.Trash, activateETB: true);
+                     }
+                 }
+             }
+-
+-            #endregion
+-
+-            return cardEffects;
+         }
++        #endregion
++
++        return cardEffects;
+     }
+-}
+\ 파일 끝 개행 문자 없음
++}

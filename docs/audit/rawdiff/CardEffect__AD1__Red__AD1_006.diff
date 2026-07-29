@@ -1,0 +1,624 @@
+--- DCGO/Assets/Scripts/CardEffect/AD1/Red/AD1_006.cs	2026-05-18 20:03:14.499262200 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/CardEffect/AD1/Red/AD1_006.cs	2026-07-29 01:02:21.361769677 +0900
+@@ -1,351 +1,354 @@
++namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.AD1.Red;
++
++using System;
+ using System.Collections;
+-using System.Collections.Generic;
+ using System.Linq;
+-using System;
++using System.Threading.Tasks;
++using HeadlessDCGO.Engine.Assets.Scripts.Script;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
++using HeadlessDCGO.Engine.Headless.Services;
+ 
+-// Shoutmon X7
+-namespace DCGO.CardEffects.AD1
++public class AD1_006 : CEntity_Effect
+ {
+-    public class AD1_006 : CEntity_Effect
++    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+     {
+-        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+-        {
+-            List<ICardEffect> cardEffects = new List<ICardEffect>();
++        List<ICardEffect> cardEffects = new List<ICardEffect>();
+ 
+-            #region Alternative Digivolve Condition
+-            if (timing == EffectTiming.None)
++        #region Alternative Digivolve Condition
++        if (timing == EffectTiming.None)
++        {
++            static bool PermanentCondition(Permanent targetPermanent)
+             {
+-                static bool PermanentCondition(Permanent targetPermanent)
+-                {
+-                    return targetPermanent.TopCard.EqualsTraits("Blue Flare")
+-                            || targetPermanent.TopCard.EqualsTraits("Xros Heart");
+-                }
+-
+-                cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(level: 6, permanentCondition: PermanentCondition, digivolutionCost: 2, ignoreDigivolutionRequirement: false, card: card, condition: null));
++                return targetPermanent.TopCard.EqualsTraits("Blue Flare")
++                        || targetPermanent.TopCard.EqualsTraits("Xros Heart");
+             }
+-            #endregion
+ 
+-            #region Shared OP / WD / WA
++            cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(level: 6, permanentCondition: PermanentCondition, digivolutionCost: 2, ignoreDigivolutionRequirement: false, card: card, condition: null));
++        }
++        #endregion
+ 
+-            string SharedHashString = "AD1_006_OP_WD_WA";
++        #region Shared OP / WD / WA
+ 
+-            string SharedEffectName = "May bottom deck an opponent's Digimon with same or less DP as this. May unsuspend";
++        string SharedHashString = "AD1_006_OP_WD_WA";
+ 
+-            string SharedEffectDescription(string tag) => $"[{tag}] [Once Per Turn] You may return 1 of your opponent's Digimon with as much or less DP as this Digimon to the bottom of the deck. Then, this Digimon may unsuspend.";
++        string SharedEffectName = "May bottom deck an opponent's Digimon with same or less DP as this. May unsuspend";
+ 
+-            bool SharedCanActivateCondition(Hashtable hashtable)
+-            {
+-                return CardEffectCommons.IsExistOnBattleArea(card)
+-                    && (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsWeakerEnemyDigimon)
+-                        || card.PermanentOfThisCard().IsSuspended);
+-            }
++        string SharedEffectDescription(string tag) => $"[{tag}] [Once Per Turn] You may return 1 of your opponent's Digimon with as much or less DP as this Digimon to the bottom of the deck. Then, this Digimon may unsuspend.";
++
++        bool SharedCanActivateCondition(Hashtable hashtable)
++        {
++            return CardEffectCommons.IsExistOnBattleArea(card)
++                && (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => IsWeakerEnemyDigimon(permanent))
++                    || ICardEffect.ResolvePermanentOfThisCard(card).IsSuspended);
++        }
+ 
+-            bool IsWeakerEnemyDigimon(Permanent permanent)
++        bool IsWeakerEnemyDigimon(Permanent permanent)
++        {
++            return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
++                && permanent.HasDP
++                && permanent.DP <= ICardEffect.ResolvePermanentOfThisCard(card).DP;
++        }
++
++        async Task SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
++        {
++            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => IsWeakerEnemyDigimon(permanent)))
+             {
+-                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
+-                    && permanent.HasDP
+-                    && permanent.DP <= card.PermanentOfThisCard().DP;
++                SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
++
++                selectPermanentEffect.SetUp(
++                    selectPlayer: card.Owner,
++                    canTargetCondition: IsWeakerEnemyDigimon,
++                    canTargetCondition_ByPreSelecetedList: null,
++                    canEndSelectCondition: null,
++                    maxCount: 1,
++                    canNoSelect: true,
++                    canEndNotMax: false,
++                    selectPermanentCoroutine: null,
++                    afterSelectPermanentCoroutine: null,
++                    mode: SelectPermanentEffect.Mode.PutLibraryBottom,
++                    cardEffect: activateClass);
++
++                await selectPermanentEffect.Activate();
+             }
+ 
+-            IEnumerator SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
++            Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(card);
++
++            if (permanent.IsSuspended && permanent.CanUnsuspend)
+             {
+-                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsWeakerEnemyDigimon))
++                string selectPlayerMessage = "Will you unsuspend this card?";
++                string notSelectPlayerMessage = "The opponent is choosing if they will unsuspend.";
++
++                List<SelectionElement<bool>> command_SelectCommands = new List<SelectionElement<bool>>()
+                 {
+-                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
++                    new SelectionElement<bool>(message: $"Yes", value: true, spriteIndex: 0),
++                    new SelectionElement<bool>(message: $"No", value: false, spriteIndex: 1),
++                };
+ 
+-                    selectPermanentEffect.SetUp(
+-                        selectPlayer: card.Owner,
+-                        canTargetCondition: IsWeakerEnemyDigimon,
+-                        canTargetCondition_ByPreSelecetedList: null,
+-                        canEndSelectCondition: null,
+-                        maxCount: 1,
+-                        canNoSelect: true,
+-                        canEndNotMax: false,
+-                        selectPermanentCoroutine: null,
+-                        afterSelectPermanentCoroutine: null,
+-                        mode: SelectPermanentEffect.Mode.PutLibraryBottom,
+-                        cardEffect: activateClass);
++                GManager.instance.userSelectionManager.SetBoolSelection(selectionElements: command_SelectCommands, selectPlayer: card.Owner, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
+ 
+-                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+-                }
++                await GManager.instance.userSelectionManager.WaitForEndSelect();
+ 
+-                Permanent permanent = card.PermanentOfThisCard();
++                bool unsuspend = GManager.instance.userSelectionManager.SelectedBoolValue;
+ 
+-                if (permanent.IsSuspended && permanent.CanUnsuspend)
++                if (unsuspend)
+                 {
+-                    string selectPlayerMessage = "Will you unsuspend this card?";
+-                    string notSelectPlayerMessage = "The opponent is choosing if they will unsuspend.";
++                    await new IUnsuspendPermanents(
++                        new List<Permanent>() { permanent },
++                        activateClass).Unsuspend();
++                }
++            }
++        }
+ 
+-                    List<SelectionElement<bool>> command_SelectCommands = new List<SelectionElement<bool>>()
+-                    {
+-                        new SelectionElement<bool>(message: $"Yes", value: true, spriteIndex: 0),
+-                        new SelectionElement<bool>(message: $"No", value: false, spriteIndex: 1),
+-                    };
++        #endregion
+ 
+-                    GManager.instance.userSelectionManager.SetBoolSelection(selectionElements: command_SelectCommands, selectPlayer: card.Owner, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
++        #region On Play
++        if (timing == EffectTiming.OnEnterFieldAnyone)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
++            activateClass.SetUpActivateClass(SharedCanActivateCondition, (hash) => SharedActivateCoroutine(hash, activateClass), 1, true, SharedEffectDescription("On Play"));
++            activateClass.SetHashString(SharedHashString);
++            cardEffects.Add(activateClass);
+ 
+-                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.userSelectionManager.WaitForEndSelect());
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.IsExistOnBattleArea(card)
++                    && CardEffectCommons.CanTriggerOnPlay(hashtable, card);
++            }
++        }
++        #endregion
+ 
+-                    bool unsuspend = GManager.instance.userSelectionManager.SelectedBoolValue;
++        #region When Digivolving
++        if (timing == EffectTiming.WhenDigivolving)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
++            activateClass.SetUpActivateClass(SharedCanActivateCondition, (hash) => SharedActivateCoroutine(hash, activateClass), 1, true, SharedEffectDescription("When Digivolving"));
++            activateClass.SetHashString(SharedHashString);
++            cardEffects.Add(activateClass);
+ 
+-                    if (unsuspend)
+-                    {
+-                        yield return ContinuousController.instance.StartCoroutine(new IUnsuspendPermanents(
+-                            new List<Permanent>() { permanent },
+-                            activateClass).Unsuspend());
+-                    }
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.IsExistOnBattleArea(card)
++                    && CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+             }
++        }
++        #endregion
+ 
+-            #endregion
++        #region When Attacking
++        if (timing == EffectTiming.OnAllyAttack)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
++            activateClass.SetUpActivateClass(SharedCanActivateCondition, (hash) => SharedActivateCoroutine(hash, activateClass), 1, true, SharedEffectDescription("When Attacking"));
++            activateClass.SetHashString(SharedHashString);
++            cardEffects.Add(activateClass);
+ 
+-            #region On Play
+-            if (timing == EffectTiming.OnEnterFieldAnyone)
++            bool CanUseCondition(Hashtable hashtable)
+             {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
+-                activateClass.SetUpActivateClass(SharedCanActivateCondition,(hash) => SharedActivateCoroutine(hash, activateClass), 1, true, SharedEffectDescription("On Play"));
+-                activateClass.SetHashString(SharedHashString);
+-                cardEffects.Add(activateClass);
+-
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleArea(card)
+-                        && CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+-                }
++                return CardEffectCommons.IsExistOnBattleArea(card)
++                    && CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+             }
+-            #endregion
++        }
++        #endregion
+ 
+-            #region When Digivolving
+-            if (timing == EffectTiming.OnEnterFieldAnyone)
++        #region All Turns
++        if (timing == EffectTiming.WhenRemoveField)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Place up to 4 [Xros Heart] or [Blue Flare] Digimon from this Digimon's digivolution cards under a tamer, then play 1 more for free", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDescription());
++            cardEffects.Add(activateClass);
++
++            string EffectDescription()
++                => "[All Turns] When this Digimon would leave the battle area other than by DigiXros, from this Digimon's digivolution cards, you may place up to 4 [Xros Heart] or [Blue Flare] trait Digimon cards under 1 of your Tamers and play 1 such card without paying the cost.";
++
++            bool CanUseCondition(Hashtable hashtable)
+             {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
+-                activateClass.SetUpActivateClass(SharedCanActivateCondition,(hash) => SharedActivateCoroutine(hash, activateClass), 1, true, SharedEffectDescription("When Digivolving"));
+-                activateClass.SetHashString(SharedHashString);
+-                cardEffects.Add(activateClass);
++                return CardEffectCommons.IsExistOnBattleArea(card)
++                    && CardEffectCommons.CanTriggerWhenRemoveField(hashtable, card)
++                    && !CardEffectCommons.IsLeavingForDigiXros(hashtable);
++            }
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleArea(card)
+-                        && CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+-                }
++            bool IsXrosHeartOrBlueFlare(CardSource cardSource)
++            {
++                return cardSource.IsDigimon
++                    && (cardSource.EqualsTraits("Blue Flare") || cardSource.EqualsTraits("Xros Heart"));
+             }
+-            #endregion
+ 
+-            #region When Attacking
+-            if (timing == EffectTiming.OnAllyAttack)
++            bool CanPlayXrosHeartOrBlueFlare(CardSource cardSource)
+             {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
+-                activateClass.SetUpActivateClass(SharedCanActivateCondition,(hash) => SharedActivateCoroutine(hash, activateClass), 1, true, SharedEffectDescription("When Attacking"));
+-                activateClass.SetHashString(SharedHashString);
+-                cardEffects.Add(activateClass);
++                return IsXrosHeartOrBlueFlare(cardSource)
++                    && CardEffectCommons.CanPlayAsNewPermanent(cardSource: cardSource, payCost: false, cardEffect: activateClass);
++            }
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleArea(card)
+-                        && CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+-                }
++            bool CanSelectSaveTamerPermanentCondition(Permanent permanent)
++            {
++                return CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(permanent, card)
++                       && permanent.IsTamer;
+             }
+-            #endregion
+ 
+-            #region All Turns
+-            if (timing == EffectTiming.WhenRemoveField)
++            bool CanActivateCondition(Hashtable hashtable)
+             {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Place up to 4 [Xros Heart] or [Blue Flare] Digimon from this Digimon's digivolution cards under a tamer, then play 1 more for free", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDescription());
+-                cardEffects.Add(activateClass);
++                return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
++                    && ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Some(IsXrosHeartOrBlueFlare);
++            }
+ 
+-                string EffectDescription()
+-                    => "[All Turns] When this Digimon would leave the battle area other than by DigiXros, from this Digimon's digivolution cards, you may place up to 4 [Xros Heart] or [Blue Flare] trait Digimon cards under 1 of your Tamers and play 1 such card without paying the cost.";
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                bool placedCards = false;
+ 
+-                bool CanUseCondition(Hashtable hashtable)
++                #region Place up to 4 cards under a tamer
++                if (CardEffectCommons.HasMatchConditionOwnersPermanent(card, CanSelectSaveTamerPermanentCondition))
+                 {
+-                    return CardEffectCommons.IsExistOnBattleArea(card)
+-                        && CardEffectCommons.CanTriggerWhenRemoveField(hashtable, card)
+-                        && !CardEffectCommons.IsLeavingForDigiXros(hashtable);
+-                }
++                    List<CardSource> selectedCards = new List<CardSource>();
+ 
+-                bool IsXrosHeartOrBlueFlare(CardSource cardSource)
+-                {
+-                    return cardSource.IsDigimon
+-                        && (cardSource.EqualsTraits("Blue Flare") || cardSource.EqualsTraits("Xros Heart"));
+-                }
++                    int maxCount = Math.Min(4, ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Count(IsXrosHeartOrBlueFlare));
+ 
+-                bool CanPlayXrosHeartOrBlueFlare(CardSource cardSource)
+-                {
+-                    return IsXrosHeartOrBlueFlare(cardSource)
+-                        && CardEffectCommons.CanPlayAsNewPermanent(cardSource: cardSource, payCost: false, cardEffect: activateClass);
+-                }
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+ 
+-                bool CanSelectSaveTamerPermanentCondition(Permanent permanent)
+-                {
+-                    return CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(permanent, card)
+-                           && permanent.IsTamer;
+-                }
++                    selectCardEffect.SetUp(
++                        canTargetCondition: IsXrosHeartOrBlueFlare,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        canNoSelect: () => true,
++                        selectCardCoroutine: SelectCardCoroutine,
++                        afterSelectCardCoroutine: null,
++                        message: "Select digivolution cards to place under 1 of your Tamers.",
++                        maxCount: maxCount,
++                        canEndNotMax: true,
++                        isShowOpponent: true,
++                        mode: SelectCardEffect.Mode.Custom,
++                        root: SelectCardEffect.Root.DigivolutionCards,
++                        customRootCardList: ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.ToList(),
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: activateClass);
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
+-                        && card.PermanentOfThisCard().DigivolutionCards.Some(IsXrosHeartOrBlueFlare);
+-                }
++                    selectCardEffect.SetUpCustomMessage(
++                        "Select digivolution cards to place under 1 of your Tamers.",
++                        "The opponent is selecting digivolution cards to place under 1 of your Tamers.");
++                    selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
+-                {
+-                    bool placedCards = false;
++                    await selectCardEffect.Activate();
+ 
+-                    #region Place up to 4 cards under a tamer
+-                    if (CardEffectCommons.HasMatchConditionOwnersPermanent(card, CanSelectSaveTamerPermanentCondition))
++                    Task SelectCardCoroutine(CardSource cardSource)
+                     {
+-                        List<CardSource> selectedCards = new List<CardSource>();
++                        selectedCards.Add(cardSource);
++
++                        return Task.CompletedTask;
++                    }
+ 
+-                        int maxCount = Math.Min(4, card.PermanentOfThisCard().DigivolutionCards.Count(IsXrosHeartOrBlueFlare));
++                    Permanent? selectedPermanent = null;
+ 
+-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++                    if (selectedCards.Count > 0)
++                    {
++                        SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+ 
+-                        selectCardEffect.SetUp(
+-                            canTargetCondition: IsXrosHeartOrBlueFlare,
++                        selectPermanentEffect.SetUp(
++                            selectPlayer: card.Owner,
++                            canTargetCondition: CanSelectSaveTamerPermanentCondition,
+                             canTargetCondition_ByPreSelecetedList: null,
+                             canEndSelectCondition: null,
+-                            canNoSelect: () => true,
+-                            selectCardCoroutine: SelectCardCoroutine,
+-                            afterSelectCardCoroutine: null,
+-                            message: "Select digivolution cards to place under 1 of your Tamers.",
+-                            maxCount: maxCount,
+-                            canEndNotMax: true,
+-                            isShowOpponent: true,
+-                            mode: SelectCardEffect.Mode.Custom,
+-                            root: SelectCardEffect.Root.DigivolutionCards,
+-                            customRootCardList: card.PermanentOfThisCard().DigivolutionCards,
+-                            canLookReverseCard: true,
+-                            selectPlayer: card.Owner,
++                            maxCount: 1,
++                            canNoSelect: true,
++                            canEndNotMax: false,
++                            selectPermanentCoroutine: SelectPermanentCoroutine,
++                            afterSelectPermanentCoroutine: null,
++                            mode: SelectPermanentEffect.Mode.Custom,
+                             cardEffect: activateClass);
+ 
+-                        selectCardEffect.SetUpCustomMessage(
+-                            "Select digivolution cards to place under 1 of your Tamers.",
+-                            "The opponent is selecting digivolution cards to place under 1 of your Tamers.");
+-                        selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
++                        selectPermanentEffect.SetUpCustomMessage("Select 1 Tamer to place the chosen cards under.",
++                            "The opponent is selecting 1 Tamer to place the chosen cards under.");
+ 
+-                        yield return StartCoroutine(selectCardEffect.Activate());
++                        await selectPermanentEffect.Activate();
+ 
+-                        IEnumerator SelectCardCoroutine(CardSource cardSource)
++                        Task SelectPermanentCoroutine(Permanent permanent)
+                         {
+-                            selectedCards.Add(cardSource);
+-                            
+-                            yield return null;
+-                        }
++                            selectedPermanent = permanent;
+ 
+-                        Permanent selectedPermanent = null;
++                            return Task.CompletedTask;
++                        }
+ 
+-                        if (selectedCards.Count > 0)
++                        if (selectedPermanent != null)
+                         {
+-                            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+-
+-                            selectPermanentEffect.SetUp(
+-                                selectPlayer: card.Owner,
+-                                canTargetCondition: CanSelectSaveTamerPermanentCondition,
+-                                canTargetCondition_ByPreSelecetedList: null,
+-                                canEndSelectCondition: null,
+-                                maxCount: 1,
+-                                canNoSelect: true,
+-                                canEndNotMax: false,
+-                                selectPermanentCoroutine: SelectPermanentCoroutine,
+-                                afterSelectPermanentCoroutine: null,
+-                                mode: SelectPermanentEffect.Mode.Custom,
+-                                cardEffect: activateClass);
+-
+-                            selectPermanentEffect.SetUpCustomMessage("Select 1 Tamer to place the chosen cards under.",
+-                                "The opponent is selecting 1 Tamer to place the chosen cards under.");
+-
+-                            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+-
+-                            IEnumerator SelectPermanentCoroutine(Permanent permanent)
+-                            {
+-                                selectedPermanent = permanent;
+-
+-                                yield return null;
+-                            }
+-
+-                            if (selectedPermanent != null)
+-                            {
+-                                placedCards = true;
+-                                yield return ContinuousController.instance.StartCoroutine(
+-                                    selectedPermanent.AddDigivolutionCardsBottom(selectedCards, activateClass));
+-                            }
++                            placedCards = true;
++                            await selectedPermanent.AddDigivolutionCardsBottom(selectedCards, activateClass.EffectSourceCard?.InstanceId);
+                         }
+                     }
+-                    #endregion
++                }
++                #endregion
+ 
+-                    #region Play 1 card
+-                    if ((placedCards || !CardEffectCommons.HasMatchConditionOwnersPermanent(card, CanSelectSaveTamerPermanentCondition)) 
+-                        && card.PermanentOfThisCard().DigivolutionCards.Some(CanPlayXrosHeartOrBlueFlare))
+-                    {
+-                        List<CardSource> selectedCards = new List<CardSource>();
++                #region Play 1 card
++                if ((placedCards || !CardEffectCommons.HasMatchConditionOwnersPermanent(card, CanSelectSaveTamerPermanentCondition))
++                    && ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Some(CanPlayXrosHeartOrBlueFlare))
++                {
++                    List<CardSource> selectedCards = new List<CardSource>();
+ 
+-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+ 
+-                        selectCardEffect.SetUp(
+-                            canTargetCondition: CanPlayXrosHeartOrBlueFlare,
+-                            canTargetCondition_ByPreSelecetedList: null,
+-                            canEndSelectCondition: null,
+-                            canNoSelect: () => !placedCards,
+-                            selectCardCoroutine: SelectCardCoroutine,
+-                            afterSelectCardCoroutine: null,
+-                            message: "Select 1 digivolution card to play.",
+-                            maxCount: 1,
+-                            canEndNotMax: false,
+-                            isShowOpponent: true,
+-                            mode: SelectCardEffect.Mode.Custom,
+-                            root: SelectCardEffect.Root.DigivolutionCards,
+-                            customRootCardList: card.PermanentOfThisCard().DigivolutionCards,
+-                            canLookReverseCard: true,
+-                            selectPlayer: card.Owner,
+-                            cardEffect: activateClass);
++                    selectCardEffect.SetUp(
++                        canTargetCondition: CanPlayXrosHeartOrBlueFlare,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        canNoSelect: () => !placedCards,
++                        selectCardCoroutine: SelectCardCoroutine,
++                        afterSelectCardCoroutine: null,
++                        message: "Select 1 digivolution card to play.",
++                        maxCount: 1,
++                        canEndNotMax: false,
++                        isShowOpponent: true,
++                        mode: SelectCardEffect.Mode.Custom,
++                        root: SelectCardEffect.Root.DigivolutionCards,
++                        customRootCardList: ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.ToList(),
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: activateClass);
+ 
+-                        selectCardEffect.SetUpCustomMessage(
+-                            "Select 1 digivolution card to play.",
+-                            "The opponent is selecting 1 digivolution card to play.");
+-                        selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
++                    selectCardEffect.SetUpCustomMessage(
++                        "Select 1 digivolution card to play.",
++                        "The opponent is selecting 1 digivolution card to play.");
++                    selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
++                    await selectCardEffect.Activate();
+ 
+-                        IEnumerator SelectCardCoroutine(CardSource cardSource)
+-                        {
+-                            selectedCards.Add(cardSource);
++                    Task SelectCardCoroutine(CardSource cardSource)
++                    {
++                        selectedCards.Add(cardSource);
+ 
+-                            yield return null;
+-                        }
++                        return Task.CompletedTask;
++                    }
+ 
+-                        if (selectedCards.Count > 0) yield return ContinuousController.instance.StartCoroutine(
+-                            CardEffectCommons.PlayPermanentCards(
+-                                cardSources: selectedCards,
+-                                activateClass: activateClass,
+-                                payCost: false,
+-                                isTapped: false,
+-                                root: SelectCardEffect.Root.DigivolutionCards,
+-                                activateETB: true));
++                    if (selectedCards.Count > 0)
++                    {
++                        await CardEffectCommons.PlayPermanentCards(
++                            cardSources: selectedCards,
++                            activateClass: activateClass,
++                            payCost: false,
++                            isTapped: false,
++                            root: SelectCardEffect.Root.DigivolutionCards,
++                            activateETB: true);
+                     }
+-                    #endregion
+                 }
++                #endregion
+             }
+-            #endregion
+-
+-            #region Digixros
+-            if (timing == EffectTiming.None)
+-            {
+-                cardEffects.Add(CardEffectFactory.DigiXrosEffectFromNames(card, 2, null, 
+-                    "OmniShoutmon", 
+-                    "ZeigGreymon", 
+-                    "Ballistamon", 
+-                    "Dorulumon", 
+-                    "Starmons", 
+-                    "Sparrowmon"));
+-            }
+-            #endregion
++        }
++        #endregion
+ 
+-            return cardEffects;
++        #region Digixros
++        if (timing == EffectTiming.None)
++        {
++            cardEffects.Add(CardEffectFactory.DigiXrosEffectFromNames(card, 2, null,
++                "OmniShoutmon",
++                "ZeigGreymon",
++                "Ballistamon",
++                "Dorulumon",
++                "Starmons",
++                "Sparrowmon"));
+         }
++        #endregion
++
++        return cardEffects;
+     }
+ }

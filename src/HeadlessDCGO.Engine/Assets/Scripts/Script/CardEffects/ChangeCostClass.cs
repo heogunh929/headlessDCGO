@@ -1,12 +1,5 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffects/ChangeCostClass.cs
-// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class ChangeCostClass : ICardEffect, IChangeCostEffect
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
 using System.Collections.Generic;
 using System;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 public class ChangeCostClass : ICardEffect, IChangeCostEffect
 {
     Func<CardSource, int, SelectCardEffect.Root, List<Permanent>, int> _changeCostFunc { get; set; }
@@ -42,7 +35,7 @@ public class ChangeCostClass : ICardEffect, IChangeCostEffect
                             {
                                 if (newCost < cost)
                                 {
-                                    if (!new Player(cardSource.Context, cardSource.Owner).CanReduceCost(targetPermanents, cardSource))
+                                    if (!cardSource.Owner.CanReduceCost(targetPermanents, cardSource))
                                     {
                                         newCost = cost;
                                     }

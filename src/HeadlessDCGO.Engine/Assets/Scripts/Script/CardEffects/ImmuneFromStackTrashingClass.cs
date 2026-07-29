@@ -1,14 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffects/ImmuneFromStackTrashingClass.cs
-// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class ImmuneStackTrashingClass : ICardEffect, IImmuneFromStackTrashingEffect
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
+using Photon;
 using System;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using Photon.Pun;
 public class ImmuneStackTrashingClass : ICardEffect, IImmuneFromStackTrashingEffect
 {
     Func<Permanent, bool> PermanentCondition { get; set; }

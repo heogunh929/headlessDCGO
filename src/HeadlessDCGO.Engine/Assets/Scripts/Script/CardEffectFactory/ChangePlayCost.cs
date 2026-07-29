@@ -1,16 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ChangePlayCost.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS ChangePlayCost.cs factory partial.
-// Returns the ported ChangeCostClass kind-class (CardEffects/ChangeCostClass.cs). Replaces the earlier
-// simplified ContinuousSelfModifierEffect-based stub (which lowered play cost onto the headless play-cost
-// engine); this restores the AS-IS ChangeCostClass authoring shape verbatim. UnityEngine/Photon stripped.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ChangeCostClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {

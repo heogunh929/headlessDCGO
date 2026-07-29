@@ -1,24 +1,11 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_111.cs — an Option.
-// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_111 (BT1/Green).
-//   [Main]     Suspend 1 of your opponent's Digimon or 2 of your opponent's Digimon with 5000 DP or less.
-//   [Security] (reuse [Main] verbatim, no afterMainEffect) -> AddActivateMainOptionSecurityEffect (bridged).
-// AS-IS structure kept verbatim: inline ActivateClass. The 2-vs-1 mode pick uses
-// `GManager.instance.userSelectionManager.SetBoolSelection(...)`/`WaitForEndSelect()`/`SelectedBoolValue` —
-// RESOLVED (bridge W5, was the batch-2 UNRESOLVED finding): the mirror `UserSelectionManager`/
-// `SelectionElement<T>` (Script/UserSelectionManager.cs) + `GManager.userSelectionManager` now exist;
-// `WaitForEndSelect` drives the ChoiceProvider ModeChoice request (docs/audit/rebuild_bridge_w5_notes.md).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
-
-using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class BT1_111 : CEntity_Effect
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT1_111 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -59,10 +46,10 @@ public sealed class BT1_111 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                bool canSuspend1 = CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition);
-                bool canSuspend2 = CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition1);
+                bool canSuspend1 = CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition);
+                bool canSuspend2 = CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition1);
 
                 if (canSuspend1 || canSuspend2)
                 {
@@ -70,8 +57,8 @@ public sealed class BT1_111 : CEntity_Effect
                     {
                         List<SelectionElement<bool>> selectionElements = new List<SelectionElement<bool>>()
                         {
-                            new SelectionElement<bool>(message: "Suspend 1", value: true, spriteIndex: 0),
-                            new SelectionElement<bool>(message: "Suspend 2", value: false, spriteIndex: 1),
+                            new SelectionElement<bool>(message: $"Suspend 1", value : true, spriteIndex: 0),
+                            new SelectionElement<bool>(message: $"Suspend 2", value : false, spriteIndex: 1),
                         };
 
                         string selectPlayerMessage = "Which effect do you choose?";
@@ -79,18 +66,17 @@ public sealed class BT1_111 : CEntity_Effect
 
                         GManager.instance.userSelectionManager.SetBoolSelection(selectionElements: selectionElements, selectPlayer: card.Owner, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
                     }
+
                     else
                     {
                         GManager.instance.userSelectionManager.SetBool(canSuspend1);
                     }
 
-                    await GManager.instance.userSelectionManager.WaitForEndSelect();
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.userSelectionManager.WaitForEndSelect());
 
                     bool _isSuspendOne = GManager.instance.userSelectionManager.SelectedBoolValue;
 
-                    int maxCount = _isSuspendOne
-                        ? Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition))
-                        : Math.Min(2, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition1));
+                    int maxCount = _isSuspendOne ? Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition)) : Math.Min(2, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition1));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -107,7 +93,7 @@ public sealed class BT1_111 : CEntity_Effect
                         mode: SelectPermanentEffect.Mode.Tap,
                         cardEffect: activateClass);
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                 }
             }
         }
@@ -117,7 +103,7 @@ public sealed class BT1_111 : CEntity_Effect
             CardEffectCommons.AddActivateMainOptionSecurityEffect(
                 card: card,
                 cardEffects: ref cardEffects,
-                effectName: "Suspend Digimon");
+                effectName: $"Suspend Digimon");
         }
 
         return cardEffects;

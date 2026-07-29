@@ -1,12 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffects/ChangeLinkMaxClass.cs
-// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class ChangeLinkMaxClass : ICardEffect, IChangeLinkMaxEffect
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 using System;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using Unity.Mathematics;
 
 public class ChangeLinkMaxClass : ICardEffect, IChangeLinkMaxEffect
 {
@@ -33,7 +29,7 @@ public class ChangeLinkMaxClass : ICardEffect, IChangeLinkMaxEffect
             {
                 case -1:
                     if(changedLinkMax < LinkMax)
-                        changedLinkMax = LinkMax + Math.Abs(changedLinkMax - LinkMax);
+                        changedLinkMax = LinkMax + Mathf.Abs(changedLinkMax - LinkMax);
                     break;
                 case 1:
                     if (changedLinkMax > LinkMax)

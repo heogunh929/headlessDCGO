@@ -1,21 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_067.cs
-// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_067 (BT1/Green).
-//   [On Play] Reveal 3 cards from the top of your deck. Add 1 level 4 Digimon card among them to your hand.
-//   Place the remaining cards at the bottom of your deck in any order.
-// AS-IS structure kept verbatim: inline ActivateClass, ActivateCoroutine = the bridged
-// `CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect` (W3).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
-using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_067 : CEntity_Effect
+public class BT1_067 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -58,7 +49,7 @@ public sealed class BT1_067 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                    if (card.Owner.LibraryCards.Count >= 1)
                     {
                         return true;
                     }
@@ -67,22 +58,23 @@ public sealed class BT1_067 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(
                     revealCount: 3,
                     simplifiedSelectCardConditions:
                     new SimplifiedSelectCardConditionClass[]
                     {
                         new SimplifiedSelectCardConditionClass(
-                            canTargetCondition: CanSelectCardCondition,
+                            canTargetCondition:CanSelectCardCondition,
                             message: "Select 1 level 4 Digimon card.",
                             mode: SelectCardEffect.Mode.AddHand,
                             maxCount: 1,
                             selectCardCoroutine: null),
                     },
                     remainingCardsPlace: RemainingCardsPlace.DeckBottom,
-                    activateClass: activateClass);
+                    activateClass: activateClass
+                ));
             }
         }
 

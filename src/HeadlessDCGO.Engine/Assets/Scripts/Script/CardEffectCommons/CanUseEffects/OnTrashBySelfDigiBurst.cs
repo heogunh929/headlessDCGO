@@ -1,12 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnTrashBySelfDigiBurst.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger "When this digivolution card is trashed due to activating this Digimon's <Digi-Burst>" effect
     public static bool CanTriggerOnTrashBySelfDigiBurst(Hashtable hashtable, CardSource card)
@@ -23,7 +21,7 @@ public static partial class CardEffectCommons
                         {
                             if (IsExistOnBattleArea(cardEffect.EffectSourceCard))
                             {
-                                if (ICardEffect.ResolvePermanentOfThisCard(cardEffect.EffectSourceCard).cardSources.Contains(card))
+                                if (cardEffect.EffectSourceCard.PermanentOfThisCard().cardSources.Contains(card))
                                 {
                                     return true;
                                 }

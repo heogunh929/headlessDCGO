@@ -1,14 +1,12 @@
-// Source: Assets/Scripts/CardEffect/BT2/BT2_057.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect.
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Runtime;
-
-public sealed class BT2_057 : CEntity_Effect
+public class BT2_057 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -22,7 +20,7 @@ public sealed class BT2_057 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (new Permanent(card.Context, card.InstanceId).HasReboot)
+                        if (card.PermanentOfThisCard().HasReboot)
                         {
                             return true;
                         }
@@ -32,12 +30,10 @@ public sealed class BT2_057 : CEntity_Effect
                 return false;
             }
 
-            cardEffects.Add(CardEffectFactory.JammingSelfStaticEffect(
-                isInheritedEffect: true,
-                card: card,
-                condition: Condition));
+            cardEffects.Add(CardEffectFactory.JammingSelfStaticEffect(isInheritedEffect: true, card: card, condition: Condition));
         }
 
         return cardEffects;
     }
 }
+

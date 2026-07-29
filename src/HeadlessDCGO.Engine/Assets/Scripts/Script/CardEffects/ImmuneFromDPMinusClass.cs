@@ -1,14 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffects/ImmuneFromDPMinusClass.cs
-// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class ImmuneFromDPMinusClass : ICardEffect, IImmuneFromDPMinusEffect
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
+using Photon;
 using System;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using Photon.Pun;
 public class ImmuneFromDPMinusClass : ICardEffect, IImmuneFromDPMinusEffect
 {
     Func<Permanent, bool> _permanentCondition { get; set; }

@@ -1,19 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Blue/BT1_030.cs
-// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_030 (BT1/Blue).
-//   [On Deletion] Gain 1 memory.
-// AS-IS structure kept verbatim: inline ActivateClass, SetIsInheritedEffect(true).
-// UNRESOLVED (kept verbatim, logged to docs/audit/rebuild_p5_cards_missing.md): AS-IS `card.Owner.
-// CanAddMemory(activateClass)` — the mirror bridge only adds a `HeadlessPlayerId.AddMemory` extension
-// (bridge W4), not `CanAddMemory` (that stays a `Player`-instance-only member, no bare-id extension).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_030 : CEntity_Effect
+public class BT1_030 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -39,10 +32,8 @@ public sealed class BT1_030 : CEntity_Effect
 
             bool CanActivateCondition(Hashtable hashtable)
             {
-                if (CardEffectCommons.CanActivateOnDeletion(hashtable, card))
+                if (CardEffectCommons.CanActivateOnDeletion( hashtable, card))
                 {
-                    // UNRESOLVED (see file header): AS-IS `card.Owner.CanAddMemory(activateClass)` — no mirror
-                    // bridge for this exact member on the bare-id `Owner`. Kept verbatim.
                     if (card.Owner.CanAddMemory(activateClass))
                     {
                         return true;
@@ -52,9 +43,9 @@ public sealed class BT1_030 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await card.Owner.AddMemory(1, activateClass);
+                yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
             }
         }
 

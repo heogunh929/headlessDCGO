@@ -1,24 +1,59 @@
-// Source: Assets/Scripts/CardEffect/BT2/BT2_015.cs
-// [When Attacking] When this Digimon attacks a player, trigger <Draw 1>. (Draw 1 card from your deck.)
-// STOP: DefendingPermanent == null (공격 대상이 Digimon이 아닌 플레이어임을 판별) 조건을
-//       커버하는 헤드리스 predicate가 없음. CanTriggerOnAttack(ctx, card)만으로는 공격 대상이
-//       플레이어인지 Digimon인지 구분 불가 — OnAllyAttack 타이밍 전체를 STOP 처리.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class BT2_015 : CEntity_Effect
+public class BT2_015 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        // STOP: DefendingPermanent == null (is-attacking-player guard)을 표현하는
-        //       헤드리스 commons predicate가 없어 canUse를 충실히 구성할 수 없음.
         if (timing == EffectTiming.OnAllyAttack)
         {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Draw 1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[When Attacking] When this Digimon attacks a player, trigger <Draw 1>. (Draw 1 card from your deck.)";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.CanTriggerOnAttack(hashtable, card))
+                {
+                    if (GManager.instance.attackProcess.DefendingPermanent == null)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (card.Owner.LibraryCards.Count >= 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
+            {
+                yield return ContinuousController.instance.StartCoroutine(new DrawClass(card.Owner, 1, activateClass).Draw());
+            }
         }
 
         return cardEffects;

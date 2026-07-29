@@ -1,34 +1,77 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT9/Blue/BT9_021.cs
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [Your Turn][Once Per Turn]
-// OnAddHand INHERITED (digivolution-source) branch.
-//   [Your Turn][Once Per Turn] When an effect adds a card to your hand, return 1 of your opponent's level 3
-//   Digimon to its owner's hand.
-// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpActivateClass(..., 1, false, ...) (ORDER 1 =
-// once per turn, mandatory) + SetIsInheritedEffect(true) + SetHashString("Bounce_BT9_021") (BT9_021.cs:76-156).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await;
-// `GManager.instance.GetComponent<SelectPermanentEffect>()` + full AS-IS SetUp(Mode.Bounce) (bridge W4, BT2_092
-// idiom); AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` supplied directly to SetUp's canonical
-// Func<Permanent,bool> overload / MatchConditionPermanentCount (no id adapter); AS-IS `player => player == card.Owner` ->
-// `player.PlayerId == card.Owner` (Hashtable-overload playerCondition is a mirror `Player`).
-//
-// The AS-IS OnEnterFieldAnyone [On Play] "when you play a blue Tamer, <Draw 1>" effect (BT9_021.cs:15-74) is a
-// NON-inherited top-card reactor served by the action-wired OnEnterFieldAnyone path, orthogonal to this inherited
-// OnAddHand branch; it remains deliberately OMITTED (same scoping as the prior pass).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT9.Blue;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT9_021 : CEntity_Effect
+public class BT9_021 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+        if (timing == EffectTiming.OnEnterFieldAnyone)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Draw 1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDiscription());
+            activateClass.SetHashString("Draw1_BT9_021");
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Your Turn][Once Per Turn] When you play a blue Tamer, <Draw 1>. (Draw 1 card from your deck.)";
+            }
+
+            bool PermanentCondition(Permanent permanent)
+            {
+                if (CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(permanent, card))
+                {
+                    if (permanent.IsTamer)
+                    {
+                        if (permanent.TopCard.CardColors.Contains(CardColor.Blue))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (CardEffectCommons.CanTriggerOnPermanentPlay(hashtable, PermanentCondition))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
+            {
+                yield return ContinuousController.instance.StartCoroutine(new DrawClass(card.Owner, 1, activateClass).Draw());
+            }
+        }
 
         if (timing == EffectTiming.OnAddHand)
         {
@@ -66,7 +109,7 @@ public sealed class BT9_021 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.CanTriggerWhenAddHand(hashtable, player => player.PlayerId == card.Owner, cardEffect => cardEffect != null))
+                        if (CardEffectCommons.CanTriggerWhenAddHand(hashtable, player => player == card.Owner, cardEffect => cardEffect != null))
                         {
                             return true;
                         }
@@ -86,11 +129,11 @@ public sealed class BT9_021 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -107,7 +150,7 @@ public sealed class BT9_021 : CEntity_Effect
                         mode: SelectPermanentEffect.Mode.Bounce,
                         cardEffect: activateClass);
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                 }
             }
         }

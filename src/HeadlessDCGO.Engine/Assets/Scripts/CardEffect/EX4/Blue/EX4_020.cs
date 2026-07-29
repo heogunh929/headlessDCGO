@@ -1,106 +1,293 @@
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// EX4_020 (Digimon / Blue) — DigiXros / Material Save ("GreyKnightsmon" line)
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// ① AS-IS 앵커: DCGO/Assets/Scripts/CardEffect/EX4/Blue/EX4_020.cs (327 lines, no #region markers, 4 timing 블록)
-//    * [On Play]                  :14-157  (OnEnterFieldAnyone — 자신 <Rush>(UntilEachTurnEnd) → DigiXros 시
-//      상대 디지몬 1체의 진화원 최대 2장 트래시)
-//    * MaterialSave               :159-162 (WhenPermanentWouldBeDeleted — CardEffectFactory.MaterialSaveEffect(2))
-//    * DigiXros 조건 등록          :164-237 (None — AddDigiXrosConditionClass: Greymon(Blue) + MailBirdramon, 2재료)
-//    * [When Attacking]           :239-322 (OnAllyAttack, ESS/SetIsInheritedEffect — [GreyKnightsmon]이면 진화원
-//      3장 이하 상대 디지몬 1체 CanNotAttack(UntilOpponentTurnEnd))
-//
-// ② 검증 프리미티브: GainRush(async Task), IsDijiXros(hashtable form), HasMatchConditionPermanent(card,Permanent-pred) /
-//    MatchConditionPermanentCount(card,Id-pred), SelectPermanentEffect.SetUp(full/id form), SelectCardEffect.SetUp,
-//    ITrashDigivolutionCards.TrashDigivolutionCards(), CanNotTrashFromDigivolutionCards(activateClass),
-//    MaterialSaveEffect, AddDigiXrosConditionClass/SetUpAddDigiXrosConditionClass/SetNotShowUI, DigiXrosCondition/
-//    DigiXrosConditionElement, CardNames_DigiXros, GainCanNotAttack(async Task), CanNotBeAffected, HasNoElement.
-//
-// 치환(substrate translations only):
-//    * IEnumerator→async Task; `yield return ContinuousController.instance.StartCoroutine(X)`/`yield return
-//      StartCoroutine(X)`→`await X`; 중첩 IEnumerator local func(SelectPermanentCoroutine/SelectCardCoroutine)→
-//      async Task / Task; lone `yield return null`→`return Task.CompletedTask`(BT9_111 idiom).
-//    * `card.PermanentOfThisCard()`→`ICardEffect.ResolvePermanentOfThisCard(card)` (BT8_092 관례).
-//    * SelectPermanentEffect canTargetCondition은 정본 Func<Permanent,bool> — 술어 직결(id 어댑터 없음); AS-IS
-//      card-less `MatchConditionPermanentCount(pred)`/`HasMatchConditionPermanent(pred)`→미러 permanent-form
-//      `(card, CanSelectPermanentCondition)` (LM_054 / BT21_059 idiom).
-//    * `HasCardColor(CardColor.Blue)`→`HasCardColor("Blue")` (BT2_044 헤더).
-//    * `selectedPermanent.DigivolutionCards`(IReadOnlyList)→`.ToList()` for customRootCardList (BT9_111 idiom).
-//    * `new ITrashDigivolutionCards(perm, cards, activateClass)`→미러 ctor(perm, cards, causeEffectSourceId,
-//      cardEffect): `activateClass.EffectSourceCard?.InstanceId` 삽입(BT5_086 idiom).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX4.Blue;
-
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
 
-public sealed class EX4_020 : CEntity_Effect
+namespace DCGO.CardEffects.EX4
 {
-    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public class EX4_020 : CEntity_Effect
     {
-        List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        if (timing == EffectTiming.OnEnterFieldAnyone)
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
         {
-            ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect("This Digimon gains Rush and trash digivolution cards", CanUseCondition, card);
-            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
-            cardEffects.Add(activateClass);
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-            string EffectDiscription()
+            if (timing == EffectTiming.OnEnterFieldAnyone)
             {
-                return "[On Play] This Digimon gains <Rush> for the turn. (This Digimon may attack the turn it was played.) If DigiXrosing, trash up to 2 digivolution cards of 1 of your opponent's Digimon.";
-            }
+                ActivateClass activateClass = new ActivateClass();
+                activateClass.SetUpICardEffect("This Digimon gains Rush and trash digivolution cards", CanUseCondition, card);
+                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+                cardEffects.Add(activateClass);
 
-            bool CanSelectPermanentCondition(Permanent permanent)
-            {
-                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                string EffectDiscription()
                 {
-                    if (permanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1)
+                    return "[On Play] This Digimon gains <Rush> for the turn. (This Digimon may attack the turn it was played.) If DigiXrosing, trash up to 2 digivolution cards of 1 of your opponent's Digimon.";
+                }
+
+                bool CanSelectPermanentCondition(Permanent permanent)
+                {
+                    if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                    {
+                        if (permanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1)
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
+                bool CanSelectCardCondition(CardSource cardSource)
+                {
+                    return !cardSource.CanNotTrashFromDigivolutionCards(activateClass);
+                }
+
+                bool CanUseCondition(Hashtable hashtable)
+                {
+                    return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+                }
+
+                bool CanActivateCondition(Hashtable hashtable)
+                {
+                    if (CardEffectCommons.IsExistOnBattleArea(card))
                     {
                         return true;
                     }
+
+                    return false;
                 }
 
-                return false;
+                IEnumerator ActivateCoroutine(Hashtable _hashtable)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainRush(
+                                    targetPermanent: card.PermanentOfThisCard(),
+                                    effectDuration: EffectDuration.UntilEachTurnEnd,
+                                    activateClass: activateClass));
+
+                    if (CardEffectCommons.IsDijiXros(_hashtable, card, (digixrosCount) => digixrosCount >= 1))
+                    {
+                        if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
+                        {
+                            int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
+
+                            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                            selectPermanentEffect.SetUp(
+                                selectPlayer: card.Owner,
+                                canTargetCondition: CanSelectPermanentCondition,
+                                canTargetCondition_ByPreSelecetedList: null,
+                                canEndSelectCondition: null,
+                                maxCount: maxCount,
+                                canNoSelect: false,
+                                canEndNotMax: false,
+                                selectPermanentCoroutine: SelectPermanentCoroutine,
+                                afterSelectPermanentCoroutine: null,
+                                mode: SelectPermanentEffect.Mode.Custom,
+                                cardEffect: activateClass);
+
+                            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will trash digivolution cards.", "The opponent is selecting 1 Digimon that will trash digivolution cards.");
+
+                            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+
+                            IEnumerator SelectPermanentCoroutine(Permanent permanent)
+                            {
+                                Permanent selectedPermanent = permanent;
+
+                                if (selectedPermanent != null)
+                                {
+                                    if (selectedPermanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1 && !selectedPermanent.TopCard.CanNotBeAffected(activateClass))
+                                    {
+                                        maxCount = Math.Min(2, selectedPermanent.DigivolutionCards.Count(CanSelectCardCondition));
+
+                                        List<CardSource> selectedCards = new List<CardSource>();
+
+                                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+                                        selectCardEffect.SetUp(
+                                                    canTargetCondition: CanSelectCardCondition,
+                                                    canTargetCondition_ByPreSelecetedList: null,
+                                                    canEndSelectCondition: CanEndSelectCondition,
+                                                    canNoSelect: () => false,
+                                                    selectCardCoroutine: SelectCardCoroutine,
+                                                    afterSelectCardCoroutine: null,
+                                                    message: "Select digivolution cards to trash.",
+                                                    maxCount: maxCount,
+                                                    canEndNotMax: true,
+                                                    isShowOpponent: true,
+                                                    mode: SelectCardEffect.Mode.Custom,
+                                                    root: SelectCardEffect.Root.Custom,
+                                                    customRootCardList: selectedPermanent.DigivolutionCards,
+                                                    canLookReverseCard: true,
+                                                    selectPlayer: card.Owner,
+                                                    cardEffect: activateClass);
+
+                                        selectCardEffect.SetUpCustomMessage("Select digivolution cards to trash.", "The opponent is selecting digivolution cards to trash.");
+
+                                        yield return StartCoroutine(selectCardEffect.Activate());
+
+                                        bool CanEndSelectCondition(List<CardSource> cardSources)
+                                        {
+                                            if (CardEffectCommons.HasNoElement(cardSources))
+                                            {
+                                                return false;
+                                            }
+
+                                            return true;
+                                        }
+
+                                        IEnumerator SelectCardCoroutine(CardSource cardSource)
+                                        {
+                                            selectedCards.Add(cardSource);
+
+                                            yield return null;
+                                        }
+
+                                        if (selectedCards.Count >= 1)
+                                        {
+                                            yield return ContinuousController.instance.StartCoroutine(new ITrashDigivolutionCards(
+                                                selectedPermanent,
+                                                selectedCards,
+                                                activateClass).TrashDigivolutionCards());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            bool CanSelectCardCondition(CardSource cardSource)
+            if (timing == EffectTiming.WhenPermanentWouldBeDeleted)
             {
-                return !cardSource.CanNotTrashFromDigivolutionCards(activateClass);
+                cardEffects.Add(CardEffectFactory.MaterialSaveEffect(card: card, materialSaveCount: 2));
             }
 
-            bool CanUseCondition(Hashtable hashtable)
+            if (timing == EffectTiming.None)
             {
-                return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
-            }
+                AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();
+                addDigiXrosConditionClass.SetUpICardEffect($"DigiXros", CanUseCondition, card);
+                addDigiXrosConditionClass.SetUpAddDigiXrosConditionClass(getDigiXrosCondition: GetDigiXros);
+                addDigiXrosConditionClass.SetNotShowUI(true);
+                cardEffects.Add(addDigiXrosConditionClass);
 
-            bool CanActivateCondition(Hashtable hashtable)
-            {
-                if (CardEffectCommons.IsExistOnBattleArea(card))
+                bool CanUseCondition(Hashtable hashtable)
                 {
                     return true;
                 }
 
-                return false;
+
+
+                DigiXrosCondition GetDigiXros(CardSource cardSource)
+                {
+                    if (cardSource == card)
+                    {
+                        DigiXrosConditionElement element = new DigiXrosConditionElement(CanSelectCardCondition, "Blue Greymon");
+
+                        bool CanSelectCardCondition(CardSource cardSource)
+                        {
+                            if (cardSource != null)
+                            {
+                                if (cardSource.Owner == card.Owner)
+                                {
+                                    if (cardSource.IsDigimon)
+                                    {
+                                        if (cardSource.CardNames_DigiXros.Contains("Greymon"))
+                                        {
+                                            if (cardSource.HasCardColor(CardColor.Blue))
+                                            {
+                                                return true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            return false;
+                        }
+
+                        DigiXrosConditionElement element1 = new DigiXrosConditionElement(CanSelectCardCondition1, "MailBirdramon");
+
+                        bool CanSelectCardCondition1(CardSource cardSource)
+                        {
+                            if (cardSource != null)
+                            {
+                                if (cardSource.Owner == card.Owner)
+                                {
+                                    if (cardSource.IsDigimon)
+                                    {
+                                        if (cardSource.CardNames_DigiXros.Contains("MailBirdramon"))
+                                        {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            return false;
+                        }
+
+                        List<DigiXrosConditionElement> elements = new List<DigiXrosConditionElement>() { element, element1 };
+
+                        DigiXrosCondition digiXrosCondition = new DigiXrosCondition(elements, null, 2);
+
+                        return digiXrosCondition;
+                    }
+
+                    return null;
+                }
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            if (timing == EffectTiming.OnAllyAttack)
             {
-                await CardEffectCommons.GainRush(
-                                targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card),
-                                effectDuration: EffectDuration.UntilEachTurnEnd,
-                                activateClass: activateClass);
+                ActivateClass activateClass = new ActivateClass();
+                activateClass.SetUpICardEffect("Opponent's 1 Digimon can't attack", CanUseCondition, card);
+                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+                activateClass.SetIsInheritedEffect(true);
+                cardEffects.Add(activateClass);
 
-                if (CardEffectCommons.IsDijiXros(_hashtable, card, (digixrosCount) => digixrosCount >= 1))
+                string EffectDiscription()
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    return "[When Attacking] If this Digimon is [GreyKnightsmon], 1 of your opponent's Digimon with 3 or fewer digivolution cards can't attack until the end of your opponent's turn.";
+                }
+
+                bool CanSelectPermanentCondition(Permanent permanent)
+                {
+                    if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                     {
-                        int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                        if (permanent.DigivolutionCards.Count <= 3)
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
+                bool CanUseCondition(Hashtable hashtable)
+                {
+                    return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+                }
+
+                bool CanActivateCondition(Hashtable hashtable)
+                {
+                    if (CardEffectCommons.IsExistOnBattleArea(card))
+                    {
+                        if (card.PermanentOfThisCard().TopCard.CardNames.Contains("GreyKnightsmon"))
+                        {
+                            if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+
+                    return false;
+                }
+
+                IEnumerator ActivateCoroutine(Hashtable _hashtable)
+                {
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
+                    {
+                        int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                         SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -117,242 +304,24 @@ public sealed class EX4_020 : CEntity_Effect
                             mode: SelectPermanentEffect.Mode.Custom,
                             cardEffect: activateClass);
 
-                        selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will trash digivolution cards.", "The opponent is selecting 1 Digimon that will trash digivolution cards.");
+                        selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get effects.", "The opponent is selecting 1 Digimon that will get effects.");
 
-                        await selectPermanentEffect.Activate();
+                        yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                        async Task SelectPermanentCoroutine(Permanent permanent)
+                        IEnumerator SelectPermanentCoroutine(Permanent permanent)
                         {
-                            Permanent selectedPermanent = permanent;
-
-                            if (selectedPermanent != null)
-                            {
-                                if (selectedPermanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1 && !selectedPermanent.TopCard.CanNotBeAffected(activateClass))
-                                {
-                                    maxCount = Math.Min(2, selectedPermanent.DigivolutionCards.Count(CanSelectCardCondition));
-
-                                    List<CardSource> selectedCards = new List<CardSource>();
-
-                                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
-
-                                    selectCardEffect.SetUp(
-                                                canTargetCondition: CanSelectCardCondition,
-                                                canTargetCondition_ByPreSelecetedList: null,
-                                                canEndSelectCondition: CanEndSelectCondition,
-                                                canNoSelect: () => false,
-                                                selectCardCoroutine: SelectCardCoroutine,
-                                                afterSelectCardCoroutine: null,
-                                                message: "Select digivolution cards to trash.",
-                                                maxCount: maxCount,
-                                                canEndNotMax: true,
-                                                isShowOpponent: true,
-                                                mode: SelectCardEffect.Mode.Custom,
-                                                root: SelectCardEffect.Root.Custom,
-                                                customRootCardList: selectedPermanent.DigivolutionCards.ToList(),
-                                                canLookReverseCard: true,
-                                                selectPlayer: card.Owner,
-                                                cardEffect: activateClass);
-
-                                    selectCardEffect.SetUpCustomMessage("Select digivolution cards to trash.", "The opponent is selecting digivolution cards to trash.");
-
-                                    await selectCardEffect.Activate();
-
-                                    bool CanEndSelectCondition(List<CardSource> cardSources)
-                                    {
-                                        if (CardEffectCommons.HasNoElement(cardSources))
-                                        {
-                                            return false;
-                                        }
-
-                                        return true;
-                                    }
-
-                                    Task SelectCardCoroutine(CardSource cardSource)
-                                    {
-                                        selectedCards.Add(cardSource);
-
-                                        return Task.CompletedTask;
-                                    }
-
-                                    if (selectedCards.Count >= 1)
-                                    {
-                                        await new ITrashDigivolutionCards(
-                                            selectedPermanent,
-                                            selectedCards,
-                                            activateClass.EffectSourceCard?.InstanceId,
-                                            activateClass).TrashDigivolutionCards();
-                                    }
-                                }
-                            }
+                            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainCanNotAttack(
+                                targetPermanent: permanent,
+                                defenderCondition: null,
+                                effectDuration: EffectDuration.UntilOpponentTurnEnd,
+                                activateClass: activateClass,
+                                effectName: "Can't Attack"));
                         }
                     }
                 }
             }
+
+            return cardEffects;
         }
-
-        if (timing == EffectTiming.WhenPermanentWouldBeDeleted)
-        {
-            cardEffects.Add(CardEffectFactory.MaterialSaveEffect(card: card, materialSaveCount: 2));
-        }
-
-        if (timing == EffectTiming.None)
-        {
-            AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();
-            addDigiXrosConditionClass.SetUpICardEffect($"DigiXros", CanUseCondition, card);
-            addDigiXrosConditionClass.SetUpAddDigiXrosConditionClass(getDigiXrosCondition: GetDigiXros);
-            addDigiXrosConditionClass.SetNotShowUI(true);
-            cardEffects.Add(addDigiXrosConditionClass);
-
-            bool CanUseCondition(Hashtable hashtable)
-            {
-                return true;
-            }
-
-            DigiXrosCondition GetDigiXros(CardSource cardSource)
-            {
-                if (cardSource == card)
-                {
-                    DigiXrosConditionElement element = new DigiXrosConditionElement(CanSelectCardCondition, "Blue Greymon");
-
-                    bool CanSelectCardCondition(CardSource cardSource)
-                    {
-                        if (cardSource != null)
-                        {
-                            if (cardSource.Owner == card.Owner)
-                            {
-                                if (cardSource.IsDigimon)
-                                {
-                                    if (cardSource.CardNames_DigiXros.Contains("Greymon"))
-                                    {
-                                        if (cardSource.HasCardColor("Blue"))
-                                        {
-                                            return true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        return false;
-                    }
-
-                    DigiXrosConditionElement element1 = new DigiXrosConditionElement(CanSelectCardCondition1, "MailBirdramon");
-
-                    bool CanSelectCardCondition1(CardSource cardSource)
-                    {
-                        if (cardSource != null)
-                        {
-                            if (cardSource.Owner == card.Owner)
-                            {
-                                if (cardSource.IsDigimon)
-                                {
-                                    if (cardSource.CardNames_DigiXros.Contains("MailBirdramon"))
-                                    {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-
-                        return false;
-                    }
-
-                    List<DigiXrosConditionElement> elements = new List<DigiXrosConditionElement>() { element, element1 };
-
-                    DigiXrosCondition digiXrosCondition = new DigiXrosCondition(elements, null, 2);
-
-                    return digiXrosCondition;
-                }
-
-                return null;
-            }
-        }
-
-        if (timing == EffectTiming.OnAllyAttack)
-        {
-            ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect("Opponent's 1 Digimon can't attack", CanUseCondition, card);
-            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
-            activateClass.SetIsInheritedEffect(true);
-            cardEffects.Add(activateClass);
-
-            string EffectDiscription()
-            {
-                return "[When Attacking] If this Digimon is [GreyKnightsmon], 1 of your opponent's Digimon with 3 or fewer digivolution cards can't attack until the end of your opponent's turn.";
-            }
-
-            bool CanSelectPermanentCondition(Permanent permanent)
-            {
-                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
-                {
-                    if (permanent.DigivolutionCards.Count <= 3)
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
-
-            bool CanUseCondition(Hashtable hashtable)
-            {
-                return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
-            }
-
-            bool CanActivateCondition(Hashtable hashtable)
-            {
-                if (CardEffectCommons.IsExistOnBattleArea(card))
-                {
-                    if (ICardEffect.ResolvePermanentOfThisCard(card).TopCard.CardNames.Contains("GreyKnightsmon"))
-                    {
-                        if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
-                        {
-                            return true;
-                        }
-                    }
-                }
-
-                return false;
-            }
-
-            async Task ActivateCoroutine(Hashtable _hashtable)
-            {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
-                {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
-
-                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
-
-                    selectPermanentEffect.SetUp(
-                        selectPlayer: card.Owner,
-                        canTargetCondition: CanSelectPermanentCondition,
-                        canTargetCondition_ByPreSelecetedList: null,
-                        canEndSelectCondition: null,
-                        maxCount: maxCount,
-                        canNoSelect: false,
-                        canEndNotMax: false,
-                        selectPermanentCoroutine: SelectPermanentCoroutine,
-                        afterSelectPermanentCoroutine: null,
-                        mode: SelectPermanentEffect.Mode.Custom,
-                        cardEffect: activateClass);
-
-                    selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get effects.", "The opponent is selecting 1 Digimon that will get effects.");
-
-                    await selectPermanentEffect.Activate();
-
-                    async Task SelectPermanentCoroutine(Permanent permanent)
-                    {
-                        await CardEffectCommons.GainCanNotAttack(
-                            targetPermanent: permanent,
-                            defenderCondition: null,
-                            effectDuration: EffectDuration.UntilOpponentTurnEnd,
-                            activateClass: activateClass,
-                            effectName: "Can't Attack");
-                    }
-                }
-            }
-        }
-
-        return cardEffects;
     }
 }

@@ -1,60 +1,189 @@
-// Mirrored from DCGO/Assets/Scripts/Script/PlayLog.cs (189 lines).
-// NO-OP PRESENTATION SEAM for substrate root S1 (phase A1). The original is the on-screen scrolling battle-log
-// panel (a MonoBehaviour driving TMP_Text/ScrollRect). Mirror logic had its `PlayLog.OnAddLog?.Invoke(...)`
-// call sites deleted because no such type existed headless; this file re-creates the type so those statements
-// can later be restored verbatim. Every body here is empty — nothing renders, nothing is stored.
-//
-// SIGNATURE CHANGES (rule 4 — no Unity types): none. The public surface of PlayLog uses only string/Action.
-//
-// OMITTED MEMBERS (all private in the original, all Unity/UI-internal):
-//   - fields `_logText` (TMP_Text), `_scroll` (ScrollRect), `_logList`, `_maxLogCharacterLength`, `_first`
-//   - `OnDestroy()`, `GetLogString()`, `SetUpPlayLogCoroutine()`, `AddLogStringCoroutine(string)`,
-//     `AddLink(string)`, `ShowCard(string)`, `AllIndexesOf(string,string)`
-//   AddLink/AllIndexesOf are pure string logic, but they exist only to build TMP `<link>`/`<color>` rich-text
-//   markup for the panel, so they have no headless consumer.
-//
-// BEHAVIOUR NOTE (verified in the original): `Init()` (PlayLog.cs:107-117) subscribes `OnAddLog += AddLogString`
-// and `OnLinkPressed += ShowCard`. This seam deliberately does NOT subscribe — with no text panel there is
-// nothing for a handler to write to, so the static Actions stay null and `OnAddLog?.Invoke(...)` is a no-op.
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+using System;
 
-/// <summary>Headless no-op stand-in for the AS-IS <c>PlayLog</c> battle-log panel. Member names, order and
-/// parameter lists mirror DCGO/Assets/Scripts/Script/PlayLog.cs; all behaviour is stripped.</summary>
-public class PlayLog
+public class PlayLog : MonoBehaviour
 {
-    /// <summary>AS-IS <c>PlayLog.OnAddLog</c> (PlayLog.cs:17) — the static broadcast every log-emitting rule
-    /// site fires. Never subscribed headless (see file header), so invoking it does nothing.</summary>
-    public static Action<string>? OnAddLog;
+    [SerializeField]
+    TMP_Text _logText;
 
-    /// <summary>AS-IS <c>PlayLog.OnLinkPressed</c> (PlayLog.cs:18) — fired by the UI when a card link inside the
-    /// log text is clicked. Never subscribed headless.</summary>
-    public static Action<string>? OnLinkPressed;
+    [SerializeField]
+    ScrollRect _scroll;
 
-    /// <summary>AS-IS <c>OnClickLiogButton()</c> (PlayLog.cs:44, sic — the original spelling) — toggles the
-    /// panel. No panel headless.</summary>
+    #region Events
+    public static Action<string> OnAddLog;
+    public static Action<string> OnLinkPressed;
+    #endregion
+
+    private void OnDestroy()
+    {
+        OnAddLog -= AddLogString;
+        OnLinkPressed -= ShowCard;
+    }
+
+    string GetLogString()
+    {
+        string logString = "";
+
+        foreach (string log in _logList)
+        {
+            logString += log;
+        }
+
+        return logString;
+    }
+
+    List<string> _logList = new List<string>();
+
+    //16250, 13000
+    int _maxLogCharacterLength = 11000;
+
     public void OnClickLiogButton()
     {
+        if (gameObject.activeSelf)
+        {
+            OffPlayLog();
+        }
+
+        else
+        {
+            SetUpPlayLog();
+        }
     }
 
-    /// <summary>AS-IS <c>SetUpPlayLog()</c> (PlayLog.cs:57) — starts the show-panel coroutine.</summary>
     public void SetUpPlayLog()
     {
+        ContinuousController.instance.StartCoroutine(SetUpPlayLogCoroutine());
     }
 
-    /// <summary>AS-IS <c>OffPlayLog()</c> (PlayLog.cs:87) — hides the panel (and plays the cancel SE).</summary>
+    IEnumerator SetUpPlayLogCoroutine()
+    {
+        this.gameObject.SetActive(true);
+
+        if (Opening.instance != null)
+        {
+            Opening.instance.PlayDecisionSE();
+        }
+
+        else if (GManager.instance != null)
+        {
+            GManager.instance.PlayDecisionSE();
+        }
+
+        _logText.text = GetLogString();
+
+        _scroll.content.GetComponent<ContentSizeFitter>().SetLayoutVertical();
+
+        yield return new WaitForSeconds(Time.deltaTime);
+
+        _scroll.verticalNormalizedPosition = 0;
+    }
+
+    bool _first = false;
+
     public void OffPlayLog()
     {
+        if (_first)
+        {
+            if (Opening.instance != null)
+            {
+                Opening.instance.PlayCancelSE();
+            }
+
+            else if (GManager.instance != null)
+            {
+                GManager.instance.PlayCancelSE();
+            }
+        }
+
+        _first = true;
+
+        gameObject.SetActive(false);
     }
 
-    /// <summary>AS-IS <c>Init()</c> (PlayLog.cs:107) — clears the log text/list and wires the static Actions.
-    /// </summary>
     public void Init()
     {
+        OffPlayLog();
+
+        _logText.text = "";
+
+        _logList = new List<string>();
+
+        OnAddLog += AddLogString;
+        OnLinkPressed += ShowCard;
     }
 
-    /// <summary>AS-IS <c>AddLogString(string)</c> (PlayLog.cs:119) — the <c>OnAddLog</c> handler; appends the
-    /// ASCII-normalised line to the panel.</summary>
     public void AddLogString(string logText)
     {
+        AddLogStringCoroutine(DataBase.ReplaceToASCII(logText));
+    }
+
+    void AddLogStringCoroutine(string log)
+    {
+        _logList.Add(AddLink(log));
+
+        while (GetLogString().Length >= _maxLogCharacterLength)
+        {
+            if (_logList.Count >= 1)
+            {
+                _logList.RemoveAt(0);
+            }
+        }
+
+        _logText.text = GetLogString();
+    }
+
+    string AddLink(string log)
+    {
+        List<int> startIndex = AllIndexesOf(log, "(");
+        List<int> endIndex = AllIndexesOf(log, ")");
+        List<string> subStrings = new List<string>();
+
+        for(int i = 0; i < startIndex.Count; i++)
+        {
+            if (startIndex[i] < 0 && endIndex[i] < 0)
+                continue;
+
+            startIndex[i] += 1;
+
+            string str = log.Substring(startIndex[i], endIndex[i] - startIndex[i]);
+
+            if(!subStrings.Contains(str) && !String.IsNullOrEmpty(str))
+                subStrings.Add(str);
+        }
+
+        foreach(string str in subStrings)
+            log = log.Replace(str, $"<link={str}><color=#92F6FF><u>{str}</u></color></link>");
+
+        return log;
+    }
+
+    void ShowCard(string cardID)
+    {
+        CardSource founcdCardSource = GManager.instance.turnStateMachine.gameContext.ActiveCardList
+        .Find(cardSource1 => cardSource1.CardID == cardID);
+
+        if (founcdCardSource != null)
+        {
+            GManager.instance.cardDetail.OpenCardDetail(founcdCardSource, true);
+        }
+    }
+
+    //Might need to move this more relavent
+    List<int> AllIndexesOf(string str, string value)
+    {
+        if (String.IsNullOrEmpty(value))
+            throw new ArgumentException("the string to find may not be empty", "value");
+        List<int> indexes = new List<int>();
+        for (int index = 0; ; index += value.Length)
+        {
+            index = str.IndexOf(value, index);
+            if (index == -1)
+                return indexes;
+            indexes.Add(index);
+        }
     }
 }

@@ -1,26 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST4/Green/ST4_11.cs
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS ST4_11.
-//   [Your Turn][Once Per Turn] When this Digimon deletes an opponent's Digimon in battle and survives,
-//   trash the top card of your opponent's security stack.
-// AS-IS: ActivateClass on OnEndBattle, SetIsInheritedEffect(true), SetHashString("TrashSecurity_ST4_11"),
-// ORDER=1 ([Once Per Turn]), ISOPTIONAL=false. CanUseCondition = IsExistOnBattleArea && IsOwnerTurn &&
-// CanTriggerWhenDeleteOpponentDigimonByBattle(winner = permanent.cardSources.Contains(card), loser =
-// IsOpponentPermanent, isOnlyWinnerSurvive:true). CanActivateCondition = IsExistOnBattleArea. ActivateCoroutine
-// = new IDestroySecurity(opponent, 1, cardEffect, fromTop:true).DestroySecurity().
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `new IDestroySecurity(player:
-// card.Owner.Enemy, destroySecurityCount: 1, cardEffect: activateClass, fromTop: true)` -> the mirror carrier
-// `(card.Context, CardEffectCommons.OpponentOf(card), 1, activateClass.EffectSourceCard.InstanceId,
-// fromTop: true)` (established BT8_057 idiom). AS-IS `permanent.cardSources.Contains(card)` kept verbatim
-// (mirror Permanent exposes cardSources).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST4.Green;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class ST4_11 : CEntity_Effect
+public class ST4_11 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -69,14 +55,13 @@ public sealed class ST4_11 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await new IDestroySecurity(
-                    card.Context,
-                    CardEffectCommons.OpponentOf(card),
-                    1,
-                    activateClass,
-                    fromTop: true).DestroySecurity();
+                yield return ContinuousController.instance.StartCoroutine(new IDestroySecurity(
+                    player: card.Owner.Enemy,
+                    destroySecurityCount: 1,
+                    cardEffect: activateClass,
+                    fromTop: true).DestroySecurity());
             }
         }
 

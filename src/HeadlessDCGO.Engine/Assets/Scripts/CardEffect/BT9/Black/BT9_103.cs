@@ -1,37 +1,13 @@
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// PILOT-S1 카드 — BT9_103 (Option / Black)
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// ① AS-IS 앵커: DCGO/Assets/Scripts/CardEffect/BT9/Black/BT9_103.cs (95 lines, no region markers, 2 timing 블록)
-//    * [Main]     :16-86 (timing == OptionSkill — GainCanNotAttackPlayerEffect + CannotAddSecurityClass)
-//    * [Security] :88-91 (timing == SecuritySkill — AddActivateMainOptionSecurityEffect)
-//
-// ② 프리미티브 매핑:
-//    * P:GiveEffectToPlayer(GainCanNotAttackPlayerEffect) — 코스트 7 이하 상대 디지몬 플레이어 공격 불가
-//      (AS-IS :35-61)
-//    * P:CannotAddSecurityClass — 상대 효과로 시큐리티 추가 불가, UntilOpponentTurnEndEffects 등재 (AS-IS :64-83)
-//    * P:ReuseMainOptionEffect(AddActivateMainOptionSecurityEffect) — [Security] (AS-IS :90)
-//
-// ③ 배선 관례 근거:
-//    * [Main] → OptionSkill + CanTriggerOptionMainEffect(hashtable, card) 게이트(AS-IS :29 그대로).
-//    * [Security] → SecuritySkill + AddActivateMainOptionSecurityEffect(SecurityResolver가 해소).
-//
-// 치환(substrate translations only):
-//    * IEnumerator→async Task, `yield return ContinuousController.instance.StartCoroutine(X)`→`await X`
-//      — GainCanNotAttackPlayerEffect는 AS-IS 시그니처 그대로인 Task 오버로드(CanNotAttack.cs bridge,
-//      activateClass 인자)가 존재해 그대로 `await` 사용.
-//    * `card.Owner.UntilOpponentTurnEndEffects.Add(...)` → `new Player(card.Context, card.Owner)
-//      .UntilOpponentTurnEndEffects.Add(...)` (미러 Player 접근 idiom).
-//    * `CardEffectCommons.IsOpponentEffect(cardEffect, card)`(AS-IS는 ICardEffect 인자) → 미러 오버로드는
-//      CardSource? 인자(effect의 EffectSourceCard) — `CardEffectCommons.IsOpponentEffect(cardEffect?.EffectSourceCard, card)`.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT9.Black;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT9_103 : CEntity_Effect
+
+public class BT9_103 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -53,7 +29,7 @@ public sealed class BT9_103 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
                 {
                     bool AttackerCondition(Permanent Attacker)
@@ -77,19 +53,19 @@ public sealed class BT9_103 : CEntity_Effect
                         return Defender == null;
                     }
 
-                    await CardEffectCommons.GainCanNotAttackPlayerEffect(
+                    yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainCanNotAttackPlayerEffect(
                         attackerCondition: AttackerCondition,
                         defenderCondition: DefenderCondition,
                         effectDuration: EffectDuration.UntilOpponentTurnEnd,
                         activateClass: activateClass,
-                        effectName: "Can't Attack to player");
+                        effectName: "Can't Attack to player"));
                 }
 
                 {
                     CannotAddSecurityClass cannotAddSecurityClass = new CannotAddSecurityClass();
                     cannotAddSecurityClass.SetUpICardEffect("Can't Add Security", CanUseCondition1, card);
                     cannotAddSecurityClass.SetUpCannotAddSecurityClass(PlayerCondition: PlayerCondition, CardEffectCondition: CardEffectCondition);
-                    new Player(card.Context, card.Owner).UntilOpponentTurnEndEffects.Add((_timing) => cannotAddSecurityClass);
+                    card.Owner.UntilOpponentTurnEndEffects.Add((_timing) => cannotAddSecurityClass);
 
                     bool CanUseCondition1(Hashtable hashtable)
                     {
@@ -103,7 +79,7 @@ public sealed class BT9_103 : CEntity_Effect
 
                     bool CardEffectCondition(ICardEffect cardEffect)
                     {
-                        return CardEffectCommons.IsOpponentEffect(cardEffect?.EffectSourceCard, card);
+                        return CardEffectCommons.IsOpponentEffect(cardEffect, card);
                     }
                 }
             }

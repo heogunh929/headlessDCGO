@@ -1,26 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_056.cs
-// R5-A re-port (RD-R6-01 / RD-P8-01 resolved): old-model ActivatedEffect + ActivatedSelectAndPlayFromZonesEffect ->
-// new-model ActivateClass now that the mirror SelectHandEffect exists (Script/SelectHandEffect.cs). The prior
-// mirror pooled Hand ∪ Trash into one combined select ("area prompt = UI sugar"); AS-IS instead asks a REAL
-// area bool (from hand / from trash) then runs the zone-specific component — restored verbatim.
-//   [On Play] You may play 1 [Tinkermon] from your hand or recycle bin without paying its memory cost.
-// AS-IS structure kept verbatim (BT1_056.cs:17-174): inline ActivateClass, SetUpActivateClass(..., -1, true, ...).
-// The ActivateCoroutine's area bool = GManager.instance.userSelectionManager (bridge W5, BT1_111 idiom); the
-// from-hand branch = SelectHandEffect(Mode.Custom) (bridge W4); the from-trash branch = SelectCardEffect(Root.Trash);
-// then CardEffectCommons.PlayPermanentCards(root: fromHand ? Hand : Trash, payCost:false).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `card.Owner.HandCards` ->
-// new Player(ctx, owner).HandCards; SelectCardCoroutine (IEnumerator, yield null) -> Task.CompletedTask.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
-
-using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_056 : CEntity_Effect
+public class BT1_056 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -60,7 +46,7 @@ public sealed class BT1_056 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (new Player(card.Context, card.Owner).HandCards.Count >= 1)
+                    if (card.Owner.HandCards.Count >= 1)
                     {
                         return true;
                     }
@@ -74,9 +60,9 @@ public sealed class BT1_056 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                bool canSelectHand = new Player(card.Context, card.Owner).HandCards.Count(CanSelectCardCondition) >= 1;
+                bool canSelectHand = card.Owner.HandCards.Count(CanSelectCardCondition) >= 1;
                 bool canSelectTrash = CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition);
 
                 if (canSelectHand || canSelectTrash)
@@ -100,17 +86,17 @@ public sealed class BT1_056 : CEntity_Effect
                         GManager.instance.userSelectionManager.SetBool(canSelectHand);
                     }
 
-                    await GManager.instance.userSelectionManager.WaitForEndSelect();
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.userSelectionManager.WaitForEndSelect());
 
                     bool fromHand = GManager.instance.userSelectionManager.SelectedBoolValue;
 
                     List<CardSource> selectedCards = new List<CardSource>();
 
-                    Task SelectCardCoroutine(CardSource cardSource)
+                    IEnumerator SelectCardCoroutine(CardSource cardSource)
                     {
                         selectedCards.Add(cardSource);
 
-                        return Task.CompletedTask;
+                        yield return null;
                     }
 
                     if (fromHand)
@@ -136,7 +122,7 @@ public sealed class BT1_056 : CEntity_Effect
                         selectHandEffect.SetUpCustomMessage("Select 1 card to play.", "The opponent is selecting 1 card to play.");
                         selectHandEffect.SetUpCustomMessage_ShowCard("Played Card");
 
-                        await selectHandEffect.Activate();
+                        yield return StartCoroutine(selectHandEffect.Activate());
                     }
 
                     else
@@ -166,7 +152,7 @@ public sealed class BT1_056 : CEntity_Effect
                         selectCardEffect.SetUpCustomMessage("Select 1 card to play.", "The opponent is selecting 1 card to play.");
                         selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
 
-                        await selectCardEffect.Activate();
+                        yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
                     }
 
                     SelectCardEffect.Root root = SelectCardEffect.Root.Hand;
@@ -176,13 +162,13 @@ public sealed class BT1_056 : CEntity_Effect
                         root = SelectCardEffect.Root.Trash;
                     }
 
-                    await CardEffectCommons.PlayPermanentCards(
+                    yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(
                         cardSources: selectedCards,
                         activateClass: activateClass,
                         payCost: false,
                         isTapped: false,
                         root: root,
-                        activateETB: true);
+                        activateETB: true));
                 }
             }
         }

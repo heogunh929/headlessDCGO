@@ -1,36 +1,11 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST2/Blue/ST2_14.cs
-// TRUE AS-IS-verbatim re-port (batch: ST2 Blue). 1:1 mirror of the original ST2_14 (an Option).
-//   [Main]     Choose 1 of your opponent's Digimon with no digivolution cards. That Digimon can't attack or
-//              block until the end of your opponent's next turn.
-//   [Security] Same, until the end of your next turn.
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndRestrictEffect(...)` calls (an invented
-// helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` +
-// `GManager.instance.GetComponent<SelectPermanentEffect>()` select flow, applying `GainCanNotAttack` THEN
-// `GainCanNotBlock` per selected permanent (bridge W4 — see ST1_08.cs; GainCanNotAttack/GainCanNotBlock are the
-// real AS-IS-signature bridges at CardEffectCommons/GiveEffect/GiveEffectToPermanent/CanNotAttack.cs &
-// CanNotBlock.cs).
-// AS-IS structure kept verbatim: both blocks pass `null` for CanActivateCondition (SetUpActivateClass's first
-// arg); [Security] calls `SetIsSecurityEffect(true)`; [Main] uses `UntilOpponentTurnEnd`, [Security] uses
-// `UntilOwnerTurnEnd`.
-// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `CanSelectPermanentCondition(Permanent permanent)` kept on the canonical `Func<Permanent,bool>` shape
-// (id-flip 3b; IsOpponentBattleAreaDigimon converts to its Permanent-form sibling
-// IsPermanentExistsOnOpponentBattleAreaDigimon; HasNoDigivolutionCards has no Permanent-form sibling, so it is
-// called with `permanent.InstanceId`, commons signature unchanged); AS-IS
-// `CardEffectCommons.HasMatchConditionPermanent(cond)` / `MatchConditionPermanentCount(cond)` (global scan, no
-// CardSource arg in AS-IS) -> mirror's `(card, condition)` overloads.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class ST2_14 : CEntity_Effect
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class ST2_14 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -50,8 +25,15 @@ public sealed class ST2_14 : CEntity_Effect
 
             bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
-                    && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId);
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                {
+                    if (permanent.HasNoDigivolutionCards)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
             }
 
             bool CanUseCondition(Hashtable hashtable)
@@ -59,11 +41,11 @@ public sealed class ST2_14 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -82,27 +64,28 @@ public sealed class ST2_14 : CEntity_Effect
 
                     selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get effects.", "The opponent is selecting 1 Digimon that will get effects.");
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
-                        await CardEffectCommons.GainCanNotAttack(
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainCanNotAttack(
                             targetPermanent: permanent,
                             defenderCondition: null,
                             effectDuration: EffectDuration.UntilOpponentTurnEnd,
                             activateClass: activateClass,
-                            effectName: "Can't Attack");
+                            effectName: "Can't Attack"));
 
-                        await CardEffectCommons.GainCanNotBlock(
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainCanNotBlock(
                             targetPermanent: permanent,
                             attackerCondition: null,
                             effectDuration: EffectDuration.UntilOpponentTurnEnd,
                             activateClass: activateClass,
-                            effectName: "Can't Block");
+                            effectName: "Can't Block"));
                     }
                 }
             }
         }
+
 
         if (timing == EffectTiming.SecuritySkill)
         {
@@ -119,8 +102,15 @@ public sealed class ST2_14 : CEntity_Effect
 
             bool CanSelectPermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
-                    && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId);
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                {
+                    if (permanent.HasNoDigivolutionCards)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
             }
 
             bool CanUseCondition(Hashtable hashtable)
@@ -128,11 +118,11 @@ public sealed class ST2_14 : CEntity_Effect
                 return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -153,23 +143,23 @@ public sealed class ST2_14 : CEntity_Effect
                         "Select 1 Digimon that will get effects.",
                         "The opponent is selecting 1 Digimon that will get effects.");
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
-                        await CardEffectCommons.GainCanNotAttack(
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainCanNotAttack(
                             targetPermanent: permanent,
                             defenderCondition: null,
                             effectDuration: EffectDuration.UntilOwnerTurnEnd,
                             activateClass: activateClass,
-                            effectName: "Can't Attack");
+                            effectName: "Can't Attack"));
 
-                        await CardEffectCommons.GainCanNotBlock(
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainCanNotBlock(
                             targetPermanent: permanent,
                             attackerCondition: null,
                             effectDuration: EffectDuration.UntilOwnerTurnEnd,
                             activateClass: activateClass,
-                            effectName: "Can't Block");
+                            effectName: "Can't Block"));
                     }
                 }
             }

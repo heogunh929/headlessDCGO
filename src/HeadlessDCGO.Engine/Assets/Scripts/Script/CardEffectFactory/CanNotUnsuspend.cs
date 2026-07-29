@@ -1,15 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/CanNotUnsuspend.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of AS-IS CanNotUnsuspend.cs factory partial.
-// Returns the ported CanNotUnsuspendClass kind-class (CardEffects/CanNotUnsuspendClass.cs).
-// ADAPTATION: permanent.TopCard.CanNotBeAffected(ICardEffect) -> CanNotBeAffected(EffectSourceCard?.InstanceId).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CanNotUnsuspendClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {

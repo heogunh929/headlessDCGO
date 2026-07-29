@@ -1,20 +1,12 @@
-// Source: Assets/Scripts/CardEffect/BT1/Red/BT1_085.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Ported per-card effect source
-//
-// 1:1 mirror of the original BT1_085 (Red Tamer):
-//   [Start of Your Turn] Set your memory to 3 (if 2 or less).      -> SetMemoryTo3TamerEffect
-//   [Your Turn] Your Red Digimon with 4 or more digivolution cards
-//   get +1 security attacks.                                        -> ChangeSAttackStaticEffect
-//   [Security] Play this Tamer.                                     -> PlaySelfTamerSecurityEffect
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class BT1_085 : CEntity_Effect
+public class BT1_085 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -44,7 +36,7 @@ public sealed class BT1_085 : CEntity_Effect
             {
                 if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))
                 {
-                    if (permanent.TopCard.HasCardColor("Red"))
+                    if (permanent.TopCard.CardColors.Contains(CardColor.Red))
                     {
                         if (permanent.DigivolutionCards.Count >= 4)
                         {

@@ -1,165 +1,69 @@
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using UnityEngine;
 
-// (EFFECT-MODEL REBUILD / bridge W1) AS-IS-signature `Task` overload; delegates to the verified substrate
-// `GainAlliance` (CardEffectCommons.cs:3433). Kept in the flat `...Script.CardEffectCommons` namespace (not
-// the nested `.KeyWordEffects` namespace above) so this is a genuine overload of the same partial
-// `CardEffectCommons` type every ported card calls — per the established convention (see
-// docs/audit/effect_model_rebuild_design_2026-07-13.md §11.3).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
+public partial class CardEffectCommons
 {
-    using System;
-    using System.Collections;
-    using System.Collections.Generic;
-    using System.Threading.Tasks;
-    using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
-    public static partial class CardEffectCommons
+    #region Can activate [Alliance]
+    public static bool CanActivateAlliance(Hashtable hashtable, CardSource card)
     {
-        /// <summary>(C-Atk) AS-IS <c>CardEffectCommons.GainAlliance</c> (KeyWordEffects/Alliance.cs:136) 1:1:
-        /// register a <see cref="CardEffectFactory.AllianceEffect"/> <c>ActivateClass</c> on the target
-        /// permanent's <c>OnAllyAttack</c> duration bucket via <see cref="AddEffectToPermanent"/> (W3 live).
-        /// The granted Alliance then fires through the SAME OnAllyAttack window that collects a printed
-        /// Alliance (GetSkillInfos → MultipleSkills), NOT the retired AllianceAttackBoost gate. ADAPTATION
-        /// (substrate only): the AS-IS <c>CreateBuffEffect</c> VFX loop (Effects.cs:1433) is stripped (pure
-        /// UI, no state); the coroutine becomes a completed <see cref="Task"/>.</summary>
-        public static async Task GainAlliance(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
+        bool CanSelectPermanentCondition(Permanent permanent)
         {
-            if (targetPermanent == null) return;
-            if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
-            if (activateClass == null) return;
-            if (activateClass.EffectSourceCard == null) return;
-
-            CardSource card = activateClass.EffectSourceCard;
-
-            bool CanUseCondition()
+            if (IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))
             {
-                if (IsPermanentExistsOnBattleArea(targetPermanent))
+                if (permanent != card.PermanentOfThisCard())
                 {
-                    if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                    if (CanActivateSuspendCostEffect(permanent.TopCard))
                     {
                         return true;
                     }
                 }
-
-                return false;
             }
 
-            // AS-IS names the local `retaliation` (a copy-paste from GainRetaliation); kept 1:1.
-            ActivateClass retaliation = CardEffectFactory.AllianceEffect(
-                targetPermanent: targetPermanent,
-                isInheritedEffect: false,
-                condition: CanUseCondition,
-                rootCardEffect: activateClass,
-                card: targetPermanent.TopCard);
-
-            AddEffectToPermanent(
-                targetPermanent: targetPermanent,
-                effectDuration: effectDuration,
-                card: card,
-                cardEffect: retaliation,
-                timing: EffectTiming.OnAllyAttack);
-
-            // AS-IS :172-175 CreateBuffEffect (pure VFX/SE, Effects.cs:1433) — stripped.
-            await Task.CompletedTask;
+            return false;
         }
 
-        /// <summary>(J-4) 1:1 mirror of AS-IS <c>GainAlliancePlayerEffect</c> (KeyWordEffects/Alliance.cs:180-219):
-        /// the OWNING PLAYER gains a timed "its Digimon have [Alliance]" grant. Builds the AS-IS
-        /// <see cref="CardEffectFactory.AllianceStaticEffect"/> ActivateClass (EffectName "Alliance", the folded
-        /// PermanentCondition = on-battle-area && !TopCard.CanNotBeAffected(cause) && caller predicate; CanUse =
-        /// true) and stores it in the owning player's <c>OnAllyAttack</c> duration bucket via
-        /// <see cref="AddEffectToPlayer"/> — DIFFERENT timing from the restriction grants (Alliance is a
-        /// firing-window keyword). Read LIVE by <see cref="Permanent.HasAlliance"/> / NewModelContinuousScan.HasAlliance
-        /// (scan player.EffectList(OnAllyAttack) for EffectName=="Alliance" && CanTrigger), surfaced by
-        /// ContinuousKeywordGate.HasKeyword — the retired GainToPlayerScope keyword funnel is gone (RD-RC-03 resolved).
-        /// AS-IS coroutine only drove the per-permanent CreateBuffEffect UI visual (dropped). The public
-        /// AS-IS-signature `Task` overload threads the LIVE `activateClass` as the CanNotBeAffected cause; the
-        /// CardSource-only substrate overload (CardEffectCommons.cs) collapses the cause to BareCauseEffect.For(sourceCard).</summary>
-        public static async Task GainAlliancePlayerEffect(Func<Permanent, bool> permanentCondition, EffectDuration effectDuration, ICardEffect activateClass)
+        if (CardEffectCommons.IsExistOnBattleArea(card))
         {
-            // AS-IS :182-183 guards (activateClass / EffectSourceCard null).
-            if (activateClass is null || activateClass.EffectSourceCard is null)
+            if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
             {
-                await Task.CompletedTask;
-                return;
+                return true;
             }
-
-            GainAlliancePlayerEffectImpl(permanentCondition, effectDuration, card: activateClass.EffectSourceCard, cause: activateClass);
-            await Task.CompletedTask;
         }
 
-        /// <summary>AS-IS 1:1 body shared by the <c>ICardEffect</c> overload (above) and the CardSource-only substrate
-        /// overload (CardEffectCommons.cs). Mirrors AS-IS GainAlliancePlayerEffect :180-219.</summary>
-        internal static bool GainAlliancePlayerEffectImpl(
-            Func<Permanent, bool>? permanentCondition,
-            EffectDuration effectDuration,
-            CardSource? card,
-            ICardEffect? cause)
-        {
-            if (card is null || cause is null) return false;   // AS-IS :182-183
+        return false;
+    }
+    #endregion
 
-            bool PermanentCondition(Permanent permanent)   // AS-IS :187-201
+    #region Effect process of [Alliance]
+    public static IEnumerator AllianceProcess(Hashtable hashtable, ICardEffect activateClass, Permanent targetPermanent, CardSource card)
+    {
+        bool CanSelectPermanentCondition(Permanent permanent)
+        {
+            if (IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))
             {
-                if (IsPermanentExistsOnBattleArea(permanent))
+                if (permanent != targetPermanent)
                 {
-                    if (!permanent.TopCard.CanNotBeAffected(cause))
+                    if (CanActivateSuspendCostEffect(permanent.TopCard))
                     {
-                        if (permanentCondition is null || permanentCondition(permanent))
-                        {
-                            return true;
-                        }
+                        return true;
                     }
                 }
-
-                return false;
             }
 
-            bool CanUseCondition() => true;   // AS-IS :203-206
-
-            ICardEffect alliance = CardEffectFactory.AllianceStaticEffect(  // AS-IS :208
-                permanentCondition: PermanentCondition,
-                isInheritedEffect: false,
-                card: card,
-                condition: CanUseCondition);
-
-            AddEffectToPlayer(  // AS-IS :210
-                effectDuration: effectDuration,
-                card: card,
-                cardEffect: alliance,
-                timing: EffectTiming.OnAllyAttack);
-
-            // AS-IS :212-218 iterated PermanentsForTurnPlayer running CreateBuffEffect (UI visual) — dropped headless.
-            return true;
+            return false;
         }
 
-        /// <summary>(P6 cluster2) AS-IS <c>CanActivateAlliance</c> (KeyWordEffects/Alliance.cs:10, verbatim).</summary>
-        public static bool CanActivateAlliance(Hashtable hashtable, CardSource card)
+        if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
         {
-            bool CanSelectPermanentCondition(Permanent permanent) =>
-                IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
-                && permanent.InstanceId != ICardEffect.ResolvePermanentOfThisCard(card)?.InstanceId
-                && CanActivateSuspendCostEffect(permanent.TopCard);
+            Permanent selectedPermanent = null;
 
-            return IsExistOnBattleArea(card) && HasMatchConditionPermanent(card, CanSelectPermanentCondition);
-        }
+            int maxCount = Math.Min(1, MatchConditionPermanentCount(CanSelectPermanentCondition));
 
-        /// <summary>(P6 cluster2) AS-IS <c>AllianceProcess</c> (KeyWordEffects/Alliance.cs:41): owner suspends 1
-        /// other Digimon; this Digimon (the attacker) gains that Digimon's DP and +1 Security Attack for the
-        /// attack.</summary>
-        public static async Task AllianceProcess(Hashtable hashtable, ICardEffect activateClass, Permanent targetPermanent, CardSource card)
-        {
-            bool CanSelectPermanentCondition(Permanent permanent) =>
-                IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
-                && permanent.InstanceId != targetPermanent.InstanceId
-                && CanActivateSuspendCostEffect(permanent.TopCard);
+            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
-            if (!HasMatchConditionPermanent(card, CanSelectPermanentCondition))
-            {
-                return;
-            }
-
-            int maxCount = Math.Min(1, MatchConditionPermanentCount(card, CanSelectPermanentCondition));
-            var selectPermanentEffect = GManager.instance!.GetComponent<SelectPermanentEffect>();
-            Permanent? selected = null;
             selectPermanentEffect.SetUp(
                 selectPlayer: card.Owner,
                 canTargetCondition: CanSelectPermanentCondition,
@@ -168,35 +72,150 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
                 maxCount: maxCount,
                 canNoSelect: true,
                 canEndNotMax: false,
-                selectPermanentCoroutine: (Permanent p) => { selected = p; return Task.CompletedTask; },
+                selectPermanentCoroutine: SelectPermanentCoroutine,
                 afterSelectPermanentCoroutine: null,
                 mode: SelectPermanentEffect.Mode.Custom,
                 cardEffect: activateClass);
+
             selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to suspend.", "The opponent is selecting 1 Digimon to suspend.");
-            await selectPermanentEffect.Activate().ConfigureAwait(false);
 
-            // (C-Atk fidelity) AS-IS Alliance.cs:95 guards the SUSPEND on `!selected.TopCard.CanNotBeAffected(activateClass)`
-            // — an ally immune to this effect is NOT suspended (and grants no buff). Restored here (was dropped in the
-            // P6 cluster2 early-return rewrite).
-            if (selected?.TopCard is null
-                || selected.TopCard.CanNotBeAffected(activateClass)
-                || !CanActivateSuspendCostEffect(selected.TopCard))
+            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+
+            IEnumerator SelectPermanentCoroutine(Permanent permanent)
             {
-                return;
+                selectedPermanent = permanent;
+
+                yield return null;
             }
 
-            Permanent tapPermanent = selected;
-            await new SuspendPermanentsClass(new List<Permanent> { tapPermanent }, activateClass, isBlock: false)
-                .Tap().ConfigureAwait(false);
-
-            if (tapPermanent.TopCard is null || !tapPermanent.IsSuspended || !IsPermanentExistsOnOwnerBattleAreaDigimon(targetPermanent, card))
+            if (selectedPermanent != null)
             {
-                return;
-            }
+                if (selectedPermanent.TopCard != null)
+                {
+                    if (!selectedPermanent.TopCard.CanNotBeAffected(activateClass))
+                    {
+                        if (CanActivateSuspendCostEffect(selectedPermanent.TopCard))
+                        {
+                            Permanent tapPermanent = selectedPermanent;
 
-            int plusDp = tapPermanent.DP;
-            ChangeDigimonDP(targetPermanent, plusDp, EffectDuration.UntilEndAttack, card, activateClass);
-            ChangeDigimonSAttack(targetPermanent, 1, EffectDuration.UntilEndAttack, card, activateClass: activateClass);
+                            yield return ContinuousController.instance.StartCoroutine(new SuspendPermanentsClass(
+                                new List<Permanent>() { tapPermanent },
+                                CardEffectHashtable(activateClass)).Tap());
+
+                            if (tapPermanent.TopCard != null)
+                            {
+                                if (tapPermanent.IsSuspended)
+                                {
+                                    if (IsPermanentExistsOnOwnerBattleAreaDigimon(targetPermanent, card))
+                                    {
+                                        int plusDP = tapPermanent.DP;
+
+                                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonDP(
+                                            targetPermanent: targetPermanent,
+                                            changeValue: plusDP,
+                                            effectDuration: EffectDuration.UntilEndAttack,
+                                            activateClass: activateClass));
+
+                                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonSAttack(
+                                            targetPermanent: targetPermanent,
+                                            changeValue: 1,
+                                            effectDuration: EffectDuration.UntilEndAttack,
+                                            activateClass: activateClass));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+    #endregion
+
+    #region Target 1 Digimon gains [Alliance]
+    public static IEnumerator GainAlliance(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
+    {
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+
+        CardSource card = activateClass.EffectSourceCard;
+
+        bool CanUseCondition()
+        {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        ActivateClass retaliation = CardEffectFactory.AllianceEffect(
+            targetPermanent: targetPermanent,
+            isInheritedEffect: false,
+            condition: CanUseCondition,
+            rootCardEffect: activateClass,
+            card: targetPermanent.TopCard);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent,
+            effectDuration: effectDuration,
+            card: card,
+            cardEffect: retaliation,
+            timing: EffectTiming.OnAllyAttack);
+
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(targetPermanent));
+        }
+    }
+    #endregion
+
+    #region Player gains effect to have Digimon gains [Alliance]
+    public static IEnumerator GainAlliancePlayerEffect(Func<Permanent, bool> permanentCondition, EffectDuration effectDuration, ICardEffect activateClass)
+    {
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+
+        CardSource card = activateClass.EffectSourceCard;
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            if (IsPermanentExistsOnBattleArea(permanent))
+            {
+                if (!permanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    if (permanentCondition == null || permanentCondition(permanent))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        bool CanUseCondition()
+        {
+            return true;
+        }
+
+        ICardEffect alliance = CardEffectFactory.AllianceStaticEffect(permanentCondition: PermanentCondition, isInheritedEffect: false, card: card, condition: CanUseCondition);
+
+        AddEffectToPlayer(effectDuration: effectDuration, card: card, cardEffect: alliance, timing: EffectTiming.OnAllyAttack);
+
+        foreach (Permanent permanent in GManager.instance.turnStateMachine.gameContext.PermanentsForTurnPlayer)
+        {
+            if (PermanentCondition(permanent))
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(permanent));
+            }
+        }
+    }
+    #endregion
 }

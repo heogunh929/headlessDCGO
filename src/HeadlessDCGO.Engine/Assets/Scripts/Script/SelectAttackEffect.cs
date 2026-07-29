@@ -1,76 +1,17 @@
-// Source: Assets/Scripts/Script/SelectAttackEffect.cs
-// Decision: PORT
-// Category: AIUseful
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script
-//
-// (BIG-BANG REBUILD v2 / R5-B) 1:1 mirror of the AS-IS DCGO SelectAttackEffect (a MonoBehaviour selection
-// flow). SetUp captures the attacker, the player-target condition, the defender predicate, and the effect;
-// the setters (SetWithoutTap/SetIsVortex/SetCanNotSelectNotAttack/custom message/before+after coroutines)
-// mirror the AS-IS surface verbatim. The condition/candidate-enumeration methods (CanTarget / CanAttackDigimon
-// / CanAttackPlayer / active / CanEndSelect) are ported 1:1 on the R1 Permanent.CanAttack /
-// CanAttackTargetDigimon getters.
-//
-// ADAPTATION (substrate translations only, same shape as SelectPermanentEffect / CardObjectController's
-// IZoneMover delegation):
-//   * The AS-IS target-selection UI + Photon-RPC/WaitUntil transport (SelectAttackEffect.cs:227-723) is the
-//     ChoiceProvider request — the established Select* transport. The SAME candidates (CanTarget field
-//     permanents + the "attack the player/security" click target) are offered; the pick resolves to _defender
-//     (a Permanent, or null for a direct player attack) or _noSelect ("Not Attack").
-//   * The attack INITIATION (AS-IS `attackProcess.Attack(_attacker, _defender, _cardEffect, _withoutTap,
-//     _beforeOnAttackCoroutine)`, :1013-1017) is delegated to the mirror AttackProcess surface via the shared
-//     declaration chokepoint AttackDeclarationCommons.Declare (== EffectDrivenAttack.Initiate's declaration,
-//     the MIG1 split: declare on the controller, then run the AS-IS Attack() sequence). This component supplies
-//     the in-place SelectAttackEffect the R2-A callers (Overclock/Vortex/Execute) previously reached through
-//     the EffectDrivenAttack.RequestChoice ADAPTATION.
-//   * `_beforeOnAttackCoroutine` is NOT threaded through the declaration chokepoint (Declare passes null) —
-//     design item MIG1-BEFOREONATTACK (latent; none of the bridged callers set a before-coroutine, and the
-//     [On Attack] window fires inside Attack, so it cannot run after Declare). The AS-IS SetCanNotSelectNotAttack
-//     "mandatory attack" (no skip) IS honoured (canSkip = _canSelectNotAttack).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
-
+using Photon.Pun;
 using System;
+using System.Collections;
 using System.Collections.Generic;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Linq;
+using UnityEngine;
 
-public sealed class SelectAttackEffect
+public class SelectAttackEffect : MonoBehaviourPunCallbacks
 {
-    // (transport strip) AS-IS `SecurityIndex = -1` / `NopIndex = -2` (SelectAttackEffect.cs:10-11) encode the
-    // "attack the player" and "Not Attack" picks over the Photon RPC int transport; the ChoiceProvider request
-    // carries a synthetic player candidate + canSkip instead.
+    const int SecurityIndex = -1;
+    const int NopIndex = -2;
 
-    private Permanent? _attacker;
-    private Func<bool>? _canAttackPlayerCondition;
-    private Func<Permanent, bool>? _defenderCondition;
-    private bool _canSelectNotAttack = true;
-    private bool _withoutTap;
-    private bool _isVortex;
-
-    private string? _customMessage;
-    private string? _customMessage_Enemy;   // AS-IS opponent-side UI text — no headless effect (single process).
-
-    private Permanent? _defender;
-    private ICardEffect? _cardEffect;
-    private Func<Task>? _beforeOnAttackCoroutine;   // (substrate) AS-IS Func<IEnumerator> -> Func<Task>.
-    private Func<Task>? _afterOnAttackCoroutine;
-
-    /// <summary>AS-IS public field <c>_noSelect</c> — set by <see cref="Activate"/> when the select player took
-    /// the "Not Attack" opt-out.</summary>
-    public bool _noSelect;
-
-    private EngineContext? _context;
-
-    /// <summary>(bridge) The match context the AS-IS <c>GManager.instance.GetComponent&lt;SelectAttackEffect&gt;()</c>
-    /// route injects (the AS-IS component reads the same state through the GManager singleton).</summary>
-    internal void AttachContext(EngineContext context) => _context = context;
-
-    /// <summary>AS-IS <c>SetUp</c> (SelectAttackEffect.cs:13-31) — the attacker, the player-attack condition, the
-    /// defender predicate, and the effect. Resets exactly the fields AS-IS resets.</summary>
-    public void SetUp(
+    public void SetUp
+        (
         Permanent attacker,
         Func<bool> canAttackPlayerCondition,
         Func<Permanent, bool> defenderCondition,
@@ -90,34 +31,55 @@ public sealed class SelectAttackEffect
         _afterOnAttackCoroutine = null;
     }
 
-    /// <summary>AS-IS <c>SetUpCustomMessage</c> (:33-37).</summary>
     public void SetUpCustomMessage(string customMessage, string customMessage_Enemy)
     {
         _customMessage = customMessage;
         _customMessage_Enemy = customMessage_Enemy;
     }
 
-    /// <summary>AS-IS <c>SetCanNotSelectNotAttack</c> (:39-42) — the attack is mandatory (no "Not Attack" skip).</summary>
-    public void SetCanNotSelectNotAttack() => _canSelectNotAttack = false;
+    public void SetCanNotSelectNotAttack()
+    {
+        _canSelectNotAttack = false;
+    }
 
-    /// <summary>AS-IS <c>SetWithoutTap</c> (:44-47) — the attacker is NOT suspended by the attack.</summary>
-    public void SetWithoutTap() => _withoutTap = true;
+    public void SetWithoutTap()
+    {
+        _withoutTap = true;
+    }
+    
+    public void SetIsVortex()
+    {
+        _isVortex = true;
+    }
 
-    /// <summary>AS-IS <c>SetIsVortex</c> (:49-52) — a Vortex attack (unsuspended Digimon are also targetable,
-    /// threaded through <c>CanAttackTargetDigimon(..., isVortex: true)</c>).</summary>
-    public void SetIsVortex() => _isVortex = true;
-
-    /// <summary>AS-IS <c>SetBeforeOnAttackCoroutine</c> (:54-57) — see MIG1-BEFOREONATTACK.</summary>
-    public void SetBeforeOnAttackCoroutine(Func<Task> beforeOnAttackCoroutine) =>
+    public void SetBeforeOnAttackCoroutine(Func<IEnumerator> beforeOnAttackCoroutine)
+    {
         _beforeOnAttackCoroutine = beforeOnAttackCoroutine;
+    }
 
-    /// <summary>AS-IS <c>SetAfterOnAttackCoroutine</c> (:59-62) — runs once the attack sequence completes.</summary>
-    public void SetAfterOnAttackCoroutine(Func<Task> afterOnAttackCoroutine) =>
+    public void SetAfterOnAttackCoroutine(Func<IEnumerator> afterOnAttackCoroutine)
+    {
         _afterOnAttackCoroutine = afterOnAttackCoroutine;
+    }
 
-    /// <summary>AS-IS <c>CanTarget</c> (SelectAttackEffect.cs:81-108): the attacker can attack, can attack THIS
-    /// Digimon (R1 <c>CanAttackTargetDigimon</c>), and the per-effect defender predicate accepts it.</summary>
-    private bool CanTarget(Permanent permanent)
+    Permanent _attacker = null;
+    Func<bool> _canAttackPlayerCondition = null;
+    Func<Permanent, bool> _defenderCondition = null;
+    bool _canSelectNotAttack = true;
+    bool _withoutTap = false;
+    bool _isVortex = false;
+    bool _noSelect = false;
+
+    string _customMessage = null;
+    string _customMessage_Enemy = null;
+
+    Permanent _defender = null;
+    ICardEffect _cardEffect = null;
+    Func<IEnumerator> _beforeOnAttackCoroutine = null;
+    Func<IEnumerator> _afterOnAttackCoroutine = null;
+
+    #region ƒp[ƒ}ƒlƒ“ƒg‚ð‘I‘ð‚Å‚«‚é‚©
+    bool CanTarget(Permanent permanent)
     {
         if (_attacker != null)
         {
@@ -139,16 +101,17 @@ public sealed class SelectAttackEffect
                     }
                 }
             }
+
         }
 
         return false;
     }
+    #endregion
 
-    /// <summary>AS-IS <c>CanAttackDigimon</c> (:110-125): any field permanent (both players) passes
-    /// <see cref="CanTarget"/>.</summary>
+    #region UŒ‚‚Å‚«‚é‘ŠŽèƒp[ƒ}ƒlƒ“ƒg‚ª‚¢‚é‚©
     public bool CanAttackDigimon()
     {
-        foreach (Player player in new GameContext(RequireContext()).Players)
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
         {
             foreach (Permanent permanent in player.GetFieldPermanents())
             {
@@ -161,10 +124,10 @@ public sealed class SelectAttackEffect
 
         return false;
     }
+    #endregion
 
-    /// <summary>AS-IS <c>CanAttackPlayer</c> (:127-155): the attacker can attack, can attack the player (R1
-    /// <c>CanAttackTargetDigimon(null, ...)</c>), and the per-effect player-attack condition accepts it.</summary>
-    private bool CanAttackPlayer()
+    #region ƒvƒŒƒCƒ„[‚ÉUŒ‚‚ª‰Â”\‚©
+    bool CanAttackPlayer()
     {
         if (_attacker != null)
         {
@@ -186,12 +149,14 @@ public sealed class SelectAttackEffect
                     }
                 }
             }
+
         }
 
         return false;
     }
+    #endregion
 
-    /// <summary>AS-IS <c>active</c> (:157-174): a Digimon OR player target exists, and no attack is in flight.</summary>
+    #region ‘I‘ð‚ª‰Â”\‚©‚Ç‚¤‚©
     public bool active()
     {
         if (!CanAttackDigimon())
@@ -202,17 +167,17 @@ public sealed class SelectAttackEffect
             }
         }
 
-        if (AttackProcess.For(RequireContext()).IsAttacking)
+        if (GManager.instance.attackProcess.IsAttacking)
         {
             return false;
         }
 
         return true;
     }
+    #endregion
 
-    /// <summary>AS-IS <c>CanEndSelect</c> (:176-197): the null pick (player) requires <see cref="CanAttackPlayer"/>,
-    /// a Digimon pick requires <see cref="CanAttackDigimon"/>.</summary>
-    private bool CanEndSelect(Permanent? selectedPermanent)
+    #region I—¹‚Å‚«‚é‚©”»’è
+    bool CanEndSelect(Permanent selectedPermanent)
     {
         if (selectedPermanent == null)
         {
@@ -221,6 +186,7 @@ public sealed class SelectAttackEffect
                 return false;
             }
         }
+
         else
         {
             if (!CanAttackDigimon())
@@ -231,177 +197,373 @@ public sealed class SelectAttackEffect
 
         return true;
     }
+    #endregion
 
-    /// <summary>AS-IS <c>Activate</c> (SelectAttackEffect.cs:199-618) — the target selection then the attack.
-    /// Guards (:203-205) verbatim; UI/Photon strips (AS-IS anchors): Off*Target + IsSelecting (:214-224 — the
-    /// choice-pause substrate), message/side-bar/outline/back-button plumbing + the RPC/WaitUntil transport
-    /// (:227-723), and the visual cleanup region (:725-746). The enumeration + `attackProcess.Attack` initiation
-    /// (:1013-1017) are the ADAPTATION described in the file header.</summary>
-    public async Task Activate()
+    public IEnumerator Activate()
     {
         _defender = null;
         _noSelect = false;
 
-        if (_attacker == null)
+        if (_attacker == null) yield break;
+        if (_attacker.TopCard == null) yield break;
+        if (!_attacker.CanAttack(_cardEffect, _withoutTap, _isVortex)) yield break;
+
+        if (active())
         {
-            return;
-        }
 
-        if (_attacker.TopCard == null)
-        {
-            return;
-        }
-
-        if (!_attacker.CanAttack(_cardEffect, _withoutTap, _isVortex))
-        {
-            return;
-        }
-
-        if (!active())
-        {
-            return;
-        }
-
-        EngineContext context = RequireContext();
-
-        // AS-IS candidate scan (:294-320): every CanTarget field permanent is an OnClickFieldPermanentCard target.
-        var candidates = new List<ChoiceCandidate>();
-        var targetByCandidateId = new Dictionary<HeadlessEntityId, Permanent>();
-
-        foreach (Player player in new GameContext(context).Players)
-        {
-            foreach (Permanent permanent in player.GetFieldPermanents())
+            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
             {
-                if (CanTarget(permanent) && !targetByCandidateId.ContainsKey(permanent.InstanceId))
+                GManager.instance.turnStateMachine.OffFieldCardTarget(player);
+                GManager.instance.turnStateMachine.OffHandCardTarget(player);
+            }
+
+            GManager.instance.turnStateMachine.IsSelecting = true;
+
+            Player attackOwner = _attacker?.TopCard != null ? _attacker.TopCard.Owner : null;
+
+            if (_attacker != null)
+            {
+                if (_attacker.TopCard != null)
                 {
-                    candidates.Add(EffectChoiceHelpers.Candidate(
-                        permanent.InstanceId, permanent.InstanceId.Value, ChoiceZone.BattleArea,
-                        isSelectable: true, permanent.OwnerId));
-                    targetByCandidateId[permanent.InstanceId] = permanent;
+                    if (_attacker.CanAttack(_cardEffect, _withoutTap, _isVortex))
+                    {
+                        if (_attacker.TopCard.Owner.isYou)
+                        {
+                            #region Select Attack Target
+                            if (!string.IsNullOrEmpty(_customMessage))
+                            {
+                                GManager.instance.commandText.OpenCommandText(_customMessage);
+                            }
+
+                            else
+                            {
+                                if (CanAttackDigimon())
+                                {
+                                    GManager.instance.commandText.OpenCommandText("Which target will you attack?");
+                                }
+
+                                else
+                                {
+                                    GManager.instance.commandText.OpenCommandText("Will you attack to the opponent?");
+                                }
+                            }
+
+                            #endregion
+
+                            Permanent selectedPermanent = null;
+
+                            #region Can Attack Player
+                            if (CanAttackPlayer())
+                            {
+                                if (_attacker.TopCard.Owner.Enemy.SecurityCards.Count >= 1)
+                                {
+                                    _attacker.TopCard.Owner.Enemy.securityObject.securityBreakGlass.ShowBlueMatarial();
+                                }
+
+                                _attacker.TopCard.Owner.Enemy.securityObject.SetSecurityAttackObject();
+                                _attacker.TopCard.Owner.Enemy.securityObject.SetSecurityOutline(true);
+
+                                _attacker.TopCard.Owner.Enemy.securityObject.AddClickTarget(() =>
+                                {
+                                    selectedPermanent = null;
+                                    EndSelect_RPC();
+                                });
+
+                            }
+                            #endregion
+
+                            List<FieldPermanentCard> candidates = new List<FieldPermanentCard>();
+
+                            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+                            {
+                                foreach (Permanent permanent in player.GetFieldPermanents())
+                                {
+                                    if (CanTarget(permanent))
+                                    {
+                                        permanent.ShowingPermanentCard.AddClickTarget(OnClickFieldPermanentCard);
+                                        candidates.Add(permanent.ShowingPermanentCard);
+                                    }
+                                }
+                            }
+
+                            if (candidates.Count >= 1)
+                            {
+                                GManager.instance.hideCannotSelectObject.SetUpHideCannotSelectObject(candidates, false);
+                            }
+
+                            CheckEndSelect();
+
+                            #region Selecting field permanent
+                            void OnClickFieldPermanentCard(FieldPermanentCard fieldPermanentCard)
+                            {
+                                if (selectedPermanent == fieldPermanentCard.ThisPermanent)
+                                {
+                                    selectedPermanent = null;
+                                }
+
+                                else
+                                {
+                                    selectedPermanent = fieldPermanentCard.ThisPermanent;
+                                }
+
+                                CheckEndSelect();
+                            }
+                            #endregion
+
+                            #region End Selectiong "Not Attack"
+                            void CheckEndSelect()
+                            {
+                                #region CanEndSelect
+                                if (CanEndSelect(selectedPermanent))
+                                {
+
+                                }
+
+                                else
+                                {
+
+                                }
+                                #endregion
+
+                                #region Visually Select Target
+                                foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+                                {
+                                    foreach (Permanent permanent in player.GetFieldPermanents())
+                                    {
+                                        permanent.ShowingPermanentCard.RemoveSelectEffect();
+
+                                        if (CanTarget(permanent))
+                                        {
+                                            if (selectedPermanent == permanent)
+                                            {
+                                                permanent.ShowingPermanentCard.OnSelectEffect(1.1f);
+                                                permanent.ShowingPermanentCard.SetOrangeOutline();
+                                            }
+
+                                            else
+                                            {
+                                                permanent.ShowingPermanentCard.OnSelectEffect(1.1f);
+                                                permanent.ShowingPermanentCard.SetBlueOutline();
+                                            }
+                                        }
+                                    }
+                                }
+                                #endregion
+
+                                if (selectedPermanent == null)
+                                {
+                                    if (_canSelectNotAttack)
+                                    {
+                                        GManager.instance.BackButton.OpenSelectCommandButton("Not Attack", () => { photonView.RPC("SetAttackTarget", RpcTarget.All, attackOwner.PlayerID, false, NopIndex); }, 0);
+                                    }
+
+                                    GManager.instance.selectCommandPanel.CloseSelectCommandPanel();
+                                }
+
+                                else
+                                {
+                                    GManager.instance.selectCommandPanel.SetUpCommandButton(new List<Command_SelectCommand>() { new Command_SelectCommand("End Selection", EndSelect_RPC, 0) });
+
+                                    GManager.instance.BackButton.CloseSelectCommandButton();
+                                }
+                            }
+
+                            #endregion
+
+                            #region End Selection RPC
+                            void EndSelect_RPC()
+                            {
+                                foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+                                {
+                                    foreach (Permanent permanent in player.GetFieldPermanents())
+                                    {
+                                        permanent.ShowingPermanentCard.RemoveSelectEffect();
+                                        permanent.ShowingPermanentCard.RemoveClickTarget();
+                                    }
+                                }
+
+                                bool isTurnPlayer = false;
+                                int PermanentIndex = SecurityIndex;
+
+                                if (selectedPermanent != null)
+                                {
+                                    if (selectedPermanent.TopCard != null)
+                                    {
+                                        isTurnPlayer = selectedPermanent.TopCard.Owner == GManager.instance.turnStateMachine.gameContext.TurnPlayer;
+                                        PermanentIndex = selectedPermanent.TopCard.Owner.GetFieldPermanents().IndexOf(selectedPermanent);
+                                    }
+                                }
+
+                                photonView.RPC("SetAttackTarget", RpcTarget.All, attackOwner.PlayerID, isTurnPlayer, PermanentIndex);
+
+                                GManager.instance.BackButton.CloseSelectCommandButton();
+                            }
+                            #endregion
+                        }
+
+                        else
+                        {
+                            #region Showing Enemy Message
+                            if (!string.IsNullOrEmpty(_customMessage_Enemy))
+                            {
+                                GManager.instance.commandText.OpenCommandText(_customMessage_Enemy);
+                            }
+
+                            else
+                            {
+                                GManager.instance.commandText.OpenCommandText("The opponent is selecting the attack target.");
+                            }
+                            #endregion
+
+                            #region AI
+                            if (GManager.instance.IsAI)
+                            {
+                                List<Permanent> AttackcTargetCandidates = new List<Permanent>();
+
+                                foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+                                {
+                                    foreach (Permanent permanent in player.GetFieldPermanents())
+                                    {
+                                        if (CanTarget(permanent))
+                                        {
+                                            AttackcTargetCandidates.Add(permanent);
+                                        }
+                                    }
+                                }
+
+                                Permanent selectedPermanent = null;
+
+                                if (AttackcTargetCandidates.Count >= 1)
+                                {
+                                    if (!_attacker.CanAttackTargetDigimon(null, _cardEffect, _withoutTap, _isVortex) || (_attacker.TopCard.Owner.Enemy.SecurityCards.Count >= 3 && RandomUtility.IsSucceedProbability(0.5f)))
+                                    {
+                                        selectedPermanent = AttackcTargetCandidates[UnityEngine.Random.Range(0, AttackcTargetCandidates.Count)];
+                                    }
+                                }
+
+                                bool isTurnPlayer = false;
+                                int PermanentIndex = SecurityIndex;
+
+                                if (selectedPermanent != null)
+                                {
+                                    if (selectedPermanent.TopCard != null)
+                                    {
+                                        isTurnPlayer = selectedPermanent.TopCard.Owner == GManager.instance.turnStateMachine.gameContext.TurnPlayer;
+                                        PermanentIndex = selectedPermanent.TopCard.Owner.GetFieldPermanents().IndexOf(selectedPermanent);
+                                    }
+                                }
+
+                                SetAttackTarget(attackOwner.PlayerID, isTurnPlayer, PermanentIndex);
+                            }
+                            #endregion
+                        }
+                    }
+                }
+            }
+
+            //Wait until selection ends
+            yield return new WaitUntil(() => attackOwner.HasPlayerSelection());
+
+            _defender = null;
+            bool isTargetTurnPlayer = false;
+            int targetIndex = SecurityIndex;
+
+            PermanentSelection permanentSelection = attackOwner.DequeuePlayerSelection<PermanentSelection>();
+
+            if (permanentSelection != null)
+            {
+                if (permanentSelection.IsTurnPlayerList != null && permanentSelection.IsTurnPlayerList.Length > 0 &&
+                        permanentSelection.PermanentIDList != null && permanentSelection.PermanentIDList.Length > 0)
+                {
+                    isTargetTurnPlayer = permanentSelection.IsTurnPlayerList[0];
+                    targetIndex = permanentSelection.PermanentIDList[0];
+                }
+
+                _noSelect = targetIndex == NopIndex;
+
+                if (_noSelect)
+                {
+                    GManager.instance.selectCommandPanel.CloseSelectCommandPanel();
+                }
+                else if (targetIndex != SecurityIndex)
+                {
+                    Player player = null;
+
+                    if (isTargetTurnPlayer)
+                    {
+                        player = GManager.instance.turnStateMachine.gameContext.TurnPlayer;
+                    }
+
+                    else
+                    {
+                        player = GManager.instance.turnStateMachine.gameContext.NonTurnPlayer;
+                    }
+
+                    if (targetIndex >= 0 && targetIndex < player.GetFieldPermanents().Count)
+                    {
+                        _defender = player.GetFieldPermanents()[targetIndex];
+                    }
+                }
+            }
+
+            #region Clean up visual selections and UI
+            foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+            {
+                GManager.instance.turnStateMachine.OffFieldCardTarget(player);
+                GManager.instance.turnStateMachine.OffHandCardTarget(player);
+
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    permanent.ShowingPermanentCard.RemoveSelectEffect();
+                }
+
+                player.securityObject.OffShowSecurityAttackObject();
+                player.securityObject.RemoveClickTarget();
+
+                if (_defender != null || _noSelect)
+                {
+                    player.securityObject.securityBreakGlass.gameObject.SetActive(false);
+                }
+            }
+
+            GManager.instance.hideCannotSelectObject.Close();
+
+            GManager.instance.selectCommandPanel.CloseSelectCommandPanel();
+            GManager.instance.BackButton.CloseSelectCommandButton();
+
+            GManager.instance.commandText.CloseCommandText();
+            yield return new WaitWhile(() => GManager.instance.commandText.gameObject.activeSelf);
+
+            #endregion
+
+            if (!_noSelect)
+            {
+                if (CanEndSelect(_defender))
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.attackProcess.Attack(_attacker, _defender, _cardEffect, _withoutTap, _beforeOnAttackCoroutine));
+
+                    if(_afterOnAttackCoroutine != null)
+                        yield return ContinuousController.instance.StartCoroutine(_afterOnAttackCoroutine());
                 }
             }
         }
-
-        // AS-IS "attack the player / security" click target (:280-292) — a synthetic candidate resolving to a
-        // null _defender (direct attack).
-        var playerTargetId = new HeadlessEntityId($"{_attacker.InstanceId.Value}:attack-player");
-        if (CanAttackPlayer())
-        {
-            candidates.Add(EffectChoiceHelpers.Candidate(
-                playerTargetId, "Attack the player", ChoiceZone.BattleArea,
-                isSelectable: true, _attacker.OwnerId));
-        }
-
-        if (candidates.Count == 0)
-        {
-            // active() already guaranteed a target; defensive.
-            return;
-        }
-
-        // canSkip / minCount = AS-IS "Not Attack" back-button (:322-331), suppressed by SetCanNotSelectNotAttack.
-        var request = new ChoiceRequest(
-            ChoiceType.Permanent, _attacker.OwnerId, BuildMessage(),
-            minCount: _canSelectNotAttack ? 0 : 1, maxCount: 1, canSkip: _canSelectNotAttack,
-            ChoiceZone.BattleArea, candidates);
-
-        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
-
-        if (result.IsSkipped || result.SelectedIds.Count == 0)
-        {
-            _noSelect = true;
-        }
-        else
-        {
-            HeadlessEntityId picked = result.SelectedIds[0];
-            if (picked == playerTargetId)
-            {
-                _defender = null;
-            }
-            else if (targetByCandidateId.TryGetValue(picked, out Permanent? defenderPermanent))
-            {
-                _defender = defenderPermanent;
-            }
-        }
-
-        if (_noSelect)
-        {
-            return;
-        }
-
-        if (!CanEndSelect(_defender))
-        {
-            return;
-        }
-
-        // (ADAPTATION) attack initiation — AS-IS `attackProcess.Attack(_attacker, _defender, _cardEffect,
-        // _withoutTap, _beforeOnAttackCoroutine)`. The mirror declares on the controller then runs the AS-IS
-        // Attack() sequence through the shared chokepoint (== EffectDrivenAttack.Initiate's declaration).
-        HeadlessPlayerId attackingPlayer = _attacker.OwnerId;
-        HeadlessEntityId? attackEffectSourceId = _cardEffect?.EffectSourceCard?.InstanceId;
-
-        // (RD-W3-7) The AS-IS `_beforeOnAttackCoroutine` (SetBeforeOnAttackCoroutine, sole live setter = Blitz's
-        // BlitzProcess for ST13_06) is now threaded into the declaration. A non-null hook takes the ASYNC-pausable
-        // DeclareAsync (the hook may open a select that parks the pump in place); a null hook keeps the SYNC Declare
-        // — byte-identical to the pre-RD-W3-7 path, so Execute/Vortex/Overclock (all null hook) are unaffected.
-        Func<System.Threading.CancellationToken, Task>? beforeOnAttack =
-            _beforeOnAttackCoroutine is null ? null : (_ => _beforeOnAttackCoroutine());
-
-        HeadlessPlayerId defendingPlayer;
-        HeadlessEntityId? targetId;
-        bool isDirectAttack;
-
-        if (_defender is not null)
-        {
-            defendingPlayer = _defender.OwnerId;
-            targetId = _defender.InstanceId;
-            isDirectAttack = false;
-        }
-        else
-        {
-            // AS-IS defending player = `_attacker.TopCard.Owner.Enemy` (the direct-attack security target).
-            Player? enemy = new Player(context, attackingPlayer).Enemy;
-            if (enemy is null)
-            {
-                return;
-            }
-
-            defendingPlayer = enemy.PlayerId;
-            targetId = null;
-            isDirectAttack = true;
-        }
-
-        // (DECLARATION re-migration) the retired substrate AttackDeclarationCommons split this into a SYNC
-        // Declare (null hook) and an ASYNC DeclareAsync; both were the same body, so the single AS-IS-shaped
-        // mirror overload carries both — the hook is simply passed through (null keeps the previous path).
-        await AttackProcess.For(context).Attack(
-            attackingPlayer, _attacker.InstanceId,
-            defendingPlayer, targetId, isDirectAttack,
-            attackEffectSourceId, _withoutTap, beforeOnAttack).ConfigureAwait(false);
-
-        // AS-IS after-attack coroutine (:1019-1020).
-        if (_afterOnAttackCoroutine != null)
-        {
-            await _afterOnAttackCoroutine().ConfigureAwait(false);
-        }
     }
 
-    /// <summary>AS-IS player-facing prompt (:236-260): the custom message when set, else the Digimon/player
-    /// default text.</summary>
-    private string BuildMessage()
+    #region ‘I‘ðŒˆ’è
+    [PunRPC]
+    public void SetAttackTarget(int playerID, bool isTurnPlayer, int permanentIndex)
     {
-        if (!string.IsNullOrEmpty(_customMessage))
+        bool[] isTurnPlayerList = new bool[] { isTurnPlayer };
+        int[] permanentIndexList = new int[] { permanentIndex };
+
+        Player selectionPlayer = GManager.instance.GetPlayerFromID(playerID);
+
+        if (selectionPlayer == null)
         {
-            return _customMessage!;
+            return;
         }
 
-        return CanAttackDigimon() ? "Which target will you attack?" : "Will you attack to the opponent?";
+        selectionPlayer.QueuePlayerSelection(new PermanentSelection(isTurnPlayerList, permanentIndexList));
     }
-
-    private EngineContext RequireContext() =>
-        _context
-        ?? _cardEffect?.EffectSourceCard?.Context
-        ?? _attacker?.TopCard?.Context
-        ?? throw new InvalidOperationException(
-            "SelectAttackEffect has no EngineContext — obtain the instance via " +
-            "GManager.instance.GetComponent<SelectAttackEffect>() or AttachContext.");
+    #endregion
 }

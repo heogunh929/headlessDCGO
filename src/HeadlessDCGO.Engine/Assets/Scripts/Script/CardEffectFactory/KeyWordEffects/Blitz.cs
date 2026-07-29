@@ -1,17 +1,6 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Blitz.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Blitz.cs factory partial.
-// ADAPTATION (substrate only; logic verbatim):
-//   * card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card).
-//   * `Func<IEnumerator> beforeOnAttackCoroutine` -> `Func<Task> beforeOnAttackCoroutine` (coroutine->Task).
-//   * coroutine `IEnumerator ActivateCoroutine` (pure delegation) -> non-async `Task ActivateCoroutine`.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public partial class CardEffectFactory
 {
@@ -23,7 +12,7 @@ public partial class CardEffectFactory
         bool isWhenDigivolving,
         ICardEffect rootCardEffect = null)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card) ?? new Permanent(card.Context, card.InstanceId, card.Owner);
+        Permanent targetPermanent = card.PermanentOfThisCard() ?? new Permanent(new List<CardSource>() { card });
 
         bool CanUseCondition()
         {
@@ -53,7 +42,7 @@ public partial class CardEffectFactory
         bool isWhenDigivolving,
         ICardEffect rootCardEffect,
         CardSource card,
-        Func<Task> beforeOnAttackCoroutine = null)
+        Func<IEnumerator> beforeOnAttackCoroutine = null)
     {
         if (targetPermanent == null) return null;
         if (targetPermanent.TopCard == null) return null;
@@ -118,7 +107,7 @@ public partial class CardEffectFactory
             return false;
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
             return CardEffectCommons.BlitzProcess(targetPermanent.TopCard, activateClass, beforeOnAttackCoroutine);
         }

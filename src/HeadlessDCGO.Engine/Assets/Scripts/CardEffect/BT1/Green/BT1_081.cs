@@ -1,26 +1,11 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_081.cs
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [End of Attack] branch (the
-// [Piercing] OnDetermineDoSecurityCheck branch is already new-model, via CardEffectFactory.PierceSelfEffect,
-// and is untouched).
-//   [End of Attack][Twice Per Turn] You can unsuspend this Digimon by decreasing your memory by 3.
-// AS-IS: ActivateClass on OnEndAttack, CanUseCondition = CanTriggerOnAttack, CanActivateCondition =
-// IsExistOnBattleArea && card.Owner.MaxMemoryCost >= 3, ORDER=2 ([Twice Per Turn]), ISOPTIONAL=true,
-// ActivateCoroutine = card.Owner.AddMemory(-3, activateClass) THEN IUnsuspendPermanents(self).Unsuspend().
-// AS-IS structure kept verbatim: inline `new ActivateClass()` + local functions. Substrate translations only:
-// IEnumerator->Task, StartCoroutine->await; `card.Owner.MaxMemoryCost` (AS-IS live Player property) ->
-// `new Player(card.Context, card.Owner).MaxMemoryCost` (mirror `CardSource.Owner` is a bare HeadlessPlayerId,
-// so the Player handle is reconstructed, the established BT1_104/BT2_023/BT9_109 idiom);
-// `card.Owner.AddMemory(-3, activateClass)` -> the mirror HeadlessPlayerId extension (established
-// BT1_114/BT1_030 idiom); `card.PermanentOfThisCard()` -> `ICardEffect.ResolvePermanentOfThisCard(card)`.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
-public sealed class BT1_081 : CEntity_Effect
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT1_081 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -55,7 +40,7 @@ public sealed class BT1_081 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (new Player(card.Context, card.Owner).MaxMemoryCost >= 3)
+                    if (card.Owner.MaxMemoryCost >= 3)
                     {
                         return true;
                     }
@@ -64,13 +49,13 @@ public sealed class BT1_081 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await card.Owner.AddMemory(-3, activateClass);
+                yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(-3, activateClass));
 
-                Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+                Permanent selectedPermanent = card.PermanentOfThisCard();
 
-                await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend();
+                yield return ContinuousController.instance.StartCoroutine(new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend());
             }
         }
 

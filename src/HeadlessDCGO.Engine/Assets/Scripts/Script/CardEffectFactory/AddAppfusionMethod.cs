@@ -1,19 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/AddAppfusionMethod.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS AddAppfusionMethod.cs factory partial.
-// Returns the ported AddAppFusionConditionClass kind-class (CardEffects/AddAppFusionConditionClass.cs).
-// NOTE (diverged substrate; see docs/audit/rebuild_p4_factory_missing.md — kept VERBATIM per the
-//   no-simplification directive): AS-IS `if (permanent.LinkedCards.Find(x => cardConditions[j](x)))` relies on
-//   UnityEngine.Object's implicit bool conversion (List<CardSource>.Find returns a CardSource that Unity treats
-//   as truthy). The mirror CardSource has no implicit-bool operator, so this expression does not lower cleanly.
-//   UnityEngine/Photon stripped.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // AddAppFusionConditionClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -43,7 +32,7 @@ public partial class CardEffectFactory
                     {
                         for (int i = 0; i < cardConditions.Count; i++)
                         {
-                            if (cardConditions[i](source))
+                            if (cardConditions[i](source)) 
                             {
                                 for (int j = 0; j < cardConditions.Count; j++)
                                 {
@@ -56,7 +45,7 @@ public partial class CardEffectFactory
                                     }
                                 }
                             }
-
+                            
                         }
                     }
                 }
@@ -75,10 +64,7 @@ public partial class CardEffectFactory
                             {
                                 if (i != j)
                                 {
-                                    // AS-IS `if (permanent.LinkedCards.Find(...))` relies on Unity
-                                    // MonoBehaviour's implicit-bool null check (CardSource : MonoBehaviour);
-                                    // the mirror CardSource is a plain class, so the equivalent is `!= null`.
-                                    if (permanent.LinkedCards.Find(x => cardConditions[j](x)) != null)
+                                    if (permanent.LinkedCards.Find(x => cardConditions[j](x)))
                                     {
                                         return true;
                                     }

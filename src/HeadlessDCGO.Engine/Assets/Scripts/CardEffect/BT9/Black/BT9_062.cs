@@ -1,26 +1,13 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT9/Black/BT9_062.cs
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [End of Attack] INHERITED
-// (digivolution-source) branch.
-//   [End of Attack] If this Digimon has [Alphamon] in its name, delete 1 of your opponent's Digimon with a play
-//   cost of 5 or less.
-// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpActivateClass(..., -1, false, ...) (uncapped,
-// mandatory) + SetIsInheritedEffect(true) (BT9_062.cs:16-90). Substrate translations only: IEnumerator->Task,
-// StartCoroutine->await; `GManager.instance.GetComponent<SelectPermanentEffect>()` + full AS-IS SetUp(Mode.Destroy)
-// (bridge W4, established BT2_092 idiom); AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` supplied
-// directly to SetUp's canonical Func<Permanent,bool> overload / MatchConditionPermanentCount (no id adapter);
-// `card.PermanentOfThisCard().TopCard.ContainsCardName("Alphamon")` (the HOST top card, an
-// inherited source resolves PermanentOfThisCard to its host) -> `ICardEffect.ResolvePermanentOfThisCard(card)`.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT9.Black;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT9_062 : CEntity_Effect
+
+public class BT9_062 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -64,9 +51,9 @@ public sealed class BT9_062 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                     {
-                        if (ICardEffect.ResolvePermanentOfThisCard(card).TopCard.ContainsCardName("Alphamon"))
+                        if (card.PermanentOfThisCard().TopCard.ContainsCardName("Alphamon"))
                         {
                             return true;
                         }
@@ -76,11 +63,11 @@ public sealed class BT9_062 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -97,7 +84,7 @@ public sealed class BT9_062 : CEntity_Effect
                         mode: SelectPermanentEffect.Mode.Destroy,
                         cardEffect: activateClass);
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                 }
             }
         }

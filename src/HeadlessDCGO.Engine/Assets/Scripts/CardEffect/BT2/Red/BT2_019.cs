@@ -1,16 +1,59 @@
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Blue;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class BT2_019 : CEntity_Effect
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT2_019 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        // STOP: AS-IS는 OnAllyAttack 타이밍에 DefendingPermanent == null(수비 Permanent 없음 = 플레이어 직접 공격)을
-        // 발동 조건으로 요구하나, 헤드리스 CardEffectCommons 및 triggerGate(Func<CardEffectResolveContext,bool>)에
-        // 공격 대상이 Digimon이 아닌 플레이어임을 확인하는 primitive가 없음 — 조건을 충실히 재현 불가로 블록 전체 등록 생략
+        if (timing == EffectTiming.OnAllyAttack)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[When Attacking] When this Digimon attacks a player, gain 1 memory.";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.CanTriggerOnAttack(hashtable, card))
+                {
+                    if (GManager.instance.attackProcess.DefendingPermanent == null)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (card.Owner.CanAddMemory(activateClass))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
+            {
+                yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
+            }
+        }
 
         return cardEffects;
     }

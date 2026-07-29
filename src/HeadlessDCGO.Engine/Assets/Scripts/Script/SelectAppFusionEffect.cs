@@ -1,35 +1,18 @@
-// Source: DCGO/Assets/Scripts/Script/SelectAppFusionEffect.cs (241 lines)
-// (R5-C) 1:1 mirror of the AS-IS SelectAppFusionEffect component ‚Äî the App-Fusion pre-digivolve selection
-// flow the play pipeline reaches through GManager.instance.selectAppFusionEffect (CardController.cs:786-793,
-// the "which method to digivolve" branch + the link-card -> source conversion). Substrate translations only
-// (bigbang ¬ß5): IEnumerator -> Task, StartCoroutine(x) -> await x, ContinuousController.instance.StartCoroutine
-// -> await; UI/Photon stripped. Candidate enumeration, gates, ordering and the STATE fields are AS-IS verbatim.
-//
-// The one ADAPTATION is the two-option "With which method would you like to Digivolve?" panel
-// (SelectAppFusionEffect.cs:60-74 GManager.instance.selectCardPanel.OpenSelectCardPanel with two card copies +
-// titleStrings, read back as SelectedIndex): the established ChoicePort substrate has no card-panel-with-titles
-// surface, so it maps to a ChoiceType.ModeChoice request (min 1 / max 1 / canSkip = _canNoSelect, two synthetic
-// labeled options), exactly the UserSelectionManager.WaitForEndSelect / SelectCardEffect selection formula
-// (synthetic id "appFusion#{index}", index parsed back off the id). The AS-IS SelectedIndex semantics
-// (empty = no-select -> _noSelectCoroutine) are preserved.
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System;
+using System.Linq;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public class SelectAppFusionEffect
+public class SelectAppFusionEffect : MonoBehaviour
 {
-    // AS-IS :9-23.
-    public void SetUp_SelectWheterToAppFusion(
-        CardSource card,
+    public void SetUp_SelectWheterToAppFusion
+        (CardSource card,
         CardSource evoRoot,
         bool canNoSelect,
-        Func<Task> endSelectCoroutine_Digivolve,
-        Func<Task> endSelectCoroutine_AppFusion,
-        Func<Task> noSelectCoroutine)
+        Func<IEnumerator> endSelectCoroutine_Digivolve,
+        Func<IEnumerator> endSelectCoroutine_AppFusion,
+        Func<IEnumerator> noSelectCoroutine)
     {
         _card = card;
         EvoRoot = evoRoot;
@@ -39,14 +22,13 @@ public class SelectAppFusionEffect
         _noSelectCoroutine = noSelectCoroutine;
     }
 
-    // AS-IS :25-39.
-    public void SetUp_SelectLink(
-        CardSource card,
+    public void SetUp_SelectLink
+        (CardSource card,
         bool isLocal,
         bool isPayCost,
         bool canNoSelect,
-        Func<CardSource, Task> endSelectCoroutine_SelectLink,
-        Func<Task> noSelectCoroutine)
+        Func<CardSource, IEnumerator> endSelectCoroutine_SelectLink,
+        Func<IEnumerator> noSelectCoroutine)
     {
         _card = card;
         _isLocal = isLocal;
@@ -56,75 +38,58 @@ public class SelectAppFusionEffect
         _noSelectCoroutine = noSelectCoroutine;
     }
 
-    // AS-IS :41-52.
     CardSource _card = null;
     public CardSource EvoRoot = null;
     bool _isLocal = false;
 
     bool _isPayCost = false;
     bool _canNoSelect = false;
-    Func<Task> _endSelectCoroutine_Digivolve = null;
-    Func<Task> _endSelectCoroutine_AppFusion = null;
-    Func<CardSource, Task> _endSelectCoroutine_SelectLink = null;
-    Func<Task> _noSelectCoroutine = null;
+    Func<IEnumerator> _endSelectCoroutine_Digivolve = null;
+    Func<IEnumerator> _endSelectCoroutine_AppFusion = null;
+    Func<CardSource, IEnumerator> _endSelectCoroutine_SelectLink = null;
+    Func<IEnumerator> _noSelectCoroutine = null;
     public bool LinkAdded { get; private set; } = false;
     public CardSource selectedLink = null;
 
-    private EngineContext? _context;
-
-    /// <summary>(R5-C) The match context the AS-IS <c>GManager.instance.GetComponent&lt;‚Ä¶&gt;()</c> route injects
-    /// (mirrors SelectCardEffect.AttachContext). Registration of this component on the mirror GManager is a
-    /// separate wiring item ‚Äî see the file header / RD-R5 report.</summary>
-    public void AttachContext(EngineContext context) => _context = context;
-
-    private EngineContext RequireContext() => _context ?? AmbientMatchContext.Require();
-
-    // AS-IS :54-107.
-    public async Task SelectWheterToAppFusion()
+    public IEnumerator SelectWheterToAppFusion()
     {
         if (_card != null)
         {
             if (EvoRoot != null)
             {
-                // AS-IS OpenSelectCardPanel two-option ("Normal Digivolution" / "App Fusion") -> ModeChoice.
-                EngineContext context = RequireContext();
-                var candidates = new List<ChoiceCandidate>
-                {
-                    new ChoiceCandidate(new HeadlessEntityId("appFusion#0"), "Normal Digivolution", ChoiceZone.BattleArea, IsSelectable: true, ownerId: _card.Owner),
-                    new ChoiceCandidate(new HeadlessEntityId("appFusion#1"), "App Fusion", ChoiceZone.BattleArea, IsSelectable: true, ownerId: _card.Owner),
-                };
-                var request = new ChoiceRequest(
-                    ChoiceType.ModeChoice, _card.Owner, "With which method would you like to Digivolve?",
-                    minCount: _canNoSelect ? 0 : 1, maxCount: 1, canSkip: _canNoSelect, ChoiceZone.BattleArea, candidates);
-                ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
+                yield return StartCoroutine(GManager.instance.selectCardPanel.OpenSelectCardPanel(
+                            Message: "With which method would you like to Digivolve?",
+                            RootCardSources: new List<CardSource>() { _card, _card },
+                            _CanTargetCondition: (cardSource) => true,
+                            _CanTargetCondition_ByPreSelecetedList: null,
+                            _CanEndSelectCondition: null,
+                            _MaxCount: 1,
+                            _CanEndNotMax: false,
+                            _CanNoSelect: () => _canNoSelect,
+                            CanLookReverseCard: true,
+                            skillInfos: null,
+                            root: SelectCardEffect.Root.None,
+                            isCenter: true,
+                            evoRootsArray: new CardSource[][] { new CardSource[] { EvoRoot }, new CardSource[] { EvoRoot } },
+                            titleStrings: new List<string>() { "Normal Digivolution", "<color=#FF633E>App Fusion</color>" }));
 
-                int selectedIndex = -1;   // AS-IS SelectedIndex.Count > 0 <=> a pick was made.
-                if (!result.IsSkipped && result.SelectedIds.Count > 0)
+                if (GManager.instance.selectCardPanel.SelectedIndex.Count > 0)
                 {
-                    string[] parts = result.SelectedIds[0].Value.Split('#');
-                    if (int.TryParse(parts.Length > 1 ? parts[1] : null, out int picked))
-                    {
-                        selectedIndex = picked;
-                    }
-                }
-
-                if (selectedIndex >= 0)
-                {
-                    int index = selectedIndex;
+                    int index = GManager.instance.selectCardPanel.SelectedIndex[0];
 
                     switch (index)
                     {
                         case 0:
                             if (_endSelectCoroutine_Digivolve != null)
                             {
-                                await _endSelectCoroutine_Digivolve().ConfigureAwait(false);
+                                yield return ContinuousController.instance.StartCoroutine(_endSelectCoroutine_Digivolve());
                             }
                             break;
 
                         case 1:
                             if (_endSelectCoroutine_AppFusion != null)
                             {
-                                await _endSelectCoroutine_AppFusion().ConfigureAwait(false);
+                                yield return ContinuousController.instance.StartCoroutine(_endSelectCoroutine_AppFusion());
                             }
                             break;
                     }
@@ -134,22 +99,21 @@ public class SelectAppFusionEffect
                 {
                     if (_noSelectCoroutine != null)
                     {
-                        await _noSelectCoroutine().ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(_noSelectCoroutine());
                     }
                 }
             }
         }
     }
 
-    // AS-IS :109-218.
-    public async Task SelectLink(Permanent targetPermanent)
+    public IEnumerator SelectLink(Permanent targetPermanent)
     {
         bool active = false;
         SelectCardEffect selectCardEffect = null;
 
         if (_card != null && EvoRoot != null)
         {
-            if (_card.AppFusionConditionOf() != null)
+            if (_card.appFusionCondition != null)
             {
                 if (GManager.instance != null)
                 {
@@ -174,11 +138,11 @@ public class SelectAppFusionEffect
 
         if (active)
         {
-            AppFusionCondition appFusionCondition = _card.AppFusionConditionOf();
+            AppFusionCondition appFusionCondition = _card.appFusionCondition;
 
             bool CanSelectSourceCondition(CardSource link)
             {
-                if (appFusionCondition != null)
+                if(appFusionCondition != null)
                 {
                     if (appFusionCondition.linkedCondition != null)
                     {
@@ -191,8 +155,8 @@ public class SelectAppFusionEffect
                         }
                     }
                 }
-
-
+                
+                
                 return false;
             }
 
@@ -223,55 +187,51 @@ public class SelectAppFusionEffect
                     selectCardEffect.SetIsLocal();
                 }
 
-                await selectCardEffect.Activate().ConfigureAwait(false);
+                yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
 
-                Task SelectCardCoroutine(CardSource source)
+                IEnumerator SelectCardCoroutine(CardSource source)
                 {
                     selectedLink = source;
 
-                    return Task.CompletedTask;
+                    yield return null;
                 }
             }
 
-            // „Éê„Éº„Çπ„ÉàÈÄ≤Âåñ„Åó„Å™„ÅÑ
+            //ÉoÅ[ÉXÉgêiâªÇµÇ»Ç¢
             if (selectedLink == null)
             {
                 if (_noSelectCoroutine != null)
                 {
-                    await _noSelectCoroutine().ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(_noSelectCoroutine());
                 }
             }
 
-            // „Éê„Éº„Çπ„ÉàÈÄ≤Âåñ„Åô„Çã
+            //ÉoÅ[ÉXÉgêiâªÇ∑ÇÈ
             else
             {
-                // AS-IS quirk KEPT (SelectAppFusionEffect.cs:212): the guard tests _endSelectCoroutine_AppFusion
-                // but the invoked delegate is _endSelectCoroutine_SelectLink (verbatim, no-simplification rule).
                 if (_endSelectCoroutine_AppFusion != null)
                 {
-                    await _endSelectCoroutine_SelectLink(selectedLink).ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(_endSelectCoroutine_SelectLink(selectedLink));
                 }
             }
         }
     }
 
-    // AS-IS :220-240.
-    public async Task AddToSources(CardSource link)
+    public IEnumerator AddToSources(CardSource link)
     {
         LinkAdded = false;
 
         if (link != null)
         {
-            // AS-IS link.PermanentOfThisCard() (Permanent, non-null-gated) ‚Äî the mirror materialises the owning
-            // stack as a real Permanent via the established ICardEffect.ResolvePermanentOfThisCard idiom.
-            Permanent linkPermanent = ICardEffect.ResolvePermanentOfThisCard(link);
-            if (linkPermanent != null)
+            if(link.PermanentOfThisCard() != null)
             {
+                Permanent linkPermanent = link.PermanentOfThisCard();
+
                 if (link.Owner.GetBattleAreaDigimons().Contains(linkPermanent))
                 {
-                    // AS-IS UnityEngine.Debug.Log($"ADD SOURCES: {linkPermanent}, {link}") = UI/log (stripped).
-                    await linkPermanent.RemoveLinkedCard(link).ConfigureAwait(false);
-                    await linkPermanent.AddDigivolutionCardsTop(new List<CardSource> { link, linkPermanent.TopCard }, null).ConfigureAwait(false);
+                    UnityEngine.Debug.Log($"ADD SOURCES: {linkPermanent}, {link}");
+                    yield return ContinuousController.instance.StartCoroutine(linkPermanent.RemoveLinkedCard(link));
+                    yield return ContinuousController.instance.StartCoroutine(linkPermanent.AddDigivolutionCardsTop(new List<CardSource> { link, linkPermanent.TopCard }, null));
 
                     LinkAdded = true;
                 }

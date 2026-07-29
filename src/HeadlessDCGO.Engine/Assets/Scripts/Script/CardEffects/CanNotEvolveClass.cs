@@ -1,12 +1,7 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffects/CanNotEvolveClass.cs
-// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class CanNotDigivolveClass : ICardEffect, ICanNotDigivolveEffect
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 using System;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 public class CanNotDigivolveClass : ICardEffect, ICanNotDigivolveEffect
 {

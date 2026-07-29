@@ -1,28 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST5/Black/ST5_09.cs
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS ST5_09
-// (ST5/Black).
-//   [When Digivolving] Until the end of your opponent's next turn, 1 of your Digimon gains <Blocker>.
-// AS-IS: ActivateClass on OnEnterFieldAnyone, ORDER=-1, ISOPTIONAL=false. CanUseCondition =
-// CanTriggerWhenDigivolving. CanActivateCondition = IsExistOnBattleArea && HasMatchConditionPermanent(
-// CanSelectPermanentCondition). ActivateCoroutine = SelectPermanentEffect (Mode.Custom, select 1 of owner's
-// battle-area Digimon) then GainBlocker(selected, UntilOpponentTurnEnd).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; select flow =
-// `GManager.instance.GetComponent<SelectPermanentEffect>()` (bridge W4, BT9_109/BT2_092 idiom); AS-IS
-// the AS-IS `Func<Permanent,bool> CanSelectPermanentCondition = IsPermanentExistsOnOwnerBattleAreaDigimon` is
-// kept Permanent-shaped as the local `PermanentCondition(Permanent)` fed directly to
-// HasMatchConditionPermanent/MatchConditionPermanentCount AND SelectPermanentEffect.SetUp's canTargetCondition
-// (id-flip 3b canonical overload — no id-shape sibling needed); `Mathf`->`Math`.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST5.Black;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class ST5_09 : CEntity_Effect
+public class ST5_09 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -40,7 +24,7 @@ public sealed class ST5_09 : CEntity_Effect
                 return "[When Digivolving] Until the end of your opponent's next turn, 1 of your Digimon gains <Blocker>. (When an opponent's Digimon attacks, you may suspend this Digimon to force the opponent to attack it instead.)";
             }
 
-            bool PermanentCondition(Permanent permanent)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
                 return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
@@ -54,7 +38,7 @@ public sealed class ST5_09 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, PermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                     {
                         return true;
                     }
@@ -63,15 +47,15 @@ public sealed class ST5_09 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, PermanentCondition));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                 selectPermanentEffect.SetUp(
                     selectPlayer: card.Owner,
-                    canTargetCondition: PermanentCondition,
+                    canTargetCondition: CanSelectPermanentCondition,
                     canTargetCondition_ByPreSelecetedList: null,
                     canEndSelectCondition: null,
                     maxCount: maxCount,
@@ -84,11 +68,11 @@ public sealed class ST5_09 : CEntity_Effect
 
                 selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get Blocker.", "The opponent is selecting 1 Digimon that will get Blocker.");
 
-                await selectPermanentEffect.Activate();
+                yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                async Task SelectPermanentCoroutine(Permanent permanent)
+                IEnumerator SelectPermanentCoroutine(Permanent permanent)
                 {
-                    await CardEffectCommons.GainBlocker(targetPermanent: permanent, effectDuration: EffectDuration.UntilOpponentTurnEnd, activateClass: activateClass);
+                    yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainBlocker(targetPermanent: permanent, effectDuration: EffectDuration.UntilOpponentTurnEnd, activateClass: activateClass));
                 }
             }
         }

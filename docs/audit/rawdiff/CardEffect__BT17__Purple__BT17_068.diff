@@ -1,0 +1,741 @@
+--- DCGO/Assets/Scripts/CardEffect/BT17/Purple/BT17_068.cs	2026-05-18 20:03:14.763531300 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/CardEffect/BT17/Purple/BT17_068.cs	2026-07-29 01:02:22.053838210 +0900
+@@ -1,377 +1,296 @@
++namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT17.Purple;
++
+ using System.Collections;
+-using System.Collections.Generic;
+-using System.Linq;
++using System.Threading.Tasks;
++using HeadlessDCGO.Engine.Assets.Scripts.Script;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
++using HeadlessDCGO.Engine.Headless.Services;
+ 
+-namespace DCGO.CardEffects.BT17
++public class BT17_068 : CEntity_Effect
+ {
+-    public class BT17_068 : CEntity_Effect
++    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+     {
+-        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
++        List<ICardEffect> cardEffects = new List<ICardEffect>();
++
++        #region When Revealed from Deck
++
++        if (timing == EffectTiming.None)
+         {
+-            List<ICardEffect> cardEffects = new List<ICardEffect>();
++            ChangeCardLevelClass changeCardLevelClass = new ChangeCardLevelClass();
++            changeCardLevelClass.SetUpICardEffect($"Also treated as level 6 when revealed from the top of the deck.", CanUseCondition, card);
++            changeCardLevelClass.SetUpChangeCardLevelClass(GetLevel: GetLevel);
++            changeCardLevelClass.SetNotShowUI(true);
++            cardEffects.Add(changeCardLevelClass);
+ 
+-            #region When Revealed from Deck
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return card.IsBeingRevealed;
++            }
+ 
+-            if (timing == EffectTiming.None)
++            int GetLevel(CardSource cardSource, int level)
+             {
+-                ChangeCardLevelClass changeCardLevelClass = new ChangeCardLevelClass();
+-                changeCardLevelClass.SetUpICardEffect($"Also treated as level 6 when revealed from the top of the deck.",CanUseCondition, card);
+-                changeCardLevelClass.SetUpChangeCardLevelClass(GetLevel: GetLevel);
+-                changeCardLevelClass.SetNotShowUI(true);
+-                cardEffects.Add(changeCardLevelClass);
+-                
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return card.IsBeingRevealed;
+-                }
+-                
+-                int GetLevel(CardSource cardSource, int level)
+-                {
+-                    if (cardSource == card)
+-                        level = 6;
++                if (cardSource == card)
++                    level = 6;
+ 
+-                    return level;
+-                }
++                return level;
+             }
++        }
++
++        #endregion
+ 
+-            #endregion
++        #region When Would be Played
+ 
+-            #region When Would be Played
++        if (timing == EffectTiming.BeforePayCost)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Return [Apocalymon] from your trash to deck, to get Play Cost -3", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDescription());
++            activateClass.SetHashString("PlayCost-3_BT17_068");
++            cardEffects.Add(activateClass);
+ 
+-            if (timing == EffectTiming.BeforePayCost)
++            string EffectDescription()
+             {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Return [Apocalymon] from your trash to deck, to get Play Cost -3", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDescription());
+-                activateClass.SetHashString("PlayCost-3_BT17_068");
+-                cardEffects.Add(activateClass);
++                return
++                    "When this card would be played from the hand, by returning 1 [Apocalymon] from your trash to the bottom of the deck, reduce the play cost by 3.";
++            }
+ 
+-                string EffectDescription()
+-                {
+-                    return
+-                        "When this card would be played from the hand, by returning 1 [Apocalymon] from your trash to the bottom of the deck, reduce the play cost by 3.";
+-                }
++            bool IsApocalymonCardCondition(CardSource cardSource)
++            {
++                return cardSource.IsDigimon &&
++                       cardSource.EqualsCardName("Apocalymon");
++            }
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanTriggerWhenPermanentWouldPlay(hashtable, CardCondition);
+-                }
++            bool CardCondition(CardSource cardSource)
++            {
++                return cardSource == card &&
++                       CardEffectCommons.IsExistOnHand(cardSource);
++            }
+ 
+-                bool IsApocalymonCardCondition(CardSource cardSource)
+-                {
+-                    return cardSource.IsDigimon &&
+-                           cardSource.EqualsCardName("Apocalymon");
+-                }
++            bool CanActivateCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, IsApocalymonCardCondition);
++            }
+ 
+-                bool CardCondition(CardSource cardSource)
+-                {
+-                    return cardSource == card &&
+-                           CardEffectCommons.IsExistOnHand(cardSource);
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.CanTriggerWhenPermanentWouldPlay(hashtable, CardCondition);
++            }
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, IsApocalymonCardCondition))
+                 {
+-                    return CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, IsApocalymonCardCondition);
+-                }
++                    CardSource cardFromHashtable = CardEffectCommons.GetCardFromHashtable(hashtable);
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
+-                {
+-                    if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, IsApocalymonCardCondition))
+-                    {
+-                        CardSource cardFromHashtable = CardEffectCommons.GetCardFromHashtable(hashtable);
++                    bool returned = false;
++                    bool canNoSelect = !(cardFromHashtable is not null &&
++                                         cardFromHashtable.PayingCost(SelectCardEffect.Root.Hand, null, checkAvailability: false) >
++                                         new Player(card.Context, cardFromHashtable.Owner).MaxMemoryCost);
++
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++
++                    selectCardEffect.SetUp(
++                        canTargetCondition: IsApocalymonCardCondition,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        canNoSelect: () => canNoSelect,
++                        selectCardCoroutine: null,
++                        afterSelectCardCoroutine: AfterSelectCardCoroutine,
++                        message: "Select 1 card to place at the bottom of the deck.",
++                        maxCount: 1,
++                        canEndNotMax: false,
++                        isShowOpponent: false,
++                        mode: SelectCardEffect.Mode.Custom,
++                        root: SelectCardEffect.Root.Trash,
++                        customRootCardList: null,
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: activateClass);
+ 
+-                        bool returned = false;
+-                        bool canNoSelect = !(cardFromHashtable &&
+-                                             cardFromHashtable.PayingCost(SelectCardEffect.Root.Hand, null, checkAvailability: false) >
+-                                             cardFromHashtable.Owner.MaxMemoryCost);
++                    selectCardEffect.SetNotShowCard();
++                    selectCardEffect.SetNotAddLog();
+ 
+-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++                    await selectCardEffect.Activate();
+ 
+-                        selectCardEffect.SetUp(
+-                            canTargetCondition: IsApocalymonCardCondition,
+-                            canTargetCondition_ByPreSelecetedList: null,
+-                            canEndSelectCondition: null,
+-                            canNoSelect: () => canNoSelect,
+-                            selectCardCoroutine: null,
+-                            afterSelectCardCoroutine: AfterSelectCardCoroutine,
+-                            message: "Select 1 card to place at the bottom of the deck.",
+-                            maxCount: 1,
+-                            canEndNotMax: false,
+-                            isShowOpponent: false,
+-                            mode: SelectCardEffect.Mode.Custom,
+-                            root: SelectCardEffect.Root.Trash,
+-                            customRootCardList: null,
+-                            canLookReverseCard: true,
+-                            selectPlayer: card.Owner,
+-                            cardEffect: activateClass);
++                    async Task AfterSelectCardCoroutine(List<CardSource> cardSources)
++                    {
++                        if (cardSources.Count == 1)
++                        {
++                            await CardEffectCommons.ReturnRevealedCardsToLibraryBottom(cardSources, card);
+ 
+-                        selectCardEffect.SetNotShowCard();
+-                        selectCardEffect.SetNotAddLog();
++                            returned = true;
++                        }
++                    }
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
++                    if (returned)
++                    {
+ 
+-                        IEnumerator AfterSelectCardCoroutine(List<CardSource> cardSources)
+-                        {
+-                            if (cardSources.Count == 1)
+-                            {
+-                                yield return ContinuousController.instance.StartCoroutine(
+-                                    CardObjectController.AddLibraryBottomCards(cardSources));
++                        ChangeCostClass changeCostClass = new ChangeCostClass();
++                        changeCostClass.SetUpICardEffect("Play Cost -3", CanUseConditionChangeCost, card);
++                        changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardSourceCondition,
++                            rootCondition: RootCondition, isUpDown: IsUpDown, isCheckAvailability: () => false,
++                            isChangePayingCost: () => true);
++                        new Player(card.Context, card.Owner).UntilCalculateFixedCostEffect.Add(_ => changeCostClass);
+ 
+-                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>()
+-                                    .ShowCardEffect(cardSources, "Deck Bottom Cards", true, true));
++                        await CardEffectCommons.ShowReducedCost(hashtable);
+ 
+-                                returned = true;
+-                            }
++                        bool CanUseConditionChangeCost(Hashtable hashtableChangeCost)
++                        {
++                            return true;
+                         }
+ 
+-                        if (returned)
++                        int ChangeCost(CardSource cardSource, int cost, SelectCardEffect.Root root,
++                            List<Permanent> targetPermanents)
+                         {
+-                            if (card.Owner.CanReduceCost(null, card))
+-                            {
+-                                ContinuousController.instance.PlaySE(GManager.instance.GetComponent<Effects>().BuffSE);
+-                            }
+-
+-                            ChangeCostClass changeCostClass = new ChangeCostClass();
+-                            changeCostClass.SetUpICardEffect("Play Cost -3", CanUseConditionChangeCost, card);
+-                            changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardSourceCondition,
+-                                rootCondition: RootCondition, isUpDown: IsUpDown, isCheckAvailability: () => false,
+-                                isChangePayingCost: () => true);
+-                            card.Owner.UntilCalculateFixedCostEffect.Add(_ => changeCostClass);
+-
+-                            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ShowReducedCost(hashtable));
+-
+-                            bool CanUseConditionChangeCost(Hashtable hashtableChangeCost)
++                            if (CardSourceCondition(cardSource) && RootCondition(root) && PermanentsCondition(targetPermanents))
+                             {
+-                                return true;
++                                cost -= 3;
+                             }
+ 
+-                            int ChangeCost(CardSource cardSource, int cost, SelectCardEffect.Root root,
+-                                List<Permanent> targetPermanents)
+-                            {
+-                                if (CardSourceCondition(cardSource) && RootCondition(root) && PermanentsCondition(targetPermanents))
+-                                {
+-                                    cost -= 3;
+-                                }
+-
+-                                return cost;
+-                            }
++                            return cost;
++                        }
+ 
+-                            bool CardSourceCondition(CardSource cardSource)
+-                            {
+-                                return cardSource == card;
+-                            }
++                        bool CardSourceCondition(CardSource cardSource)
++                        {
++                            return cardSource == card;
++                        }
+ 
+-                            bool RootCondition(SelectCardEffect.Root root)
+-                            {
+-                                return true;
+-                            }
++                        bool RootCondition(SelectCardEffect.Root root)
++                        {
++                            return true;
++                        }
+ 
+-                            bool PermanentsCondition(List<Permanent> targetPermanents)
+-                            {
+-                                return targetPermanents == null ||
+-                                       targetPermanents.Count((targetPermanent) => targetPermanent != null) == 0;
+-                            }
++                        bool PermanentsCondition(List<Permanent> targetPermanents)
++                        {
++                            return targetPermanents == null ||
++                                   targetPermanents.Count((targetPermanent) => targetPermanent != null) == 0;
++                        }
+ 
+-                            bool IsUpDown()
+-                            {
+-                                return true;
+-                            }
++                        bool IsUpDown()
++                        {
++                            return true;
+                         }
+                     }
+                 }
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            #region On Deletion
++        #region On Deletion
+ 
+-            if (timing == EffectTiming.OnDestroyedAnyone)
++        if (timing == EffectTiming.OnDestroyedAnyone)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Play Digimon from hand or trash.", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDescription());
++            cardEffects.Add(activateClass);
++
++            string EffectDescription()
+             {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Play Digimon from hand or trash.", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDescription());
+-                cardEffects.Add(activateClass);
++                return
++                    "[On Deletion] If deleted by an effect, you may play 1 [Gulfmon] or 1 level 6 Digimon with the [Dark Masters] trait from your hand or trash without paying the cost.";
++            }
+ 
+-                string EffectDescription()
+-                {
+-                    return
+-                        "[On Deletion] If deleted by an effect, you may play 1 [Gulfmon] or 1 level 6 Digimon with the [Dark Masters] trait from your hand or trash without paying the cost.";
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.CanTriggerOnDeletion(hashtable, card) &&
++                       CardEffectCommons.IsByEffect(hashtable, null);
++            }
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanTriggerOnDeletion(hashtable, card) &&
+-                           CardEffectCommons.IsByEffect(hashtable, null);
+-                }
++            bool CanSelectCardCondition(CardSource cardSource)
++            {
++                return cardSource.EqualsCardName("Gulfmon") ||
++                       (cardSource.IsDigimon &&
++                        cardSource.HasLevel &&
++                        cardSource.Level == 6 &&
++                        cardSource.ContainsTraits("Dark Masters"));
++            }
+ 
+-                bool CanSelectCardCondition(CardSource cardSource)
+-                {
+-                    return cardSource.EqualsCardName("Gulfmon") ||
+-                           (cardSource.IsDigimon &&
+-                            cardSource.HasLevel &&
+-                            cardSource.Level == 6 &&
+-                            cardSource.ContainsTraits("Dark Masters"));
+-                }
++            bool CanActivateCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.CanActivateOnDeletion(hashtable, card) &&
++                       (new Player(card.Context, card.Owner).HandCards.Some(CanSelectCardCondition) ||
++                        new Player(card.Context, card.Owner).TrashCards.Some(CanSelectCardCondition));
++            }
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanActivateOnDeletion(hashtable, card) &&
+-                           (card.Owner.HandCards.Some(CanSelectCardCondition) ||
+-                            card.Owner.TrashCards.Some(CanSelectCardCondition));
+-                }
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                bool canSelectHand = new Player(card.Context, card.Owner).HandCards.Some(CanSelectCardCondition);
++                bool canSelectTrash = new Player(card.Context, card.Owner).TrashCards.Some(CanSelectCardCondition);
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
++                if (canSelectHand || canSelectTrash)
+                 {
+-                    bool canSelectHand = card.Owner.HandCards.Some(CanSelectCardCondition);
+-                    bool canSelectTrash = card.Owner.TrashCards.Some(CanSelectCardCondition);
+-
+-                    if (canSelectHand || canSelectTrash)
++                    if (canSelectHand && canSelectTrash)
+                     {
+-                        if (canSelectHand && canSelectTrash)
+-                        {
+-                            List<SelectionElement<bool>> selectionElements = new List<SelectionElement<bool>>()
+-                            {
+-                                new(message: "From hand", value: true, spriteIndex: 0),
+-                                new(message: "From trash", value: false, spriteIndex: 1),
+-                            };
+-
+-                            string selectPlayerMessage = "From which area do you play a card?";
+-                            string notSelectPlayerMessage = "The opponent is choosing from which area to play a card.";
+-
+-                            GManager.instance.userSelectionManager.SetBoolSelection(selectionElements: selectionElements,
+-                                selectPlayer: card.Owner, selectPlayerMessage: selectPlayerMessage,
+-                                notSelectPlayerMessage: notSelectPlayerMessage);
+-                        }
+-                        else
+-                        {
+-                            GManager.instance.userSelectionManager.SetBool(canSelectHand);
+-                        }
+-
+-                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.userSelectionManager
+-                            .WaitForEndSelect());
+-
+-                        bool fromHand = GManager.instance.userSelectionManager.SelectedBoolValue;
+-
+-                        List<CardSource> selectedCards = new List<CardSource>();
+-
+-                        IEnumerator SelectCardCoroutine(CardSource cardSource)
+-                        {
+-                            selectedCards.Add(cardSource);
+-                            yield return null;
+-                        }
+-
+-                        if (fromHand)
+-                        {
+-                            SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+-
+-                            selectHandEffect.SetUp(
+-                                selectPlayer: card.Owner,
+-                                canTargetCondition: CanSelectCardCondition,
+-                                canTargetCondition_ByPreSelecetedList: null,
+-                                canEndSelectCondition: null,
+-                                maxCount: 1,
+-                                canNoSelect: true,
+-                                canEndNotMax: false,
+-                                isShowOpponent: true,
+-                                selectCardCoroutine: SelectCardCoroutine,
+-                                afterSelectCardCoroutine: null,
+-                                mode: SelectHandEffect.Mode.Custom,
+-                                cardEffect: activateClass);
+-
+-                            selectHandEffect.SetUpCustomMessage("Select 1 card to play.", "The opponent is selecting 1 card to play.");
+-                            selectHandEffect.SetUpCustomMessage_ShowCard("Played Card");
+-
+-                            yield return StartCoroutine(selectHandEffect.Activate());
+-                        }
+-
+-                        else
++                        List<SelectionElement<bool>> selectionElements = new List<SelectionElement<bool>>()
+                         {
+-                            SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++                            new(message: "From hand", value: true, spriteIndex: 0),
++                            new(message: "From trash", value: false, spriteIndex: 1),
++                        };
++
++                        string selectPlayerMessage = "From which area do you play a card?";
++                        string notSelectPlayerMessage = "The opponent is choosing from which area to play a card.";
++
++                        GManager.instance.userSelectionManager.SetBoolSelection(selectionElements: selectionElements,
++                            selectPlayer: card.Owner, selectPlayerMessage: selectPlayerMessage,
++                            notSelectPlayerMessage: notSelectPlayerMessage);
++                    }
++                    else
++                    {
++                        GManager.instance.userSelectionManager.SetBool(canSelectHand);
++                    }
+ 
+-                            selectCardEffect.SetUp(
+-                                canTargetCondition: CanSelectCardCondition,
+-                                canTargetCondition_ByPreSelecetedList: null,
+-                                canEndSelectCondition: null,
+-                                canNoSelect: () => true,
+-                                selectCardCoroutine: SelectCardCoroutine,
+-                                afterSelectCardCoroutine: null,
+-                                message: "Select 1 card to play.",
+-                                maxCount: 1,
+-                                canEndNotMax: false,
+-                                isShowOpponent: true,
+-                                mode: SelectCardEffect.Mode.Custom,
+-                                root: SelectCardEffect.Root.Trash,
+-                                customRootCardList: null,
+-                                canLookReverseCard: true,
+-                                selectPlayer: card.Owner,
+-                                cardEffect: activateClass);
++                    await GManager.instance.userSelectionManager
++                        .WaitForEndSelect();
+ 
+-                            selectCardEffect.SetUpCustomMessage("Select 1 card to play.", "The opponent is selecting 1 card to play.");
+-                            selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
++                    bool fromHand = GManager.instance.userSelectionManager.SelectedBoolValue;
+ 
+-                            yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
+-                        }
++                    List<CardSource> selectedCards = new List<CardSource>();
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(
+-                            cardSources: selectedCards, activateClass: activateClass, payCost: false, isTapped: false,
+-                            root: (fromHand) ? SelectCardEffect.Root.Hand : SelectCardEffect.Root.Trash,
+-                            activateETB: true));
++                    Task SelectCardCoroutine(CardSource cardSource)
++                    {
++                        selectedCards.Add(cardSource);
++                        return Task.CompletedTask;
+                     }
+-                }
+-            }
+-
+-            #endregion
+-
+-            #region When Attacking - ESS
+ 
+-            if (timing == EffectTiming.OnAllyAttack)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Place 1 digimon from trash under this Digimon's digivolution cards", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, true, EffectDescription());
+-                activateClass.SetIsInheritedEffect(true);
+-                cardEffects.Add(activateClass);
+-
+-                string EffectDescription()
+-                {
+-                    return
+-                        "[When Attacking] (Once Per Turn) By placing 1 level 5 or lower card with [Dark Masters] in its text from your trash as this Digimon's bottom digivolution card, this Digimon gets +2000 DP for the turn.";
+-                }
++                    if (fromHand)
++                    {
++                        SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+-                }
++                        selectHandEffect.SetUp(
++                            selectPlayer: card.Owner,
++                            canTargetCondition: CanSelectCardCondition,
++                            canTargetCondition_ByPreSelecetedList: null,
++                            canEndSelectCondition: null,
++                            maxCount: 1,
++                            canNoSelect: true,
++                            canEndNotMax: false,
++                            isShowOpponent: true,
++                            selectCardCoroutine: SelectCardCoroutine,
++                            afterSelectCardCoroutine: null,
++                            mode: SelectHandEffect.Mode.Custom,
++                            cardEffect: activateClass);
+ 
+-                bool IsDarkMastersCardCondition(CardSource cardSource)
+-                {
+-                    return cardSource.HasLevel &&
+-                           cardSource.Level <= 5 &&
+-                           cardSource.HasText("Dark Masters");
+-                }
++                        selectHandEffect.SetUpCustomMessage("Select 1 card to play.", "The opponent is selecting 1 card to play.");
++                        selectHandEffect.SetUpCustomMessage_ShowCard("Played Card");
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleArea(card) &&
+-                           CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, IsDarkMastersCardCondition);
+-                }
++                        await selectHandEffect.Activate();
++                    }
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
+-                {
+-                    if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, IsDarkMastersCardCondition))
++                    else
+                     {
+-                        List<CardSource> selectedCards = new List<CardSource>();
+-
+                         SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+ 
+                         selectCardEffect.SetUp(
+-                            canTargetCondition: IsDarkMastersCardCondition,
++                            canTargetCondition: CanSelectCardCondition,
+                             canTargetCondition_ByPreSelecetedList: null,
+                             canEndSelectCondition: null,
+                             canNoSelect: () => true,
+                             selectCardCoroutine: SelectCardCoroutine,
+                             afterSelectCardCoroutine: null,
+-                            message: "Select 1 card to place on bottom of digivolution cards.",
++                            message: "Select 1 card to play.",
+                             maxCount: 1,
+                             canEndNotMax: false,
+                             isShowOpponent: true,
+@@ -382,40 +301,114 @@
+                             selectPlayer: card.Owner,
+                             cardEffect: activateClass);
+ 
+-                        selectCardEffect.SetUpCustomMessage(
+-                            "Select 1 card to place on bottom of digivolution cards.",
+-                            "The opponent is selecting 1 card to place on bottom of digivolution cards.");
+-                        selectCardEffect.SetUpCustomMessage_ShowCard("Digivolution Card");
++                        selectCardEffect.SetUpCustomMessage("Select 1 card to play.", "The opponent is selecting 1 card to play.");
++                        selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
++                        await selectCardEffect.Activate();
++                    }
+ 
+-                        IEnumerator SelectCardCoroutine(CardSource cardSource)
+-                        {
+-                            selectedCards.Add(cardSource);
+-                            yield return null;
+-                        }
++                    await CardEffectCommons.PlayPermanentCards(
++                        cardSources: selectedCards, activateClass: activateClass, payCost: false, isTapped: false,
++                        root: (fromHand) ? SelectCardEffect.Root.Hand : SelectCardEffect.Root.Trash,
++                        activateETB: true);
++                }
++            }
++        }
++
++        #endregion
++
++        #region When Attacking - ESS
++
++        if (timing == EffectTiming.OnAllyAttack)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Place 1 digimon from trash under this Digimon's digivolution cards", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, true, EffectDescription());
++            activateClass.SetIsInheritedEffect(true);
++            cardEffects.Add(activateClass);
++
++            string EffectDescription()
++            {
++                return
++                    "[When Attacking] (Once Per Turn) By placing 1 level 5 or lower card with [Dark Masters] in its text from your trash as this Digimon's bottom digivolution card, this Digimon gets +2000 DP for the turn.";
++            }
++
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
++            }
++
++            bool IsDarkMastersCardCondition(CardSource cardSource)
++            {
++                return cardSource.HasLevel &&
++                       cardSource.Level <= 5 &&
++                       cardSource.HasText("Dark Masters");
++            }
++
++            bool CanActivateCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.IsExistOnBattleArea(card) &&
++                       CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, IsDarkMastersCardCondition);
++            }
++
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, IsDarkMastersCardCondition))
++                {
++                    List<CardSource> selectedCards = new List<CardSource>();
++
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+ 
+-                        if (selectedCards.Count >= 1)
++                    selectCardEffect.SetUp(
++                        canTargetCondition: IsDarkMastersCardCondition,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        canNoSelect: () => true,
++                        selectCardCoroutine: SelectCardCoroutine,
++                        afterSelectCardCoroutine: null,
++                        message: "Select 1 card to place on bottom of digivolution cards.",
++                        maxCount: 1,
++                        canEndNotMax: false,
++                        isShowOpponent: true,
++                        mode: SelectCardEffect.Mode.Custom,
++                        root: SelectCardEffect.Root.Trash,
++                        customRootCardList: null,
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: activateClass);
++
++                    selectCardEffect.SetUpCustomMessage(
++                        "Select 1 card to place on bottom of digivolution cards.",
++                        "The opponent is selecting 1 card to place on bottom of digivolution cards.");
++                    selectCardEffect.SetUpCustomMessage_ShowCard("Digivolution Card");
++
++                    Task SelectCardCoroutine(CardSource cardSource)
++                    {
++                        selectedCards.Add(cardSource);
++                        return Task.CompletedTask;
++                    }
++
++                    await selectCardEffect.Activate();
++
++                    if (selectedCards.Count >= 1)
++                    {
++                        if (CardEffectCommons.IsExistOnBattleArea(card))
+                         {
+-                            if (CardEffectCommons.IsExistOnBattleArea(card))
+-                            {
+-                                yield return ContinuousController.instance.StartCoroutine(card.PermanentOfThisCard()
+-                                    .AddDigivolutionCardsBottom(
+-                                        selectedCards,
+-                                        activateClass));
+-
+-                                yield return ContinuousController.instance.StartCoroutine(
+-                                    CardEffectCommons.ChangeDigimonDP(targetPermanent: card.PermanentOfThisCard(), changeValue: 2000,
+-                                        effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass));
+-                            }
++                            await ICardEffect.ResolvePermanentOfThisCard(card)
++                                .AddDigivolutionCardsBottom(
++                                    selectedCards,
++                                    activateClass.EffectSourceCard?.InstanceId);
++
++                            await CardEffectCommons.ChangeDigimonDP(targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card), changeValue: 2000,
++                                    effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass);
+                         }
+                     }
+                 }
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            return cardEffects;
+-        }
++        return cardEffects;
+     }
+-}
+\ 파일 끝 개행 문자 없음
++}

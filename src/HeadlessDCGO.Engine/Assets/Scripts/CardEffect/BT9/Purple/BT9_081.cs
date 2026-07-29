@@ -1,35 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT9/Purple/BT9_081.cs — 1:1 headless mirror.
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of BOTH activated branches
-// (OnEnterFieldAnyone [When Digivolving] + OnDestroyedAnyone [On Deletion]). Death-X-DORUgamon ([Dex]/[DeathX]).
-//   [None] AddSelfDigivolutionRequirementStaticEffect (Dorugoramon-in-top-card, cost 2) — the real AS-IS factory
-//          call, untouched.
-//   [When Digivolving] If this Digimon has [Dorugoramon] in its digivolution cards OR is digivolving from the
-//          trash, delete all of your opponent's Digimon with the lowest level.
-//   [On Deletion] (C-4 WITNESS) You may play 1 purple/black level-3 Digimon from your trash for free; if 5+
-//          [Dex]/[DeathX] cards in trash, may play 1 [DeathXmon] instead. The 5+ count is read LIVE at
-//          resolution (post-trash), preserved by the [On Deletion] activated bridge draining AFTER the battle
-//          finalize trashes this card's own sources + top.
-// AS-IS ActivateClass structure kept verbatim (BT9_081.cs:25-183). Because the new-model CanActivateCondition
-// ALSO receives the driving-event Hashtable, the previous pass's from-trash LATCH hack is DROPPED: the OR
-// (Dorugoramon-in-sources || CanTriggerWhenDigivolving(hashtable, RootCondition)) is evaluated per-pass exactly
-// as AS-IS, both halves from the same hashtable. Substrate translations only: IEnumerator->Task,
-// StartCoroutine->await; `card.PermanentOfThisCard()` -> `ICardEffect.ResolvePermanentOfThisCard(card)`;
-// `card.Owner.Enemy` -> `CardEffectCommons.OpponentOf(card)` (HeadlessPlayerId) whose `GetBattleAreaDigimons()`
-// extension + `.Filter(...)` mirror AS-IS; `new DestroyPermanentsClass(list, CardEffectHashtable(activateClass))
-// .Destroy()` -> the mirror ctor (keeps the Hashtable cause); `GManager.instance.GetComponent<SelectCardEffect>()`
-// + full AS-IS SetUp(Mode.Custom, Root.Trash) + `PlayPermanentCards(...)` AS-IS-signature bridge (BT1_044 idiom);
-// `card.Owner.TrashCards` -> `new Player(card.Context, card.Owner).TrashCards`.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT9.Purple;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT9_081 : CEntity_Effect
+public class BT9_081 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -47,8 +24,6 @@ public sealed class BT9_081 : CEntity_Effect
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            HeadlessPlayerId enemy = CardEffectCommons.OpponentOf(card);
-
             ActivateClass activateClass = new ActivateClass();
             activateClass.SetUpICardEffect("Delete opponent's all Digimon with the lowest Level", CanUseCondition, card);
             activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
@@ -61,7 +36,7 @@ public sealed class BT9_081 : CEntity_Effect
 
             bool PermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.IsMinLevel(permanent, enemy);
+                return CardEffectCommons.IsMinLevel(permanent, card.Owner.Enemy);
             }
 
             bool RootCondition(SelectCardEffect.Root root)
@@ -78,9 +53,9 @@ public sealed class BT9_081 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, PermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(PermanentCondition))
                     {
-                        if (ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Count((cardSource) => cardSource.CardNames.Contains("Dorugoramon")) >= 1)
+                        if (card.PermanentOfThisCard().DigivolutionCards.Count((cardSource) => cardSource.CardNames.Contains("Dorugoramon")) >= 1)
                         {
                             return true;
                         }
@@ -95,10 +70,10 @@ public sealed class BT9_081 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                List<Permanent> destroyTargetPermanents = enemy.GetBattleAreaDigimons().Filter(PermanentCondition);
-                await new DestroyPermanentsClass(destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy();
+                List<Permanent> destroyTargetPermanents = card.Owner.Enemy.GetBattleAreaDigimons().Filter(PermanentCondition);
+                yield return ContinuousController.instance.StartCoroutine(new DestroyPermanentsClass(destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy());
             }
         }
 
@@ -118,7 +93,7 @@ public sealed class BT9_081 : CEntity_Effect
             {
                 if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: cardSource, payCost: false, cardEffect: activateClass))
                 {
-                    if (cardSource.HasCardColor("Purple") || cardSource.HasCardColor("Black"))
+                    if (cardSource.HasCardColor(CardColor.Purple) || cardSource.HasCardColor(CardColor.Black))
                     {
                         if (cardSource.Level == 3)
                         {
@@ -132,7 +107,7 @@ public sealed class BT9_081 : CEntity_Effect
                         }
                     }
 
-                    if (new Player(card.Context, card.Owner).TrashCards.Count((trashCard) => trashCard.ContainsCardName("Dex") || trashCard.ContainsCardName("DeathX")) >= 5)
+                    if (card.Owner.TrashCards.Count((cardSource) => cardSource.ContainsCardName("Dex") || cardSource.ContainsCardName("DeathX")) >= 5)
                     {
                         if (cardSource.CardNames.Contains("DeathXmon"))
                         {
@@ -162,11 +137,11 @@ public sealed class BT9_081 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
                 if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, (cardSource) => CanSelectCardCondition(cardSource)))
                 {
-                    int maxCount = Math.Min(1, new Player(card.Context, card.Owner).TrashCards.Count((cardSource) => CanSelectCardCondition(cardSource)));
+                    int maxCount = Math.Min(1, card.Owner.TrashCards.Count((cardSource) => CanSelectCardCondition(cardSource)));
 
                     List<CardSource> selectedCards = new List<CardSource>();
 
@@ -193,16 +168,16 @@ public sealed class BT9_081 : CEntity_Effect
                     selectCardEffect.SetUpCustomMessage("Select 1 card to play.", "The opponent is selecting 1 card to play.");
                     selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
 
-                    await selectCardEffect.Activate();
+                    yield return StartCoroutine(selectCardEffect.Activate());
 
-                    async Task SelectCardCoroutine(CardSource cardSource)
+                    IEnumerator SelectCardCoroutine(CardSource cardSource)
                     {
                         selectedCards.Add(cardSource);
 
-                        await Task.CompletedTask;
+                        yield return null;
                     }
 
-                    await CardEffectCommons.PlayPermanentCards(cardSources: selectedCards, activateClass: activateClass, payCost: false, isTapped: false, root: SelectCardEffect.Root.Trash, activateETB: true);
+                    yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(cardSources: selectedCards, activateClass: activateClass, payCost: false, isTapped: false, root: SelectCardEffect.Root.Trash, activateETB: true));
                 }
             }
         }

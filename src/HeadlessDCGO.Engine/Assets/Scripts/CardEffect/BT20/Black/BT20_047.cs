@@ -1,7 +1,32 @@
-// Source: Assets/Scripts/CardEffect/BT20/Black/BT20_047.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT20.Black
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections;
+using System.Collections.Generic;
+
+namespace DCGO.CardEffects.BT20
+{
+    public class BT20_047 : CEntity_Effect
+    {
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+        {
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+            #region Blocker
+            if (timing == EffectTiming.None)
+            {
+                cardEffects.Add(CardEffectFactory.BlockerSelfStaticEffect(
+                    isInheritedEffect: false,
+                    card: card,
+                    condition: null));
+            }
+            #endregion
+
+            #region Reboot - ESS
+            if(timing == EffectTiming.None)
+            {
+                cardEffects.Add(CardEffectFactory.RebootSelfStaticEffect(isInheritedEffect: true, card: card, condition: null));
+            }
+            #endregion
+
+            return cardEffects;
+        }
+    }
+}

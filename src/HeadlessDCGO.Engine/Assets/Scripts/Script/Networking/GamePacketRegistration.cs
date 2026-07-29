@@ -1,7 +1,15 @@
-// Source: Assets/Scripts/Script/Networking/GamePacketRegistration.cs
-// Decision: PORT
-// Category: AIUseful
-// Priority: LOW
-// Migration: Keep/port local serialization helper
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.Networking
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using UnityEngine;
+
+public static class PacketRegistration
+{
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    public static void RegisterAll()
+    {
+        GamePacketFactory.Register((btyes) => new AttackPermanentAction(btyes));
+        GamePacketFactory.Register((btyes) => new ActivateCardAction(btyes));
+        GamePacketFactory.Register((btyes) => new ActivatePermanentAction(btyes));
+        GamePacketFactory.Register((btyes) => new CheatAction(btyes));
+        GamePacketFactory.Register((btyes) => new PlayCardAction(btyes));
+        GamePacketFactory.Register((btyes) => new PassAction(btyes));
+    }
+}

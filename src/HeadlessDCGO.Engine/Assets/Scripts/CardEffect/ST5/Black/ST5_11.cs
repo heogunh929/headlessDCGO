@@ -1,8 +1,12 @@
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST5;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class ST5_11 : CEntity_Effect
+public class ST5_11 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -10,10 +14,7 @@ public sealed class ST5_11 : CEntity_Effect
 
         if (timing == EffectTiming.None)
         {
-            cardEffects.Add(CardEffectFactory.BlockerSelfStaticEffect(
-                isInheritedEffect: true,
-                card: card,
-                condition: null));
+            cardEffects.Add(CardEffectFactory.BlockerSelfStaticEffect(isInheritedEffect: true, card: card, condition: null));
         }
 
         return cardEffects;

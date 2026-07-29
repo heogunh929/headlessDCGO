@@ -1,16 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Blue/BT1_035.cs
-// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_035 (BT1/Blue).
-//   [On Deletion] Gain 2 memory. (NOT inherited — AS-IS has no SetIsInheritedEffect call here.)
-// UNRESOLVED (kept verbatim, logged): AS-IS `card.Owner.CanAddMemory(activateClass)` — see BT1_030.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_035 : CEntity_Effect
+public class BT1_035 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -37,7 +33,6 @@ public sealed class BT1_035 : CEntity_Effect
             {
                 if (CardEffectCommons.CanActivateOnDeletion(hashtable, card))
                 {
-                    // UNRESOLVED (see file header): AS-IS `card.Owner.CanAddMemory(activateClass)`.
                     if (card.Owner.CanAddMemory(activateClass))
                     {
                         return true;
@@ -47,9 +42,9 @@ public sealed class BT1_035 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await card.Owner.AddMemory(2, activateClass);
+                yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(2, activateClass));
             }
         }
 

@@ -1,26 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Link.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Link.cs factory partial.
-// ADAPTATION (substrate only; logic verbatim):
-//   * card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card).
-//   * coroutine `IEnumerator ActivateCoroutine` (has yields) -> `async Task`; nested `IEnumerator
-//     SelectPermanentCoroutine` -> `async Task`; `yield return StartCoroutine(X)` -> `await X`; lone
-//     `yield return null` -> `await Task.CompletedTask;`.
-//   * stripped `using UnityEngine;`. Replaces the monolith's invented LinkEffect + GrantedReduceLinkCostClass.
-//   * (G-Link batch 2, RD-P6C2-7 RESOLVED) ActivateCoroutine is the AS-IS body (Link.cs:65-101):
-//     SelectPermanentEffect(maxCount=min(1,count), canNoSelect:false) -> new ILinkCard(true, card,
-//     selectedPermanent, activateClass).LinkCard(). SelectPermanentEffect's id-based canTargetCondition uses
-//     the PermanentOf(id) adapter (the ArtsDigivolve/BT19_091/BT25_104 idiom); card-context
-//     MatchConditionPermanentCount(card, cond) is the mirror overload of the AS-IS card-less form.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -39,21 +21,21 @@ public partial class CardEffectFactory
         if (card == null) return null;
         if (!CardEffectCommons.IsOwnerTurn(card)) return null;
         if (!CardEffectCommons.IsExistOnHand(card) && !CardEffectCommons.IsExistOnBattleAreaDigimon(card)) return null;
-        if (!CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition)) return null;
+        if (!CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition)) return null;
 
         ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect($"Link (Cost: {card.LinkConditionOf()?.cost})", CanUseCondition, card);
+        activateClass.SetUpICardEffect($"Link (Cost: {card.linkCondition.cost})", CanUseCondition, card);
         activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, true, DataBase.LinkEffectDiscription());
 
         bool CanSelectPermanentCondition(Permanent permanent)
         {
             if (CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(permanent, card))
             {
-                if(permanent != ICardEffect.ResolvePermanentOfThisCard(card))
+                if(permanent != card.PermanentOfThisCard())
                 {
                     if (permanent.IsDigimon)
                     {
-                        if (card.LinkConditionOf() is not { } linkCondition || linkCondition.digimonCondition(permanent))
+                        if (card.linkCondition == null || card.linkCondition.digimonCondition(permanent))
                         {
                             return true;
                         }
@@ -68,7 +50,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsExistOnHand(card) || (CardEffectCommons.IsExistOnBattleAreaDigimon(card) && !card.IsLinked))
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
                     if (condition == null || condition())
                     {
@@ -80,11 +62,11 @@ public partial class CardEffectFactory
             return false;
         }
 
-        async Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
             Permanent selectedPermanent = null;
 
-            int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+            int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
             SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -103,18 +85,18 @@ public partial class CardEffectFactory
 
             selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to link.", "The opponent is selecting 1 Digimon to link.");
 
-            await selectPermanentEffect.Activate();
+            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-            async Task SelectPermanentCoroutine(Permanent permanent)
+            IEnumerator SelectPermanentCoroutine(Permanent permanent)
             {
                 selectedPermanent = permanent;
 
-                await Task.CompletedTask;
+                yield return null;
             }
 
             if (selectedPermanent != null)
             {
-                await new ILinkCard(true, card, selectedPermanent, activateClass).LinkCard();
+                yield return ContinuousController.instance.StartCoroutine(new ILinkCard(true, card, selectedPermanent, activateClass).LinkCard());
             }
         }
 

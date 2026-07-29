@@ -1,25 +1,16 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Retaliation.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Retaliation.cs factory partial.
-// ADAPTATION: card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card); coroutine
-// `IEnumerator ActivateCoroutine` (pure delegation) -> non-async `Task ActivateCoroutine`; stripped
-// `using UnityEngine;` / `using UnityEngine.Pool;`. Replaces the old mirror-invented `static class Retaliation`
-// (.Create; ZERO consumers) plus the monolith's invented RetaliationSelfEffect.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using UnityEngine;
+using UnityEngine.Pool;
 
 public partial class CardEffectFactory
 {
     #region Trigger effect of [Retaliation] on oneself
     public static ICardEffect RetaliationSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition, bool isLinkedEffect = false)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card) ?? new Permanent(card.Context, card.InstanceId, card.Owner);
+        Permanent targetPermanent = card.PermanentOfThisCard() ?? new Permanent(new List<CardSource>() { card });
 
         bool CanUseCondition()
         {
@@ -73,7 +64,7 @@ public partial class CardEffectFactory
             return CardEffectCommons.CanActivateRetaliation(hashtable);
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
             return CardEffectCommons.RetaliationProcess(_hashtable, activateClass);
         }

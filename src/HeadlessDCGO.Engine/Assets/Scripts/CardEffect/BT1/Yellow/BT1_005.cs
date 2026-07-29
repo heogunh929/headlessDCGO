@@ -1,16 +1,12 @@
-// Source: Assets/Scripts/CardEffect/BT1/Red/BT1_005.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect (Phase 1, BT1 wave 1).
-//
-// 1:1 mirror of the original BT1_005: inherited [Your Turn] while on battle area and
-// owner has >= 6 security cards, DP +2000.
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class BT1_005 : CEntity_Effect
+public class BT1_005 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -24,7 +20,7 @@ public sealed class BT1_005 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.SecurityCount(card) >= 6)
+                        if (card.Owner.SecurityCards.Count >= 6)
                         {
                             return true;
                         }
@@ -34,7 +30,11 @@ public sealed class BT1_005 : CEntity_Effect
                 return false;
             }
 
-            cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(changeValue: 2000, isInheritedEffect: true, card: card, condition: Condition));
+            cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(
+                changeValue: 2000,
+                isInheritedEffect: true,
+                card: card,
+                condition: Condition));
         }
 
         return cardEffects;

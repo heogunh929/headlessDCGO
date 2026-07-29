@@ -1,24 +1,15 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Raid.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Raid.cs factory partial.
-// ADAPTATION: card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card); coroutine
-// `IEnumerator ActivateCoroutine` (pure delegation) -> non-async `Task ActivateCoroutine`; stripped
-// `using UnityEngine;`. Replaces the monolith's invented RaidSelfEffect.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
     #region Trigger effect of [Raid] on oneself
     public static ActivateClass RaidSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition, ICardEffect rootCardEffect = null, bool isLinkedEffect = false)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+        Permanent targetPermanent = card.PermanentOfThisCard();
 
         bool CanUseCondition()
         {
@@ -70,7 +61,7 @@ public partial class CardEffectFactory
 
         bool CanActivateCondition(Hashtable hashtable)
         {
-            if (CardEffectCommons.CanActivateRaid(card, targetPermanent))
+            if (CardEffectCommons.CanActivateRaid(targetPermanent))
             {
                 if (condition == null || condition())
                 {
@@ -81,9 +72,9 @@ public partial class CardEffectFactory
             return false;
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
-            return CardEffectCommons.RaidProcess(card, targetPermanent, activateClass);
+            return CardEffectCommons.RaidProcess(targetPermanent, activateClass);
         }
 
         return activateClass;

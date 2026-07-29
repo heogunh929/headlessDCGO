@@ -1,20 +1,11 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_107.cs — an Option.
-// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [Main] branch; the
-// [Security] branch already reuses [Main] via AddActivateMainOptionSecurityEffect (unchanged).
-//   [Main] Trigger <Recovery +1 (Deck)>. (Place the top card of your deck on top of your security stack.)
-// AS-IS: ActivateClass on OptionSkill, CanUseCondition = CanTriggerOptionMainEffect, CanActivateCondition = null,
-//   ORDER=-1, ISOPTIONAL=false. ActivateCoroutine = new IRecovery(card.Owner, 1, activateClass).Recovery().
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; IRecovery ctor -> mirror
-//   (EngineContext, HeadlessPlayerId, count, cause) shape.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
-public sealed class BT1_107 : CEntity_Effect
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT1_107 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -31,15 +22,14 @@ public sealed class BT1_107 : CEntity_Effect
             {
                 return "[Main] Trigger <Recovery +1 (Deck)>. (Place the top card of your deck on top of your security stack.)";
             }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await new IRecovery(card.Context, card.Owner, 1, activateClass.EffectSourceCard?.InstanceId).Recovery();
+                yield return ContinuousController.instance.StartCoroutine(new IRecovery(card.Owner, 1, activateClass).Recovery());
             }
         }
 

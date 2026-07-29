@@ -1,24 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT2/Blue/BT2_023.cs
-// TRUE AS-IS-verbatim re-port (batch 3). 1:1 mirror of the original BT2_023 (BT2/Blue).
-//   Play cost reduced by the number of opponent Digimon with no digivolution cards in the battle area.
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.BeforePayCostReductionEffect(...)` call (an
-// invented helper with no AS-IS counterpart) with the literal AS-IS inline `new ChangeCostClass()` structure
-// (ChangeCostClass IS a real AS-IS kind-class, mirrored verbatim at Script/CardEffects/ChangeCostClass.cs).
-// Substrate translations only: `card.Owner.HandCards.Contains(card)` -> `CardEffectCommons.IsExistOnHand(card)`
-// (an established 1:1-semantics bridge: `GetCards(card.Owner, ChoiceZone.Hand).Contains(card.InstanceId)`);
-// `card.Owner.Enemy.GetBattleAreaDigimons()` (AS-IS live `Player.Enemy`) -> `new Player(card.Context,
-// card.Owner).Enemy` (mirror `CardSource.Owner` is a bare `HeadlessPlayerId`, so the Player handle is
-// reconstructed — same idiom as BT1_104's `card.Owner.Enemy` translation), null-conditional + `?? 0` since
-// `Player.Enemy` is nullable on the mirror.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Blue;
-
 using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT2_023 : CEntity_Effect
+public class BT2_023 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -28,7 +16,7 @@ public sealed class BT2_023 : CEntity_Effect
         {
             int count()
             {
-                return new Player(card.Context, card.Owner).Enemy?.GetBattleAreaDigimons().Count(permanent => permanent.HasNoDigivolutionCards) ?? 0;
+                return card.Owner.Enemy.GetBattleAreaDigimons().Count((permanent) => permanent.HasNoDigivolutionCards);
             }
 
             ChangeCostClass changeCostClass = new ChangeCostClass();
@@ -39,7 +27,7 @@ public sealed class BT2_023 : CEntity_Effect
 
             bool CanUseCondition(Hashtable hashtable)
             {
-                if (CardEffectCommons.IsExistOnHand(card))
+                if (card.Owner.HandCards.Contains(card))
                 {
                     if (count() >= 1)
                     {

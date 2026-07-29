@@ -1,12 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnCardsAddedToHand.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger "an effect adds a card to 1 player's hand" effect
     public static bool CanTriggerOnHandAdded(Hashtable hashtable, Player player, Func<ICardEffect, bool> cardEffectCondition)

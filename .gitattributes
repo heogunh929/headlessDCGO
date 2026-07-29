@@ -3,3 +3,9 @@
 * text=auto
 *.sh text eol=lf
 *.ps1 text eol=crlf
+
+# new-TO-BE 는 AS-IS 의 축자 바이트 사본이다(tools/AsIsSync). AS-IS 는 CRLF 이고 일부 파일은
+# 비-UTF8(cp932·혼합)이다. git 이 줄끝을 정규화하면 커밋본이 원본과 달라져
+#   diff -r DCGO/Assets/Scripts src/HeadlessDCGO.Engine/Assets/Scripts
+# 변환 대장이 통째로 깨진다. 그 대장이 "원본에 손댄 것 전량"의 유일한 계기판이므로 변환을 끈다.
+src/HeadlessDCGO.Engine/Assets/Scripts/** -text

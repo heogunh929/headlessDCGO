@@ -1,22 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_048.cs
-// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_048 (BT1/Yellow).
-//   [On Play] Reveal 4 cards from the top of your deck. Add all yellow Tamer cards among them to your hand.
-//   Place the remaining cards at the bottom of your deck in any order.
-// AS-IS structure kept verbatim: inline ActivateClass, ActivateCoroutine = the bridged
-// `CardEffectCommons.RevealDeckTopCardsAndProcessForAll` (W3), fed a single AS-IS-ctor
-// `SimplifiedSelectCardConditionClass` (CardSource-shape predicate + Mode.AddHand + maxCount -1).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
-using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_048 : CEntity_Effect
+public class BT1_048 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -38,7 +28,7 @@ public sealed class BT1_048 : CEntity_Effect
             {
                 if (cardSource.IsTamer)
                 {
-                    if (cardSource.HasCardColor("Yellow"))
+                    if (cardSource.HasCardColor(CardColor.Yellow))
                     {
                         return true;
                     }
@@ -56,7 +46,7 @@ public sealed class BT1_048 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                    if (card.Owner.LibraryCards.Count >= 1)
                     {
                         return true;
                     }
@@ -65,19 +55,20 @@ public sealed class BT1_048 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await CardEffectCommons.RevealDeckTopCardsAndProcessForAll(
-                    revealCount: 4,
-                    simplifiedSelectCardCondition:
-                    new SimplifiedSelectCardConditionClass(
-                            canTargetCondition: CanSelectCardCondition,
-                            message: "",
-                            mode: SelectCardEffect.Mode.AddHand,
-                            maxCount: -1,
-                            selectCardCoroutine: null),
-                    remainingCardsPlace: RemainingCardsPlace.DeckBottom,
-                    activateClass: activateClass);
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.RevealDeckTopCardsAndProcessForAll(
+                                    revealCount: 4,
+                                    simplifiedSelectCardCondition:
+                                    new SimplifiedSelectCardConditionClass(
+                                            canTargetCondition: CanSelectCardCondition,
+                                            message: "",
+                                            mode: SelectCardEffect.Mode.AddHand,
+                                            maxCount: -1,
+                                            selectCardCoroutine: null),
+                                    remainingCardsPlace: RemainingCardsPlace.DeckBottom,
+                                    activateClass: activateClass
+                                ));
             }
         }
 

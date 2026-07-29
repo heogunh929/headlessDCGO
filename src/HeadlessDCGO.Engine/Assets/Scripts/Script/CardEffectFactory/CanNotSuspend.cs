@@ -1,16 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/CanNotSuspend.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of AS-IS CanNotSuspend.cs factory partial.
-// Returns the ported CanNotSuspendClass kind-class (CardEffects/CanNotSuspendClass.cs).
-// ADAPTATION: AS-IS permanent.TopCard.CanNotBeAffected(ICardEffect) -> mirror CanNotBeAffected(HeadlessEntityId?)
-//   takes the cause effect's source-card instance id, so pass <class>.EffectSourceCard?.InstanceId.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CanNotSuspendClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {

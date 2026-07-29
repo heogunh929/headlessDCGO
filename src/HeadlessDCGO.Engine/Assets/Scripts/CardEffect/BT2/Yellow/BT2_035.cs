@@ -1,24 +1,84 @@
-// STOP: OnAllyAttack — CanActivateCondition의 "자신 배틀 필드에 황색 테이머 ≥3장" 조건을
-// id 기반 commons 술어(IsOwnerBattleAreaTamer + 황색 색상 쿼리 조합)로 표현할 수 없고,
-// SelectAndBuffDpEffect에 activationCondition 슬롯이 없어 게이트 없이 등록하면 가드 완화(부정확)가 됨.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Yellow;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class BT2_035 : CEntity_Effect
+public class BT2_035 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        // STOP: AS-IS CanActivateCondition = IsExistOnBattleArea && HasMatchConditionPermanent(opponentDigimon) &&
-        // card.Owner.GetBattleAreaPermanents().Count(p => p.TopCard.CardColors.Contains(Yellow) && p.IsTamer) >= 3.
-        // 세 번째 조건(황색 테이머 수 쿼리)을 Func<HeadlessEntityId,bool> 술어로 표현할
-        // commons 프리미티브(IsOwnerBattleAreaTamer + id→색상 쿼리)가 없고,
-        // SelectAndBuffDpEffect 시그니처에 activationCondition 파라미터가 없음.
         if (timing == EffectTiming.OnAllyAttack)
         {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("DP -2000", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            activateClass.SetIsInheritedEffect(true);
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[When Attacking] If you have 3 or more yellow Tamers in play, 1 of your opponent's Digimon gets -2000 DP for the turn.";
+            }
+
+            bool CanSelectPermanentCondition(Permanent permanent)
+            {
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
+                    {
+                        if (card.Owner.GetBattleAreaPermanents().Count((permanent) => permanent.TopCard.CardColors.Contains(CardColor.Yellow) && permanent.IsTamer) >= 3)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
+            {
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
+
+                SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                selectPermanentEffect.SetUp(
+                    selectPlayer: card.Owner,
+                    canTargetCondition: CanSelectPermanentCondition,
+                    canTargetCondition_ByPreSelecetedList: null,
+                    canEndSelectCondition: null,
+                    maxCount: maxCount,
+                    canNoSelect: false,
+                    canEndNotMax: false,
+                    selectPermanentCoroutine: SelectPermanentCoroutine,
+                    afterSelectPermanentCoroutine: null,
+                    mode: SelectPermanentEffect.Mode.Custom,
+                    cardEffect: activateClass);
+
+                selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get DP -2000.", "The opponent is selecting 1 Digimon that will get DP -2000.");
+
+                yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+
+                IEnumerator SelectPermanentCoroutine(Permanent permanent)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonDP(targetPermanent: permanent, changeValue: -2000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass));
+                }
+            }
         }
 
         return cardEffects;

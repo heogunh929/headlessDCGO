@@ -1,27 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST3/Yellow/ST3_08.cs
-// TRUE AS-IS-verbatim re-port (ST3 Yellow batch). 1:1 mirror of the original ST3_08 (ST3/Yellow).
-//   [When Attacking] 1 of your opponent's Digimon gets -1000 DP for the turn.
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndBuffDpEffect(...)` call (an invented
-// helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` structure, matching
-// the established `SelectPermanentEffect` selection pattern (BT1_017/023/092/094 pattern).
-// AS-IS structure kept verbatim: inline ActivateClass, SetIsInheritedEffect(true).
-// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// the AS-IS `Func<Permanent,bool>` CanSelectPermanentCondition is kept on the canonical `Func<Permanent,bool>`
-// shape (id-flip 3b — `HasMatchConditionPermanent`/`MatchConditionPermanentCount`, and
-// `SelectPermanentEffect.SetUp`'s `canTargetCondition`, all take this shape directly).
-// AS-IS `GManager.instance.GetComponent<SelectPermanentEffect>()` + full `SetUp(...)` + `.Activate()` resolves
-// via the bridge-W4 GManager.GetComponent<T>()/SelectPermanentEffect support.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST3.Yellow;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class ST3_08 : CEntity_Effect
+public class ST3_08 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -54,7 +39,7 @@ public sealed class ST3_08 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                     {
                         return true;
                     }
@@ -63,11 +48,11 @@ public sealed class ST3_08 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -88,15 +73,15 @@ public sealed class ST3_08 : CEntity_Effect
                         "Select 1 Digimon that will get DP -1000.",
                         "The opponent is selecting 1 Digimon that will get DP -1000.");
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
-                        await CardEffectCommons.ChangeDigimonDP(
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonDP(
                             targetPermanent: permanent,
                             changeValue: -1000,
                             effectDuration: EffectDuration.UntilEachTurnEnd,
-                            activateClass: activateClass);
+                            activateClass: activateClass));
                     }
                 }
             }

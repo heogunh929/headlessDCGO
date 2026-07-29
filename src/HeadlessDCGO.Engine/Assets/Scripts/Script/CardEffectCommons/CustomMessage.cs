@@ -1,13 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CustomMessage.cs
-// (TRUE AS-IS-verbatim re-port, BATCH 3) pure string-template helpers — no gameplay state, no substrate
-// translation needed beyond stripping `UnityEngine`/System.Collections usings this file never actually used
-// for logic. Ported verbatim (statement-for-statement) to close the P5 log's "customPermanentMessageArray_
-// ChangeDP — no mirror member" gap (BT1_055/BT1_096/BT1_104 callers; also the AS-IS siblings
-// `customPermanentMessageArrayTemplate`/`_ChangeOriginDP`/`_ChangeSAttack`, ported together since they are one
-// cohesive AS-IS unit and future verbatim cards call them too).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Custom message
 

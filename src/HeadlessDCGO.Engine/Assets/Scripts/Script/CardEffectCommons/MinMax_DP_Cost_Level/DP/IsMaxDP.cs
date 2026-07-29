@@ -1,38 +1,25 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/MinMax_DP_Cost_Level/DP/IsMaxDP.cs
-// (SKEL-Exhaust) 1:1 mirror rehoused from the monolith CardEffectCommons.cs into the AS-IS mirrored path.
-// Same partial class; folded IsDpExtremum un-folded here. Substrate: Player owner -> HeadlessPlayerId owner;
-// GetBattleAreaDigimons -> IZoneStateReader.GetCards(owner, BattleArea). The optional permanentCondition
-// gates BOTH the subject guard AND the scan, verbatim AS-IS.
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-using System;
+using System.Collections;
 using System.Collections.Generic;
+using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
+using UnityEngine;
+using System.Security;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>AS-IS <c>IsMaxDP</c> (MinMax_DP_Cost_Level/DP/IsMaxDP.cs): among the owner's battle-area Digimon
-    /// with a defined DP (printed DP or BaseDP&gt;0) that satisfy <paramref name="permanentCondition"/>, this
-    /// permanent's effective DP is the maximum.</summary>
-    public static bool IsMaxDP(Permanent? permanent, HeadlessPlayerId owner, Func<Permanent, bool>? permanentCondition = null)
+    public static bool IsMaxDP(Permanent permanent, Player owner, Func<Permanent, bool> permanentCondition)
     {
-        if (permanent is null || permanent.InstanceId.IsEmpty || permanent.OwnerId != owner ||
-            !IsPermanentExistsOnBattleAreaDigimon(permanent) ||
-            (permanentCondition is not null && !permanentCondition(permanent)) ||
-            (!permanent.TopCard.HasDP && permanent.BaseDP <= 0))
-        {
-            return false;
-        }
+        if (permanent == null) return false;
+        if (permanent.TopCard == null) return false;
+        if (permanent.TopCard.Owner != owner) return false;
+        if (!IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, permanent.TopCard)) return false;
+        if (!permanent.TopCard.HasDP && (permanent.BaseDP <= 0)) return false;
+        if (permanentCondition != null && !permanentCondition(permanent)) return false;
 
-        EngineContext context = permanent.TopCard.Context;
-        List<int> dps = ((IZoneStateReader)context.ZoneMover).GetCards(owner, ChoiceZone.BattleArea)
-            .Select(id => new Permanent(context, id, owner))
-            .Where(p => p.IsDigimon && (permanentCondition is null || permanentCondition(p)) && (p.TopCard.HasDP || p.BaseDP > 0))
-            .Select(p => p.DP)
-            .ToList();
-        return dps.Count >= 1 && permanent.DP == dps.Max();
+        List<int> DPs = permanent.TopCard.Owner.GetBattleAreaDigimons()
+            .Filter(permanent1 => (permanent1.TopCard.HasDP || (permanent1.BaseDP > 0)) && (permanentCondition == null || permanentCondition(permanent1)))
+            .Map(permanent1 => permanent1.DP);
+
+        return DPs.Count >= 1 && permanent.DP == DPs.Max();
     }
 }

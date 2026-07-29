@@ -1,0 +1,657 @@
+--- DCGO/Assets/Scripts/CardEffect/EX10/Purple/EX10_045.cs	2026-05-18 20:03:15.253351200 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/CardEffect/EX10/Purple/EX10_045.cs	2026-07-29 01:02:23.011932954 +0900
+@@ -1,385 +1,387 @@
++namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX10.Purple;
++
+ using System.Collections;
+-using System.Collections.Generic;
+-using System;
++using System.Linq;
++using System.Threading.Tasks;
++using HeadlessDCGO.Engine.Assets.Scripts.Script;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
++using HeadlessDCGO.Engine.Headless.Services;
+ 
+-//Tuwarmon
+-namespace DCGO.CardEffects.EX10
++public class EX10_045 : CEntity_Effect
+ {
+-    public class EX10_045 : CEntity_Effect
++    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+     {
+-        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+-        {
+-            List<ICardEffect> cardEffects = new List<ICardEffect>();
++        List<ICardEffect> cardEffects = new List<ICardEffect>();
+ 
+-            #region Static Effects
++        #region Alternate Digivolution Requirement
+ 
+-            #region Alternate Digivolution Requirement
+-
+-            if (timing == EffectTiming.None)
++        if (timing == EffectTiming.None)
++        {
++            static bool PermanentCondition(Permanent targetPermanent)
+             {
+-                static bool PermanentCondition(Permanent targetPermanent)
+-                {
+-                    return targetPermanent.TopCard.EqualsCardName("Damemon");
+-                }
+-
+-                cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(permanentCondition: PermanentCondition, digivolutionCost: 1, ignoreDigivolutionRequirement: false, card: card, condition: null));
++                return targetPermanent.TopCard.EqualsCardName("Damemon");
+             }
+ 
+-            #endregion
++            cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
++                permanentCondition: PermanentCondition, digivolutionCost: 1, ignoreDigivolutionRequirement: false, card: card, condition: null));
++        }
+ 
+-            #region Digixros
++        #endregion
+ 
+-            if (timing == EffectTiming.None)
++        #region Digixros
++
++        if (timing == EffectTiming.None)
++        {
++            AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();
++            addDigiXrosConditionClass.SetUpICardEffect($"DigiXros", CanUseCondition, card);
++            addDigiXrosConditionClass.SetUpAddDigiXrosConditionClass(getDigiXrosCondition: GetDigiXros);
++            addDigiXrosConditionClass.SetNotShowUI(true);
++            cardEffects.Add(addDigiXrosConditionClass);
++
++            bool CanUseCondition(Hashtable hashtable)
+             {
+-                AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();
+-                addDigiXrosConditionClass.SetUpICardEffect($"DigiXros", CanUseCondition, card);
+-                addDigiXrosConditionClass.SetUpAddDigiXrosConditionClass(getDigiXrosCondition: GetDigiXros);
+-                addDigiXrosConditionClass.SetNotShowUI(true);
+-                cardEffects.Add(addDigiXrosConditionClass);
++                return true;
++            }
+ 
+-                bool CanUseCondition(Hashtable hashtable)
++            DigiXrosCondition GetDigiXros(CardSource cardSource)
++            {
++                if (cardSource == card)
+                 {
+-                    return true;
+-                }
++                    DigiXrosConditionElement element = new DigiXrosConditionElement(CanSelectCardCondition, "Damemon");
+ 
+-                DigiXrosCondition GetDigiXros(CardSource cardSource)
+-                {
+-                    if (cardSource == card)
++                    bool CanSelectCardCondition(CardSource cardSource)
+                     {
+-                        DigiXrosConditionElement element = new DigiXrosConditionElement(CanSelectCardCondition, "Damemon");
+-
+-                        bool CanSelectCardCondition(CardSource cardSource)
++                        if (cardSource != null)
+                         {
+-                            if (cardSource != null)
++                            if (cardSource.Owner == card.Owner)
+                             {
+-                                if (cardSource.Owner == card.Owner)
++                                if (cardSource.IsDigimon)
+                                 {
+-                                    if (cardSource.IsDigimon)
++                                    if (cardSource.CardNames_DigiXros.Contains("Damemon"))
+                                     {
+-                                        if (cardSource.CardNames_DigiXros.Contains("Damemon"))
+-                                        {
+-                                            return true;
+-                                        }
++                                        return true;
+                                     }
+                                 }
+                             }
+-
+-                            return false;
+                         }
+ 
+-                        DigiXrosConditionElement element1 = new DigiXrosConditionElement(CanSelectCardCondition1, "ChuuChuumon");
++                        return false;
++                    }
++
++                    DigiXrosConditionElement element1 = new DigiXrosConditionElement(CanSelectCardCondition1, "ChuuChuumon");
+ 
+-                        bool CanSelectCardCondition1(CardSource cardSource)
++                    bool CanSelectCardCondition1(CardSource cardSource)
++                    {
++                        if (cardSource != null)
+                         {
+-                            if (cardSource != null)
++                            if (cardSource.Owner == card.Owner)
+                             {
+-                                if (cardSource.Owner == card.Owner)
++                                if (cardSource.IsDigimon)
+                                 {
+-                                    if (cardSource.IsDigimon)
++                                    if (cardSource.CardNames_DigiXros.Contains("ChuuChuumon"))
+                                     {
+-                                        if (cardSource.CardNames_DigiXros.Contains("ChuuChuumon"))
+-                                        {
+-                                            return true;
+-                                        }
++                                        return true;
+                                     }
+                                 }
+                             }
+-
+-                            return false;
+                         }
+ 
+-                        List<DigiXrosConditionElement> elements = new List<DigiXrosConditionElement>() { element, element1 };
++                        return false;
++                    }
+ 
+-                        DigiXrosCondition digiXrosCondition = new DigiXrosCondition(elements, null, 2);
++                    List<DigiXrosConditionElement> elements = new List<DigiXrosConditionElement>() { element, element1 };
+ 
+-                        return digiXrosCondition;
+-                    }
++                    DigiXrosCondition digiXrosCondition = new DigiXrosCondition(elements, null, 2);
+ 
+-                    return null;
++                    return digiXrosCondition;
+                 }
++
++                return null;
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            #region Collision
++        #region Collision
+ 
+-            if (timing == EffectTiming.OnCounterTiming)
+-            {
+-                cardEffects.Add(CardEffectFactory.CollisionSelfStaticEffect(false, card, null));
+-            }
++        if (timing == EffectTiming.OnCounterTiming)
++        {
++            cardEffects.Add(CardEffectFactory.CollisionSelfStaticEffect(false, card, null));
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            #region Rush
++        #region Rush
+ 
+-            if (timing == EffectTiming.None)
+-            {
+-                cardEffects.Add(CardEffectFactory.RushSelfStaticEffect(isInheritedEffect: false, card: card, condition: null));
+-            }
++        if (timing == EffectTiming.None)
++        {
++            cardEffects.Add(CardEffectFactory.RushSelfStaticEffect(isInheritedEffect: false, card: card, condition: null));
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            #endregion
++        #region OP/WD/WA Shared
+ 
+-            #region OP/WD/WA Shared
++        string SharedEffectDiscription(string tag)
++        {
++            return $"[{tag}] [Once Per Turn] By trashing any 1 digivolution card of your [Bagra Army] trait Digimon, 1 of your [Bagra Army] trait Digimon gains <Blocker> and <Retaliation> until your opponent's turn ends.";
++        }
+ 
+-            string SharedEffectDiscription(string tag)
+-            {
+-                return $"[{tag}] [Once Per Turn] By trashing any 1 digivolution card of your [Bagra Army] trait Digimon, 1 of your [Bagra Army] trait Digimon gains <Blocker> and <Retaliation> until your opponent's turn ends.";
+-            }
++        bool CanActivateConditionShared(Hashtable hashtable)
++        {
++            return CardEffectCommons.IsExistOnBattleAreaDigimon(card);
++        }
+ 
+-            bool CanActivateConditionShared(Hashtable hashtable)
+-            {
+-                return CardEffectCommons.IsExistOnBattleAreaDigimon(card);
+-            }
++        bool CanSelectPermanent(Permanent permanent)
++        {
++            return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card) &&
++                   permanent.TopCard.CardTraits.Contains("Bagra Army");
++        }
+ 
+-            bool CanSelectPermanent(Permanent permanent)
+-            {
+-                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card) &&
+-                       permanent.TopCard.CardTraits.Contains("Bagra Army");
+-            }
++        bool CanSelectPermamentTrashDigivolution(Permanent permanent)
++        {
++            return CanSelectPermanent(permanent)
++                && permanent.DigivolutionCards.Count > 0;
++        }
+ 
+-            bool CanSelectPermamentTrashDigivolution(Permanent permanent)
++        async Task SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
++        {
++            if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermamentTrashDigivolution))
+             {
+-                return CanSelectPermanent(permanent)
+-                    && permanent.DigivolutionCards.Count > 0;
+-            }
++                #region Select Permanent to trash Digivolution Cards
+ 
+-            IEnumerator SharedActivateCoroutine(Hashtable hashtable, ActivateClass activateClass)
+-            {
+-                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermamentTrashDigivolution))
++                Permanent selectedPermanment = null;
++
++                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermamentTrashDigivolution));
++                SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
++
++                selectPermanentEffect.SetUp(
++                    selectPlayer: card.Owner,
++                    canTargetCondition: CanSelectPermamentTrashDigivolution,
++                    canTargetCondition_ByPreSelecetedList: null,
++                    canEndSelectCondition: null,
++                    maxCount: maxCount,
++                    canNoSelect: false,
++                    canEndNotMax: false,
++                    selectPermanentCoroutine: SelectPermanentCoroutine,
++                    afterSelectPermanentCoroutine: null,
++                    mode: SelectPermanentEffect.Mode.Custom,
++                    cardEffect: activateClass);
++
++                Task SelectPermanentCoroutine(Permanent permanent)
+                 {
+-                    #region Select Permanent to trash Digivolution Cards
++                    selectedPermanment = permanent;
++                    return Task.CompletedTask;
++                }
+ 
+-                    Permanent selectedPermanment = null;
++                selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon trash digivolution card", "The opponent is selecting 1 Digimon trash digivolution card");
++                await selectPermanentEffect.Activate();
+ 
+-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermamentTrashDigivolution));
+-                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
++                #endregion
+ 
+-                    selectPermanentEffect.SetUp(
+-                        selectPlayer: card.Owner,
+-                        canTargetCondition: CanSelectPermamentTrashDigivolution,
++                if (selectedPermanment != null)
++                {
++                    #region Select Digivolution Card to trash
++
++                    CardSource selectedCard = null;
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++
++                    selectCardEffect.SetUp(
++                        canTargetCondition: x => true,
+                         canTargetCondition_ByPreSelecetedList: null,
+                         canEndSelectCondition: null,
+-                        maxCount: maxCount,
+-                        canNoSelect: false,
++                        canNoSelect: () => false,
++                        selectCardCoroutine: SelectCardCoroutine,
++                        afterSelectCardCoroutine: null,
++                        message: "Select 1 digivolution card to discard.",
++                        maxCount: 1,
+                         canEndNotMax: false,
+-                        selectPermanentCoroutine: SelectPermanentCoroutine,
+-                        afterSelectPermanentCoroutine: null,
+-                        mode: SelectPermanentEffect.Mode.Custom,
+-                        cardEffect: activateClass);
++                        isShowOpponent: true,
++                        mode: SelectCardEffect.Mode.Custom,
++                        root: SelectCardEffect.Root.Custom,
++                        customRootCardList: selectedPermanment.DigivolutionCards.ToList(),
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: null);
+ 
+-                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
++                    Task SelectCardCoroutine(CardSource cardSource)
+                     {
+-                        selectedPermanment = permanent;
+-                        yield return null;
++                        selectedCard = cardSource;
++                        return Task.CompletedTask;
+                     }
+ 
+-                    selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon trash digivolution card", "The opponent is selecting 1 Digimon trash digivolution card");
+-                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
++                    selectCardEffect.SetUpCustomMessage("Select 1 digivolution card to discard.", "The opponent is selecting 1 digivolution card to discard.");
++                    await selectCardEffect.Activate();
+ 
+                     #endregion
+ 
+-                    if (selectedPermanment != null)
++                    if (selectedCard != null)
+                     {
+-                        #region Select Digivolution Card to trash
+-
+-                        CardSource selectedCard = null;
+-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+-
+-                        selectCardEffect.SetUp(
+-                                    canTargetCondition: x => true,
+-                                    canTargetCondition_ByPreSelecetedList: null,
+-                                    canEndSelectCondition: null,
+-                                    canNoSelect: () => false,
+-                                    selectCardCoroutine: SelectCardCoroutine,
+-                                    afterSelectCardCoroutine: null,
+-                                    message: "Select 1 digivolution card to discard.",
+-                                    maxCount: 1,
+-                                    canEndNotMax: false,
+-                                    isShowOpponent: true,
+-                                    mode: SelectCardEffect.Mode.Custom,
+-                                    root: SelectCardEffect.Root.Custom,
+-                                    customRootCardList: selectedPermanment.DigivolutionCards,
+-                                    canLookReverseCard: true,
+-                                    selectPlayer: card.Owner,
+-                                    cardEffect: null);
+-
+-                        IEnumerator SelectCardCoroutine(CardSource cardSource)
+-                        {
+-                            selectedCard = cardSource;
+-                            yield return null;
+-                        }
+-
+-                        selectCardEffect.SetUpCustomMessage("Select 1 digivolution card to discard.", "The opponent is selecting 1 digivolution card to discard.");
+-                        yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
+-
+-                        #endregion
+-
+-                        if (selectedCard != null) yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.TrashDigivolutionCardsAndProcessAccordingToResult(
++                        await CardEffectCommons.TrashDigivolutionCardsAndProcessAccordingToResult(
+                             targetPermanent: selectedPermanment,
+                             targetDigivolutionCards: new List<CardSource>() { selectedCard },
+                             activateClass: activateClass,
+                             successProcess: SuccessProcess,
+-                            failureProcess: null));
++                            failureProcess: null);
++                    }
+ 
+-                        IEnumerator SuccessProcess(List<CardSource> cardSources)
++                    async Task SuccessProcess(List<CardSource> cardSources)
++                    {
++                        if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanent))
+                         {
+-                            if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanent))
+-                            {
+-                                #region Select Permanent to gain effects
++                            #region Select Permanent to gain effects
+ 
+-                                Permanent selectedPermanment1 = null;
++                            Permanent selectedPermanment1 = null;
+ 
+-                                int maxCount1 = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanent));
+-                                SelectPermanentEffect selectPermanentEffect1 = GManager.instance.GetComponent<SelectPermanentEffect>();
++                            int maxCount1 = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanent));
++                            SelectPermanentEffect selectPermanentEffect1 = GManager.instance.GetComponent<SelectPermanentEffect>();
+ 
+-                                selectPermanentEffect1.SetUp(
+-                                    selectPlayer: card.Owner,
+-                                    canTargetCondition: CanSelectPermanent,
+-                                    canTargetCondition_ByPreSelecetedList: null,
+-                                    canEndSelectCondition: null,
+-                                    maxCount: maxCount1,
+-                                    canNoSelect: false,
+-                                    canEndNotMax: false,
+-                                    selectPermanentCoroutine: SelectPermanentCoroutine,
+-                                    afterSelectPermanentCoroutine: null,
+-                                    mode: SelectPermanentEffect.Mode.Custom,
+-                                    cardEffect: activateClass);
++                            selectPermanentEffect1.SetUp(
++                                selectPlayer: card.Owner,
++                                canTargetCondition: CanSelectPermanent,
++                                canTargetCondition_ByPreSelecetedList: null,
++                                canEndSelectCondition: null,
++                                maxCount: maxCount1,
++                                canNoSelect: false,
++                                canEndNotMax: false,
++                                selectPermanentCoroutine: SelectPermanentCoroutine,
++                                afterSelectPermanentCoroutine: null,
++                                mode: SelectPermanentEffect.Mode.Custom,
++                                cardEffect: activateClass);
+ 
+-                                IEnumerator SelectPermanentCoroutine(Permanent permanent)
+-                                {
+-                                    selectedPermanment1 = permanent;
+-                                    yield return null;
+-                                }
++                            Task SelectPermanentCoroutine(Permanent permanent)
++                            {
++                                selectedPermanment1 = permanent;
++                                return Task.CompletedTask;
++                            }
+ 
+-                                selectPermanentEffect1.SetUpCustomMessage("Select 1 Digimon to gain <Blocker> & <Retaliation>", "The opponent is selecting 1 Digimon to gain <Blocker> & <Retaliation>");
+-                                yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect1.Activate());
++                            selectPermanentEffect1.SetUpCustomMessage("Select 1 Digimon to gain <Blocker> & <Retaliation>", "The opponent is selecting 1 Digimon to gain <Blocker> & <Retaliation>");
++                            await selectPermanentEffect1.Activate();
+ 
+-                                #endregion
++                            #endregion
+ 
+-                                if (selectedPermanment1 != null)
+-                                {
+-                                    yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainBlocker(
+-                                        targetPermanent: selectedPermanment1,
+-                                        effectDuration: EffectDuration.UntilOpponentTurnEnd,
+-                                        activateClass: activateClass));
+-
+-                                    yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainRetaliation(
+-                                        targetPermanent: selectedPermanment1,
+-                                        effectDuration: EffectDuration.UntilOpponentTurnEnd,
+-                                        activateClass: activateClass));
+-                                }
++                            if (selectedPermanment1 != null)
++                            {
++                                await CardEffectCommons.GainBlocker(
++                                    targetPermanent: selectedPermanment1,
++                                    effectDuration: EffectDuration.UntilOpponentTurnEnd,
++                                    activateClass: activateClass);
++
++                                await CardEffectCommons.GainRetaliation(
++                                    targetPermanent: selectedPermanment1,
++                                    effectDuration: EffectDuration.UntilOpponentTurnEnd,
++                                    activateClass: activateClass);
+                             }
+                         }
+                     }
+                 }
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            #region On Play
++        #region On Play
+ 
+-            if (timing == EffectTiming.OnEnterFieldAnyone)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("By trashing 1 source, 1 digimon gains Blocker, Retaliation", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateConditionShared, hashtable => SharedActivateCoroutine(hashtable, activateClass), 1, true, SharedEffectDiscription("On Play"));
+-                activateClass.SetHashString("OPWDWA_EX10_045");
+-                cardEffects.Add(activateClass);
++        if (timing == EffectTiming.OnEnterFieldAnyone)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("By trashing 1 source, 1 digimon gains Blocker, Retaliation", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateConditionShared, hashtable => SharedActivateCoroutine(hashtable, activateClass), 1, true, SharedEffectDiscription("On Play"));
++            activateClass.SetHashString("OPWDWA_EX10_045");
++            cardEffects.Add(activateClass);
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
+-                        && CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
++                    && CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            #region When Digivolving
++        #region When Digivolving
+ 
+-            if (timing == EffectTiming.OnEnterFieldAnyone)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("By trashing 1 source, 1 digimon gains Blocker, Retaliation", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateConditionShared, hashtable => SharedActivateCoroutine(hashtable, activateClass), 1, true, SharedEffectDiscription("When Digivolving"));
+-                activateClass.SetHashString("OPWDWA_EX10_045");
+-                cardEffects.Add(activateClass);
++        if (timing == EffectTiming.WhenDigivolving)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("By trashing 1 source, 1 digimon gains Blocker, Retaliation", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateConditionShared, hashtable => SharedActivateCoroutine(hashtable, activateClass), 1, true, SharedEffectDiscription("When Digivolving"));
++            activateClass.SetHashString("OPWDWA_EX10_045");
++            cardEffects.Add(activateClass);
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
+-                        && CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
++                    && CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            #region When Attacking
++        #region When Attacking
+ 
+-            if (timing == EffectTiming.OnAllyAttack)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("By trashing 1 source, 1 digimon gains Blocker, Retaliation", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateConditionShared, hashtable => SharedActivateCoroutine(hashtable, activateClass), 1, true, SharedEffectDiscription("When Attacking"));
+-                activateClass.SetHashString("OPWDWA_EX10_045");
+-                cardEffects.Add(activateClass);
++        if (timing == EffectTiming.OnAllyAttack)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("By trashing 1 source, 1 digimon gains Blocker, Retaliation", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateConditionShared, hashtable => SharedActivateCoroutine(hashtable, activateClass), 1, true, SharedEffectDiscription("When Attacking"));
++            activateClass.SetHashString("OPWDWA_EX10_045");
++            cardEffects.Add(activateClass);
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
+-                        && CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
++                    && CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            #region Save
++        #region Save
+ 
+-            if (timing == EffectTiming.OnDestroyedAnyone)
+-            {
+-                cardEffects.Add(CardEffectFactory.SaveEffect(card: card));
+-            }
++        if (timing == EffectTiming.OnDestroyedAnyone)
++        {
++            cardEffects.Add(CardEffectFactory.SaveEffect(card: card));
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            #region ESS
++        #region ESS
+ 
+-            if (timing == EffectTiming.OnDigivolutionCardDiscarded)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("<Draw 1>", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+-                activateClass.SetIsInheritedEffect(true);
+-                cardEffects.Add(activateClass);
++        if (timing == EffectTiming.OnDigivolutionCardDiscarded)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("<Draw 1>", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
++            activateClass.SetIsInheritedEffect(true);
++            cardEffects.Add(activateClass);
+ 
+-                string EffectDiscription()
+-                {
+-                    return "When effects trash this card from a [Bagra Army] trait Digimon's digivolution cards, <Draw 1>";
+-                }
++            string EffectDiscription()
++            {
++                return "When effects trash this card from a [Bagra Army] trait Digimon's digivolution cards, <Draw 1>";
++            }
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    Permanent trashedPermanent = CardEffectCommons.GetPermanentFromHashtable(hashtable);
+-                    return trashedPermanent.TopCard.EqualsTraits("Bagra Army") &&
+-                           CardEffectCommons.CanTriggerOnTrashSelfDigivolutionCard(hashtable, cardEffect => cardEffect != null, card);
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                Permanent trashedPermanent = CardEffectCommons.GetPermanentFromHashtable(hashtable);
++                return trashedPermanent.TopCard.EqualsTraits("Bagra Army") &&
++                       CardEffectCommons.CanTriggerOnTrashSelfDigivolutionCard(hashtable, cardEffect => cardEffect != null, card);
++            }
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.IsExistOnTrash(card);
+-                }
++            bool CanActivateCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.IsExistOnTrash(card);
++            }
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
+-                {
+-                    yield return ContinuousController.instance.StartCoroutine(new DrawClass(card.Owner, 1, activateClass).Draw());
+-                }
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                await new DrawClass(card.Context, card.Owner, 1, activateClass.EffectSourceCard?.InstanceId, activateClass).Draw();
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            return cardEffects;
+-        }
++        return cardEffects;
+     }
+ }

@@ -1,25 +1,15 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Evade.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Evade.cs factory partial.
-// ADAPTATION: card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card); coroutine
-// `IEnumerator ActivateCoroutine` (has a yield) -> `async Task ActivateCoroutine`; `yield return
-// ContinuousController.instance.StartCoroutine(CardEffectCommons.EvadeProcess(...))` -> `await CardEffectCommons.EvadeProcess(...)`;
-// stripped `using UnityEngine;`. Replaces the monolith's invented EvadeSelfEffect.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
     #region Trigger effect of [Evade] on oneself
     public static ActivateClass EvadeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+        Permanent targetPermanent = card.PermanentOfThisCard();
 
         bool CanUseCondition()
         {
@@ -48,7 +38,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect("Evade", CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, DataBase.EvadeEffectDiscription());
-        activateClass.SetHashString($"Evade_{card.CardNumber}" + (isInheritedEffect ? "_inherited" : ""));
+        activateClass.SetHashString($"Evade_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
         activateClass.SetIsInheritedEffect(isInheritedEffect);
 
         if (rootCardEffect != null)
@@ -84,9 +74,9 @@ public partial class CardEffectFactory
             return false;
         }
 
-        async Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
-            await CardEffectCommons.EvadeProcess(targetPermanent, activateClass);
+            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.EvadeProcess(targetPermanent, activateClass));
         }
 
         return activateClass;

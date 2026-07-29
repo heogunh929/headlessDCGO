@@ -1,0 +1,1008 @@
+--- DCGO/Assets/Scripts/Script/AttackProcess.cs	2026-05-18 20:03:15.638267100 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/Script/AttackProcess.cs	2026-07-29 01:02:23.427974035 +0900
+@@ -1,27 +1,76 @@
+-using System.Collections;
+-using System.Collections.Generic;
+-using UnityEngine;
++namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
++
++using System.Globalization;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++using HeadlessDCGO.Engine.Headless.Bridge;
++using HeadlessDCGO.Engine.Headless.Choices;
++using HeadlessDCGO.Engine.Headless.Runtime;
++using HeadlessDCGO.Engine.Headless.Services;
++using HeadlessDCGO.Engine.Headless.State;
+ using Photon.Pun;
+-using System;
+-using System.Linq;
+-using UnityEngine.UI;
++using Commons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
+ 
+ public class AttackProcess : MonoBehaviourPunCallbacks
+ {
+-    public Permanent AttackingPermanent { get; private set; } = null;
+-    public Permanent DefendingPermanent { get; private set; } = null;
+-    public int AttackCount { get; set; } = 0;
+-    public bool IsAttacking { get; set; } = false;
+-    public bool HasDefender { get; set; } = false;
+-    public bool IsBlocking { get; set; } = false;
+-    public CardSource SecurityDigimon { get; set; } = null;
+-    public bool DoSecurityCheck { get; set; } = false;
+-    public bool IsEndAttack { get; set; } = false;
++    private readonly EngineContext _context;
++
++    public AttackProcess(EngineContext context)
++    {
++        ArgumentNullException.ThrowIfNull(context);
++        _context = context;
++    }
++
++    public static AttackProcess For(EngineContext context)
++    {
++        ArgumentNullException.ThrowIfNull(context);
++        if (context.TryGetService(out AttackProcess? existing) && existing is not null)
++        {
++            return existing;
++        }
++
++        var created = new AttackProcess(context);
++        context.RegisterService(created);
++        return created;
++    }
++
++
++    public Permanent? AttackingPermanent =>
++        _context.AttackController.Current is { AttackerId: HeadlessEntityId id, AttackingPlayerId: HeadlessPlayerId owner }
++            ? new Permanent(_context, id, owner)
++            : null;
+ 
+-    public Hashtable EffectHashtable { get; set; } = null;
++    public Permanent? DefendingPermanent =>
++        _context.AttackController.Current is { TargetId: HeadlessEntityId id, DefendingPlayerId: HeadlessPlayerId owner }
++            ? new Permanent(_context, id, owner)
++            : null;
++
++    public int AttackCount => _context.AttackController.Current.AttackCount;
++
++    public bool IsAttacking => _context.AttackController.Current.IsPending;
++
++    public bool HasDefender => _context.AttackController.Current.TargetId.HasValue;
++
++    public bool IsBlocking => _context.AttackController.Current.IsBlocked;
++
++    public HeadlessEntityId? SecurityDigimon { get; set; }
++
++    public bool DoSecurityCheck { get; set; }
++
++    public bool IsEndAttack { get; set; }
++
++    public IReadOnlyList<HeadlessEntityId>? CounterSourcesSnapshot { get; private set; }
++
++    public AttackState State => _context.AttackController.Current.Phase switch
++    {
++        AttackPhase.None => AttackState.None,
++        AttackPhase.Declared => AttackState.Counter,
++        AttackPhase.Blocking => AttackState.Block,
++        AttackPhase.Combat => AttackState.Battle,
++        AttackPhase.Resolved => AttackState.End,
++        AttackPhase.Completed => AttackState.CleanUp,
++        _ => AttackState.None,
++    };
+ 
+-    public Hashtable CounterEffectHashtable { get; set; } = null;
+-    public AttackState State { get; set; } = AttackState.None;
+     public enum AttackState
+     {
+         None,
+@@ -29,330 +78,221 @@
+         Block,
+         Battle,
+         End,
+-        CleanUp
++        CleanUp,
+     }
+ 
+-    public bool ActiveAttack()
+-    {
+-        return State != null && State != AttackState.None;
+-    }
+ 
+-    public IEnumerator ProcessNextState()
++    public bool ActiveAttack() => State != AttackState.None;
++
++    public async Task ProcessNextState(CancellationToken cancellationToken = default)
+     {
++        cancellationToken.ThrowIfCancellationRequested();
+         switch (State)
+         {
+             case AttackState.Counter:
+-                yield return ContinuousController.instance.StartCoroutine(CounterTiming());
++                await CounterTiming(cancellationToken).ConfigureAwait(false);
+                 break;
+             case AttackState.Block:
+-                yield return ContinuousController.instance.StartCoroutine(BlockTiming());
++                await BlockTiming(cancellationToken).ConfigureAwait(false);
+                 break;
+             case AttackState.Battle:
+-                yield return ContinuousController.instance.StartCoroutine(DetermineAttackOutcome());
++                await DetermineAttackOutcome(cancellationToken).ConfigureAwait(false);
+                 break;
+             case AttackState.End:
+-                yield return ContinuousController.instance.StartCoroutine(EndAttack());
++                await EndAttackStage(cancellationToken).ConfigureAwait(false);
+                 break;
+             case AttackState.CleanUp:
+-                yield return ContinuousController.instance.StartCoroutine(Cleanup());
++                Cleanup();
+                 break;
+             default:
+-                yield break;
++                break;
+         }
+     }
+ 
+-    void SetAttackerDefender(Permanent attackingPermanent, Permanent defendingPermanent)
++    public async Task<HeadlessAttackState> Attack(
++        HeadlessPlayerId declaringPlayer,
++        HeadlessEntityId attackerId,
++        HeadlessPlayerId defendingPlayer,
++        HeadlessEntityId? targetId,
++        bool isDirectAttack,
++        HeadlessEntityId? attackEffectSourceId = null,
++        bool withoutTap = false,
++        Func<CancellationToken, Task>? beforeOnAttack = null,
++        CancellationToken cancellationToken = default)
+     {
+-        AttackingPermanent = attackingPermanent;
+-        DefendingPermanent = defendingPermanent;
++        _context.AttackController.DeclareAttack(
++            declaringPlayer, attackerId, defendingPlayer, targetId, isDirectAttack);
+ 
+-        if (defendingPermanent != null)
+-            HasDefender = true;
++        await Attack(attackerId, attackEffectSourceId, withoutTap, beforeOnAttack, cancellationToken).ConfigureAwait(false);
++        return _context.AttackController.Current;
+     }
+ 
+-    public IEnumerator Attack(Permanent attackingPermanent, Permanent defendingPermanent, ICardEffect attackEffect, bool withoutTap = false, Func<IEnumerator> beforeOnAttackCoroutine = null)
++    public async Task Attack(
++        HeadlessEntityId attackerId,
++        HeadlessEntityId? attackEffectSourceId = null,
++        bool withoutTap = false,
++        Func<CancellationToken, Task>? beforeOnAttack = null,
++        CancellationToken cancellationToken = default)
+     {
+-        if (IsAttacking)
++        if (IsAttacking && _context.AttackController.Current.AttackerId != attackerId)
+         {
+-            if (beforeOnAttackCoroutine != null)
++            if (beforeOnAttack is not null)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(beforeOnAttackCoroutine());
++                await beforeOnAttack(cancellationToken).ConfigureAwait(false);
+             }
+ 
+-            yield break;
++            return;
+         }
+ 
+-        AttackingPermanent = null;
+-        DefendingPermanent = null;
+-
+         DoSecurityCheck = false;
+-        IsBlocking = false;
+         SecurityDigimon = null;
+-        IsAttacking = false;
+-        HasDefender = false;
+         IsEndAttack = false;
+-        CounterEffectHashtable = null;
+-
+-        SetAttackerDefender(attackingPermanent, defendingPermanent);
+-
+-        EffectHashtable = CardEffectCommons.OnAttackCheckHashtableOfPermanent(AttackingPermanent, attackEffect);
+-        CounterEffectHashtable = CardEffectCommons.OnAttackCheckHashtableOfPermanent(new Permanent(AttackingPermanent.cardSources), attackEffect);
++        CounterSourcesSnapshot = null;
+ 
+-        IsAttacking = true;
++        Permanent? attacker = AttackingPermanent;
++        CounterSourcesSnapshot = SnapshotCardSources(attackerId);
+ 
+-        GManager.instance.turnStateMachine.IsSelecting = true;
+-
+-        // force to end attack
+         if (IsEndAttack)
+         {
+-            State = AttackState.End;
+-
+-            yield break;
++            _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (pre-declaration).");
++            return;
+         }
+ 
+-        #region Attack Process
+-        if (CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(AttackingPermanent))
++        if (attacker is not null && Commons.IsPermanentExistsOnBattleAreaDigimon(attacker))
+         {
+-            AttackCount++;
+-
+-            GManager.instance.turnStateMachine.IsSelecting = true;
+-
+-            if (DefendingPermanent != null)
+-            {
+-                if (CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(DefendingPermanent))
+-                {
+-                    DefendingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-                    DefendingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
+-                    GManager.instance.turnStateMachine.gameContext.NonTurnPlayer.securityObject.securityBreakGlass.gameObject.SetActive(false);
+-                }
+-            }
+-
+-            else
+-            {
+-                if (GManager.instance.turnStateMachine.gameContext.NonTurnPlayer.SecurityCards.Count >= 1)
+-                {
+-                    GManager.instance.turnStateMachine.gameContext.NonTurnPlayer.securityObject.securityBreakGlass.ShowBlueMatarial();
+-                }
+-            }
+-
+-            AttackingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-            AttackingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
+-
+-            // add log
+-            string log = $"\nAttack:\n{AttackingPermanent.TopCard.BaseENGCardNameFromEntity}({AttackingPermanent.TopCard.CardID})";
+-
+-            if (DefendingPermanent != null)
+-            {
+-                if (CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(DefendingPermanent))
+-                    log += $"\n«\n{DefendingPermanent.TopCard.BaseENGCardNameFromEntity}({DefendingPermanent.TopCard.CardID})\n";
+-            }
+-
+-            else
+-            {
+-                log += $"\n«\nSecurity\n";
+-            }
+-
+-            PlayLog.OnAddLog?.Invoke(log);
+ 
+-            // suspend
+             if (!withoutTap)
+             {
+-                Hashtable attackerTapHashtable = new Hashtable()
+-                {
+-                    {"IsAttack", true}
+-                };
+-                yield return ContinuousController.instance.StartCoroutine(new SuspendPermanentsClass(
+-                    new List<Permanent>() { AttackingPermanent },
+-                    attackerTapHashtable).Tap());
++                using AmbientMatchContext.Scope _attackerTapScope = AmbientMatchContext.Enter(_context);
++                await new SuspendPermanentsClass(new List<Permanent>() { attacker }, cardEffect: null, isBlock: false)
++                    .Tap(cancellationToken).ConfigureAwait(false);
+             }
+ 
+-            // target arrow
+-            if (DefendingPermanent == null)
+-            {
+-                yield return GManager.instance.OnTargetArrow(
+-                        AttackingPermanent.PermanentFrame.GetLocalCanvasPosition() + AttackingPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+-                        GManager.instance.turnStateMachine.gameContext.NonTurnPlayer.SecurityAttackLocalCanvasPosition + GManager.instance.turnStateMachine.gameContext.NonTurnPlayer.playerUIObjectParent.localPosition,
+-                        null,
+-                        null);
+-            }
+-            else
+-            {
+-                if (CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(DefendingPermanent))
+-                {
+-                    yield return GManager.instance.OnTargetArrow(
+-                        AttackingPermanent.PermanentFrame.GetLocalCanvasPosition() + AttackingPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+-                        DefendingPermanent.PermanentFrame.GetLocalCanvasPosition() + DefendingPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+-                        null,
+-                        null);
+-                }
+-            }
+ 
+-            // callback that is processed before [On Attack]
+-            if (beforeOnAttackCoroutine != null)
++            if (beforeOnAttack is not null)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(beforeOnAttackCoroutine());
++                await beforeOnAttack(cancellationToken).ConfigureAwait(false);
+             }
+ 
+-            // trigger [On Attack] effect
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(
+-                EffectHashtable,
+-                EffectTiming.OnAllyAttack));
+-
+-            GManager.instance.turnStateMachine.IsSelecting = true;
+ 
+-            if (AttackingPermanent.TopCard != null)
+             {
+-                AttackingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-                AttackingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
++                using AmbientMatchContext.Scope _onAllyAttackScope = AmbientMatchContext.Enter(_context);
++                await GManager.instance!.autoProcessing
++                    .StackSkillInfos(
++                        Commons.OnAttackCheckHashtableOfPermanent(attacker, null),
++                        EffectTiming.OnAllyAttack).ConfigureAwait(false);
+             }
+ 
+-            if (DefendingPermanent != null)
+-            {
+-                if (CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(DefendingPermanent))
+-                {
+-                    DefendingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-                    DefendingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
+-                }
+-            }
+-
+-            GManager.instance.turnStateMachine.IsSelecting = true;
+-
+-            // force to end attack
+             if (IsEndAttack)
+             {
+-                State = AttackState.End;
+-
+-                yield break;
+-            }
+-
+-            if (AttackingPermanent.TopCard != null)
+-            {
+-                AttackingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-                AttackingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
++                _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (post [On Attack]).");
++                return;
+             }
+ 
+-            if (DefendingPermanent != null)
+-            {
+-                if (CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(DefendingPermanent))
+-                {
+-                    DefendingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-                    DefendingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
+-                }
+-            }
+-            State = AttackState.Counter;
+-        }    
++        }
+         else
+         {
+-            if (beforeOnAttackCoroutine != null)
++            if (beforeOnAttack is not null)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(beforeOnAttackCoroutine());
++                await beforeOnAttack(cancellationToken).ConfigureAwait(false);
+             }
+-            State = AttackState.End;
++
++            _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Attacker not a battle-area Digimon at declaration.");
+         }
+-        #endregion
+     }
+ 
+-    IEnumerator CounterTiming()
++    private async Task CounterTiming(CancellationToken cancellationToken)
+     {
+-        // force to end attack
+-        if (IsEndAttack)
+-        {
+-            State = AttackState.End;
++        _ = cancellationToken;
++        await Task.CompletedTask.ConfigureAwait(false);
++        HeadlessAttackState attack = _context.AttackController.Current;
+ 
+-            yield break;
+-        }
+-        
+-        // trigger effects when counter timing (except [Counter] effects)
+-        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+-            CounterEffectHashtable,
+-            EffectTiming.OnCounterTiming,
+-            cardEffect => !cardEffect.IsCounterEffect));
+-
+-        // activate cutin effects
+-        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(true, null));
+-
+-        GManager.instance.turnStateMachine.IsSelecting = true;
+-
+-        // force to end attack
+         if (IsEndAttack)
+         {
+-            State = AttackState.End;
+-
+-            yield break;
++            _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (counter head).");
++            return;
+         }
+ 
+-        // trigger effects when counter timing ([Counter] effects)
+-        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+-            CounterEffectHashtable,
+-            EffectTiming.OnCounterTiming,
+-            cardEffect => cardEffect.IsCounterEffect));
+ 
+-        bool HasCounterEffect(List<SkillInfo> skillInfos, SkillInfo skillInfo)
++        if (attack.AttackerId is HeadlessEntityId counterAttackerId
++            && _context.CardInstanceRepository.TryGetInstance(counterAttackerId, out CardInstanceRecord? counterAttacker)
++            && counterAttacker is not null)
+         {
+-            return skillInfos.Count((skillInfo1) => skillInfo1.CardEffect.IsCounterEffect) >= 1;
+-        }
++            System.Collections.Hashtable counterEffectHashtable = Commons.OnAttackCheckHashtableOfPermanent(
++                AttackingPermanent!, null);
+ 
+-        // activate cutin effects
+-        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(true, HasCounterEffect));
++            {
++                using AmbientMatchContext.Scope _counterPass1Scope = AmbientMatchContext.Enter(_context);
++                await GManager.instance!.autoProcessing_CutIn
++                    .StackSkillInfos(counterEffectHashtable, EffectTiming.OnCounterTiming, cardEffect => !cardEffect.IsCounterEffect)
++                    .ConfigureAwait(false);
++            }
++            await GManager.instance!.autoProcessing_CutIn.TriggeredSkillProcess(true, null).ConfigureAwait(false);
++            GManager.instance!.turnStateMachine.IsSelecting = true;
+ 
+-        GManager.instance.turnStateMachine.IsSelecting = true;
++            if (IsEndAttack)
++            {
++                _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (between counter passes).");
++                return;
++            }
+ 
+-        // force to end attack
+-        if (IsEndAttack || AttackingPermanent.TopCard == null || !AttackingPermanent.IsDigimon)
+-        {
+-            State = AttackState.End;
++            {
++                using AmbientMatchContext.Scope _counterPass2Scope = AmbientMatchContext.Enter(_context);
++                await GManager.instance!.autoProcessing_CutIn
++                    .StackSkillInfos(counterEffectHashtable, EffectTiming.OnCounterTiming, cardEffect => cardEffect.IsCounterEffect)
++                    .ConfigureAwait(false);
++            }
++            await GManager.instance!.autoProcessing_CutIn.TriggeredSkillProcess(true, HasCounterEffect).ConfigureAwait(false);
++            GManager.instance!.turnStateMachine.IsSelecting = true;
+ 
+-            yield break;
++            static bool HasCounterEffect(List<SkillInfo> skillInfos, SkillInfo skillInfo)
++                => skillInfos.Count(si => si.CardEffect.IsCounterEffect) >= 1;
+         }
+ 
+-        AttackingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-        AttackingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
+-
+-        if (DefendingPermanent != null)
++        if (IsEndAttack || !AttackerAliveDigimon())
+         {
+-            if (CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(DefendingPermanent))
+-            {
+-                DefendingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-                DefendingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
+-            }
++            _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (post counter).");
++            return;
+         }
+-        State = AttackState.Block;
++
++        _context.AttackController.AdvancePhase(AttackPhase.Blocking, "Counter resolved -> block timing (AS-IS :319).");
+     }
+ 
+-    IEnumerator BlockTiming()
++    private async Task BlockTiming(CancellationToken cancellationToken)
+     {
+-        // force to end attack
+-        if (IsEndAttack || AttackingPermanent.TopCard == null || !AttackingPermanent.IsDigimon)
+-        {
+-            State = AttackState.End;
++        _ = cancellationToken;
+ 
+-            yield break;
++        if (IsEndAttack || !AttackerAliveDigimon())
++        {
++            _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (block head).");
++            return;
+         }
+-        
+-        #region select blocker
++
++        Permanent attacker = AttackingPermanent!;
++
+         bool CanSelectBlockerCondition(Permanent permanent)
+         {
+-            return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, AttackingPermanent.TopCard)
+-                && permanent != DefendingPermanent
+-                && permanent.HasBlocker 
+-                && permanent.CanBlock(AttackingPermanent);
++            return Commons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, attacker.TopCard)
++                && (DefendingPermanent is null || permanent.InstanceId != DefendingPermanent.InstanceId)
++                && permanent.HasBlocker
++                && permanent.CanBlock(attacker);
+         }
+ 
+-        if (AttackingPermanent.TopCard.Owner.Enemy.GetBattleAreaDigimons().Count(CanSelectBlockerCondition) >= 1)
+-        {
+-            int maxCount = 1;
++        Player attackerEnemy = new Player(_context, attacker.TopCard.Owner).Enemy!;
+ 
+-            Permanent selectedPermanent = null;
++        if (attackerEnemy.GetBattleAreaDigimons().Count(CanSelectBlockerCondition) >= 1)
++        {
++            Permanent? selectedPermanent = null;
+ 
+             SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+ 
+             selectPermanentEffect.SetUp(
+-                selectPlayer: AttackingPermanent.TopCard.Owner.Enemy,
++                selectPlayer: attackerEnemy.PlayerId,
+                 canTargetCondition: CanSelectBlockerCondition,
+                 canTargetCondition_ByPreSelecetedList: null,
+                 canEndSelectCondition: null,
+-                maxCount: maxCount,
+-                canNoSelect: !AttackingPermanent.HasCollision,
++                maxCount: 1,
++                canNoSelect: !attacker.HasCollision,
+                 canEndNotMax: false,
+                 selectPermanentCoroutine: SelectPermanentCoroutine,
+                 afterSelectPermanentCoroutine: null,
+@@ -360,269 +300,299 @@
+                 cardEffect: null);
+ 
+             selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will block.", "The opponent is selecting 1 Digimon that will block.");
+-            
+-            if(!IsBlocking)
++
++            if (!IsBlocking)
++            {
+                 selectPermanentEffect.SetUpCustomBackButtonMessage("Not Block");
++            }
+ 
+-            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
++            await selectPermanentEffect.Activate().ConfigureAwait(false);
+ 
+-            IEnumerator SelectPermanentCoroutine(Permanent permanent)
++            async Task SelectPermanentCoroutine(Permanent permanent)
+             {
+                 selectedPermanent = permanent;
+-
+-                yield return null;
++                await Task.CompletedTask.ConfigureAwait(false);
+             }
+ 
+-            if (selectedPermanent != null)
++            if (selectedPermanent is not null)
+             {
+-                yield return ContinuousController.instance.StartCoroutine(SwitchDefender(null, true, selectedPermanent));
++                await SwitchDefender(null, true, selectedPermanent.InstanceId).ConfigureAwait(false);
+             }
+         }
+-        #endregion
+-
+-        GManager.instance.turnStateMachine.IsSelecting = true;
+ 
+-        //end attack
+-        if (IsEndAttack || AttackingPermanent.TopCard == null || !AttackingPermanent.IsDigimon)
++        if (IsEndAttack || !AttackerAliveDigimon())
+         {
+-            State = AttackState.End;
+-
+-            yield break;
++            _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (post block).");
++            return;
+         }
+ 
+-        AttackingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-        AttackingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
+-
+-        if (DefendingPermanent != null)
+-        {
+-            if (CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(DefendingPermanent))
+-            {
+-                DefendingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-                DefendingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
+-            }
+-        }
+-        State = AttackState.Battle;
++        _context.AttackController.AdvancePhase(AttackPhase.Combat, "Block timing resolved.");
+     }
+ 
+-    IEnumerator DetermineAttackOutcome()
++    private async Task DetermineAttackOutcome(CancellationToken cancellationToken)
+     {
+-        //end attack
+-        if (IsEndAttack || AttackingPermanent.TopCard == null || !AttackingPermanent.IsDigimon)
++        if (IsEndAttack || !AttackerAliveDigimon())
+         {
+-            State = AttackState.End;
+-
+-            yield break;
++            _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Force end attack (battle head).");
++            return;
+         }
+ 
+-        #region there is no Defending Permanent
+-        if (DefendingPermanent == null)
++        Permanent attacker = AttackingPermanent!;
++        Permanent? defender = DefendingPermanent;
++
++        if (defender is null)
+         {
+-            if (AttackingPermanent.Strike >= 1)
++            if (attacker.Strike >= 1)
+             {
+-                //if there is no security, end the game
+-                if (AttackingPermanent.TopCard.Owner.Enemy.SecurityCards.Count == 0)
++                Player attackerOwner = new Player(_context, attacker.TopCard.Owner);
++                if (attackerOwner.Enemy!.SecurityCards.Count == 0)
+                 {
+-                    GManager.instance.turnStateMachine.EndGame(AttackingPermanent.TopCard.Owner, false);
+-                    yield break;
++                    GManager.instance.turnStateMachine.EndGame(attackerOwner, false);
++                    _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Direct attack: enemy has no security -> EndGame.");
++                    return;
+                 }
+             }
+ 
+             DoSecurityCheck = true;
+         }
+-        #endregion
+ 
+-        #region there is Defending Permanent
+-        else if (CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(DefendingPermanent) && CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(AttackingPermanent))
++        else if (Commons.IsPermanentExistsOnBattleAreaDigimon(defender) && Commons.IsPermanentExistsOnBattleAreaDigimon(attacker))
+         {
+-            DefendingPermanent.TopCard.Owner.securityObject.securityBreakGlass.gameObject.SetActive(false);
+-
+-            DefendingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-            DefendingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
++            IBattle battle = new IBattle(AttackingPermanent: attacker, DefendingPermanent: defender, DefendingCard: null);
++            await battle.Battle(cancellationToken).ConfigureAwait(false);
+ 
+-            // battle
+-            IBattle battle = new IBattle(AttackingPermanent: AttackingPermanent, DefendingPermanent: DefendingPermanent, null);
+-            yield return ContinuousController.instance.StartCoroutine(battle.Battle());
+-            
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.TriggeredSkillProcess(true, null));
++            await GManager.instance.autoProcessing.TriggeredSkillProcess(true, null).ConfigureAwait(false);
+             GManager.instance.turnStateMachine.IsSelecting = true;
+         }
+-        #endregion
+ 
+-        if (AttackingPermanent.TopCard == null)
++        if (!AttackerAlive())
+         {
+-            State = AttackState.End;
+-
+-            yield break;
++            _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Attacker did not survive the battle.");
++            return;
+         }
+ 
+-        #region do security check
+-        if (DoSecurityCheck && AttackingPermanent.TopCard.Owner.Enemy.SecurityCards.Count >= 1)
++        if (DoSecurityCheck
++            && new Player(_context, AttackingPermanent!.TopCard.Owner).Enemy!.SecurityCards.Count >= 1)
+         {
+-            //security check process
+-            yield return ContinuousController.instance.StartCoroutine(new ISecurityCheck(
+-                AttackingPermanent: AttackingPermanent,
+-                player: GManager.instance.turnStateMachine.gameContext.NonTurnPlayer).SecurityCheck());
++            await new ISecurityCheck(
++                AttackingPermanent: AttackingPermanent!,
++                player: GManager.instance.turnStateMachine.gameContext.NonTurnPlayer!).SecurityCheck(cancellationToken).ConfigureAwait(false);
+         }
+-        #endregion
+-        State = AttackState.End;
+-    }
+ 
++        _context.AttackController.AdvancePhase(AttackPhase.Resolved, "Determine attack outcome resolved.");
++    }
+ 
++    public void EndAttack() => IsEndAttack = true;
+ 
+-    #region End Attack
+-    public IEnumerator EndAttack()
++    private async Task EndAttackStage(CancellationToken cancellationToken)
+     {
+         IsEndAttack = true;
+ 
+-        // [On End Attack] effect
+-        if (AttackingPermanent != null && AttackingPermanent.TopCard != null)
++        HeadlessAttackState attack = _context.AttackController.Current;
++        if (attack.AttackingPlayerId is HeadlessPlayerId turnPlayer)
+         {
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(EffectHashtable, EffectTiming.OnEndAttack));
++            if (attack.AttackerId is HeadlessEntityId endAttackerId
++                && _context.ZoneMover is IZoneStateReader endAttackZones
++                && endAttackZones.GetCards(turnPlayer, ChoiceZone.BattleArea).Contains(endAttackerId))
++            {
++                using AmbientMatchContext.Scope _onEndAttackScope = AmbientMatchContext.Enter(_context);
++                await GManager.instance!.autoProcessing
++                    .StackSkillInfos(
++                        Commons.OnAttackCheckHashtableOfPermanent(AttackingPermanent!, null),
++                        EffectTiming.OnEndAttack).ConfigureAwait(false);
++            }
+         }
+ 
+-        State = AttackState.CleanUp;
++        await DeleteSelfAtEndOfAttackAsync(attack).ConfigureAwait(false);
++
++        _context.AttackController.AdvancePhase(AttackPhase.Completed, "End attack triggers collected.");
+     }
+ 
+-    IEnumerator Cleanup()
++    public const string DeleteSelfAtEndOfAttackKey = "deleteSelfAtEndOfAttack";
++
++    private async Task DeleteSelfAtEndOfAttackAsync(HeadlessAttackState attack)
+     {
+-        #region reset effects which continues until the end of attack
+-        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
++        if (attack.AttackerId is not HeadlessEntityId attackerId ||
++            !_context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? attacker) ||
++            attacker is null ||
++            !(attacker.Metadata.TryGetValue(DeleteSelfAtEndOfAttackKey, out object? raw) && raw is true) ||
++            _context.ZoneMover is not IZoneStateReader zones ||
++            !zones.GetCards(attacker.OwnerId, ChoiceZone.BattleArea).Contains(attackerId))
+         {
+-            foreach (Permanent permanent in player.GetFieldPermanents())
++            return;
++        }
++
++        var metadata = new Dictionary<string, object?>(attacker.Metadata, StringComparer.Ordinal);
++        metadata.Remove(DeleteSelfAtEndOfAttackKey);
++        _context.CardInstanceRepository.Upsert(attacker with { Metadata = metadata });
++
++        await new DestroyPermanentsClass(
++            new List<Permanent> { new Permanent(_context, attackerId, attacker.OwnerId) },
++            Commons.CardEffectHashtable(BareCauseEffect.For(_context, attackerId))).Destroy().ConfigureAwait(false);
++    }
++
++    private void Cleanup()
++    {
++        if (_context.ZoneMover is IZoneStateReader cleanupZones)
++        {
++            foreach (HeadlessPlayerId playerId in _context.TurnController.Current.PlayerOrder)
+             {
+-                permanent.UntilEndAttackEffects = new List<Func<EffectTiming, ICardEffect>>();
++                foreach (ChoiceZone zone in new[] { ChoiceZone.BattleArea, ChoiceZone.BreedingArea })
++                {
++                    foreach (HeadlessEntityId topId in cleanupZones.GetCards(playerId, zone).ToArray())
++                    {
++                        new Permanent(_context, topId, playerId).UntilEndAttackEffects = new();
++                    }
++                }
+             }
+         }
+-        #endregion
+ 
+-        GManager.instance.turnStateMachine.IsSelecting = true;
+-        #endregion
+ 
+-        GManager.instance.OffTargetArrow();
++        if (_context.AttackController.Current.AttackerId is HeadlessEntityId attackerId)
++        {
++            _ = attackerId;
++        }
+ 
+         DoSecurityCheck = false;
+-        IsBlocking = false;
+         SecurityDigimon = null;
+-        IsAttacking = false;
+         IsEndAttack = false;
+-        CounterEffectHashtable = null;
+-        State = AttackState.None;
++        CounterSourcesSnapshot = null;
++        _context.AttackController.ClearAttack();
+ 
+-        yield return null;
+     }
+ 
+-    public IEnumerator SwitchDefender(ICardEffect cardEffect, bool isBlock, Permanent newDefendingPermanent)
++    public async Task SwitchDefender(
++        HeadlessEntityId? causeEffectSourceId,
++        bool isBlock,
++        HeadlessEntityId? newDefendingPermanentId)
+     {
+-        if (AttackingPermanent == null) yield break;
+-        if (AttackingPermanent.TopCard == null) yield break;
+-        if (newDefendingPermanent != null && newDefendingPermanent.TopCard == null) yield break;
+-        if (!AttackingPermanent.CanSwitchAttackTarget) yield break;
++        HeadlessAttackState attack = _context.AttackController.Current;
+ 
+-        Permanent oldDefendingPermanent = DefendingPermanent;
++        if (attack.AttackerId is not HeadlessEntityId attackerId || !AttackerAlive())
++        {
++            return;
++        }
+ 
+-        DefendingPermanent = newDefendingPermanent;
++        if (newDefendingPermanentId is HeadlessEntityId newDefender && !PermanentAlive(newDefender))
++        {
++            return;
++        }
++
++        if (AttackingPermanent is { } attackingPermanent && !attackingPermanent.CanSwitchAttackTarget)
++        {
++            return;
++        }
+ 
+-        IsBlocking = isBlock;
++        HeadlessEntityId? oldDefendingPermanentId = attack.TargetId;
+ 
+-        if (DefendingPermanent != null)
++        if (isBlock && newDefendingPermanentId is HeadlessEntityId blockerId)
+         {
+-            if (DefendingPermanent.ShowingPermanentCard != null)
+-            {
+-                DefendingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-                DefendingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
+-            }
++            _context.AttackController.SelectBlocker(blockerId);
++        }
++        else
++        {
++            _context.AttackController.RetargetDefender(newDefendingPermanentId, "SwitchDefender retarget.");
+         }
+ 
+-        Hashtable hashtable = new Hashtable(){
+-                {"AttackingPermanent", AttackingPermanent},
+-                {"DefendingPermanent", DefendingPermanent},
+-                {"CardEffect", cardEffect}
+-                };
++        ICardEffect? cardEffect = BareCauseEffect.ForOrNull(_context, causeEffectSourceId ?? default);
+ 
++        var attackSwitchWindow = new System.Collections.Hashtable
++        {
++            { "AttackingPermanent", AttackingPermanent },
++            { "DefendingPermanent", DefendingPermanent },
++            { "CardEffect", cardEffect },
++        };
+         if (isBlock)
+         {
+-            hashtable.Add("IsBlock", isBlock);
++            attackSwitchWindow.Add("IsBlock", isBlock);
+         }
+ 
+-        if (isBlock)
++        if (isBlock && newDefendingPermanentId is HeadlessEntityId && DefendingPermanent is { } blockingPermanent)
+         {
+-            if (DefendingPermanent != null)
+             {
+-                // add log
+-                string log1 = $"\nBlock:\n{DefendingPermanent.TopCard.BaseENGCardNameFromEntity}({DefendingPermanent.TopCard.CardID})\n";
+-
+-                PlayLog.OnAddLog?.Invoke(log1);
+-
+-                // suspend
+-                yield return ContinuousController.instance.StartCoroutine(new SuspendPermanentsClass(new List<Permanent>() { DefendingPermanent }, hashtable).Tap());
++                using AmbientMatchContext.Scope _blockerTapScope = AmbientMatchContext.Enter(_context);
++                await new SuspendPermanentsClass(new List<Permanent>() { blockingPermanent }, cardEffect, isBlock)
++                    .Tap().ConfigureAwait(false);
++            }
+ 
+-                // the effects when blocking
+-                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(
+-                    hashtable,
+-                    EffectTiming.OnBlockAnyone));
++            {
++                using AmbientMatchContext.Scope _onBlockScope = AmbientMatchContext.Enter(_context);
++                await GManager.instance!.autoProcessing
++                    .StackSkillInfos(attackSwitchWindow, EffectTiming.OnBlockAnyone).ConfigureAwait(false);
+             }
+         }
+ 
+-        if (AttackingPermanent != null)
++        if (!AttackerAlive())
+         {
+-            if (AttackingPermanent.TopCard == null)
+-            {
+-                IsBlocking = false;
+-                yield break;
+-            }
++            _context.AttackController.ClearBlockingFlag("Attacker died during the switch.");
++            return;
+         }
+ 
+-        if (DefendingPermanent != null)
++        if (newDefendingPermanentId is HeadlessEntityId defenderCheck && !PermanentAlive(defenderCheck))
++        {
++            _context.AttackController.ClearBlockingFlag("New defender died during the switch.");
++            return;
++        }
++
++
++        if (newDefendingPermanentId != oldDefendingPermanentId)
+         {
+-            if (DefendingPermanent.TopCard == null)
+             {
+-                IsBlocking = false;
+-                yield break;
++                using AmbientMatchContext.Scope _onSwitchScope = AmbientMatchContext.Enter(_context);
++                await GManager.instance!.autoProcessing
++                    .StackSkillInfos(attackSwitchWindow, EffectTiming.OnAttackTargetChanged).ConfigureAwait(false);
+             }
+         }
++    }
+ 
+-        if (AttackingPermanent != null)
++
++    private bool AttackerAlive()
++    {
++        HeadlessAttackState attack = _context.AttackController.Current;
++        return attack.AttackerId is HeadlessEntityId attackerId
++            && attack.AttackingPlayerId is HeadlessPlayerId attackingPlayer
++            && _context.ZoneMover is IZoneStateReader zones
++            && zones.GetCards(attackingPlayer, ChoiceZone.BattleArea).Contains(attackerId);
++    }
++
++    private bool AttackerAliveDigimon()
++    {
++        if (!AttackerAlive())
+         {
+-            // target arrow
+-            for (int i = 0; i < 3; i++)
+-            {
+-                GManager.instance.OffTargetArrow();
++            return false;
++        }
+ 
+-                yield return null;
+-            }
++        Permanent? attacker = AttackingPermanent;
++        return attacker is not null && attacker.IsDigimon;
++    }
+ 
+-            if (DefendingPermanent != null)
+-            {
+-                DefendingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-                DefendingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
++    private bool PermanentAlive(HeadlessEntityId id)
++    {
++        if (_context.ZoneMover is not IZoneStateReader zones ||
++            !_context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? record) || record is null)
++        {
++            return false;
++        }
+ 
+-                yield return GManager.instance.OnTargetArrow(
+-                    AttackingPermanent.PermanentFrame.GetLocalCanvasPosition() + AttackingPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+-                    DefendingPermanent.PermanentFrame.GetLocalCanvasPosition() + DefendingPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+-                    null,
+-                    null);
+-            }
++        return zones.GetCards(record.OwnerId, ChoiceZone.BattleArea).Contains(id);
++    }
+ 
+-            else
+-            {
+-                yield return GManager.instance.OnTargetArrow(
+-                                    AttackingPermanent.PermanentFrame.GetLocalCanvasPosition() + AttackingPermanent.TopCard.Owner.playerUIObjectParent.localPosition,
+-                                    GManager.instance.turnStateMachine.gameContext.NonTurnPlayer.SecurityAttackLocalCanvasPosition + GManager.instance.turnStateMachine.gameContext.NonTurnPlayer.playerUIObjectParent.localPosition,
+-                                    null,
+-                                    null);
+-            }
+ 
+-            AttackingPermanent.ShowingPermanentCard.SetOrangeOutline();
+-            AttackingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(true);
++    private IReadOnlyList<HeadlessEntityId>? SnapshotCardSources(HeadlessEntityId attackerId)
++    {
++        if (attackerId.IsEmpty)
++        {
++            return null;
+         }
+ 
+-        if (newDefendingPermanent != oldDefendingPermanent)
++        var snapshot = new List<HeadlessEntityId> { attackerId };
++        DigivolutionStack stack = DigivolutionStackReader.Read(_context.CardInstanceRepository, _context.CardRepository, attackerId);
++        foreach (StackedCard source in stack.UnderCards)
+         {
+-            // the effects when attack target switched
+-            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(
+-                hashtable,
+-                EffectTiming.OnAttackTargetChanged));
++            snapshot.Add(source.InstanceId);
+         }
++
++        return snapshot;
+     }
+-}
+ 
++}

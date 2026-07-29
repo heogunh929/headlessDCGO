@@ -1,82 +1,111 @@
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using UnityEngine;
 
-// (P6 cluster2, purely additive — see file header) old-model CardEffectCommons sibling (KeyWordEffects/Progress.cs)
-// — a different namespace/type than the KeywordBaseBatch2Effect resolver above.
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
+public partial class CardEffectCommons
 {
-    using System;
-    using System.Collections;
-    using System.Threading.Tasks;
-    using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
-    public static partial class CardEffectCommons
+    #region Target 1 Digimon gains [Progress]
+    public static IEnumerator GainProgress(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
     {
-        /// <summary>(P6 cluster2) AS-IS <c>CanActivateProgress</c> (KeyWordEffects/Progress.cs:44, verbatim).</summary>
-        public static bool CanActivateProgress(CardSource cardSource) =>
-            IsExistOnBattleAreaDigimon(cardSource)
-            && GManager.instance!.attackProcess.IsAttacking
-            && GManager.instance!.attackProcess.AttackingPermanent?.InstanceId == ICardEffect.ResolvePermanentOfThisCard(cardSource)?.InstanceId;
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
 
-        /// <summary>(R3-W3b / R2-A) AS-IS <c>ProgressProcess</c> (KeyWordEffects/Progress.cs:62), 1:1: while this
-        /// Digimon attacks, append an UntilEndAttack "Isn't affected by opponent's Digimon's effect"
-        /// <see cref="CanNotAffectedClass"/> to the attacker's <c>UntilEndAttackEffects</c> bucket. RD-R2-01 is
-        /// RESOLVED — the W3 bucket is live (ExecuteProcess uses it) and read by <c>CardSource.CanNotBeAffected</c>
-        /// (Permanent.EffectList(None) scan) — so the stale STOP is retired. ADAPTATIONS (established mirror forms):
-        /// AS-IS terminal <c>CreateBuffEffect</c> (pure VFX) stripped; <c>cardSource.PermanentOfThisCard()</c> →
-        /// <c>ICardEffect.ResolvePermanentOfThisCard</c> (nullable, guarded); <c>IsOpponentEffect(cardEffect,…)</c> →
-        /// <c>IsOpponentEffect(cardEffect.EffectSourceCard,…)</c> (the ICardEffect arg folded to its EffectSourceCard,
-        /// as CardEffectFactory/KeyWordEffects/Progress.cs already does); the AS-IS <c>IEnumerator</c> body has no real
-        /// awaits once VFX is stripped → returns <c>Task.CompletedTask</c>. The live Progress immunity is ALSO applied
-        /// independently by <see cref="Headless.Runtime.ProgressImmunity"/> at attack declaration (this method has no
-        /// live caller today — AS-IS likewise has none — so behaviour is unchanged).</summary>
-        public static Task ProgressProcess(CardSource cardSource, ICardEffect activateClass, Func<Task> beforeOnAttackCoroutine = null)
+        CardSource card = activateClass.EffectSourceCard;
+
+        bool CanUseCondition()
         {
-            Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
-
-            if (selectedPermanent != null && CanActivateProgress(cardSource))
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
             {
-                CanNotAffectedClass canNotAffectedClass = new CanNotAffectedClass();
-                canNotAffectedClass.SetUpICardEffect("Isn't affected by opponent's Digimon's effect", CanUseCondition1, cardSource);
-                canNotAffectedClass.SetUpCanNotAffectedClass(CardCondition: CardCondition, SkillCondition: SkillCondition);
-                selectedPermanent.UntilEndAttackEffects.Add((_timing) => canNotAffectedClass);
-
-                // AS-IS :73 CreateBuffEffect (pure VFX/SE) — stripped.
-
-                bool CanUseCondition1(Hashtable hashtable)
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
                 {
-                    return IsPermanentExistsOnBattleArea(selectedPermanent);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        CanNotAffectedClass progress = CardEffectFactory.ProgressStaticEffect(isInheritedEffect: false, card: card, condition: CanUseCondition);
+
+        AddEffectToPermanent(targetPermanent: targetPermanent, effectDuration: effectDuration, card: card, cardEffect: progress, timing: EffectTiming.None);
+
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(targetPermanent));
+        }
+    }
+    #endregion
+
+    #region Can activate [Progress]
+    public static bool CanActivateProgress(CardSource cardSource)
+    {
+        if (IsExistOnBattleAreaDigimon(cardSource))
+        {
+            if (GManager.instance.attackProcess.IsAttacking)
+            {
+                if (GManager.instance.attackProcess.AttackingPermanent == cardSource.PermanentOfThisCard())
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+
+    #region Effect process of [Progress]
+    public static IEnumerator ProgressProcess(CardSource cardSource, ICardEffect activateClass, Func<IEnumerator> beforeOnAttackCoroutine = null)
+    {
+        Permanent selectedPermanent = cardSource.PermanentOfThisCard();
+
+        if (CanActivateProgress(cardSource))
+        {
+            CanNotAffectedClass canNotAffectedClass = new CanNotAffectedClass();
+            canNotAffectedClass.SetUpICardEffect("Isn't affected by opponent's Digimon's effect", CanUseCondition1, cardSource);
+            canNotAffectedClass.SetUpCanNotAffectedClass(CardCondition: CardCondition, SkillCondition: SkillCondition);
+            selectedPermanent.UntilEndAttackEffects.Add((_timing) => canNotAffectedClass);
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(selectedPermanent));
+
+            bool CanUseCondition1(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsPermanentExistsOnBattleArea(selectedPermanent);
+            }
+
+            bool CardCondition(CardSource cardSource)
+            {
+                if (CardEffectCommons.IsPermanentExistsOnBattleArea(selectedPermanent))
+                {
+                    if (cardSource == selectedPermanent.TopCard)
+                    {
+                        return true;
+                    }
                 }
 
-                bool CardCondition(CardSource innerCardSource)
+                return false;
+            }
+
+            bool SkillCondition(ICardEffect cardEffect)
+            {
+                if (cardEffect != null)
                 {
-                    if (IsPermanentExistsOnBattleArea(selectedPermanent))
+                    if (cardEffect.EffectSourceCard != null)
                     {
-                        if (innerCardSource == selectedPermanent.TopCard)
+                        if (IsOpponentEffect(cardEffect,cardSource))
                         {
                             return true;
                         }
                     }
-
-                    return false;
                 }
 
-                bool SkillCondition(ICardEffect cardEffect)
-                {
-                    if (cardEffect != null)
-                    {
-                        if (cardEffect.EffectSourceCard != null)
-                        {
-                            if (IsOpponentEffect(cardEffect.EffectSourceCard, cardSource))
-                            {
-                                return true;
-                            }
-                        }
-                    }
-
-                    return false;
-                }
+                return false;
             }
-
-            return Task.CompletedTask;
         }
     }
+    #endregion
 }

@@ -1,0 +1,1092 @@
+--- DCGO/Assets/Scripts/CardEffect/BT17/Blue/BT17_026.cs	2026-05-18 20:03:14.754561300 +0900
++++ src/HeadlessDCGO.Engine/Assets/Scripts/CardEffect/BT17/Blue/BT17_026.cs	2026-07-29 01:02:22.032836134 +0900
+@@ -1,409 +1,407 @@
++namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT17.Blue;
++
+ using System.Collections;
+-using System.Collections.Generic;
+-using System;
+-using System.Linq;
++using System.Threading.Tasks;
++using HeadlessDCGO.Engine.Assets.Scripts.Script;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
++using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
++using HeadlessDCGO.Engine.Headless.Services;
+ 
+-namespace DCGO.CardEffects.BT17
++public class BT17_026 : CEntity_Effect
+ {
+-    public class BT17_026 : CEntity_Effect
++    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+     {
+-        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+-        {
+-            List<ICardEffect> cardEffects = new List<ICardEffect>();
++        List<ICardEffect> cardEffects = new List<ICardEffect>();
+ 
+-            #region Hand - Main
++        #region Hand - Main
+ 
+-            if (timing == EffectTiming.OnDeclaration)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Your [Koji Minamoto] digivolves into this card", CanUseCondition,
+-                    card);
+-                activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDescription());
+-                cardEffects.Add(activateClass);
++        if (timing == EffectTiming.OnDeclaration)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Your [Koji Minamoto] digivolves into this card", CanUseCondition,
++                card);
++            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDescription());
++            cardEffects.Add(activateClass);
+ 
+-                string EffectDescription()
+-                {
+-                    return
+-                        "[Hand] [Main] By placing 1 [Lobomon] and [KendoGarurumon] from your trash under 1 of your [Koji Minamoto]s, digivolve it into this card as if that card is a level 4 blue Digimon for a digivolution cost of 3.";
+-                }
++            string EffectDescription()
++            {
++                return
++                    "[Hand] [Main] By placing 1 [Lobomon] and [KendoGarurumon] from your trash under 1 of your [Koji Minamoto]s, digivolve it into this card as if that card is a level 4 blue Digimon for a digivolution cost of 3.";
++            }
+ 
+-                bool CanSelectLobomonCardCondition(CardSource cardSource)
++            bool CanSelectLobomonCardCondition(CardSource cardSource)
++            {
++                if (cardSource != null)
+                 {
+-                    if (cardSource != null)
++                    if (cardSource.Owner == card.Owner)
+                     {
+-                        if (cardSource.Owner == card.Owner)
++                        if (cardSource.EqualsCardName("Lobomon"))
+                         {
+-                            if (cardSource.EqualsCardName("Lobomon"))
+-                            {
+-                                return true;
+-                            }
++                            return true;
+                         }
+                     }
+-
+-                    return false;
+                 }
+ 
+-                bool CanSelectKendoGarurumonCardCondition(CardSource cardSource)
++                return false;
++            }
++
++            bool CanSelectKendoGarurumonCardCondition(CardSource cardSource)
++            {
++                if (cardSource != null)
+                 {
+-                    if (cardSource != null)
++                    if (cardSource.Owner == card.Owner)
+                     {
+-                        if (cardSource.Owner == card.Owner)
++                        if (cardSource.EqualsCardName("KendoGarurumon"))
+                         {
+-                            if (cardSource.EqualsCardName("KendoGarurumon"))
+-                            {
+-                                return true;
+-                            }
++                            return true;
+                         }
+                     }
+-
+-                    return false;
+                 }
+ 
+-                bool CanSelectPermanentCondition(Permanent permanent)
++                return false;
++            }
++
++            bool CanSelectPermanentCondition(Permanent permanent)
++            {
++                if (permanent != null)
+                 {
+-                    if (permanent != null)
++                    if (permanent.TopCard != null)
+                     {
+-                        if (permanent.TopCard != null)
++                        if (permanent.TopCard.Owner == card.Owner)
+                         {
+-                            if (permanent.TopCard.Owner == card.Owner)
++                            if (new Player(card.Context, permanent.TopCard.Owner).GetBattleAreaPermanents().Contains(permanent))
+                             {
+-                                if (permanent.TopCard.Owner.GetBattleAreaPermanents().Contains(permanent))
++                                if (!permanent.IsToken)
+                                 {
+-                                    if (!permanent.IsToken)
++                                    if (permanent.TopCard.EqualsCardName("Koji Minamoto") ||
++                                        permanent.TopCard.EqualsCardName("KojiMinamoto"))
+                                     {
+-                                        if (permanent.TopCard.EqualsCardName("Koji Minamoto") ||
+-                                            permanent.TopCard.EqualsCardName("KojiMinamoto"))
+-                                        {
+-                                            return true;
+-                                        }
++                                        return true;
+                                     }
+                                 }
+                             }
+                         }
+                     }
+-
+-                    return false;
+                 }
+ 
+-                bool CanUseCondition(Hashtable hashtable)
++                return false;
++            }
++
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                if (new Player(card.Context, card.Owner).HandCards.Contains(card))
+                 {
+-                    if (card.Owner.HandCards.Contains(card))
++                    if (new Player(card.Context, card.Owner).GetBattleAreaPermanents().Count(CanSelectPermanentCondition) >= 1)
+                     {
+-                        if (card.Owner.GetBattleAreaPermanents().Count(CanSelectPermanentCondition) >= 1)
++                        if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card,
++                                CanSelectLobomonCardCondition))
+                         {
+                             if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card,
+-                                    CanSelectLobomonCardCondition))
++                                    CanSelectKendoGarurumonCardCondition))
+                             {
+-                                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card,
+-                                        CanSelectKendoGarurumonCardCondition))
+-                                {
+-                                    return true;
+-                                }
++                                return true;
+                             }
+                         }
+                     }
+-
+-                    return false;
+                 }
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
++                return false;
++            }
++
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                if (new Player(card.Context, card.Owner).HandCards.Contains(card))
+                 {
+-                    if (card.Owner.HandCards.Contains(card))
++                    if (new Player(card.Context, card.Owner).GetBattleAreaPermanents().Count(CanSelectPermanentCondition) >= 1)
+                     {
+-                        if (card.Owner.GetBattleAreaPermanents().Count(CanSelectPermanentCondition) >= 1)
+-                        {
+-                            Permanent selectedPermanent = null;
++                        Permanent? selectedPermanent = null;
+ 
+-                            int maxCount = Math.Min(1,
+-                                card.Owner.GetBattleAreaPermanents().Count(CanSelectPermanentCondition));
++                        int maxCount = Math.Min(1,
++                            new Player(card.Context, card.Owner).GetBattleAreaPermanents().Count(CanSelectPermanentCondition));
+ 
+-                            SelectPermanentEffect selectPermanentEffect =
+-                                GManager.instance.GetComponent<SelectPermanentEffect>();
++                        SelectPermanentEffect selectPermanentEffect =
++                            GManager.instance.GetComponent<SelectPermanentEffect>();
++
++                        selectPermanentEffect.SetUp(
++                            selectPlayer: card.Owner,
++                            canTargetCondition: CanSelectPermanentCondition,
++                            canTargetCondition_ByPreSelecetedList: null,
++                            canEndSelectCondition: null,
++                            maxCount: maxCount,
++                            canNoSelect: false,
++                            canEndNotMax: false,
++                            selectPermanentCoroutine: SelectPermanentCoroutine,
++                            afterSelectPermanentCoroutine: null,
++                            mode: SelectPermanentEffect.Mode.Custom,
++                            cardEffect: activateClass);
+ 
+-                            selectPermanentEffect.SetUp(
+-                                selectPlayer: card.Owner,
+-                                canTargetCondition: CanSelectPermanentCondition,
+-                                canTargetCondition_ByPreSelecetedList: null,
+-                                canEndSelectCondition: null,
+-                                maxCount: maxCount,
+-                                canNoSelect: false,
+-                                canEndNotMax: false,
+-                                selectPermanentCoroutine: SelectPermanentCoroutine,
+-                                afterSelectPermanentCoroutine: null,
+-                                mode: SelectPermanentEffect.Mode.Custom,
+-                                cardEffect: activateClass);
++                        selectPermanentEffect.SetUpCustomMessage("Select 1 [Koji Minamoto].",
++                            "The opponent is selecting 1 [Koji Minamoto].");
+ 
+-                            selectPermanentEffect.SetUpCustomMessage("Select 1 [Koji Minamoto].",
+-                                "The opponent is selecting 1 [Koji Minamoto].");
++                        await selectPermanentEffect.Activate();
+ 
+-                            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
++                        Task SelectPermanentCoroutine(Permanent permanent)
++                        {
++                            selectedPermanent = permanent;
++                            return Task.CompletedTask;
++                        }
+ 
+-                            IEnumerator SelectPermanentCoroutine(Permanent permanent)
++                        if (selectedPermanent != null)
++                        {
++                            if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card,
++                                    (cardSource) =>
++                                        CanSelectLobomonCardCondition(cardSource) ||
++                                        CanSelectKendoGarurumonCardCondition(cardSource)))
+                             {
+-                                selectedPermanent = permanent;
+-                                yield return null;
+-                            }
++                                bool digivolve = false;
+ 
+-                            if (selectedPermanent != null)
+-                            {
+-                                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card,
+-                                        (cardSource) =>
+-                                            CanSelectLobomonCardCondition(cardSource) ||
+-                                            CanSelectKendoGarurumonCardCondition(cardSource)))
++                                maxCount = 2;
++
++                                if (new Player(card.Context, card.Owner).TrashCards.Count((cardSource) =>
++                                        CanSelectLobomonCardCondition(cardSource) ||
++                                        CanSelectKendoGarurumonCardCondition(cardSource)) <
++                                    maxCount)
+                                 {
+-                                    bool digivolve = false;
++                                    maxCount = new Player(card.Context, card.Owner).TrashCards.Count((cardSource) =>
++                                        CanSelectLobomonCardCondition(cardSource) ||
++                                        CanSelectKendoGarurumonCardCondition(cardSource));
++                                }
+ 
+-                                    maxCount = 2;
++                                List<CardSource> selectedCards = new List<CardSource>();
+ 
+-                                    if (card.Owner.TrashCards.Count((cardSource) =>
+-                                            CanSelectLobomonCardCondition(cardSource) ||
+-                                            CanSelectKendoGarurumonCardCondition(cardSource)) <
+-                                        maxCount)
+-                                    {
+-                                        maxCount = card.Owner.TrashCards.Count((cardSource) =>
+-                                            CanSelectLobomonCardCondition(cardSource) ||
+-                                            CanSelectKendoGarurumonCardCondition(cardSource));
+-                                    }
+-
+-                                    List<CardSource> selectedCards = new List<CardSource>();
+-
+-                                    SelectCardEffect selectCardEffect =
+-                                        GManager.instance.GetComponent<SelectCardEffect>();
+-
+-                                    selectCardEffect.SetUp(
+-                                        canTargetCondition: (cardSource) =>
+-                                            CanSelectLobomonCardCondition(cardSource) ||
+-                                            CanSelectKendoGarurumonCardCondition(cardSource),
+-                                        canTargetCondition_ByPreSelecetedList: CanTargetConditionByPreSelectedList,
+-                                        canEndSelectCondition: CanEndSelectCondition,
+-                                        canNoSelect: () => false,
+-                                        selectCardCoroutine: SelectCardCoroutine,
+-                                        afterSelectCardCoroutine: null,
+-                                        message:
+-                                        "Select cards to place on the bottom of Digivolution cards\n(cards will be placed in the digivolution cards so that cards with lower numbers are on top).",
+-                                        maxCount: maxCount,
+-                                        canEndNotMax: false,
+-                                        isShowOpponent: true,
+-                                        mode: SelectCardEffect.Mode.Custom,
+-                                        root: SelectCardEffect.Root.Trash,
+-                                        customRootCardList: null,
+-                                        canLookReverseCard: true,
+-                                        selectPlayer: card.Owner,
+-                                        cardEffect: activateClass);
++                                SelectCardEffect selectCardEffect =
++                                    GManager.instance.GetComponent<SelectCardEffect>();
+ 
+-                                    yield return ContinuousController.instance.StartCoroutine(
+-                                        selectCardEffect.Activate());
++                                selectCardEffect.SetUp(
++                                    canTargetCondition: (cardSource) =>
++                                        CanSelectLobomonCardCondition(cardSource) ||
++                                        CanSelectKendoGarurumonCardCondition(cardSource),
++                                    canTargetCondition_ByPreSelecetedList: CanTargetConditionByPreSelectedList,
++                                    canEndSelectCondition: CanEndSelectCondition,
++                                    canNoSelect: () => false,
++                                    selectCardCoroutine: SelectCardCoroutine,
++                                    afterSelectCardCoroutine: null,
++                                    message:
++                                    "Select cards to place on the bottom of Digivolution cards\n(cards will be placed in the digivolution cards so that cards with lower numbers are on top).",
++                                    maxCount: maxCount,
++                                    canEndNotMax: false,
++                                    isShowOpponent: true,
++                                    mode: SelectCardEffect.Mode.Custom,
++                                    root: SelectCardEffect.Root.Trash,
++                                    customRootCardList: null,
++                                    canLookReverseCard: true,
++                                    selectPlayer: card.Owner,
++                                    cardEffect: activateClass);
+ 
+-                                    bool CanTargetConditionByPreSelectedList(List<CardSource> cardSources,
+-                                        CardSource cardSource)
+-                                    {
+-                                        if (cardSources.Count(CanSelectLobomonCardCondition) >= 1)
+-                                        {
+-                                            if (CanSelectLobomonCardCondition(cardSource))
+-                                            {
+-                                                return false;
+-                                            }
+-                                        }
++                                await selectCardEffect.Activate();
+ 
+-                                        if (cardSources.Count(CanSelectKendoGarurumonCardCondition) >= 1)
++                                bool CanTargetConditionByPreSelectedList(List<CardSource> cardSources,
++                                    CardSource cardSource)
++                                {
++                                    if (cardSources.Count(CanSelectLobomonCardCondition) >= 1)
++                                    {
++                                        if (CanSelectLobomonCardCondition(cardSource))
+                                         {
+-                                            if (CanSelectKendoGarurumonCardCondition(cardSource))
+-                                            {
+-                                                return false;
+-                                            }
++                                            return false;
+                                         }
+-
+-                                        return true;
+                                     }
+ 
+-                                    bool CanEndSelectCondition(List<CardSource> cardSources)
++                                    if (cardSources.Count(CanSelectKendoGarurumonCardCondition) >= 1)
+                                     {
+-                                        if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card,
+-                                                CanSelectLobomonCardCondition))
++                                        if (CanSelectKendoGarurumonCardCondition(cardSource))
+                                         {
+-                                            if (cardSources.Count(CanSelectLobomonCardCondition) == 0)
+-                                            {
+-                                                return false;
+-                                            }
++                                            return false;
+                                         }
++                                    }
+ 
+-                                        if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card,
+-                                                CanSelectKendoGarurumonCardCondition))
+-                                        {
+-                                            if (cardSources.Count(CanSelectKendoGarurumonCardCondition) == 0)
+-                                            {
+-                                                return false;
+-                                            }
+-                                        }
++                                    return true;
++                                }
+ 
+-                                        if (cardSources.Count(CanSelectLobomonCardCondition) >= 2)
++                                bool CanEndSelectCondition(List<CardSource> cardSources)
++                                {
++                                    if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card,
++                                            CanSelectLobomonCardCondition))
++                                    {
++                                        if (cardSources.Count(CanSelectLobomonCardCondition) == 0)
+                                         {
+                                             return false;
+                                         }
++                                    }
+ 
+-                                        if (cardSources.Count(CanSelectKendoGarurumonCardCondition) >= 2)
++                                    if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card,
++                                            CanSelectKendoGarurumonCardCondition))
++                                    {
++                                        if (cardSources.Count(CanSelectKendoGarurumonCardCondition) == 0)
+                                         {
+                                             return false;
+                                         }
+-
+-                                        return true;
+                                     }
+ 
+-                                    IEnumerator SelectCardCoroutine(CardSource cardSource)
++                                    if (cardSources.Count(CanSelectLobomonCardCondition) >= 2)
+                                     {
+-                                        selectedCards.Add(cardSource);
+-                                        yield return null;
++                                        return false;
+                                     }
+ 
+-                                    if (selectedCards.Count >= 1)
++                                    if (cardSources.Count(CanSelectKendoGarurumonCardCondition) >= 2)
+                                     {
+-                                        yield return ContinuousController.instance.StartCoroutine(
+-                                            selectedPermanent.AddDigivolutionCardsBottom(selectedCards, activateClass));
+-
+-                                        if (selectedCards.Count == 2)
+-                                        {
+-                                            digivolve = true;
+-                                        }
++                                        return false;
+                                     }
+ 
+-                                    if (digivolve)
++                                    return true;
++                                }
++
++                                Task SelectCardCoroutine(CardSource cardSource)
++                                {
++                                    selectedCards.Add(cardSource);
++                                    return Task.CompletedTask;
++                                }
++
++                                if (selectedCards.Count >= 1)
++                                {
++                                    await selectedPermanent.AddDigivolutionCardsBottom(
++                                        selectedCards, activateClass.EffectSourceCard?.InstanceId);
++
++                                    if (selectedCards.Count == 2)
+                                     {
+-                                        CardSource topCard = selectedPermanent.TopCard;
++                                        digivolve = true;
++                                    }
++                                }
++
++                                if (digivolve)
++                                {
++                                    CardSource topCard = selectedPermanent.TopCard;
+ 
+-                                        ChangeCardColorClass changeCardColorClass = new ChangeCardColorClass();
+-                                        changeCardColorClass.SetUpICardEffect($"Treated as blue",
+-                                            CanUseChangeColorCondition,
+-                                            card);
+-                                        changeCardColorClass.SetUpChangeCardColorClass(
+-                                            ChangeCardColors: ChangeCardColors);
+-                                        changeCardColorClass.SetNotShowUI(true);
++                                    ChangeCardColorClass changeCardColorClass = new ChangeCardColorClass();
++                                    changeCardColorClass.SetUpICardEffect($"Treated as blue",
++                                        CanUseChangeColorCondition,
++                                        card);
++                                    changeCardColorClass.SetUpChangeCardColorClass(
++                                        ChangeCardColors: ChangeCardColors);
++                                    changeCardColorClass.SetNotShowUI(true);
+ 
+-                                        bool CanUseChangeColorCondition(Hashtable ccHashtable)
++                                    bool CanUseChangeColorCondition(Hashtable ccHashtable)
++                                    {
++                                        if (selectedPermanent.TopCard != null)
+                                         {
+-                                            if (selectedPermanent.TopCard != null)
++                                            if (new Player(card.Context, card.Owner).GetBattleAreaPermanents().Contains(selectedPermanent))
+                                             {
+-                                                if (card.Owner.GetBattleAreaPermanents().Contains(selectedPermanent))
++                                                if (topCard == selectedPermanent.TopCard)
+                                                 {
+-                                                    if (topCard == selectedPermanent.TopCard)
+-                                                    {
+-                                                        return true;
+-                                                    }
++                                                    return true;
+                                                 }
+                                             }
+-
+-                                            return false;
+                                         }
+ 
+-                                        List<CardColor> ChangeCardColors(CardSource cardSource,
+-                                            List<CardColor> cardColors)
+-                                        {
+-                                            if (cardSource == selectedPermanent.TopCard)
+-                                            {
+-                                                cardColors.Add(CardColor.Red);
+-                                            }
++                                        return false;
++                                    }
+ 
+-                                            return cardColors;
++                                    List<CardColor> ChangeCardColors(CardSource cardSource,
++                                        List<CardColor> cardColors)
++                                    {
++                                        if (cardSource == selectedPermanent.TopCard)
++                                        {
++                                            cardColors.Add(CardColor.Red);
+                                         }
+ 
++                                        return cardColors;
++                                    }
++
+ 
+-                                        ChangePermanentLevelClass changePermanentLevelClass =
+-                                            new ChangePermanentLevelClass();
+-                                        changePermanentLevelClass.SetUpICardEffect($"Treated as level 4",
+-                                            CanUseChangeColorCondition, card);
+-                                        changePermanentLevelClass.SetUpChangePermanentLevelClass(GetLevel: GetLevel);
+-                                        changePermanentLevelClass.SetNotShowUI(true);
++                                    ChangePermanentLevelClass changePermanentLevelClass =
++                                        new ChangePermanentLevelClass();
++                                    changePermanentLevelClass.SetUpICardEffect($"Treated as level 4",
++                                        CanUseChangeColorCondition, card);
++                                    changePermanentLevelClass.SetUpChangePermanentLevelClass(GetLevel: GetLevel);
++                                    changePermanentLevelClass.SetNotShowUI(true);
+ 
+-                                        int GetLevel(Permanent permanent, int level)
++                                    int GetLevel(Permanent permanent, int level)
++                                    {
++                                        if (selectedPermanent.TopCard != null)
+                                         {
+-                                            if (selectedPermanent.TopCard != null)
++                                            if (permanent == selectedPermanent)
+                                             {
+-                                                if (permanent == selectedPermanent)
+-                                                {
+-                                                    level = 4;
+-                                                }
++                                                level = 4;
+                                             }
+-
+-                                            return level;
+                                         }
+ 
++                                        return level;
++                                    }
++
+ 
+-                                        TreatAsDigimonClass treatAsDigimonClass = new TreatAsDigimonClass();
+-                                        treatAsDigimonClass.SetUpICardEffect($"Treated as Digimon",
+-                                            CanUseChangeColorCondition,
+-                                            card);
+-                                        treatAsDigimonClass.SetUpTreatAsDigimonClass(
+-                                            permanentCondition: PermanentCondition);
+-                                        treatAsDigimonClass.SetNotShowUI(true);
++                                    TreatAsDigimonClass treatAsDigimonClass = new TreatAsDigimonClass();
++                                    treatAsDigimonClass.SetUpICardEffect($"Treated as Digimon",
++                                        CanUseChangeColorCondition,
++                                        card);
++                                    treatAsDigimonClass.SetUpTreatAsDigimonClass(
++                                        permanentCondition: PermanentCondition);
++                                    treatAsDigimonClass.SetNotShowUI(true);
+ 
+-                                        bool PermanentCondition(Permanent permanent)
++                                    bool PermanentCondition(Permanent permanent)
++                                    {
++                                        if (selectedPermanent.TopCard != null)
+                                         {
+-                                            if (selectedPermanent.TopCard != null)
++                                            if (permanent == selectedPermanent)
+                                             {
+-                                                if (permanent == selectedPermanent)
+-                                                {
+-                                                    return true;
+-                                                }
++                                                return true;
+                                             }
+-
+-                                            return false;
+                                         }
+ 
+-
+-                                        DontHaveDPClass dontHaveDPClass = new DontHaveDPClass();
+-                                        dontHaveDPClass.SetUpICardEffect("Don't have DP", CanUseChangeColorCondition,
+-                                            card);
+-                                        dontHaveDPClass.SetUpDontHaveDPClass(PermanentCondition: PermanentCondition);
+-                                        dontHaveDPClass.SetNotShowUI(true);
++                                        return false;
++                                    }
+ 
+ 
+-                                        List<Func<EffectTiming, ICardEffect>> getCardEffects =
+-                                            new List<Func<EffectTiming, ICardEffect>>()
+-                                            {
+-                                                _ => changeCardColorClass,
+-                                                _ => changePermanentLevelClass,
+-                                                _ => treatAsDigimonClass,
+-                                                _ => dontHaveDPClass,
+-                                            };
++                                    DontHaveDPClass dontHaveDPClass = new DontHaveDPClass();
++                                    dontHaveDPClass.SetUpICardEffect("Don't have DP", CanUseChangeColorCondition,
++                                        card);
++                                    dontHaveDPClass.SetUpDontHaveDPClass(PermanentCondition: PermanentCondition);
++                                    dontHaveDPClass.SetNotShowUI(true);
++
++
++                                    List<Func<EffectTiming, ICardEffect>> getCardEffects =
++                                        new List<Func<EffectTiming, ICardEffect>>()
++                                        {
++                                            _ => changeCardColorClass,
++                                            _ => changePermanentLevelClass,
++                                            _ => treatAsDigimonClass,
++                                            _ => dontHaveDPClass,
++                                        };
+ 
+-                                        foreach (Func<EffectTiming, ICardEffect> getCardEffect in getCardEffects)
+-                                        {
+-                                            card.Owner.PermanentEffects.Add(getCardEffect);
+-                                        }
++                                    foreach (Func<EffectTiming, ICardEffect> getCardEffect in getCardEffects)
++                                    {
++                                        new Player(card.Context, card.Owner).PermanentEffects.Add(getCardEffect);
++                                    }
+ 
+ 
+-                                        if (card.CanPlayCardTargetFrame(selectedPermanent.PermanentFrame, true,
+-                                                activateClass))
+-                                        {
+-                                            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.DigivolveIntoHandOrTrashCard(
+-                                                targetPermanent: selectedPermanent,
+-                                                cardCondition: source => source == card,
+-                                                payCost: true,
+-                                                reduceCostTuple: null,
+-                                                fixedCostTuple: (fixedCost: 3, fixedCostCardCondition: null),
+-                                                ignoreDigivolutionRequirementFixedCost: -1,
+-                                                isHand: true,
+-                                                activateClass: activateClass,
+-                                                successProcess: null,
+-                                                failedProcess: DigivolvedFailed(),
+-                                                isOptional: false));
+-                                        }
+-                                        else
+-                                        {
+-                                            yield return ContinuousController.instance.StartCoroutine("DigivolvedFailed");
+-                                        }
+-
+-                                        IEnumerator DigivolvedFailed()
+-                                        {
+-                                            IDiscardHand discard = new IDiscardHand(card, hashtable);
++                                    if (selectedPermanent.TopCard.Owner == card.Owner
++                                        && card.CanEvolve(selectedPermanent, true))
++                                    {
++                                        await CardEffectCommons.DigivolveIntoHandOrTrashCard(
++                                            targetPermanent: selectedPermanent,
++                                            cardCondition: source => source == card,
++                                            payCost: true,
++                                            reduceCostTuple: null,
++                                            fixedCostTuple: (fixedCost: 3, fixedCostCardCondition: null),
++                                            ignoreDigivolutionRequirementFixedCost: -1,
++                                            isHand: true,
++                                            activateClass: activateClass,
++                                            successProcess: null,
++                                            failedProcess: DigivolvedFailed,
++                                            isOptional: false);
++                                    }
++                                    else
++                                    {
++                                        await DigivolvedFailed();
++                                    }
+ 
+-                                            discard.Discard();
+-                                            yield return null;
+-                                        }
++                                    async Task DigivolvedFailed()
++                                    {
++                                        await new IDiscardHand(card).Discard(
++                                            null, activateClass.EffectSourceCard?.InstanceId);
++                                    }
+ 
+-                                        foreach (Func<EffectTiming, ICardEffect> getCardEffect in getCardEffects)
+-                                        {
+-                                            card.Owner.PermanentEffects.Remove(getCardEffect);
+-                                        }
++                                    foreach (Func<EffectTiming, ICardEffect> getCardEffect in getCardEffects)
++                                    {
++                                        new Player(card.Context, card.Owner).PermanentEffects.Remove(getCardEffect);
+                                     }
+                                 }
+                             }
+@@ -411,236 +409,232 @@
+                     }
+                 }
+             }
++        }
++
++        #endregion
+ 
+-            #endregion
++        #region When Digivolving
+ 
+-            #region When Digivolving
++        if (timing == EffectTiming.WhenDigivolving)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Return 1 digivolution card and 1 of your opponent's Digimon can't suspend", CanUseCondition,
++                card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDescription());
++            cardEffects.Add(activateClass);
+ 
+-            if (timing == EffectTiming.OnEnterFieldAnyone)
++            string EffectDescription()
+             {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Return 1 digivolution card and 1 of your opponent's Digimon can't suspend", CanUseCondition,
+-                    card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDescription());
+-                cardEffects.Add(activateClass);
++                return
++                    "[When Digivolving] By returning 1 card with the [Hybrid] trait from this Digimon's digivolution cards to the hand, 1 of your opponent's Digimon or Tamers can't suspend until the end of their turn.";
++            }
+ 
+-                string EffectDescription()
+-                {
+-                    return
+-                        "[When Digivolving] By returning 1 card with the [Hybrid] trait from this Digimon's digivolution cards to the hand, 1 of your opponent's Digimon or Tamers can't suspend until the end of their turn.";
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
++            }
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+-                }
++            bool CanSelectSourceCardCondition(CardSource cardSource)
++            {
++                return cardSource.CardTraits.Contains("Hybrid");
++            }
+ 
+-                bool CanSelectSourceCardCondition(CardSource cardSource)
++            bool CanSelectOpponentPermanentCondition(Permanent permanent)
++            {
++                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleArea(permanent, card))
+                 {
+-                    return cardSource.CardTraits.Contains("Hybrid");
++                    return permanent.IsDigimon || permanent.IsTamer;
+                 }
+ 
+-                bool CanSelectOpponentPermanentCondition(Permanent permanent)
++                return false;
++            }
++
++            bool CanActivateCondition(Hashtable hashtable)
++            {
++                if (CardEffectCommons.IsExistOnBattleArea(card))
+                 {
+-                    if (CardEffectCommons.IsPermanentExistsOnOpponentBattleArea(permanent, card))
++                    if (ICardEffect.ResolvePermanentOfThisCard(card).DigivolutionCards.Count(CanSelectSourceCardCondition) >= 1)
+                     {
+-                        return permanent.IsDigimon || permanent.IsTamer;
++                        return true;
+                     }
+-
+-                    return false;
+                 }
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
+-                {
+-                    if (CardEffectCommons.IsExistOnBattleArea(card))
+-                    {
+-                        if (card.PermanentOfThisCard().DigivolutionCards.Count(CanSelectSourceCardCondition) >= 1)
+-                        {
+-                            return true;
+-                        }
+-                    }
++                return false;
++            }
+ 
+-                    return false;
+-                }
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
++                if (selectedPermanent.DigivolutionCards.Count(CanSelectSourceCardCondition) >= 1)
+                 {
+-                    Permanent selectedPermanent = card.PermanentOfThisCard();
++                    int maxCount = Math.Min(1, selectedPermanent.DigivolutionCards.Count(CanSelectSourceCardCondition));
+ 
+-                    if (selectedPermanent.DigivolutionCards.Count(CanSelectSourceCardCondition) >= 1)
++                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++
++                    selectCardEffect.SetUp(
++                        canTargetCondition: CanSelectSourceCardCondition,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        canNoSelect: () => false,
++                        selectCardCoroutine: null,
++                        afterSelectCardCoroutine: null,
++                        message: "Select 1 card to add to your hand.",
++                        maxCount: maxCount,
++                        canEndNotMax: false,
++                        isShowOpponent: true,
++                        mode: SelectCardEffect.Mode.AddHand,
++                        root: SelectCardEffect.Root.Custom,
++                        customRootCardList: selectedPermanent.DigivolutionCards.ToList(),
++                        canLookReverseCard: true,
++                        selectPlayer: card.Owner,
++                        cardEffect: activateClass);
++
++                    await selectCardEffect.Activate();
++
++                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, CanSelectOpponentPermanentCondition))
+                     {
+-                        int maxCount = Math.Min(1, selectedPermanent.DigivolutionCards.Count(CanSelectSourceCardCondition));
++                        maxCount = Math.Min(1,
++                            CardEffectCommons.MatchConditionPermanentCount(card, CanSelectOpponentPermanentCondition));
+ 
+-                        SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
++                        SelectPermanentEffect selectPermanentEffect =
++                            GManager.instance.GetComponent<SelectPermanentEffect>();
+ 
+-                        selectCardEffect.SetUp(
+-                            canTargetCondition: CanSelectSourceCardCondition,
++                        selectPermanentEffect.SetUp(
++                            selectPlayer: card.Owner,
+                             canTargetCondition_ByPreSelecetedList: null,
++                            canTargetCondition: CanSelectOpponentPermanentCondition,
+                             canEndSelectCondition: null,
+-                            canNoSelect: () => false,
+-                            selectCardCoroutine: null,
+-                            afterSelectCardCoroutine: null,
+-                            message: "Select 1 card to add to your hand.",
+                             maxCount: maxCount,
++                            canNoSelect: false,
+                             canEndNotMax: false,
+-                            isShowOpponent: true,
+-                            mode: SelectCardEffect.Mode.AddHand,
+-                            root: SelectCardEffect.Root.Custom,
+-                            customRootCardList: selectedPermanent.DigivolutionCards,
+-                            canLookReverseCard: true,
+-                            selectPlayer: card.Owner,
++                            selectPermanentCoroutine: SelectPermanentCoroutine,
++                            afterSelectPermanentCoroutine: null,
++                            mode: SelectPermanentEffect.Mode.Custom,
+                             cardEffect: activateClass);
+ 
+-                        yield return StartCoroutine(selectCardEffect.Activate());
+-                        
+-                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, CanSelectOpponentPermanentCondition))
+-                        {
+-                            maxCount = Math.Min(1,
+-                                CardEffectCommons.MatchConditionPermanentCount(CanSelectOpponentPermanentCondition));
+-
+-                            SelectPermanentEffect selectPermanentEffect =
+-                                GManager.instance.GetComponent<SelectPermanentEffect>();
++                        selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon/Tamer that will be unable to suspend.",
++                            "The opponent is selecting 1 Digimon/Tamer that will be unable to suspend.");
+ 
+-                            selectPermanentEffect.SetUp(
+-                                selectPlayer: card.Owner,
+-                                canTargetCondition_ByPreSelecetedList: null,
+-                                canTargetCondition: CanSelectOpponentPermanentCondition,
+-                                canEndSelectCondition: null,
+-                                maxCount: maxCount,
+-                                canNoSelect: false,
+-                                canEndNotMax: false,
+-                                selectPermanentCoroutine: SelectPermanentCoroutine,
+-                                afterSelectPermanentCoroutine: null,
+-                                mode: SelectPermanentEffect.Mode.Custom,
+-                                cardEffect: activateClass);
++                        await selectPermanentEffect.Activate();
+ 
+-                            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon/Tamer that will be unable to suspend.",
+-                                "The opponent is selecting 1 Digimon/Tamer that will be unable to suspend.");
++                        Task SelectPermanentCoroutine(Permanent permanent)
++                        {
++                            selectedPermanent = permanent;
++                            CanNotSuspendClass canNotSuspendClass = new CanNotSuspendClass();
++                            canNotSuspendClass.SetUpICardEffect("Can't Suspend", CanUseCanNotSuspendCondition, card);
++                            canNotSuspendClass.SetUpCanNotSuspendClass(PermanentCondition: PermanentCanNotSuspendCondition);
++                            selectedPermanent.UntilOwnerTurnEndEffects.Add(_ => canNotSuspendClass);
+ 
+-                            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
++                            return Task.CompletedTask;
+ 
+-                            IEnumerator SelectPermanentCoroutine(Permanent permanent)
++                            bool CanUseCanNotSuspendCondition(Hashtable hashtableCanNotSuspend)
+                             {
+-                                selectedPermanent = permanent;
+-                                CanNotSuspendClass canNotSuspendClass = new CanNotSuspendClass();
+-                                canNotSuspendClass.SetUpICardEffect("Can't Suspend", CanUseCanNotSuspendCondition, card);
+-                                canNotSuspendClass.SetUpCanNotSuspendClass(PermanentCondition: PermanentCanNotSuspendCondition);
+-                                selectedPermanent.UntilOwnerTurnEndEffects.Add(_ => canNotSuspendClass);
+-
+-                                if (!selectedPermanent.TopCard.CanNotBeAffected(activateClass))
++                                if (selectedPermanent.TopCard != null)
+                                 {
+-                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance
+-                                        .GetComponent<Effects>().CreateDebuffEffect(selectedPermanent));
+-                                }
+-
+-                                bool CanUseCanNotSuspendCondition(Hashtable hashtableCanNotSuspend)
+-                                {
+-                                    if (selectedPermanent.TopCard != null)
++                                    if (!selectedPermanent.TopCard.CanNotBeAffected(activateClass))
+                                     {
+-                                        if (!selectedPermanent.TopCard.CanNotBeAffected(activateClass))
+-                                        {
+-                                            return true;
+-                                        }
++                                        return true;
+                                     }
+-
+-                                    return false;
+                                 }
+ 
+-                                bool PermanentCanNotSuspendCondition(Permanent permanentCanNotSuspend)
+-                                {
+-                                    if (permanentCanNotSuspend == selectedPermanent)
+-                                    {
+-                                        return true;
+-                                    }
++                                return false;
++                            }
+ 
+-                                    return false;
++                            bool PermanentCanNotSuspendCondition(Permanent permanentCanNotSuspend)
++                            {
++                                if (permanentCanNotSuspend == selectedPermanent)
++                                {
++                                    return true;
+                                 }
++
++                                return false;
+                             }
+                         }
+                     }
+                 }
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            #region When Attacking - ESS
++        #region When Attacking - ESS
+ 
+-            if (timing == EffectTiming.OnAllyAttack)
+-            {
+-                ActivateClass activateClass = new ActivateClass();
+-                activateClass.SetUpICardEffect("Return 1 of your opponent's Digimon to hand", CanUseCondition, card);
+-                activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDescription());
+-                activateClass.SetIsInheritedEffect(true);
+-                cardEffects.Add(activateClass);
++        if (timing == EffectTiming.OnAllyAttack)
++        {
++            ActivateClass activateClass = new ActivateClass();
++            activateClass.SetUpICardEffect("Return 1 of your opponent's Digimon to hand", CanUseCondition, card);
++            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDescription());
++            activateClass.SetIsInheritedEffect(true);
++            cardEffects.Add(activateClass);
+ 
+-                string EffectDescription()
+-                {
+-                    return
+-                        "[When Attacking] [Once Per Turn] If this Digimon has the [Hybrid]/[Ten Warriors] trait, return 1 of your opponent's level 4 or lower Digimon to the hand.";
+-                }
++            string EffectDescription()
++            {
++                return
++                    "[When Attacking] [Once Per Turn] If this Digimon has the [Hybrid]/[Ten Warriors] trait, return 1 of your opponent's level 4 or lower Digimon to the hand.";
++            }
+ 
+-                bool CanUseCondition(Hashtable hashtable)
+-                {
+-                    return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+-                }
++            bool CanUseCondition(Hashtable hashtable)
++            {
++                return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
++            }
+ 
+-                bool CanSelectPermanentCondition(Permanent permanent)
++            bool CanSelectPermanentCondition(Permanent permanent)
++            {
++                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                 {
+-                    if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
++                    if (permanent.Level <= 4)
+                     {
+-                        if (permanent.Level <= 4)
+-                        {
+-                            return true;
+-                        }
++                        return true;
+                     }
+-
+-                    return false;
+                 }
+ 
+-                bool CanActivateCondition(Hashtable hashtable)
++                return false;
++            }
++
++            bool CanActivateCondition(Hashtable hashtable)
++            {
++                if (CardEffectCommons.IsExistOnBattleArea(card))
+                 {
+-                    if (CardEffectCommons.IsExistOnBattleArea(card))
++                    if (ICardEffect.ResolvePermanentOfThisCard(card).TopCard.ContainsTraits("Hybrid") ||
++                        ICardEffect.ResolvePermanentOfThisCard(card).TopCard.ContainsTraits("Ten Warriors") ||
++                        ICardEffect.ResolvePermanentOfThisCard(card).TopCard.ContainsTraits("TenWarriors"))
+                     {
+-                        if (card.PermanentOfThisCard().TopCard.ContainsTraits("Hybrid") ||
+-                            card.PermanentOfThisCard().TopCard.ContainsTraits("Ten Warriors") ||
+-                            card.PermanentOfThisCard().TopCard.ContainsTraits("TenWarriors"))
+-                        {
+-                                return true;
+-                        }
++                            return true;
+                     }
+-
+-                    return false;
+                 }
+ 
+-                IEnumerator ActivateCoroutine(Hashtable hashtable)
++                return false;
++            }
++
++            async Task ActivateCoroutine(Hashtable hashtable)
++            {
++                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                 {
+-                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
+-                    {
+-                        int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
++                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+ 
+-                        SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
++                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+ 
+-                        selectPermanentEffect.SetUp(
+-                            selectPlayer: card.Owner,
+-                            canTargetCondition: CanSelectPermanentCondition,
+-                            canTargetCondition_ByPreSelecetedList: null,
+-                            canEndSelectCondition: null,
+-                            maxCount: maxCount,
+-                            canNoSelect: false,
+-                            canEndNotMax: false,
+-                            selectPermanentCoroutine: null,
+-                            afterSelectPermanentCoroutine: null,
+-                            mode: SelectPermanentEffect.Mode.Bounce,
+-                            cardEffect: activateClass);
++                    selectPermanentEffect.SetUp(
++                        selectPlayer: card.Owner,
++                        canTargetCondition: CanSelectPermanentCondition,
++                        canTargetCondition_ByPreSelecetedList: null,
++                        canEndSelectCondition: null,
++                        maxCount: maxCount,
++                        canNoSelect: false,
++                        canEndNotMax: false,
++                        selectPermanentCoroutine: null,
++                        afterSelectPermanentCoroutine: null,
++                        mode: SelectPermanentEffect.Mode.Bounce,
++                        cardEffect: activateClass);
+ 
+-                        yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+-                    }
++                    await selectPermanentEffect.Activate();
+                 }
+             }
++        }
+ 
+-            #endregion
++        #endregion
+ 
+-            return cardEffects;
+-        }
++        return cardEffects;
+     }
+ }

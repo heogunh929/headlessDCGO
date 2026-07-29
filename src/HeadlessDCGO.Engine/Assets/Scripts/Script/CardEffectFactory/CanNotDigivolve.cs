@@ -1,16 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/CanNotDigivolve.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of AS-IS CanNotDigivolve.cs factory partial.
-// Returns the ported CanNotDigivolveClass kind-class (CardEffects/CanNotEvolveClass.cs).
-// ADAPTATIONS: (1) card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card).
-//   (2) permanent.TopCard.CanNotBeAffected(ICardEffect) -> CanNotBeAffected(EffectSourceCard?.InstanceId).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CanNotDigivolveClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -39,7 +31,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnField(permanent))
             {
-                if (permanent == ICardEffect.ResolvePermanentOfThisCard(card))  // ADAPTATION (1)
+                if (permanent == card.PermanentOfThisCard())
                 {
                     return true;
                 }
@@ -85,7 +77,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnField(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(canNotEvolveClass))  // ADAPTATION (2)
+                if (!permanent.TopCard.CanNotBeAffected(canNotEvolveClass))
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {

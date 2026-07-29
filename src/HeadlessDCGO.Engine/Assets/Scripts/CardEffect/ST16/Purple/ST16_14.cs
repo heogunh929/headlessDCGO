@@ -1,34 +1,20 @@
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS ST16_14
-// OnDiscardHand block (ST16/Purple) — the F1-Tier1 OnDiscardHand witness.
-//   [All Turns] "When one of your effects trashes a card in your hand, by suspending this Tamer, gain 1 memory."
-// AS-IS: ActivateClass on OnDiscardHand, ORDER=-1 (uncapped; the suspend cost is the natural limiter),
-// ISOPTIONAL=true ("by suspending" is a you-may cost). CanUseCondition = IsExistOnBattleArea &&
-// CanTriggerOnTrashHand(SkillCondition, cardCondition): SkillCondition(ICardEffect) = cardEffect != null &&
-// cardEffect.EffectSourceCard != null && cardEffect.EffectSourceCard.Owner == card.Owner (SELF effect);
-// cardCondition(CardSource) = cardSource.Owner == card.Owner (a card in YOUR hand). CanActivateCondition =
-// IsExistOnBattleArea && CanActivateSuspendCostEffect. ActivateCoroutine = SuspendPermanentsClass(self).Tap()
-// THEN card.Owner.AddMemory(1).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `new SuspendPermanentsClass(
-// new List<Permanent>{ card.PermanentOfThisCard() }, CardEffectHashtable(activateClass)).Tap()` -> the mirror
-// ctor `(List<Permanent>, HeadlessEntityId? causeEffectSourceId, bool isBlock).Tap()` (BT1_088 idiom);
-// `card.PermanentOfThisCard()` -> `ICardEffect.ResolvePermanentOfThisCard(card)`; `card.Owner.AddMemory(1,
-// activateClass)` -> the mirror HeadlessPlayerId extension.
-//
-// The AS-IS OnStartTurn (SetMemoryTo3TamerEffect) and SecuritySkill (PlaySelfTamerSecurityEffect) blocks are
-// intentionally OMITTED (this witness exercises only the OnDiscardHand bridge — same scoping as before).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST16.Purple;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
-public sealed class ST16_14 : CEntity_Effect
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class ST16_14 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+        if (timing == EffectTiming.OnStartTurn)
+        {
+            cardEffects.Add(CardEffectFactory.SetMemoryTo3TamerEffect(card));
+        }
 
         if (timing == EffectTiming.OnDiscardHand)
         {
@@ -84,15 +70,17 @@ public sealed class ST16_14 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await new SuspendPermanentsClass(
-                    new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) },
-                    activateClass,
-                    isBlock: false).Tap();
+                yield return ContinuousController.instance.StartCoroutine(new SuspendPermanentsClass(new List<Permanent>() { card.PermanentOfThisCard() }, CardEffectCommons.CardEffectHashtable(activateClass)).Tap());
 
-                await card.Owner.AddMemory(1, activateClass);
+                yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
             }
+        }
+
+        if (timing == EffectTiming.SecuritySkill)
+        {
+            cardEffects.Add(CardEffectFactory.PlaySelfTamerSecurityEffect(card));
         }
 
         return cardEffects;

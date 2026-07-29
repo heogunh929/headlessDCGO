@@ -1,91 +1,24 @@
-// Source: Assets/Scripts/Script/MultipleSkills.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: AS-IS mirror — the re-entrant trigger WINDOW loop, resolved INLINE under the async-suspend pump gate.
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script
-//
-// ============================================================================================================
-// 1:1 mirror of AS-IS MultipleSkills.ActivateMultipleSkills / ActivateMultipleSkills_OnePlayer
-// (MultipleSkills.cs:21-437): collect -> turn/non-turn split -> while(true) re-evaluate -> order-select ->
-// optional-confirm -> resolve -> RuleProcess -> TriggeredSkillProcess cut-in recursion, in SkillInfo currency.
-//
-// The AS-IS while(true) window loop runs on the plain async call stack: the two-pass (turn then non-turn) split
-// is two sequential awaits (AS-IS :55-56), and the cut-in recursion is the nested TriggeredSkillProcess await
-// (AS-IS :405-415). A choice suspends INLINE on the pump gate (ChoiceProvider.ChooseAsync parks the pump in
-// place and resumes the same C# stack when the agent's answer is deposited) — exactly like AttackProcess /
-// IBattle / ISecurityCheck. There is NO externalised continuation, choice-port, phase cursor, or record/replay:
-// the AS-IS has none, and the pump gate IS the re-entry seam.
-//
-// SUBSTRATE TRANSLATION (task-approved):
-//  - IEnumerator -> async Task; ContinuousController.StartCoroutine(X)/yield return -> await X.
-//  - MonoBehaviourPunCallbacks / photonView.RPC("SetTargetSkill", ...) / SetTargetSkill PunRPC /
-//    player.QueuePlayerSelection/HasPlayerSelection/DequeuePlayerSelection<ValueSelection>: the whole
-//    local-player UI + network round-trip that computes and syncs `skillIndex` (AS-IS :250/:307/:326-329) is a
-//    headless no-op — the actual order pick suspends inside the choice, so it collapses to ONE inline
-//    ChoiceProvider.ChooseAsync(ChoiceType.WindowChoice) whose returned index IS `_skillIndex` (null / decline
-//    maps to -1, the AS-IS skip sentinel the Blast/normal branches set).
-//  - player.securityObject.securityBreakGlass.* (oldIsSecurityGlassBlue, AS-IS :169/:195-198/:348-351/:390-392),
-//    GManager.commandText.*, player.FieldPermanentObjects, selectHandEffect.SetUpCustomMessage/SetNotShow*/
-//    SetIsLocal, the IsAI branch: all UI — stripped.
-//  - AutomaticOrder.GetSkillIndexAutomaticOrder (AS-IS :304) + ContinuousController.autoEffectOrder: a
-//    client-side auto-order setting with NO mirror -> the order pick always routes to the choice (substrate note).
-//  - CardSource.Owner is a HeadlessPlayerId; gameContext.TurnPlayer/NonTurnPlayer are mirror Players -> the
-//    turn/non-turn split compares Owner == player.PlayerId (ADAPTATION). card.PermanentOfThisCard() ->
-//    ICardEffect.ResolvePermanentOfThisCard (established adaptation (2)). attackProcess.SecurityDigimon is an
-//    instance id -> compare card.InstanceId. turnStateMachine.endGame has no mirror -> terminal via
-//    Context.RuleQueryService.IsTerminal().
-// The Blast-branch (SelectHandEffect custom mode) vs normal-branch (selectCardPanel) DECISION LOGIC (the
-// canDecline / isCheckOptional gates, AS-IS :187 vs :264, :284 vs :208) is mirrored 1:1; only the UI selection
-// inside each branch is routed through the inline choice.
-// ============================================================================================================
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
-
+﻿using Photon.Pun;
+using System;
 using System.Collections;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Services;
-using Commons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
-// Disambiguate the AS-IS mirror SkillInfo from the same-import substrate `Headless.Effects.SkillInfo` record.
-using SkillInfo = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.SkillInfo;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
 
-public sealed class MultipleSkills
+public class MultipleSkills : MonoBehaviourPunCallbacks
 {
-    private readonly EngineContext _context;
-
-    public MultipleSkills(EngineContext context)
-    {
-        _context = context ?? throw new ArgumentNullException(nameof(context));
-    }
-
-    // AS-IS MultipleSkills.cs:10.
     public bool IsUsing { get; private set; } = false;
-
     AutoProcessing _autoProcessing = null;
-
-    // AS-IS MultipleSkills.cs:12.
     public List<SkillInfo> SkillInfos_used { get; private set; } = new List<SkillInfo>();
-
-    // AS-IS MultipleSkills.cs:13 — the stacked skills the window re-evaluates each pass.
     public List<SkillInfo> StackedSkillInfos = new List<SkillInfo>();
-
-    // AS-IS MultipleSkills.cs:14-15.
     public bool IsOnlyHandEffectStacked => StackedSkillInfos.Every(skillInfo =>
-        skillInfo.CardEffect != null && skillInfo.CardEffect.EffectSourceCard != null && Commons.IsExistOnHand(skillInfo.CardEffect.EffectSourceCard) && skillInfo.CardEffect.EffectDiscription.Contains("[Hand]"));
+        skillInfo.CardEffect != null && skillInfo.CardEffect.EffectSourceCard != null && CardEffectCommons.IsExistOnHand(skillInfo.CardEffect.EffectSourceCard) && skillInfo.CardEffect.EffectDiscription.Contains("[Hand]"));
 
-    // AS-IS MultipleSkills.cs:17.
     bool IsOnlyOptionalEffectStacked => StackedSkillInfos.Every(skillInfo => skillInfo.CardEffect != null && skillInfo.CardEffect.IsSkippable(null));
-
-    // AS-IS MultipleSkills.cs:18-20.
     bool IsEachStackedEffectHasDistinctSourceCard => StackedSkillInfos.Filter(skillInfo1 => skillInfo1.CardEffect != null && skillInfo1.CardEffect.EffectSourceCard != null)
         .Every(skillInfo => StackedSkillInfos.Filter(skillInfo1 => skillInfo1.CardEffect != null && skillInfo1.CardEffect.EffectSourceCard != null)
             .Count(otherSkillInfo => otherSkillInfo != skillInfo && skillInfo.CardEffect.EffectSourceCard == otherSkillInfo.CardEffect.EffectSourceCard) == 0);
-
-    // AS-IS MultipleSkills.cs:21-61 — partition into the turn/non-turn halves, then run each half's pass loop
-    // sequentially on the async call stack (AS-IS :55-56 the two _OnePlayer coroutine starts).
-    public async Task ActivateMultipleSkills(List<SkillInfo> skillInfos, AutoProcessing autoProcessing, bool CheckNewTriggredSkill_mainStack, Func<List<SkillInfo>, SkillInfo, bool> skipCondition)
+    public IEnumerator ActivateMultipleSkills(List<SkillInfo> skillInfos, AutoProcessing autoProcessing, bool CheckNewTriggredSkill_mainStack, Func<List<SkillInfo>, SkillInfo, bool> skipCondition)
     {
         _skillIndex = 0;
         IsUsing = true;
@@ -106,14 +39,12 @@ public sealed class MultipleSkills
 
                 if (cardEffect.EffectSourceCard != null)
                 {
-                    // ADAPTATION: AS-IS compares CardSource.Owner (a Player) to gameContext.TurnPlayer; the mirror
-                    // Owner is a HeadlessPlayerId and TurnPlayer is a mirror Player -> compare against PlayerId.
-                    if (GManager.instance.turnStateMachine.gameContext.TurnPlayer is { } turnPlayer && cardEffect.EffectSourceCard.Owner == turnPlayer.PlayerId)
+                    if (cardEffect.EffectSourceCard.Owner == GManager.instance.turnStateMachine.gameContext.TurnPlayer)
                     {
                         TurnPlayerSkillInfos.Add(skillInfo);
                     }
 
-                    else if (GManager.instance.turnStateMachine.gameContext.NonTurnPlayer is { } nonTurnPlayer && cardEffect.EffectSourceCard.Owner == nonTurnPlayer.PlayerId)
+                    else if (cardEffect.EffectSourceCard.Owner == GManager.instance.turnStateMachine.gameContext.NonTurnPlayer)
                     {
                         NonTurnPlayerSkillInfos.Add(skillInfo);
                     }
@@ -121,8 +52,8 @@ public sealed class MultipleSkills
             }
         }
 
-        await ActivateMultipleSkills_OnePlayer(TurnPlayerSkillInfos, GManager.instance.turnStateMachine.gameContext.TurnPlayer, CheckNewTriggredSkill_mainStack, skipCondition);
-        await ActivateMultipleSkills_OnePlayer(NonTurnPlayerSkillInfos, GManager.instance.turnStateMachine.gameContext.NonTurnPlayer, CheckNewTriggredSkill_mainStack, skipCondition);
+        yield return ContinuousController.instance.StartCoroutine(ActivateMultipleSkills_OnePlayer(TurnPlayerSkillInfos, GManager.instance.turnStateMachine.gameContext.TurnPlayer, CheckNewTriggredSkill_mainStack, skipCondition));
+        yield return ContinuousController.instance.StartCoroutine(ActivateMultipleSkills_OnePlayer(NonTurnPlayerSkillInfos, GManager.instance.turnStateMachine.gameContext.NonTurnPlayer, CheckNewTriggredSkill_mainStack, skipCondition));
 
         SkillInfos_used = new List<SkillInfo>();
 
@@ -131,12 +62,9 @@ public sealed class MultipleSkills
 
     int _skillIndex;
 
-    // AS-IS MultipleSkills.cs:65 — a cut-in effect = a non-main-stack drain on the CUT-IN AutoProcessing instance.
     bool IsCutinEffect(bool CheckNewTriggredSkill_mainStack) => !CheckNewTriggredSkill_mainStack && _autoProcessing != GManager.instance.autoProcessing;
 
-    // AS-IS MultipleSkills.cs:67-423 — the per-phase while(true) pass loop, verbatim (substrate: coroutine ->
-    // async Task; the order-pick UI/RPC round-trip -> one inline ChooseAsync; UI strips per the header note).
-    async Task ActivateMultipleSkills_OnePlayer(List<SkillInfo> skillInfos, Player player, bool CheckNewTriggredSkill_mainStack, Func<List<SkillInfo>, SkillInfo, bool> skipCondition)
+    IEnumerator ActivateMultipleSkills_OnePlayer(List<SkillInfo> skillInfos, Player player, bool CheckNewTriggredSkill_mainStack, Func<List<SkillInfo>, SkillInfo, bool> skipCondition)
     {
         StackedSkillInfos = new List<SkillInfo>();
 
@@ -168,13 +96,10 @@ public sealed class MultipleSkills
                                 }
                                 else
                                 {
-                                    // ADAPTATION(2): AS-IS `card.PermanentOfThisCard()` -> ResolvePermanentOfThisCard.
-                                    Permanent permanentOfThisCard = ICardEffect.ResolvePermanentOfThisCard(card);
-
-                                    if (permanentOfThisCard != null)
+                                    if (card.PermanentOfThisCard() != null)
                                     {
-                                        skillInfo.CardEffect.SetIsDigimonEffect(permanentOfThisCard.IsDigimon);
-                                        skillInfo.CardEffect.SetIsTamerEffect(permanentOfThisCard.IsTamer);
+                                        skillInfo.CardEffect.SetIsDigimonEffect(card.PermanentOfThisCard().IsDigimon);
+                                        skillInfo.CardEffect.SetIsTamerEffect(card.PermanentOfThisCard().IsTamer);
                                     }
 
                                     else
@@ -182,9 +107,7 @@ public sealed class MultipleSkills
                                         skillInfo.CardEffect.SetIsTamerEffect(card.IsTamer);
                                     }
 
-                                    // ADAPTATION(gap1 SECURITYDIGIMON): AS-IS `card == attackProcess.SecurityDigimon`
-                                    // compares CardSources; the mirror SecurityDigimon is the card INSTANCE id.
-                                    if (GManager.instance.attackProcess.SecurityDigimon is { } securityDigimon && card.InstanceId == securityDigimon)
+                                    if (card == GManager.instance.attackProcess.SecurityDigimon)
                                     {
                                         skillInfo.CardEffect.SetIsDigimonEffect(true);
                                     }
@@ -198,6 +121,7 @@ public sealed class MultipleSkills
                 #region Check if the effect can be activated
                 if (!skillInfo.CardEffect.CanActivate(skillInfo.Hashtable))
                 {
+                    Debug.Log($"{skillInfo.CardEffect.EffectName} Can't Activate");
                     continue;
                 }
 
@@ -205,6 +129,8 @@ public sealed class MultipleSkills
                 {
                     if (skipCondition(_autoProcessing.skillInfos_used, skillInfo))
                     {
+                        Debug.Log($"{skillInfo.CardEffect.EffectName} has been skipped");
+
                         continue;
                     }
                 }
@@ -213,14 +139,20 @@ public sealed class MultipleSkills
                 {
                     if (GManager.instance.autoProcessing.IsCutInEffectUsedMaxCount(skillInfo.CardEffect))
                     {
+                        Debug.Log($"{skillInfo.CardEffect.EffectName} has exceeded its use");
+
                         continue;
                     }
                 }
 
                 if (IsCutinEffect(CheckNewTriggredSkill_mainStack))
                 {
+                    Debug.Log($"{skillInfo.CardEffect.EffectName} is Cut In effect");
+
                     if (GManager.instance.autoProcessing.IsCutInEffectHasUsed(skillInfo.CardEffect))
                     {
+                        Debug.Log($"{skillInfo.CardEffect.EffectName} has been used");
+
                         continue;
                     }
                 }
@@ -234,60 +166,189 @@ public sealed class MultipleSkills
 
             if (skillInfos_active.Count > 0)
             {
-                // AS-IS :169 `oldIsSecurityGlassBlue` (player.securityObject.securityBreakGlass.IsBlueGlass && ...)
-                // only gates UI (SetActive / ShowBlueMatarial at :195-198/:348-351/:390-392) — stripped.
+                bool oldIsSecurityGlassBlue = player.securityObject.securityBreakGlass.IsBlueGlass && IsOnlyHandEffectStacked && IsOnlyOptionalEffectStacked && IsEachStackedEffectHasDistinctSourceCard;
 
                 #region If the effect list is one, process normally.
                 if (skillInfos_active.Count == 1)
                 {
                     _skillIndex = 0;
 
-                    await Activate(true);
+                    yield return ContinuousController.instance.StartCoroutine(Activate(true));
                 }
                 #endregion
 
                 #region If there are multiple effect lists, select which one to process first
                 else
                 {
-                    // Blast Digivolution vs normal DECISION LOGIC (AS-IS :187 vs :264), 1:1. The UI selection in
-                    // each branch (SelectHandEffect custom mode / selectCardPanel) is routed through the inline
-                    // choice; only the canDecline gate differs between the branches.
-                    bool canDecline;
+                    List<CardSource> RootCardSources = skillInfos_active.Map(skillInfo => skillInfo.CardEffect.EffectSourceCard);
 
+
+                    // Blast Digivolution
                     if (IsOnlyHandEffectStacked && IsOnlyOptionalEffectStacked && IsEachStackedEffectHasDistinctSourceCard)
                     {
-                        // AS-IS :187-262 Blast branch: SelectHandEffect custom mode, canNoSelect: true (:208).
-                        canDecline = true;
+                        if (player.isYou)
+                        {
+                            int skillIndex = 0;
+
+                            //if (!ContinuousController.instance.SkipSelectOrderOrCount)
+                            {
+                                if (oldIsSecurityGlassBlue)
+                                {
+                                    player.securityObject.securityBreakGlass.gameObject.SetActive(false);
+                                }
+
+                                SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+
+                                selectHandEffect.SetUp(
+                                    selectPlayer: player,
+                                    canTargetCondition: (cardSource) => RootCardSources.Contains(cardSource),
+                                    canTargetCondition_ByPreSelecetedList: null,
+                                    canEndSelectCondition: null,
+                                    maxCount: 1,
+                                    canNoSelect: true,
+                                    canEndNotMax: false,
+                                    isShowOpponent: true,
+                                    selectCardCoroutine: SelectCardCoroutine,
+                                    afterSelectCardCoroutine: AfterSelectCardCoroutine,
+                                    mode: SelectHandEffect.Mode.Custom,
+                                    cardEffect: null);
+
+                                selectHandEffect.SetUpCustomMessage("Multiple effects are triggered.\nChoose which effect to process first.", "");
+                                selectHandEffect.SetNotShowCard();
+                                selectHandEffect.SetNotShowOpponentMessage();
+                                selectHandEffect.SetIsLocal();
+
+                                yield return StartCoroutine(selectHandEffect.Activate());
+
+                                IEnumerator SelectCardCoroutine(CardSource cardSource)
+                                {
+                                    for (int i = 0; i < skillInfos_active.Count; i++)
+                                    {
+                                        SkillInfo skillInfo = skillInfos_active[i];
+
+                                        if (skillInfo.CardEffect.EffectSourceCard == cardSource)
+                                        {
+                                            skillIndex = i;
+                                            break;
+                                        }
+                                    }
+
+                                    yield return null;
+                                }
+
+                                IEnumerator AfterSelectCardCoroutine(List<CardSource> cardSources)
+                                {
+                                    if (cardSources.Count == 0)
+                                    {
+                                        skillIndex = -1;
+                                    }
+
+                                    yield return null;
+                                }
+                            }
+
+                            photonView.RPC("SetTargetSkill", RpcTarget.All, player.PlayerID, skillIndex);
+                        }
+
+                        else
+                        {
+                            #region AI
+                            if (GManager.instance.IsAI)
+                            {
+                                SetTargetSkill(player.PlayerID, 0);
+                            }
+                            #endregion
+                        }
                     }
 
                     else
                     {
-                        // AS-IS :264-324 normal branch: selectCardPanel, _CanNoSelect = all skippable (:284).
-                        // (AutomaticOrder / autoEffectOrder has no mirror — always route to the choice; substrate note.)
-                        canDecline = skillInfos_active.All(skillInfo => skillInfo.CardEffect.IsSkippable(skillInfo.Hashtable));
+                        if (player.isYou)
+                        {
+                            int skillIndex = -1;
+
+                            if (!ContinuousController.instance.autoEffectOrder)
+                            {
+                                yield return StartCoroutine(GManager.instance.selectCardPanel.OpenSelectCardPanel(
+                                Message: "Multiple effects are triggered.\nChoose which effect to process.",
+                                NotSelectButtonMessage: "Don't activate these effects.",
+                                EndSelectButtonMessage: "End Selection",
+                                _OnClickNotSelectButtonAction: null,
+                                _OnClickEndSelectButtonAction: null,
+                                RootCardSources: RootCardSources,
+                                _CanTargetCondition: (cardSource) => true,
+                                _CanTargetCondition_ByPreSelecetedList: null,
+                                _CanEndSelectCondition: null,
+                                _MaxCount: 1,
+                                _CanEndNotMax: false,
+                                _CanNoSelect: () => skillInfos_active.All(skillInfo => skillInfo.CardEffect.IsSkippable(skillInfo.Hashtable)),
+                                CanLookReverseCard: true,
+                                skillInfos: skillInfos_active,
+                                root: SelectCardEffect.Root.None));
+
+                                if (GManager.instance.selectCardPanel.SelectedIndex.Count > 0)
+                                {
+                                    skillIndex = GManager.instance.selectCardPanel.SelectedIndex[0];
+                                }
+                                else
+                                {
+                                    foreach (FieldPermanentCard fieldPermanentCard in player.FieldPermanentObjects)
+                                    {
+                                        fieldPermanentCard.OffPermanentIndexText();
+                                    }
+                                }
+                            }
+
+                            else
+                            {
+                                skillIndex = AutomaticOrder.GetSkillIndexAutomaticOrder(skillInfos_active);
+                            }
+
+                            photonView.RPC("SetTargetSkill", RpcTarget.All, player.PlayerID, skillIndex);
+                        }
+
+                        else
+                        {
+                            if (!IsOnlyHandEffectStacked)
+                            {
+                                GManager.instance.commandText.OpenCommandText("The opponent is choosing which effect to process first.");
+                            }
+
+                            #region AI
+                            if (GManager.instance.IsAI)
+                            {
+                                SetTargetSkill(player.PlayerID, 0);
+                            }
+                            #endregion
+                        }
                     }
 
-                    // AS-IS :326-329: the WaitUntil(HasPlayerSelection) + DequeuePlayerSelection<ValueSelection>()
-                    // round-trip -> one inline ChooseAsync that suspends on the pump gate and returns the picked
-                    // index (or -1 = decline, the AS-IS sentinel `valueSelection != null ? ValueAsInt() : 0` is
-                    // subsumed — the choice returns the chosen index directly and a decline maps to -1).
-                    _skillIndex = await ChooseOrderIndexAsync(skillInfos_active, player, canDecline);
+                    yield return new WaitUntil(() => player.HasPlayerSelection());
 
-                    await Activate(!(IsOnlyHandEffectStacked && IsOnlyOptionalEffectStacked && IsEachStackedEffectHasDistinctSourceCard));
+                    ValueSelection valueSelection = player.DequeuePlayerSelection<ValueSelection>();
+                    _skillIndex = valueSelection != null ? valueSelection.ValueAsInt() : 0;
+
+                    GManager.instance.commandText.CloseCommandText();
+                    yield return new WaitWhile(() => GManager.instance.commandText.gameObject.activeSelf);
+
+                    yield return ContinuousController.instance.StartCoroutine(Activate(!(IsOnlyHandEffectStacked && IsOnlyOptionalEffectStacked && IsEachStackedEffectHasDistinctSourceCard)));
+
                 }
                 #endregion
 
-                #region Executing the effect (AS-IS :340-395 local coroutine Activate)
-                async Task Activate(bool isCheckOptional)
+                #region Executing the effect
+                IEnumerator Activate(bool isCheckOptional)
                 {
-                    // AS-IS :342-346 — bounds guard (note the AS-IS `Count < _skillIndex` quirk, preserved verbatim).
                     if (_skillIndex < 0 || skillInfos_active.Count < _skillIndex)
                     {
                         StackedSkillInfos = new List<SkillInfo>();
-                        return;
+                        yield break;
                     }
 
-                    // AS-IS :348-351 securityBreakGlass SetActive = UI (stripped).
+                    if (oldIsSecurityGlassBlue)
+                    {
+                        player.securityObject.securityBreakGlass.gameObject.SetActive(false);
+                    }
 
                     ICardEffect cardEffect = skillInfos_active[_skillIndex].CardEffect;
                     Hashtable hashtable = skillInfos_active[_skillIndex].Hashtable;
@@ -307,48 +368,49 @@ public sealed class MultipleSkills
                             // For interrupt processing
                             if (IsCutinEffect(CheckNewTriggredSkill_mainStack))
                             {
-                                // AS-IS :371 `// GManager.instance.autoProcessing.AddCutinEffect(cardEffect);` — the
-                                // add is instead passed as the useEffectCallback below (AS-IS :377).
-                                await ((ActivateICardEffect)cardEffect)
+                                // GManager.instance.autoProcessing.AddCutinEffect(cardEffect);
+
+                                yield return ContinuousController.instance.StartCoroutine(((ActivateICardEffect)cardEffect)
                                 .Activate_Optional_Effect_Execute(
                                     hashtable,
                                     isCheckOptional,
-                                    useEffectCallback: GManager.instance.autoProcessing.AddCutinEffect);
+                                    useEffectCallback: GManager.instance.autoProcessing.AddCutinEffect));
                             }
 
                             else
                             {
-                                await GManager.instance.autoProcessing.ActivateEffectProcess(
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.ActivateEffectProcess(
                                     cardEffect,
                                     hashtable,
-                                    isCheckOptional);
+                                    isCheckOptional));
                             }
                         }
                     }
 
-                    // AS-IS :390-392 securityBreakGlass ShowBlueMatarial = UI (stripped).
+                    if (oldIsSecurityGlassBlue)
+                    {
+                        player.securityObject.securityBreakGlass.ShowBlueMatarial();
+                    }
                 }
                 #endregion
 
-                //Rule processing (AS-IS :398)
-                await GManager.instance.autoProcessing.RuleProcess();
+                //Rule processing
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.RuleProcess());
 
-                // AS-IS :400-403 `if (turnStateMachine.endGame) yield break;` — ADAPTATION: the mirror
-                // TurnStateMachine has no `endGame`; terminal state reads through RuleQueryService.
-                if (GManager.instance.Context.RuleQueryService.IsTerminal())
+                if (GManager.instance.turnStateMachine.endGame)
                 {
-                    return;
+                    yield break;
                 }
 
-                #region If there are any newly triggered effects, resolve those first. (AS-IS :405-415)
+                #region If there are any newly triggered effects, resolve those first.
                 if (!CheckNewTriggredSkill_mainStack)
                 {
-                    await _autoProcessing.TriggeredSkillProcess(CheckNewTriggredSkill_mainStack, skipCondition);
+                    yield return ContinuousController.instance.StartCoroutine(_autoProcessing.TriggeredSkillProcess(CheckNewTriggredSkill_mainStack, skipCondition));
                 }
 
                 else
                 {
-                    await GManager.instance.autoProcessing.TriggeredSkillProcess(CheckNewTriggredSkill_mainStack, null);
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.TriggeredSkillProcess(CheckNewTriggredSkill_mainStack, null));
                 }
                 #endregion
             }
@@ -360,60 +422,16 @@ public sealed class MultipleSkills
         }
     }
 
-    // AS-IS :266-329 order pick, INLINE. The AS-IS local-player UI (SelectHandEffect custom mode /
-    // selectCardPanel.OpenSelectCardPanel, _MaxCount:1) + the SetTargetSkill RPC + WaitUntil(HasPlayerSelection)
-    // + DequeuePlayerSelection<ValueSelection> collapse to ONE ChoiceProvider.ChooseAsync(ChoiceType.WindowChoice):
-    // it suspends on the pump gate (parks the pump in place; the window's C# stack survives and resumes when the
-    // agent's answer is deposited) and returns the chosen index, or -1 when the controller declines (AS-IS the -1
-    // sentinel the Blast/normal branches set). Each candidate id is "cardInstanceId#ordinal" so the deposited pick
-    // maps straight back to the offered index.
-    async Task<int> ChooseOrderIndexAsync(List<SkillInfo> skillInfos_active, Player player, bool canDecline)
+    [PunRPC]
+    public void SetTargetSkill(int playerID, int skillIndex)
     {
-        HeadlessPlayerId controller = player is { } p ? p.PlayerId : default;
+        Player selectionPlayer = GManager.instance.GetPlayerFromID(playerID);
 
-        var counts = new Dictionary<string, int>();
-        var candidates = new List<ChoiceCandidate>(skillInfos_active.Count);
-        foreach (SkillInfo skillInfo in skillInfos_active)
+        if (selectionPlayer == null)
         {
-            CardSource source = skillInfo.CardEffect?.EffectSourceCard;
-            string cardKey = source is { } s ? s.InstanceId.Value : "<null>";
-            counts.TryGetValue(cardKey, out int ordinal);
-            counts[cardKey] = ordinal + 1;
-
-            candidates.Add(new ChoiceCandidate(
-                new HeadlessEntityId(cardKey + "#" + ordinal),
-                skillInfo.CardEffect?.EffectName ?? "effect",
-                ChoiceZone.Custom,
-                IsSelectable: true,
-                ownerId: controller));
+            return;
         }
 
-        var request = new ChoiceRequest(
-            ChoiceType.WindowChoice,
-            controller,
-            "Multiple effects are triggered. Choose which to resolve first.",
-            minCount: canDecline ? 0 : 1,
-            maxCount: 1,
-            canSkip: canDecline,
-            ChoiceZone.Custom,
-            candidates.ToArray());
-
-        ChoiceResult result = await _context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
-
-        if (result.IsSkipped || result.SelectedIds.Count == 0)
-        {
-            return -1;
-        }
-
-        string picked = result.SelectedIds[0].Value;
-        for (int i = 0; i < candidates.Count; i++)
-        {
-            if (candidates[i].Id.Value == picked)
-            {
-                return i;
-            }
-        }
-
-        return -1;
+        selectionPlayer.QueuePlayerSelection(new ValueSelection(skillIndex));
     }
 }

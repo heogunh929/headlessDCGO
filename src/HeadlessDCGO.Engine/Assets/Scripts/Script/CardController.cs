@@ -1,93 +1,32 @@
-// Source: Assets/Scripts/Script/CardController.cs
-// Decision: PORT
-// Category: BattleLogic
-// Priority: HIGH
-// Migration: Port core engine source — INCREMENTAL (goal 3 owns the CardController class itself).
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script
-//
-// (MIG2/MIG3) AS-IS CardController.cs is NOT a class — it is a FILE of 36 independent top-level command
-// classes (ctor -> optional Set* fluent setters -> one IEnumerator verb), the shared primitive library
-// ~600 card-effect files call directly. This mirror grows in AS-IS file order, slice by slice (goal 3):
-//   slice 3a (this commit): the leaf window-emitter tier — IDiscardHands/IDiscardHand (:9-112),
-//     DrawClass (:1903), IAddTrashCardsFromLibraryTop (:1971), IAddSecurityFromLibrary (:2041),
-//     IRecovery (:2085), IDestroySecurity (:4235), IReduceSecurity (:5412), IAddSecurity (:5462),
-//     IFlipSecurity (:5516), ITrashDeckCards (:5767), AceOverflowClass (:5827).
-//   ITrashLinkCards (:5242) landed with goal 2.
-//   slice 3b: the cut-in tier — IDegeneration (:4779), IMassDegeneration (:4945),
-//     ITrashDigivolutionCards (:5127), ReturnToLibraryBottomDigivolutionCardsClass (:5352),
-//     SuspendPermanentsClass (:5558), IUnsuspendPermanents (:5661), ITrashStack (:5858).
-//   Remaining slices: DestroyPermanentsClass -> ISecurityCheck -> IBattle -> play/bounce/place clusters.
-//
-// EMISSION-OWNERSHIP SEAM (applies to every class here): the headless substrate DERIVES the zone-crossing
-// windows (OnDiscardHand / OnDiscardSecurity / OnDiscardLibrary / OnLoseSecurity / OnAddSecurity) from the
-// CardMoved events themselves (TriggerTimingMap), batch-collapsed per the batch id stamped on the moves —
-// so an AS-IS `StackSkillInfos(hashtable, <zone timing>)` call translates to STAMPING THE BATCH ID on the
-// moves, NOT to a second manual emit (which would double-fire; precedent: MatchStateMutationSink's
-// OnDiscardSecurity EmitTiming was removed for exactly this). Non-zone-derived windows (OnDraw,
-// OnFaceUpSecurityIncreased, WhenTopCardTrashed, OnTapped/OnUntapped, OnUseDigiburst, OnLinkCardDiscarded,
-// OnDigivolutionCardReturnToDeckBottom) fire via their own inline AS-IS `StackSkillInfos(hashtable, <timing>)`
-// at the AS-IS emit position — the retired substrate TriggerEventEmitter event-queue model and its deleted
-// collector are gone; each window is now opened by the single StackSkillInfos call alone.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script
-{
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Services;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
 
 #region Trash cards from hand
 
-/// <summary>
-/// (MIG3-3a) 1:1 mirror of AS-IS <c>IDiscardHands</c>/<c>IDiscardHand</c> (CardController.cs:9-112): discards a
-/// batch of hand cards, tracking which actually left the hand and landed in the trash (a card already gone from
-/// hand, or that failed to reach the trash, is not counted), then the "[When cards are trashed from hand]"
-/// (OnDiscardHand) window opens ONCE for the whole successfully-discarded list (:42-60) — carried by the
-/// zone-derived timing + the ONE shared discard batch id stamped on every move (see the file-header seam note).
-///
-/// Substrate notes: AS-IS <c>ICardEffect cardEffect</c> -> <c>HeadlessEntityId? causeEffectSourceId</c>. AS-IS
-/// <c>IDiscardHand</c>'s ctor <c>Hashtable hashtable</c> param is stored but NEVER read in <c>Discard()</c>
-/// (:97-111, verified dead) — dropped; the batch id + cause the substrate move needs flow through
-/// <c>Discard(...)</c> params instead. DeleteHandCardEffectCoroutine / PlayLog are UI (stripped).
-/// </summary>
 public class IDiscardHands
 {
-    public IDiscardHands(List<IDiscardHand> discardHands, HeadlessEntityId? causeEffectSourceId, ICardEffect? cardEffect = null)
+    public IDiscardHands(List<IDiscardHand> discardHands, ICardEffect cardEffect)
     {
         foreach (IDiscardHand discardHand in discardHands)
         {
             this.discardHands.Add(discardHand);
         }
 
-        _causeEffectSourceId = causeEffectSourceId;
-        _cardEffect = cardEffect;
+        this.cardEffect = cardEffect;
     }
 
     List<IDiscardHand> discardHands { get; set; } = new List<IDiscardHand>();
-    readonly HeadlessEntityId? _causeEffectSourceId;
-    // (C1b RD-C1-CARDEFFECT-IDTHREAD) AS-IS `ICardEffect cardEffect` re-threaded ALONGSIDE the cause id (the id
-    // still stamps the substrate move; the live effect feeds the AS-IS window hashtable). null on rule-process
-    // paths exactly like the AS-IS null cardEffect.
-    readonly ICardEffect? _cardEffect;
+    ICardEffect cardEffect { get; set; }
     public bool HasDiscarded { get; set; }
 
-    public async Task DiscardHands(CancellationToken cancellationToken = default)
+    public IEnumerator DiscardHands()
     {
-        if (discardHands.Count == 0)
-        {
-            return;
-        }
-
-        // ONE shared batch id for the whole list = the AS-IS single StackSkillInfos(OnDiscardHand) call (:56);
-        // the derived-timing batch collapse fires each reactor once per batch, not per card.
-        EngineContext context = discardHands[0].CardSource.Context;
-        long discardBatchId = context.NextDiscardBatchId();
-
         foreach (IDiscardHand discardHand in discardHands)
         {
-            await discardHand.Discard(discardBatchId, _causeEffectSourceId, cancellationToken).ConfigureAwait(false);
+            yield return ContinuousController.instance.StartCoroutine(discardHand.Discard());
         }
 
         List<CardSource> discardedCards = new List<CardSource>();
@@ -96,58 +35,76 @@ public class IDiscardHands
         {
             if (discardHand.discarded)
             {
-                discardedCards.Add(discardHand.CardSource);
+                discardedCards.Add(discardHand.cardSource);
             }
         }
 
         if (discardedCards.Count >= 1)
         {
-            // AS-IS :42-60 "[When cards are trashed from hand]" — the Hand->Trash moves above already derive
-            // OnDiscardHand (batch-collapsed on the shared id); a manual emit here would double-fire.
+            #region "When cards are trashed from hand" effect
 
-            // (C1b) AS-IS CardController.cs:42-56 — drained from C2 flip. StackSkillInfos({"DiscardedCards",
-            // discardedCards}, {"CardEffect", cardEffect}, OnDiscardHand). Live _cardEffect re-threaded from the
-            // in-scope Select* callers (RD-C1-CARDEFFECT-IDTHREAD); carrier zone-derivation stays (main inert).
-            await GManager.instance.autoProcessing.StackSkillInfos(
-                new System.Collections.Hashtable { { "DiscardedCards", discardedCards }, { "CardEffect", _cardEffect } },
-                EffectTiming.OnDiscardHand).ConfigureAwait(false);
+            #region Hashtable setting
 
+            Hashtable hashtable = new Hashtable()
+            {
+                {"DiscardedCards", discardedCards},
+                {"CardEffect", cardEffect},
+            };
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnDiscardHand));
+
+            #endregion
             HasDiscarded = true;
         }
 
-        // AS-IS :62-80 add log = UI (stripped).
+        #region add log
+
+        if (discardedCards.Count >= 1)
+        {
+            string log = "";
+
+            log += $"\nDiscard hand:";
+
+            foreach (CardSource cardSource in discardedCards)
+            {
+                log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+            }
+
+            log += "\n";
+
+            PlayLog.OnAddLog?.Invoke(log);
+        }
+
+        #endregion
     }
 }
 
-/// <summary>(MIG3-3a) AS-IS <c>IDiscardHand</c> (CardController.cs:84-112) — see <see cref="IDiscardHands"/>.</summary>
 public class IDiscardHand
 {
-    public IDiscardHand(CardSource cardSource)
+    public IDiscardHand(CardSource cardSource, Hashtable hashtable)
     {
-        CardSource = cardSource;
+        this.cardSource = cardSource;
+        this.hashtable = hashtable;
     }
 
-    public CardSource CardSource { get; }
-    public bool discarded { get; private set; }
+    public CardSource cardSource { get; private set; }
 
-    public async Task Discard(long? discardBatchId, HeadlessEntityId? causeEffectSourceId, CancellationToken cancellationToken = default)
+    public Hashtable hashtable { get; private set; }
+    public bool discarded { get; private set; } = false;
+
+    public IEnumerator Discard()
     {
-        EngineContext context = CardSource.Context;
-        var zones = (IZoneStateReader)context.ZoneMover;
+        bool oldisHand = cardSource.Owner.HandCards.Contains(cardSource);
 
-        // AS-IS :99 `bool oldisHand = cardSource.Owner.HandCards.Contains(cardSource)`.
-        bool oldIsHand = zones.GetCards(CardSource.Owner, ChoiceZone.Hand).Contains(CardSource.InstanceId);
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().DeleteHandCardEffectCoroutine(cardSource));
 
-        // AS-IS :101 DeleteHandCardEffectCoroutine = UI (stripped).
+        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
 
-        // AS-IS :103 CardObjectController.AddTrashCard(cardSource).
-        await context.ZoneMover.TrashCardAsync(CardSource.Owner, CardSource.InstanceId, discardBatchId, causeEffectSourceId, cancellationToken: cancellationToken).ConfigureAwait(false);
+        bool isTrash = CardEffectCommons.IsExistOnTrash(cardSource);
 
-        // AS-IS :105 `bool isTrash = CardEffectCommons.IsExistOnTrash(cardSource)` — result-verification: only
-        // a card that WAS in hand and IS now in the trash counts as discarded.
-        bool isTrash = zones.GetCards(CardSource.Owner, ChoiceZone.Trash).Contains(CardSource.InstanceId);
-
-        if (oldIsHand && isTrash)
+        if (oldisHand && isTrash)
         {
             discarded = true;
         }
@@ -156,2688 +113,10 @@ public class IDiscardHand
 
 #endregion
 
-#region Hashtable setting class
+#region Play cards
 
-// (C2 REHOUSED fold) OnEnterFieldHashtableParams relocated from the separate Script/OnEnterFieldHashtableParams.cs
-// into its AS-IS home CardController.cs (AS-IS top-level class at CardController.cs:1100-1146, between
-// HatchDigiEggClass and PlayPermanentClass). Verbatim; now in the ...Script namespace like its AS-IS siblings.
-// AS-IS CardController.cs:1100-1146.
-public class OnEnterFieldHashtableParams
-{
-    public OnEnterFieldHashtableParams(
-        Permanent permanent,
-        List<CardSource> evoRoots,
-        List<CardSource> evoRootTops,
-        SelectCardEffect.Root root,
-        List<int> oldLevels,
-        bool isFromDigimonDigivolutionCards,
-        int digiXrosCount = 0,
-        int assemblyCount = 0)
-    {
-        Permanent = permanent;
-
-        if (evoRoots != null)
-        {
-            EvoRoots = evoRoots.Clone();
-        }
-
-        if (evoRootTops != null)
-        {
-            EvoRootTops = evoRootTops.Clone();
-        }
-
-        Root = root;
-
-        if (oldLevels != null)
-        {
-            OldLevels = oldLevels.Clone();
-        }
-
-        IsFromDigimonDigivolutionCards = isFromDigimonDigivolutionCards;
-
-        DigixrosCount = digiXrosCount;
-
-        AssemblyCount = assemblyCount;
-    }
-
-    public Permanent Permanent { get; private set; } = null;
-    public List<CardSource> EvoRoots = new List<CardSource>();
-    public List<CardSource> EvoRootTops { get; private set; } = new List<CardSource>();
-    public SelectCardEffect.Root Root { get; private set; } = SelectCardEffect.Root.None;
-    public List<int> OldLevels { get; private set; } = new List<int>();
-    public bool IsFromDigimonDigivolutionCards { get; private set; } = false;
-    public int DigixrosCount { get; private set; } = 0;
-    public int AssemblyCount { get; private set; } = 0;
-}
-
-#endregion
-
-#region Draw
-
-/// <summary>
-/// (MIG3-3a) 1:1 mirror of AS-IS <c>DrawClass</c> (CardController.cs:1903-1965): draws up to <c>drawCount</c>
-/// cards from the library top into hand, then opens the "[When draw cards]" (OnDraw) window ONCE for the whole
-/// batch — only if at least one card was actually drawn (:1948). AS-IS performs NO deck-out handling here: an
-/// empty library is a silent no-op (:1919) and a short library draws what's available (:1923-1933) — deck-out
-/// loss lives elsewhere (the phase-draw check), both AS-IS and headless.
-///
-/// Substrate notes: AS-IS <c>Player</c> -> <c>(EngineContext, HeadlessPlayerId)</c>; <c>ICardEffect</c> ->
-/// <c>HeadlessEntityId? causeEffectSourceId</c>. <c>CardObjectController.AddHandCards</c> (:1935) =
-/// <c>IZoneMover.DrawAsync</c>. OnDraw is NOT zone-derived (the moves derive OnAddHand, a different window) —
-/// the manual emit here is the sole OnDraw source, matching the existing headless OnDraw emitters. PlayLog = UI.
-/// </summary>
-public class DrawClass
-{
-    // (C1c RD-C1b-CARDARG) AS-IS shape `new DrawClass(player, drawCount, cardEffect)` (CardController.cs:1903) —
-    // the card/keyword/Tfx callers pass the live effect; the substrate cause id is derived from it
-    // (EffectSourceCard.InstanceId), exactly as MIG3 computed at the call site. null cardEffect (e.g. the AS-IS
-    // `new DrawClass(owner, 1, null)` digivolve-draw) -> null cause, byte-identical.
-    public DrawClass(EngineContext context, HeadlessPlayerId playerId, int drawCount, ICardEffect? cardEffect)
-        : this(context, playerId, drawCount, cardEffect?.EffectSourceCard?.InstanceId, cardEffect)
-    {
-    }
-
-    // (C1c) substrate overload: the effect-driven-draw sink (MatchStateMutationSink) holds only a raw cause id and
-    // has no ICardEffect — its OnAddHand/OnDraw reactor gate keys off the stamped id, not the live effect. cardEffect
-    // stays null there. Retained ALONGSIDE the AS-IS effect ctor because that off-limits consumer needs the id-only
-    // shape (so the id param is NOT redundant — cf. the drop for the other C1c routines).
-    public DrawClass(EngineContext context, HeadlessPlayerId playerId, int drawCount, HeadlessEntityId? causeEffectSourceId, ICardEffect? cardEffect = null)
-    {
-        _context = context;
-        _playerId = playerId;
-        _drawCount = drawCount;
-        _cardEffect = cardEffect;
-        _causeEffectSourceId = causeEffectSourceId;
-    }
-
-    readonly EngineContext _context;
-    readonly HeadlessPlayerId _playerId;
-    readonly int _drawCount;
-    readonly ICardEffect? _cardEffect;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-
-    public async Task Draw(CancellationToken cancellationToken = default)
-    {
-        if (_drawCount <= 0)
-        {
-            return;
-        }
-
-        var zones = (IZoneStateReader)_context.ZoneMover;
-        if (zones.GetCards(_playerId, ChoiceZone.Library).Count <= 0)
-        {
-            return;
-        }
-
-        long addHandBatchId = _context.NextAddHandBatchId();
-
-        IReadOnlyList<HeadlessEntityId> drawnCards = await _context.ZoneMover.DrawAsync(
-            _playerId, _drawCount, addHandBatchId, _causeEffectSourceId, cancellationToken).ConfigureAwait(false);
-
-        // AS-IS :1937-1944 PlayLog = UI (stripped).
-
-        if (drawnCards.Count >= 1)
-        {
-            #region "When draw cards" effect
-
-            // (C1c) AS-IS CardController.cs:1948-1960 StackSkillInfos({"Player", _player}, {"CardEffect", _cardEffect},
-            // OnDraw) — the SOLE OnDraw opener (the vestigial TriggerEventEmitter queue emit was retired). Live
-            // _cardEffect re-threaded from the in-scope card/Tfx callers (RD-C1b-CARDARG).
-            await GManager.instance.autoProcessing.StackSkillInfos(
-                new System.Collections.Hashtable
-                {
-                    { "Player", new Player(_context, _playerId) },
-                    { "CardEffect", _cardEffect },
-                },
-                EffectTiming.OnDraw).ConfigureAwait(false);
-
-            #endregion
-        }
-    }
-}
-
-#endregion
-
-#region Trash cards from deck top
-
-/// <summary>
-/// (MIG3-3a) 1:1 mirror of AS-IS <c>IAddTrashCardsFromLibraryTop</c> (CardController.cs:1971-2035): peeks the
-/// top <c>addTrashCount</c> library cards and delegates the move + window to <see cref="ITrashDeckCards"/>
-/// (:2020) — literal composition. <c>SetNotShowCards</c> only gated the UI reveal (:2014-2018, stripped) — now
-/// inert, kept for method-shape parity. PlaySE/WaitForSeconds/PlayLog = UI (stripped).
-/// </summary>
-public class IAddTrashCardsFromLibraryTop
-{
-    public IAddTrashCardsFromLibraryTop(EngineContext context, HeadlessPlayerId playerId, int addTrashCount, ICardEffect? cardEffect)
-    {
-        _context = context;
-        _playerId = playerId;
-        _addTrashCount = addTrashCount;
-        _cardEffect = cardEffect;
-        // (C1c RD-C1b-CARDARG) AS-IS `new IAddTrashCardsFromLibraryTop(count, player, cardEffect)` — carries the
-        // live cardEffect down into ITrashDeckCards' window; substrate cause id derived from it (was the MIG3 arg).
-        // NOTE: this class has NO live callers today (verified caller-dead, like ReturnToLibraryBottom*) — threaded
-        // for AS-IS routine fidelity so any future/Tfx caller lands the live effect.
-        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
-    }
-
-    public void SetNotShowCards()
-    {
-        _notShowCards = true;
-    }
-
-    readonly EngineContext _context;
-    readonly HeadlessPlayerId _playerId;
-    readonly int _addTrashCount;
-    readonly ICardEffect? _cardEffect;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-    public List<CardSource> discardedCards = new List<CardSource>();
-    bool _notShowCards = false;
-
-    public async Task AddTrashCardsFromLibraryTop(CancellationToken cancellationToken = default)
-    {
-        if (_addTrashCount <= 0)
-        {
-            return;
-        }
-
-        var zones = (IZoneStateReader)_context.ZoneMover;
-        if (zones.GetCards(_playerId, ChoiceZone.Library).Count == 0)
-        {
-            return;
-        }
-
-        IReadOnlyList<HeadlessEntityId> library = zones.GetCards(_playerId, ChoiceZone.Library);
-
-        for (int i = 0; i < _addTrashCount; i++)
-        {
-            if (library.Count > i)
-            {
-                discardedCards.Add(new CardSource(_context, library[i], _playerId, _playerId));
-            }
-        }
-
-        // AS-IS :2014-2018 ShowCardEffect (gated by !_notShowCards) = UI (stripped).
-
-        await new ITrashDeckCards(discardedCards, _cardEffect).TrashDeckCards(cancellationToken).ConfigureAwait(false);
-
-        // AS-IS :2022-2033 PlaySE/WaitForSeconds/PlayLog = UI (stripped).
-    }
-}
-
-#endregion
-
-#region Security rule gate seam
-
-/// <summary>
-/// (fidelity defect C — design items MIG3-CANREDUCESECURITY / MIG3-CANADDSECURITY RETIRED) The
-/// <c>IsSecurityLooking</c> HALF of AS-IS <c>Player.CanReduceSecurity()</c> (Player.cs:1521-1529 — whose whole body
-/// IS <c>if (gameContext.IsSecurityLooking) return false; return true;</c>; AS-IS has NO
-/// <c>ICannotReduceSecurityEffect</c> interface at all) and of AS-IS <c>Player.CanAddSecurity(ICardEffect)</c>
-/// (Player.cs:1469-1517 — the same <c>IsSecurityLooking</c> guard at :1471, THEN the continuous
-/// <c>ICannotAddSecurityEffect</c> restriction scan). The scan half of CanAddSecurity is already the AS-IS-literal
-/// live scan in the mirror <c>Player.CanAddSecurity</c> (which calls this seam FIRST, exactly reproducing the AS-IS
-/// statement order), so it is NOT duplicated here. Was stubbed <c>true</c>, i.e. both AS-IS guards were dead; now
-/// reads the ported <c>GameContext.IsSecurityLooking</c> carrier. Every mirror call site routes through here.
-/// </summary>
-internal static class SecurityRuleGateSeam
-{
-    /// <summary>AS-IS <c>Player.CanReduceSecurity()</c> (Player.cs:1521-1529) VERBATIM — the whole AS-IS body.</summary>
-    public static bool CanReduceSecurity(EngineContext context, HeadlessPlayerId playerId)
-    {
-        _ = playerId; // AS-IS CanReduceSecurity() takes no argument and reads no per-player state.
-
-        if (new GameContext(context).IsSecurityLooking)
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    /// <summary>AS-IS <c>Player.CanAddSecurity(cardEffect)</c> :1471-1474 — the guard that precedes the
-    /// ICannotAddSecurityEffect scan (the scan lives in the mirror <c>Player.CanAddSecurity</c>, this seam's caller).</summary>
-    public static bool CanAddSecurity(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId? causeEffectSourceId)
-    {
-        _ = playerId;              // AS-IS :1471 reads only the shared gameContext flag.
-        _ = causeEffectSourceId;   // AS-IS passes cardEffect only to the (separately hosted) restriction scan.
-
-        if (new GameContext(context).IsSecurityLooking)
-        {
-            return false;
-        }
-
-        return true;
-    }
-}
-
-#endregion
-
-#region Add security from deck top
-
-/// <summary>
-/// (MIG3-3a) 1:1 mirror of AS-IS <c>IAddSecurityFromLibrary</c> (CardController.cs:2041-2079): deals up to
-/// <c>addSecurityCount</c> library-top cards into security. AS-IS delegates each card to
-/// <c>CardObjectController.AddSecurityCard(StockCard, useEffect: i==0)</c> (:2062; CardObjectController.cs:
-/// 976-1007): <c>useEffect</c> gates ONLY the CreateRecoveryEffect VFX; <c>new IAddSecurity(card).AddSecurity()</c>
-/// runs UNCONDITIONALLY per non-token, non-DigiEgg card, AFTER SetReverse()/SetFace() set the face state.
-///
-/// Substrate notes: the ->Security moves derive the OnAddSecurity window (per-card batch ids via
-/// batchIdFactory — OnAddSecurity is per-card, not collapsed); the mirror <see cref="IAddSecurity"/> call per
-/// card carries the face-state stamp + the OnFaceUpSecurityIncreased half (not zone-derived).
-/// </summary>
-public class IAddSecurityFromLibrary
-{
-    public IAddSecurityFromLibrary(EngineContext context, HeadlessPlayerId playerId, int addSecurityCount, bool faceUp = false)
-    {
-        _context = context;
-        _playerId = playerId;
-        _addSecurityCount = addSecurityCount;
-        _faceUp = faceUp;
-    }
-
-    readonly EngineContext _context;
-    readonly HeadlessPlayerId _playerId;
-    readonly int _addSecurityCount;
-    // (substrate extension) AS-IS deals face-down (:2062 -> SetReverse); a face-UP recovery effect (the sink's
-    // ApplyRecover FaceUpKey) is the AS-IS SetFace branch of AddSecurityCard — threaded, default false.
-    readonly bool _faceUp;
-
-    public async Task AddSecurity(CancellationToken cancellationToken = default)
-    {
-        IReadOnlyList<HeadlessEntityId> added = await _context.ZoneMover.AddSecurityFromLibraryAsync(
-            _playerId, _addSecurityCount, faceUp: _faceUp,
-            batchIdFactory: () => _context.NextSecurityAddBatchId(),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        foreach (HeadlessEntityId cardId in added)
-        {
-            // AS-IS AddSecurityCard:988-991 SetReverse()/SetFace() BEFORE constructing IAddSecurity — stamp so
-            // IAddSecurity's own face-up read is correct.
-            SecurityFaceState.Stamp(_context.CardInstanceRepository, cardId, faceUp: _faceUp);
-
-            var cardSource = new CardSource(_context, cardId, _playerId, _playerId);
-
-            // AS-IS CardObjectController.cs:1004 — IAddSecurity always constructed+called per card;
-            // useEffect (i==0) gates only the recovery VFX (UI, stripped).
-            await new IAddSecurity(cardSource).AddSecurity(cancellationToken).ConfigureAwait(false);
-        }
-
-        // AS-IS :2068-2077 PlayLog = UI (stripped).
-    }
-}
-
-#endregion
-
-#region Recovery
-
-/// <summary>
-/// (MIG3-3a) 1:1 mirror of AS-IS <c>IRecovery</c> (CardController.cs:2085-2108): recovers up to
-/// <c>addLifeCount</c> library-top cards into security via <see cref="IAddSecurityFromLibrary"/> (:2104), gated
-/// on non-empty library, positive count, and <c>Player.CanAddSecurity</c> (<see cref="SecurityRuleGateSeam"/>).
-/// The cause id is used ONLY for the CanAddSecurity gate, exactly as AS-IS. CreateRecoveryEffect = UI.
-/// </summary>
-public class IRecovery
-{
-    public IRecovery(EngineContext context, HeadlessPlayerId playerId, int addLifeCount, HeadlessEntityId? causeEffectSourceId)
-    {
-        _context = context;
-        _playerId = playerId;
-        _addLifeCount = addLifeCount;
-        _causeEffectSourceId = causeEffectSourceId;
-    }
-
-    readonly EngineContext _context;
-    readonly HeadlessPlayerId _playerId;
-    readonly int _addLifeCount;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-
-    public async Task Recovery(CancellationToken cancellationToken = default)
-    {
-        var zones = (IZoneStateReader)_context.ZoneMover;
-        if (zones.GetCards(_playerId, ChoiceZone.Library).Count == 0)
-        {
-            return;
-        }
-
-        if (_addLifeCount <= 0)
-        {
-            return;
-        }
-
-        if (!SecurityRuleGateSeam.CanAddSecurity(_context, _playerId, _causeEffectSourceId))
-        {
-            return;
-        }
-
-        await new IAddSecurityFromLibrary(_context, _playerId, _addLifeCount).AddSecurity(cancellationToken).ConfigureAwait(false);
-
-        // AS-IS :2106 CreateRecoveryEffect = UI (stripped).
-    }
-}
-
-#endregion
-
-#region Digi-Burst
-
-/// <summary>
-/// (bridge W5) 1:1 mirror of AS-IS <c>IDigiBurst</c> (CardController.cs:2114-2264): the Digi-Burst carrier a
-/// card's [Main] inlines (<c>new IDigiBurst(permanent, N, activateClass)</c>, e.g. ST4_13). AS-IS shape kept:
-/// ctor <c>(Permanent, int, ICardEffect)</c>, <c>SetUpToMaxCount</c> ("Digi-Burst up to N"),
-/// <c>CanDigiBurst</c> gate (:2135-2160 — host non-null, stack-trash immunity, then Some/Count of trashable
-/// sources vs the burst count), <c>DigiBurst</c> (:2162-2263 — the controller SELECTS which sources to discard
-/// via the W4-bridged <see cref="SelectCardEffect"/> over the stack (exact AS-IS 16-param SetUp), then the
-/// OnUseDigiburst window opens BEFORE the trash (:2228), then <see cref="ITrashDigivolutionCards"/> trashes
-/// exactly the selected cards (:2233) and <see cref="discardedCards"/> collects them (:2235; AS-IS adds ALL
-/// selected cards whether or not each was actually trashed — quirk kept)).
-///
-/// Substrate notes: AS-IS <c>ICardEffect</c> KEPT on the ctor (W4 convention); the cause id fed to the
-/// gates/carriers is <c>_cardEffect.EffectSourceCard.InstanceId</c>. <c>ImmuneFromStackTrashing(_cardEffect)</c>
-/// (:2141) = the same <see cref="RestrictionScan"/> ImmuneStackTrashingKey scan
-/// <see cref="ITrashDigivolutionCards"/> applies (self-contained-privates style). AS-IS
-/// <c>StackSkillInfos(hashtable {"Permanent", "CardEffect"}, EffectTiming.OnUseDigiburst)</c> (:2218-2228) =
-/// the OnUseDigiburst queue emit (actor = the host's controller, subject = the host permanent's top card) —
-/// the exact verified emit shape of the resolver's DigiBurstActivatedEffect path
-/// (ActivatedEffectResolver.cs:508), JOURNALED like there so a suspended resolution's replay (a later choice in
-/// the same body suspending) does not double-emit. Add-log/PlayLog (:2237-2259) = UI (stripped).
-/// </summary>
-public class IDigiBurst
-{
-    public IDigiBurst(Permanent permanent, int DigiBurstCount, ICardEffect cardEffect)
-    {
-        _permanent = permanent;
-        _digiBurstCount = DigiBurstCount;
-        _cardEffect = cardEffect;
-    }
-
-    Permanent _permanent = null!;
-    int _digiBurstCount = 0;
-    ICardEffect _cardEffect = null!;
-    bool _upToMaxCount = false;
-
-    public List<CardSource> discardedCards = new List<CardSource>();
-
-    // AS-IS :2130-2133.
-    public void SetUpToMaxCount()
-    {
-        _upToMaxCount = true;
-    }
-
-    // AS-IS :2135-2160.
-    public bool CanDigiBurst()
-    {
-        if (_permanent != null)
-        {
-            if (_permanent.TopCard != null) // mirror TopCard is never null — kept for 1:1 shape (:2139).
-            {
-                if (ImmuneFromStackTrashing()) return false; // AS-IS :2141 `_permanent.ImmuneFromStackTrashing(_cardEffect)`.
-
-                if (_upToMaxCount)
-                {
-                    if (_permanent.DigivolutionCards.Some((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(_cardEffect)))
-                    {
-                        return true;
-                    }
-                }
-                else
-                {
-                    if (_permanent.DigivolutionCards.Count((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(_cardEffect)) >= _digiBurstCount)
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    // AS-IS :2162-2263, IEnumerator -> Task.
-    public async Task DigiBurst()
-    {
-        if (CanDigiBurst())
-        {
-            discardedCards = new List<CardSource>();
-
-            List<CardSource> selectedCards = new List<CardSource>();
-
-            SelectCardEffect selectCardEffect = GManager.instance!.GetComponent<SelectCardEffect>();
-
-            selectCardEffect.SetUp(
-                        canTargetCondition: (cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(_cardEffect),
-                        canTargetCondition_ByPreSelecetedList: null,
-                        canEndSelectCondition: CanEndSelectCondition,
-                        canNoSelect: () => false,
-                        selectCardCoroutine: SelectCardCoroutine,
-                        afterSelectCardCoroutine: null,
-                        message: "Select digivolution cards to discard.",
-                        maxCount: _digiBurstCount,
-                        canEndNotMax: _upToMaxCount,
-                        isShowOpponent: true,
-                        mode: SelectCardEffect.Mode.Custom,
-                        root: SelectCardEffect.Root.Custom,
-                        customRootCardList: _permanent.DigivolutionCards.ToList(),
-                        canLookReverseCard: true,
-                        selectPlayer: _permanent.TopCard.Owner,
-                        cardEffect: null!);
-
-            selectCardEffect.SetUseFaceDown();
-
-            selectCardEffect.SetUpCustomMessage("Select digivolution cards to discard.", "The opponent is selecting digivolution cards to discard.");
-
-            await selectCardEffect.Activate().ConfigureAwait(false);
-
-            bool CanEndSelectCondition(List<CardSource> cardSources)
-            {
-                if (CardEffectCommons.CardEffectCommons.HasNoElement(cardSources))
-                {
-                    return false;
-                }
-
-                return true;
-            }
-
-            async Task SelectCardCoroutine(CardSource cardSource)
-            {
-                selectedCards.Add(cardSource);
-
-                await Task.CompletedTask; // AS-IS `yield return null`.
-            }
-
-            if (selectedCards.Count >= 1)
-            {
-                #region "When use Digi-Burst" effect
-
-                // (C1) AS-IS CardController.cs:2218-2228 StackSkillInfos({"Permanent", _permanent}, {"CardEffect",
-                // _cardEffect}, EffectTiming.OnUseDigiburst): the "[When you use Digi-Burst]" window opens AFTER the
-                // select, BEFORE the trash — the SOLE opener (the vestigial journaled queue emit was retired). Live
-                // _cardEffect is in scope here.
-                await GManager.instance.autoProcessing.StackSkillInfos(
-                    new System.Collections.Hashtable { { "Permanent", _permanent }, { "CardEffect", _cardEffect } },
-                    EffectTiming.OnUseDigiburst).ConfigureAwait(false);
-
-                #endregion
-
-                // trash digivolution cards (AS-IS :2233 `new ITrashDigivolutionCards(_permanent, selectedCards,
-                // _cardEffect)`; cause id stamps the substrate move, the live _cardEffect feeds the window hashtable).
-                await new ITrashDigivolutionCards(_permanent, selectedCards, CauseEffectSourceId, _cardEffect).TrashDigivolutionCards().ConfigureAwait(false);
-
-                foreach (CardSource cardSource in selectedCards)
-                {
-                    discardedCards.Add(cardSource);
-                }
-
-                // AS-IS :2237-2259 add log (PlayLog) = UI (stripped).
-            }
-        }
-    }
-
-    // The AS-IS `_cardEffect` threaded to the protection/immunity gates — the causing effect's source card id.
-    private HeadlessEntityId? CauseEffectSourceId => _cardEffect?.EffectSourceCard?.InstanceId;
-
-    // AS-IS Permanent.ImmuneFromStackTrashing(_cardEffect) (:2141). (R3-W3c B6) rehomed from the
-    // ImmuneStackTrashingKey registry scan to the AS-IS-literal live getter — scans every field permanent's
-    // EffectList(None) for a usable IImmuneFromStackTrashingEffect honouring the causing effect. A missing
-    // causing effect matches no cause-keyed immunity (as in the AS-IS null-cause scan); the guard preserves that.
-    private bool ImmuneFromStackTrashing()
-    {
-        if (CauseEffectSourceId is not { IsEmpty: false })
-        {
-            return false;
-        }
-
-        return _permanent.ImmuneFromStackTrashing(_cardEffect!);
-    }
-}
-
-#endregion
-
-#region Battle (Destroy Security)
-
-/// <summary>
-/// (MIG3-3a) 1:1 mirror of AS-IS <c>IDestroySecurity</c> (CardController.cs:4235-4421): trashes up to
-/// <c>destroySecurityCount</c> security cards from the top, bottom, or one selected card, stopping early if
-/// security empties or <c>Player.CanReduceSecurity()</c> goes false (<see cref="SecurityRuleGateSeam"/>). After
-/// the loop: ONE <see cref="IReduceSecurity"/> call (null-collector sentinel = emit-now, :4360-4363) then ONE
-/// "[When security cards are trashed]" (OnDiscardSecurity) window (:4369-4377) for the WHOLE batch — both
-/// carried by the zone-derived timings on the moves, batch-collapsed on the shared security-loss id stamped
-/// below (file-header seam note; the sink's own removed OnDiscardSecurity EmitTiming is the precedent).
-///
-/// Substrate notes: raw MoveAsync per card (TrashSecurityAsync only supports top/bottom-N, not SelectedCard).
-/// ShowBlueMatarial/Break/Enter/DestroySecurityEffect/ShowCardEffect/PlayLog = UI (stripped).
-/// </summary>
-public class IDestroySecurity
-{
-    private enum TrashMode
-    {
-        TopSecurity,
-        BottomSecurity,
-        SelectedCard,
-    }
-
-    public IDestroySecurity(EngineContext context, HeadlessPlayerId playerId, int destroySecurityCount, ICardEffect? cardEffect, bool fromTop)
-    {
-        _context = context;
-        _playerId = playerId;
-        _destroySecurityCount = destroySecurityCount;
-        _cardEffect = cardEffect;
-        // (C1c RD-C1b-CARDARG) AS-IS `new IDestroySecurity(player, count, cardEffect, fromTop)` — live cardEffect
-        // carried for the OnDiscardSecurity / delegated OnLoseSecurity windows; substrate cause id derived from it.
-        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
-        _trashMode = fromTop ? TrashMode.TopSecurity : TrashMode.BottomSecurity;
-    }
-
-    public IDestroySecurity(EngineContext context, HeadlessPlayerId playerId, CardSource card, ICardEffect? cardEffect)
-    {
-        _context = context;
-        _playerId = playerId;
-        _destroySecurityCount = 1;
-        _cardEffect = cardEffect;
-        // (C1c RD-C1b-CARDARG) AS-IS `new IDestroySecurity(player, card, cardEffect)`.
-        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
-        _trashMode = TrashMode.SelectedCard;
-        _selectedCard = card;
-    }
-
-    readonly EngineContext _context;
-    readonly HeadlessPlayerId _playerId;
-    readonly int _destroySecurityCount;
-    readonly ICardEffect? _cardEffect;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-    readonly TrashMode _trashMode;
-    readonly CardSource? _selectedCard;
-    public List<CardSource> DestroyedSecurity { get; } = new();
-
-    public bool IsDestroyed(CardSource cardSource) =>
-        DestroyedSecurity.Any(destroyed => destroyed.InstanceId == cardSource.InstanceId);
-
-    public async Task DestroySecurity(CancellationToken cancellationToken = default)
-    {
-        var zones = (IZoneStateReader)_context.ZoneMover;
-
-        bool StopDestroySecurity()
-        {
-            if (zones.GetCards(_playerId, ChoiceZone.Security).Count == 0)
-            {
-                return true;
-            }
-
-            if (!SecurityRuleGateSeam.CanReduceSecurity(_context, _playerId))
-            {
-                return true;
-            }
-
-            return false;
-        }
-
-        if (zones.GetCards(_playerId, ChoiceZone.Security).Count >= 1 && _destroySecurityCount >= 1)
-        {
-            int count = 0;
-            List<CardSource> discardedCards = new List<CardSource>();
-            long securityLossBatchId = _context.NextSecurityLossBatchId();
-
-            while (true)
-            {
-                if (StopDestroySecurity())
-                {
-                    break;
-                }
-
-                if (count >= _destroySecurityCount)
-                {
-                    break;
-                }
-
-                IReadOnlyList<HeadlessEntityId> security = zones.GetCards(_playerId, ChoiceZone.Security);
-                if (security.Count >= 1)
-                {
-                    count++;
-
-                    CardSource? destroyedSecurityCard = _trashMode switch
-                    {
-                        TrashMode.TopSecurity => new CardSource(_context, security[0], _playerId, _playerId),
-                        TrashMode.BottomSecurity => new CardSource(_context, security[security.Count - 1], _playerId, _playerId),
-                        TrashMode.SelectedCard => _selectedCard is { } selected && security.Contains(selected.InstanceId) ? selected : null,
-                        _ => null,
-                    };
-
-                    if (destroyedSecurityCard is not { } card)
-                    {
-                        break;
-                    }
-
-                    discardedCards.Add(card);
-
-                    // AS-IS :4336-4346 ShowBlueMatarial/Break/Enter/DestroySecurityEffect + waits = UI (stripped).
-
-                    // (sink re-migration / RDW) The security-loss batch id + cause stamp is RETIRED — both keys had
-                    // no live reader (the OnLoseSecurity / OnDiscardSecurity activated-bridge collapse consumer was
-                    // never built). AS-IS :4350 is a bare CardObjectController.AddTrashCard, so no metadata is carried.
-                    // AS-IS :4350 CardObjectController.AddTrashCard(destroyedSecurityCard).
-                    await _context.ZoneMover.MoveAsync(
-                        new ZoneMoveRequest(_playerId, card.InstanceId, ChoiceZone.Security, ChoiceZone.Trash, Metadata: null),
-                        cancellationToken).ConfigureAwait(false);
-
-                    DestroyedSecurity.Add(card);
-                }
-            }
-
-            // AS-IS :4356 ShowCardEffect = UI (stripped).
-
-            if (discardedCards.Count >= 1)
-            {
-                // AS-IS :4360-4363 `new IReduceSecurity(player, ref nullSkillInfos, cardEffect)` — the
-                // null-collector sentinel = emit-now mode; the OnLoseSecurity window is carried by the
-                // Security->Trash moves above (SecurityLossBatchId collapse).
-                await new IReduceSecurity(_context, _playerId, refCollector: null, _cardEffect)
-                    .ReduceSecurity(cancellationToken).ConfigureAwait(false);
-
-                // (C1c) AS-IS CardController.cs:4368-4377 — drained from C2 flip. StackSkillInfos({"DiscardedCards",
-                // discardedCards}, {"CardEffect", cardEffect}, OnDiscardSecurity). Live _cardEffect re-threaded
-                // (RD-C1b-CARDARG); the zone-derived OnDiscardSecurity above stays (main instance undrained -> inert).
-                await GManager.instance.autoProcessing.StackSkillInfos(
-                    new System.Collections.Hashtable
-                    {
-                        { "DiscardedCards", discardedCards },
-                        { "CardEffect", _cardEffect },
-                    },
-                    EffectTiming.OnDiscardSecurity).ConfigureAwait(false);
-            }
-
-            // AS-IS :4382-4416 add log = UI (stripped).
-        }
-    }
-}
-
-#endregion
-
-#region De-digivolve
-
-/// <summary>
-/// (MIG3-3b) 1:1 mirror of AS-IS <c>IDegeneration</c> (CardController.cs:4779-4943): De-Digivolve a Digimon —
-/// each step trashes the current top card and promotes the immediate under-source to the new top, stopping at
-/// the digivolution-stack floor, the AS-IS rookie/level-3 floor (:4852-4861, <c>Level == 3 &amp;&amp;
-/// TopCard.HasLevel</c>), or the requested count. Guards (:4803-4809): mandatory causing effect, host alive,
-/// de-digivolve immunity, stack-trash immunity, CanNotBeAffected. Opens ONE "[When Top Card is Trashed]"
-/// (WhenTopCardTrashed) window for the whole batch (:4902-4917) — NOT zone-derived, manual emit, fired
-/// UNCONDITIONALLY once the count gate was reached (AS-IS :4914-4915 sit OUTSIDE any selectedCards.Count
-/// guard — a zero-card batch still opens the window with an empty list; only the stripped add-log is gated).
-///
-/// Substrate notes: physical per-card mutation (RemoveFromAllArea + AddTrashCard-if-!IsToken, :4887-4895) =
-/// <see cref="Permanent.ArmorPurgeTopAsync"/> — deliberately NOT a re-entrant de-digivolve walk, whose embedded
-/// immunity/floor re-checks and per-step emit would diverge from / double-fire against this class's own
-/// AS-IS-faithful outer guards and single batch emit. CreateDebuffEffect / ShowPermanentData / add-log = UI
-/// (stripped). AS-IS SetChangedLocationTime() (:4897) = design item MIG3-LOCATIONTIME (no headless analog).
-/// </summary>
-public class IDegeneration
-{
-    public IDegeneration(Permanent permanent, int degenerationCount, HeadlessEntityId? causeEffectSourceId, bool? degenerationCountRuling = null, ICardEffect? cardEffect = null)
-    {
-        _permanent = permanent;
-        _degenerationCount = degenerationCount;
-        _causeEffectSourceId = causeEffectSourceId;
-        _degenerationCountRuling = degenerationCountRuling;
-        _cardEffect = cardEffect;
-    }
-
-    Permanent _permanent = null!;
-    int _degenerationCount;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-    readonly bool? _degenerationCountRuling;
-    // (C1b RD-C1-CARDEFFECT-IDTHREAD / R3-W3c-2) AS-IS `ICardEffect _cardEffect` re-threaded alongside the cause id
-    // so the S2 immunity check reads the AS-IS-literal live scan (TopCard.CanNotBeAffected). null on rule paths.
-    readonly ICardEffect? _cardEffect;
-
-    public async Task Degeneration(CancellationToken cancellationToken = default)
-    {
-        // AS-IS :4803-4804 `_cardEffect == null` / `EffectSourceCard == null` — mandatory causing effect.
-        if (_causeEffectSourceId is not { IsEmpty: false }) return;
-        if (_permanent == null) return; // AS-IS :4805
-        if (_permanent.TopCard == null) return; // AS-IS :4806 — structurally dead, kept for 1:1 shape.
-
-        EngineContext context = _permanent.TopCard.Context;
-
-        if (ImmuneFromDeDigivolve(context, _permanent.InstanceId)) return; // AS-IS :4807
-
-        // AS-IS :4808 ImmuneFromStackTrashing(_cardEffect). (R3-W3c B6) rehomed to the AS-IS-literal live getter
-        // (threaded _cardEffect) from the ImmuneStackTrashingKey registry scan.
-        if (_permanent.ImmuneFromStackTrashing(_cardEffect!)) return;
-
-        // AS-IS :4809 TopCard.CanNotBeAffected(_cardEffect). (R3-W3c-2) rehomed to the AS-IS-literal live scan
-        // (threaded _cardEffect).
-        if (_permanent.TopCard.CanNotBeAffected(_cardEffect)) return;
-
-        int maxCount = Math.Min(_permanent.DigivolutionCards.Count, _degenerationCount);
-
-        // AS-IS :4813-4835 SelectCountEffect (owner picks 0..maxCount) when no explicit ruling was passed.
-        if (_degenerationCountRuling is null)
-        {
-            // design item MIG3-DEGEN-COUNTSELECT (LOUD STUB): headless has no SelectCountEffect mirror / choice
-            // park point wired here. AS-IS opens an interactive count choice; the AS-IS fallback when that
-            // component is ABSENT (:4813 null-check) keeps the CONSTRUCTOR-requested count — mirrored here
-            // (review P2-4: not maxCount; the loop's stack/floor stops bound it identically anyway). A real
-            // park point (goal-2 link-trim shape) lands with the design item.
-            _ = maxCount;
-        }
-
-        if (_degenerationCount < 1) return; // AS-IS :4837 `if (_degenerationCount >= 1)` complement.
-
-        int count = 0;
-        List<CardSource> selectedCards = new();
-        // (MIG3 review P1-1) the AS-IS `_permanent` is a LIVE object whose TopCard is the promoted under-source
-        // after each step; the headless Permanent view is pinned to its construction id — walk the CURRENT top
-        // id across steps (ArmorPurgeTopAsync promotes sourceIds[0]) so multi-step de-digivolves read the live
-        // stack, exactly like the AS-IS live object.
-        HeadlessEntityId currentTopId = _permanent.InstanceId;
-
-        while (true)
-        {
-            var current = new Permanent(context, currentTopId, _permanent.OwnerId);
-
-            // AS-IS :4845-4869 StopCondition.
-            if (current.HasNoDigivolutionCards) break;
-            if (current.Level == 3 && current.TopCard.HasLevel) break;
-            if (count >= _degenerationCount) break;
-
-            // AS-IS :4878 CreateDebuffEffect (first iteration only) = UI (stripped).
-
-            CardSource cardSource = current.TopCard;
-            selectedCards.Add(cardSource);
-
-            HeadlessEntityId? promotedId = NextPromotedSourceId(context, currentTopId);
-
-            // AS-IS :4885 per-card AceOverflow, BEFORE the physical removal.
-            await new AceOverflowClass(new List<CardSource> { cardSource }).Overflow(cancellationToken).ConfigureAwait(false);
-
-            // AS-IS :4887-4895 RemoveFromAllArea + AddTrashCard(if !IsToken) — top-trash + promote-under-source,
-            // one substrate call (no embedded guards/emits).
-            bool promoted = await Permanent.ArmorPurgeTopAsync(
-                context.CardInstanceRepository, context.ZoneMover, cardSource.InstanceId,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (!promoted || promotedId is not { } nextTopId) break;
-            currentTopId = nextTopId;
-
-            // AS-IS :4897 SetChangedLocationTime() — design item MIG3-LOCATIONTIME.
-
-            count++;
-        }
-
-        #region "When Top Card is Trashed" effect
-
-        // AS-IS :4906-4915 {Permanent, CardSources} -> StackSkillInfos(WhenTopCardTrashed) — manual (not
-        // zone-derived), UNCONDITIONAL (matches AS-IS scope, see class doc). (MIG3 review P2-3) subject = the
-        // SURVIVING top (the AS-IS live Permanent identity at emit time = the promoted card), matching
-        // ArmorPurgeTopAsync's own subject convention.
-        // (C1) AS-IS CardController.cs:4906-4915 StackSkillInfos({"Permanent", _permanent}, {"CardSources",
-        // selectedCards}, WhenTopCardTrashed) — the SOLE opener (the vestigial queue emit was retired). No CardEffect.
-        await GManager.instance.autoProcessing.StackSkillInfos(
-            new System.Collections.Hashtable { { "Permanent", _permanent }, { "CardSources", selectedCards } },
-            EffectTiming.WhenTopCardTrashed).ConfigureAwait(false);
-
-        #endregion
-
-        // AS-IS :4919-4940 add log (gated on selectedCards.Count >= 1) = UI (stripped).
-    }
-
-    // AS-IS Permanent.ImmuneFromDeDigivolve(): the STATIC per-card stamp OR the CONTINUOUS registry scan.
-    // Checked ONCE, before the loop (AS-IS position). Duplicated in IMassDegeneration per the
-    // self-contained-privates style precedent.
-    private static bool ImmuneFromDeDigivolve(EngineContext context, HeadlessEntityId permanentId)
-    {
-        bool staticImmune = context.CardInstanceRepository.TryGetInstance(permanentId, out CardInstanceRecord? record) && record is not null
-            && record.Metadata.TryGetValue(Permanent.CannotBeDeDigivolvedKey, out object? raw) && raw is true;
-        return staticImmune || new Permanent(context, permanentId).ImmuneFromDeDigivolve();
-    }
-
-    /// <summary>(MIG3 review P1-1) The id ArmorPurgeTopAsync will promote — the CURRENT top's sourceIds[0]
-    /// (immediate under-source), read BEFORE the purge. Shared by the three top-trash walkers.</summary>
-    internal static HeadlessEntityId? NextPromotedSourceId(EngineContext context, HeadlessEntityId topId)
-    {
-        // (DeletionReplacementGate retirement) Read through the AS-IS accessor `permanent.DigivolutionCards`
-        // instead of the substrate metadata reader. That accessor reports the AS-IS TOP→BOTTOM order, so the
-        // IMMEDIATE under-source — AS-IS's promotion target, the raw `sourceIds[0]` newest-under-card — is the
-        // FIRST entry.
-        IReadOnlyList<CardSource> sources = new Permanent(context, topId).DigivolutionCards;
-        return sources.Count > 0 ? sources[0].InstanceId : null;
-    }
-}
-
-/// <summary>
-/// (MIG3-3b) 1:1 mirror of AS-IS <c>IMassDegeneration</c> (CardController.cs:4945-5121): De-Digivolve MULTIPLE
-/// Digimon simultaneously so blanket immunity is evaluated over the whole target SET atomically (:4948-4949).
-/// The joint <c>ValidTarget</c> filter runs ONCE over the WHOLE list BEFORE any mutation (:4973-4982); each
-/// survivor then runs its own top-trash loop and opens its OWN per-permanent WhenTopCardTrashed window
-/// (:5091-5092 — INSIDE the foreach; unconditional per permanent, same AS-IS quirk as IDegeneration).
-/// AS-IS :4984-5008 the per-target count-select choice is COMMENTED OUT in the original — preserved as dead
-/// code below, not re-invented.
-/// </summary>
-public class IMassDegeneration
-{
-    public IMassDegeneration(List<Permanent> permanents, int degenerationCount, HeadlessEntityId? causeEffectSourceId, bool? degenerationCountRuling = null, ICardEffect? cardEffect = null)
-    {
-        _permanents = permanents;
-        _degenerationCount = degenerationCount;
-        _causeEffectSourceId = causeEffectSourceId;
-        _degenerationCountRuling = degenerationCountRuling; // ctor parity; unread (dead count-select region).
-        _cardEffect = cardEffect;
-    }
-
-    readonly List<Permanent> _permanents;
-    readonly int _degenerationCount;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-    // (C1b RD-C1-CARDEFFECT-IDTHREAD / R3-W3c-2) AS-IS live `_cardEffect` threaded for the S2 immunity live scan
-    // (TopCard.CanNotBeAffected). No mirror caller yet — AS-IS-shaped for when a de-digivolve card lands.
-    readonly ICardEffect? _cardEffect;
-#pragma warning disable CS0414 // AS-IS dead field (count-select region commented out) — kept for ctor/field parity.
-    readonly bool? _degenerationCountRuling;
-#pragma warning restore CS0414
-
-    public async Task Degeneration(CancellationToken cancellationToken = default)
-    {
-        if (_causeEffectSourceId is not { IsEmpty: false }) return; // AS-IS :4970-4971
-
-        // (substrate-necessitated) headless needs an EngineContext from a list member; behaviorally equivalent
-        // to AS-IS's natural no-op on an empty/all-null list.
-        Permanent? contextSource = _permanents.FirstOrDefault(p => p != null);
-        if (contextSource is null) return;
-        EngineContext context = contextSource.TopCard.Context;
-
-        // AS-IS :4973-4982 ValidTarget — the JOINT filter, whole set BEFORE any mutation.
-        bool ValidTarget(Permanent permanent) =>
-            permanent != null
-            && permanent.TopCard != null // structurally dead, kept for 1:1 shape.
-            && !ImmuneFromDeDigivolve(context, permanent.InstanceId)
-            // (R3-W3c B6) rehomed to the AS-IS-literal live getter Permanent.ImmuneFromStackTrashing(_cardEffect).
-            && !permanent.ImmuneFromStackTrashing(_cardEffect!)
-            // (R3-W3c-2) rehomed to the AS-IS-literal live scan (threaded _cardEffect).
-            && !permanent.TopCard.CanNotBeAffected(_cardEffect);
-
-        List<Permanent> permanentsFixed = _permanents.Where(ValidTarget).ToList();
-
-        // AS-IS :4984-5008 (dead code, preserved verbatim in shape — count-select UI disabled in the original):
-        //     SelectCountEffect selectCountEffect = GManager.instance.GetComponent<SelectCountEffect>();
-        //     if (selectCountEffect != null && _degenerationCountRuling == null && _degenerationCount > 1)
-        //     {
-        //         ... SetUp(SelectPlayer, targetPermanent, MaxCount, CanNoSelect:false,
-        //             "How many cards do you trash?", SelectCountCoroutine) ... Activate() ...
-        //     }
-
-        if (_degenerationCount < 1) return; // AS-IS :5010 complement.
-
-        foreach (Permanent permanent in permanentsFixed)
-        {
-            int count = 0;
-            int maxCount = Math.Min(_degenerationCount, permanent.DigivolutionCards.Count);
-            List<CardSource> selectedCards = new();
-            // (MIG3 review P1-1) walk the live top id across steps — see IDegeneration.
-            HeadlessEntityId currentTopId = permanent.InstanceId;
-
-            while (true)
-            {
-                var current = new Permanent(context, currentTopId, permanent.OwnerId);
-
-                if (current.HasNoDigivolutionCards) break;
-                if (current.Level == 3 && current.TopCard.HasLevel) break;
-                if (count >= maxCount) break;
-
-                CardSource cardSource = current.TopCard;
-                selectedCards.Add(cardSource);
-
-                HeadlessEntityId? promotedId = IDegeneration.NextPromotedSourceId(context, currentTopId);
-
-                await new AceOverflowClass(new List<CardSource> { cardSource }).Overflow(cancellationToken).ConfigureAwait(false);
-
-                bool promoted = await Permanent.ArmorPurgeTopAsync(
-                    context.CardInstanceRepository, context.ZoneMover, cardSource.InstanceId,
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
-                if (!promoted || promotedId is not { } nextTopId) break;
-                currentTopId = nextTopId;
-
-                // AS-IS :5074 SetChangedLocationTime() — design item MIG3-LOCATIONTIME.
-
-                count++;
-            }
-
-            #region "When Top Card is Trashed" effect (per permanent)
-
-            // (MIG3 review P2-3) subject = the surviving top after the walk.
-            // (C1) AS-IS CardController.cs:5083-5092 StackSkillInfos({"Permanent", permanent}, {"CardSources",
-            // selectedCards}, WhenTopCardTrashed) — the SOLE opener (the vestigial queue emit was retired). No CardEffect.
-            await GManager.instance.autoProcessing.StackSkillInfos(
-                new System.Collections.Hashtable { { "Permanent", permanent }, { "CardSources", selectedCards } },
-                EffectTiming.WhenTopCardTrashed).ConfigureAwait(false);
-
-            #endregion
-
-            // AS-IS :5096-5117 add log = UI (stripped).
-        }
-    }
-
-    private static bool ImmuneFromDeDigivolve(EngineContext context, HeadlessEntityId permanentId)
-    {
-        bool staticImmune = context.CardInstanceRepository.TryGetInstance(permanentId, out CardInstanceRecord? record) && record is not null
-            && record.Metadata.TryGetValue(Permanent.CannotBeDeDigivolvedKey, out object? raw) && raw is true;
-        return staticImmune || new Permanent(context, permanentId).ImmuneFromDeDigivolve();
-    }
-}
-
-#endregion
-
-#region Trash digivolution cards
-
-/// <summary>
-/// (MIG3-3b) 1:1 mirror of AS-IS <c>ITrashDigivolutionCards</c> (CardController.cs:5127-5236): trash SPECIFIC
-/// digivolution sources of a permanent (arbitrary stack positions; no top-promotion needed). Guards
-/// (:5150-5156): non-null target list, mandatory causing effect, host alive, stack-trash immunity,
-/// CanNotBeAffected, non-empty stack. Candidates filter to (actual stack members) AND (not
-/// CanNotTrashFromDigivolutionCards-protected) (:5158-5160).
-///
-/// AS-IS :5171-5192 the "[When digivolution cards would be trashed]" (WhenWouldDigivolutionCardDiscarded)
-/// cut-in is LIVE in the original (unlike ITrashLinkCards' dead precedent) — headless has no such timing /
-/// producer / drive point yet: design item MIG3-CUTIN-WOULDDISCARD. The willBeRemoveSources mark/refilter
-/// round-trip (:5164, :5194-5200) is wired for when it lands — today a no-op re-filter.
-///
-/// Substrate notes: window + AceOverflow + physical removal (:5202-5234) are owned by
-/// <see cref="Permanent.TrashSpecificSourcesAsync"/> (built for this exact AS-IS shape: fires
-/// OnDigivolutionCardDiscarded — NOT zone-derived — applies overflow, then trashes each source).
-/// </summary>
-public class ITrashDigivolutionCards
-{
-    public ITrashDigivolutionCards(Permanent permanent, List<CardSource> trashTargetCards, HeadlessEntityId? causeEffectSourceId, ICardEffect? cardEffect = null)
-    {
-        _permanent = permanent;
-        _trashTargetCards = trashTargetCards is null ? null : new List<CardSource>(trashTargetCards);
-        _causeEffectSourceId = causeEffectSourceId;
-        _cardEffect = cardEffect;
-    }
-
-    public bool IsTrashed(CardSource cardSource) => TrashedCards.Any(trashed => trashed.InstanceId == cardSource.InstanceId);
-
-    Permanent _permanent = null!;
-    List<CardSource>? _trashTargetCards;
-    public List<CardSource> TrashedCards { get; } = new();
-    readonly HeadlessEntityId? _causeEffectSourceId;
-    // (C1b RD-C1-CARDEFFECT-IDTHREAD) AS-IS `ICardEffect cardEffect` re-threaded alongside the cause id. AS-IS
-    // REQUIRES a live cause here (:5151 early-exit on null) — the id gate below already enforces that.
-    readonly ICardEffect? _cardEffect;
-
-    public async Task TrashDigivolutionCards(CancellationToken cancellationToken = default)
-    {
-        if (_trashTargetCards == null) return; // AS-IS :5150
-        if (_causeEffectSourceId is not { IsEmpty: false } causeId) return; // AS-IS :5151
-        if (_permanent == null) return; // AS-IS :5152
-        if (_permanent.TopCard == null) return; // AS-IS :5153 — structurally dead, kept for 1:1 shape.
-
-        EngineContext context = _permanent.TopCard.Context;
-
-        // AS-IS :5154 ImmuneFromStackTrashing(_cardEffect). (R3-W3c B6) rehomed to the AS-IS-literal live getter.
-        if (_permanent.ImmuneFromStackTrashing(_cardEffect!)) return;
-
-        // AS-IS :5155 TopCard.CanNotBeAffected(_cardEffect). (R3-W3c-2) rehomed from the registry gate to the
-        // AS-IS-literal live ICanNotAffectedEffect scan — the live cause effect is threaded (_cardEffect).
-        if (_permanent.TopCard.CanNotBeAffected(_cardEffect)) return;
-
-        if (_permanent.HasNoDigivolutionCards) return; // AS-IS :5156
-
-        // AS-IS :5158-5160 membership + CanNotTrashFromDigivolutionCards protection filter.
-        List<CardSource> hostSources = _permanent.DigivolutionCards.ToList();
-        _trashTargetCards = _trashTargetCards
-            .Where(cs => hostSources.Any(s => s.InstanceId == cs.InstanceId) && !CanNotTrashFromDigivolutionCards(context, _cardEffect, causeId, cs.InstanceId))
-            .ToList();
-
-        if (_trashTargetCards.Count == 0) return; // AS-IS :5162
-
-        // AS-IS :5164 mark willBeRemoveSources.
-        foreach (CardSource source in _trashTargetCards)
-        {
-            SetWillBeRemoveSources(context, source.InstanceId, true);
-        }
-
-        // AS-IS :5167-5169 ShowCardEffect / CreateDebuffEffect = UI (stripped).
-
-        #region cut in effect - Would discard
-        // AS-IS :5171-5192 (design item MIG3-CUTIN-WOULDDISCARD, now RESOLVED = RD-SW-E-01): the LIVE
-        // "[When digivolution cards would be trashed]" PRE cut-in. Rides the shared ForCutIn synchronous
-        // stack+drain primitive (same seat as DestroyPermanentsClass's WhenPermanentWouldBeDeleted /
-        // ILinkCard's WhenWouldLink / IPlacePermanentTo*'s WhenRemoveField pre-mutation windows). Opened
-        // BEFORE the digivolution-source trash is fixed (:5194 trashDigivolutionCardsFixed): a reactor
-        // (BT10_084 [Opponent's Turn]) can observe the pre-trash DiscardedCards list and clear
-        // willBeRemoveSources on a source to spare it, so the survivor read below drops it from the fix.
-        // AS-IS :5183 gates the drain on HasAwaitingActivateEffects(); :5189 drains with
-        // HasExecutedSameEffect as the skip predicate. UI (ShowCardEffect/ShrinkSecurityDigimonDisplay)
-        // stripped. StackSkillInfos is a live re-enumeration (GetSkillInfos over the WhenWouldDigivolution-
-        // CardDiscarded EffectList) — a structural no-op when no reactor of this timing is on field.
-        AutoProcessing cutIn = AutoProcessing.ForCutIn(context);
-        await cutIn.StackSkillInfos(
-            CardEffectCommons.CardEffectCommons.WhenDigivolutionCardWouldDiscardedCheckHashtable(
-                _permanent, _trashTargetCards, _cardEffect),
-            EffectTiming.WhenWouldDigivolutionCardDiscarded).ConfigureAwait(false);
-
-        if (cutIn.HasAwaitingActivateEffects())
-        {
-            await cutIn.TriggeredSkillProcess(false, AutoProcessing.HasExecutedSameEffect).ConfigureAwait(false);
-        }
-        #endregion
-
-        // AS-IS :5194-5200 fix the target permanent + surviving willBeRemoveSources list.
-        Permanent permanentTargetFixed = _permanent;
-        List<CardSource> trashDigivolutionCardsFixed = _trashTargetCards
-            .Where(cs => cs != null && ReadWillBeRemoveSources(context, cs.InstanceId))
-            .ToList();
-
-        // (C1b) AS-IS CardController.cs:5206-5215 — drained from C2 flip. StackSkillInfos({"CardEffect", cardEffect},
-        // {"Permanent", permanentTargetFixed}, {"DiscardedCards", trashDigivolutionCardsFixed},
-        // OnDigivolutionCardDiscarded), fired BEFORE the removal (AS-IS :5215 precedes AceOverflow :5219). Live
-        // _cardEffect re-threaded from the in-scope IDigiBurst + SelectCardEffect callers (RD-C1-CARDEFFECT-IDTHREAD).
-        // Design item RD-C1b-DIGIDISCARD-POS: the CARRIER emit for this timing lives in
-        // Permanent.TrashSpecificSourcesAsync (Headless substrate), a position divergence from the
-        // AS-IS in-class :5215 emit — position re-housing is out of C1b scope (main-instance insert here is inert).
-        await GManager.instance.autoProcessing.StackSkillInfos(
-            new System.Collections.Hashtable
-            {
-                { "CardEffect", _cardEffect },
-                { "Permanent", permanentTargetFixed },
-                { "DiscardedCards", trashDigivolutionCardsFixed },
-            },
-            EffectTiming.OnDigivolutionCardDiscarded).ConfigureAwait(false);
-
-        // (이연③-h / RD-S4-BT5_056 fix) Clear the in-flight willBeRemoveSources marker BEFORE the physical
-        // removal helper — AS-IS clears it at :5232 (AFTER the removal), but the Headless removal helper
-        // (TrashSpecificSourcesAsync) re-applies the AS-IS :5158-5160 defensive protection re-filter, and that
-        // filter reads the SAME willBeRemoveSources instance flag as trash-protection (the R1-e getter
-        // CardSource.CanNotTrashFromDigivolutionCards checks it). Leaving the marker set here made the class
-        // self-block: it protected the very sources it had just marked for removal, so
-        // IDigiBurst.DigiBurst() / BT5_056 / ST4_13 trashed NOTHING below the card layer (the latent gap
-        // PILOT-S4.Witness documented). The marker's AS-IS role — surviving the "would discard" cut-in window
-        // and defining trashDigivolutionCardsFixed — is fully served by this point (the fixed list is built and
-        // the OnDigivolutionCardDiscarded window has fired above), so clearing it here rather than at :5232 is a
-        // pure position adjustment. Real protections (TrashProtectedKey + live ICanNotTrashFromDigivolutionCards)
-        // are independent of the marker and still filter inside the helper.
-        foreach (CardSource cardSource in trashDigivolutionCardsFixed)
-        {
-            SetWillBeRemoveSources(context, cardSource.InstanceId, false);
-        }
-
-        // AS-IS :5202-5234: OnDigivolutionCardDiscarded window + AceOverflow (over the ORIGINAL unfixed list,
-        // :5219 — see the goal-3 memory quirk note) + physical removal loop — the substrate helper owns all
-        // three for this exact shape.
-        _ = await Permanent.TrashSpecificSourcesAsync(
-            context.CardInstanceRepository, context.ZoneMover, permanentTargetFixed.InstanceId,
-            trashDigivolutionCardsFixed.Select(cs => cs.InstanceId).ToArray(),
-            cancellationToken, gameEventQueue: context.GameEventQueue,
-            context: context,
-            causingEffectSourceId: causeId).ConfigureAwait(false);
-
-        foreach (CardSource cardSource in trashDigivolutionCardsFixed)
-        {
-            // AS-IS :5233 TrashedCards.Add (the willBeRemoveSources clear moved above the removal helper).
-            TrashedCards.Add(cardSource);
-        }
-    }
-
-    // (R3-W3c-4) AS-IS CardController.cs:5158-5160 `cs.CanNotTrashFromDigivolutionCards(_cardEffect)` — the R1-e
-    // live scan (per-source willBeRemoveSources stamp OR a usable field/player/self ICanNotTrashFromDigivolutionCards
-    // effect, BT9_109). The live causing effect is threaded when available (AS-IS passes `_cardEffect` verbatim);
-    // an id-only dormant caller collapses it to its source card. Replaces the dead-registry TrashProtectionScan.
-    private static bool CanNotTrashFromDigivolutionCards(EngineContext context, ICardEffect? cardEffect, HeadlessEntityId causeEffectSourceId, HeadlessEntityId sourceId)
-    {
-        if (!context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? record) || record is null)
-        {
-            return false;
-        }
-
-        if (record.Metadata.TryGetValue(CardEffectCommons.CardEffectCommons.TrashProtectedKey, out object? raw) && raw is true)
-        {
-            return true;
-        }
-
-        var sourceBeingTrashed = new CardSource(context, sourceId, record.OwnerId, record.OwnerId);
-        ICardEffect cause = cardEffect ?? BareCauseEffect.For(context, causeEffectSourceId);
-        return sourceBeingTrashed.CanNotTrashFromDigivolutionCards(cause);
-    }
-
-    // (MIG2 precedent) willBeRemoveSources round-trip — key shared with ITrashLinkCards, helpers duplicated
-    // per the self-contained-privates style.
-    private static void SetWillBeRemoveSources(EngineContext context, HeadlessEntityId cardId, bool value)
-    {
-        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null) return;
-
-        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
-        if (value)
-        {
-            metadata[ITrashLinkCards.WillBeRemoveSourcesKey] = true;
-        }
-        else
-        {
-            metadata.Remove(ITrashLinkCards.WillBeRemoveSourcesKey);
-        }
-
-        context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
-    }
-
-    private static bool ReadWillBeRemoveSources(EngineContext context, HeadlessEntityId cardId) =>
-        context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null
-            && record.Metadata.TryGetValue(ITrashLinkCards.WillBeRemoveSourcesKey, out object? raw) && raw is true;
-}
-
-#endregion
-
-#region Trash link cards
-
-/// <summary>
-/// (MIG2) 1:1 mirror of AS-IS <c>ITrashLinkCards</c> (CardController.cs:5242-5346): the single carrier for
-/// trashing a permanent's LINK cards — guards (host alive, CanNotBeAffected, membership), the
-/// willBeRemoveSources mark/refilter round-trip, the BATCH "[When link cards are trashed]"
-/// (OnLinkCardDiscarded) window, ACE overflow for the leaving links, then the silent per-card
-/// <c>Permanent.RemoveLinkedCard</c> removals. A bare RemoveLinkedCard never opens the window — every
-/// trash path that should fire it converges here (AS-IS rule 6, SelectCardEffect Mode.Discard).
-///
-/// Substrate notes: the AS-IS cause is an <c>ICardEffect</c>; headless identifies the causing effect by its
-/// SOURCE ENTITY (goal-1 SwitchDefender precedent) — null on the rule-process paths, exactly like the AS-IS
-/// null cardEffect. ShowCardEffect / CreateDebuffEffect / RemoveDigivolveRootEffect are UI (stripped). The
-/// AS-IS would-discard cut-in region (:5283-5304) is DEAD in the original (its StackSkillInfos is commented
-/// out; the cut-in drain runs against an empty stack) — preserved as documentation, not re-invented.
-/// </summary>
-public class ITrashLinkCards
-{
-    /// <summary>(MIG2) AS-IS <c>CardSource.willBeRemoveSources</c> as an instance-metadata flag: marked on the
-    /// trash targets before the (dead) would-discard cut-in, re-filtered after, cleared per removal.</summary>
-    public const string WillBeRemoveSourcesKey = "willBeRemoveSources";
-
-    public ITrashLinkCards(Permanent permanent, List<CardSource> trashTargetCards, HeadlessEntityId? causeEffectSourceId, ICardEffect? cardEffect = null)
-    {
-        _permanent = permanent;
-
-        _trashTargetCards = trashTargetCards is null ? null : new List<CardSource>(trashTargetCards);
-
-        _causeEffectSourceId = causeEffectSourceId;
-        _cardEffect = cardEffect;
-    }
-
-    public bool IsTrashed(CardSource cardSource)
-    {
-        return TrashedLinkCards.Any(trashed => trashed.InstanceId == cardSource.InstanceId);
-    }
-
-    Permanent _permanent = null!;
-    List<CardSource>? _trashTargetCards = new();
-    public List<CardSource> TrashedLinkCards = new();
-    readonly HeadlessEntityId? _causeEffectSourceId;
-    // (C1b RD-C1-CARDEFFECT-IDTHREAD) AS-IS `ICardEffect cardEffect` re-threaded alongside the cause id — null on
-    // the rule-process paths (AutoProcessing DigimonLackLinkCondition), exactly like the AS-IS null cardEffect.
-    readonly ICardEffect? _cardEffect;
-
-    public async Task TrashLinkCards(CancellationToken cancellationToken = default)
-    {
-        if (_trashTargetCards == null) return;
-        if (_permanent == null) return;
-        if (_permanent.TopCard == null) return;
-        // AS-IS :5268 `_cardEffect != null && TopCard.CanNotBeAffected(_cardEffect)` — the S2 immunity gate,
-        // keyed on the causing effect's source (null cause = rules trash, never blocked).
-        if (_causeEffectSourceId is { } causeId && !causeId.IsEmpty)
-        {
-            // (R3-W3c-2) rehomed from the registry gate to the AS-IS-literal live scan (the live cause effect is
-            // threaded, _cardEffect); AS-IS :5268 `TopCard.CanNotBeAffected(_cardEffect)`.
-            if (_permanent.TopCard.CanNotBeAffected(_cardEffect))
-            {
-                return;
-            }
-        }
-
-        if (_permanent.HasNoLinkCards) return;
-
-        EngineContext context = _permanent.TopCard.Context;
-
-        // AS-IS :5271 membership filter — only cards still linked to the host.
-        List<CardSource> hostLinks = _permanent.LinkedCards;
-        _trashTargetCards = _trashTargetCards
-            .Where(cardSource => hostLinks.Any(linked => linked.InstanceId == cardSource.InstanceId))
-            .ToList();
-
-        if (_trashTargetCards.Count == 0) return;
-
-        // AS-IS :5276 mark willBeRemoveSources.
-        foreach (CardSource source in _trashTargetCards)
-        {
-            SetWillBeRemoveSources(context, source.InstanceId, true);
-        }
-
-        // AS-IS :5278-5281 ShowCardEffect / CreateDebuffEffect = UI (stripped).
-
-        #region cut in effect - Would discard
-        // AS-IS :5283-5304: the "[When link cards would be trashed]" cut-in StackSkillInfos is COMMENTED OUT
-        // in the original (WhenLinkCardWouldDiscard was never created); the HasAwaitingActivateEffects() +
-        // TriggeredSkillProcess drain that follows runs against an empty cut-in stack. Dead in AS-IS —
-        // documented here, not re-invented.
-        #endregion
-
-        // AS-IS :5307-5312 fix the trash target permanent and the surviving willBeRemoveSources list.
-        Permanent permanentTarget_Fixed = _permanent;
-
-        List<CardSource> trashLinkCards_Fixed = _trashTargetCards
-            .Where(cardsource => cardsource != null && ReadWillBeRemoveSources(context, cardsource.InstanceId))
-            .ToList();
-
-        #region "When link cards are trashed" effect
-        // AS-IS :5314-5328: ONE batch window per TrashLinkCards call — hashtable {CardEffect, Permanent,
-        // DiscardedCards} -> StackSkillInfos(OnLinkCardDiscarded). Substrate: one event, subject = host,
-        // payload = the fixed discarded-card ids (+ the causing effect source when present).
-        // (C1b) AS-IS CardController.cs:5314-5327 StackSkillInfos({"CardEffect", cardEffect}, {"Permanent",
-        // permanentTarget_Fixed}, {"DiscardedCards", trashLinkCards_Fixed}, OnLinkCardDiscarded) — the SOLE opener
-        // (the vestigial queue emit was retired). Live _cardEffect re-threaded from the in-scope SelectCardEffect
-        // caller (RD-C1-CARDEFFECT-IDTHREAD). The MetadataActionProcessor caller passes id-only (off-limits this batch).
-        await GManager.instance.autoProcessing.StackSkillInfos(
-            new System.Collections.Hashtable
-            {
-                { "CardEffect", _cardEffect },
-                { "Permanent", permanentTarget_Fixed },
-                { "DiscardedCards", trashLinkCards_Fixed },
-            },
-            EffectTiming.OnLinkCardDiscarded).ConfigureAwait(false);
-        #endregion
-
-        // AS-IS :5332 `new AceOverflowClass(_trashTargetCards).Overflow()` — (MIG3-3a) now the mirror class
-        // itself (its IsExistOnBattleArea filter resolves a link card through PermanentOfThisCard, so an
-        // on-field host's links pass exactly like the AS-IS permanent-membership read).
-        await new AceOverflowClass(_trashTargetCards).Overflow(cancellationToken).ConfigureAwait(false);
-
-        foreach (CardSource cardSource in trashLinkCards_Fixed)
-        {
-            // AS-IS :5336 RemoveDigivolveRootEffect = UI (stripped).
-
-            if (!cardSource.IsToken)
-            {
-                // AS-IS :5340 permanent.RemoveLinkedCard(cardSource) — the SILENT removal (no window; the
-                // batch window above is the only emit).
-                await permanentTarget_Fixed.RemoveLinkedCard(cardSource, cancellationToken: cancellationToken).ConfigureAwait(false);
-            }
-
-            SetWillBeRemoveSources(context, cardSource.InstanceId, false);
-            TrashedLinkCards.Add(cardSource);
-        }
-    }
-
-    private static void SetWillBeRemoveSources(EngineContext context, HeadlessEntityId cardId, bool value)
-    {
-        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null)
-        {
-            return;
-        }
-
-        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
-        if (value)
-        {
-            metadata[WillBeRemoveSourcesKey] = true;
-        }
-        else
-        {
-            metadata.Remove(WillBeRemoveSourcesKey);
-        }
-
-        context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
-    }
-
-    private static bool ReadWillBeRemoveSources(EngineContext context, HeadlessEntityId cardId) =>
-        context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null
-            && record.Metadata.TryGetValue(WillBeRemoveSourcesKey, out object? raw) && raw is true;
-}
-
-#endregion
-
-#region Return digivolution cards to deck bottom
-
-/// <summary>
-/// (MIG3-3b) 1:1 mirror of AS-IS <c>ReturnToLibraryBottomDigivolutionCardsClass</c> (CardController.cs:
-/// 5352-5406): returns selected digivolution sources to the bottom of the owner's deck. No top-promotion.
-/// Guards: host alive, non-null list; membership filter (:5373); optional cause's CanNotBeAffected gate
-/// (:5379 — a null cause is NEVER blocked). Opens ONE OnDigivolutionCardReturnToDeckBottom window for the
-/// whole batch (:5391-5400) BEFORE the physical moves (:5404) — NOT zone-derived, manual emit, matching the
-/// existing Permanent stack-mutation precedent for this timing. No cut-in, no AceOverflow, no
-/// willBeRemoveSources at all — the AS-IS odd-one-out shape, preserved.
-///
-/// Substrate notes: AS-IS extracts CardEffect from a ctor Hashtable at run time — the indirection is dropped
-/// for a direct ctor cause id (the immunity LOGIC is preserved exactly). Physical mutation =
-/// <see cref="Permanent.PlaySpecificSourceAsync"/> (detach + move; Library destination inserts
-/// at the BOTTOM via the zone mover's default insertion — AS-IS AddLibraryBottomCards).
-/// </summary>
-public class ReturnToLibraryBottomDigivolutionCardsClass
-{
-    public ReturnToLibraryBottomDigivolutionCardsClass(Permanent permanent, List<CardSource> cardSources, HeadlessEntityId? causeEffectSourceId, ICardEffect? cardEffect = null)
-    {
-        _permanent = permanent;
-        _cardSources = cardSources is null ? null : new List<CardSource>(cardSources);
-        _causeEffectSourceId = causeEffectSourceId;
-        _cardEffect = cardEffect;
-    }
-
-    Permanent _permanent = null!;
-    List<CardSource>? _cardSources;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-    // (C1b RD-C1-CARDEFFECT-IDTHREAD / R3-W3c-2) AS-IS live `_cardEffect` threaded for the S2 immunity live scan.
-    // No mirror caller yet — AS-IS-shaped for when a return-digivolution-cards card lands.
-    readonly ICardEffect? _cardEffect;
-
-    public async Task ReturnToLibraryBottomDigivolutionCards(CancellationToken cancellationToken = default)
-    {
-        if (_permanent == null) return; // AS-IS :5369
-        if (_permanent.TopCard == null) return; // AS-IS :5370 — structurally dead, kept for 1:1 shape.
-        if (_cardSources == null) return; // AS-IS :5371
-
-        EngineContext context = _permanent.TopCard.Context;
-
-        // AS-IS :5373 membership filter.
-        List<CardSource> hostSources = _permanent.DigivolutionCards.ToList();
-        _cardSources = _cardSources.Where(cs => hostSources.Any(s => s.InstanceId == cs.InstanceId)).ToList();
-
-        if (_cardSources.Count == 0) return; // AS-IS :5375
-
-        // AS-IS :5377-5379 GetCardEffectFromHashtable + CanNotBeAffected — null cause is never blocked.
-        // (R3-W3c-2) rehomed to the AS-IS-literal live scan (threaded _cardEffect).
-        if (_causeEffectSourceId is { IsEmpty: false }
-            && _permanent.TopCard.CanNotBeAffected(_cardEffect))
-        {
-            return;
-        }
-
-        // AS-IS :5383-5385 ShowCardEffect / CreateDebuffEffect = UI (stripped).
-
-        #region "When digivolution cards are returned to deck" effect
-
-        // AS-IS :5391-5400 — hashtable1 {Permanent, DeckBottomCards, CardEffect} → StackSkillInfos(hashtable1,
-        // OnDigivolutionCardReturnToDeckBottom), opened BEFORE the moves (:5404 order). Re-migrated off the retired
-        // TriggerEventEmitter queue emit to the AS-IS StackSkillInfos (OnDigivolutionCardReturnToDeckBottom is a
-        // BroadcastTiming — global window; cross-card reactors self-gate on the subject / DeckBottomCards).
-        await GManager.instance.autoProcessing.StackSkillInfos(
-            new System.Collections.Hashtable
-            {
-                { "Permanent", _permanent },
-                { "DeckBottomCards", _cardSources },
-                { "CardEffect", _cardEffect },
-            },
-            EffectTiming.OnDigivolutionCardReturnToDeckBottom).ConfigureAwait(false);
-
-        #endregion
-
-        // AS-IS :5404 CardObjectController.AddLibraryBottomCards(_cardSources).
-        foreach (CardSource cardSource in _cardSources)
-        {
-            await Permanent.PlaySpecificSourceAsync(
-                context.CardInstanceRepository, context.ZoneMover, _permanent.InstanceId, cardSource.InstanceId,
-                ChoiceZone.Library, cancellationToken).ConfigureAwait(false);
-        }
-    }
-}
-
-#endregion
-
-#region Reduce Security
-
-/// <summary>
-/// (MIG3-3a; B-A) 1:1 mirror of AS-IS <c>IReduceSecurity</c> (CardController.cs:5412-5456): the LOAD-BEARING "a
-/// card left security" window primitive, dual-mode on the AS-IS <c>ref List&lt;SkillInfo&gt; refSkillInfos</c>:
-/// null (the <c>ContinuousController.nullSkillInfos</c> sentinel — <see cref="IDestroySecurity"/>) = stack NOW;
-/// non-null (<c>ISecurityCheck</c> :3982) = COLLECT the OnLoseSecurity <see cref="SkillInfo"/>s into the caller's
-/// list so they batch with the caller's sibling OnSecurityCheck triggers and fire together in the single
-/// <c>PutStackedSkill</c> pass at ISecurityCheck :4111 (resolved by the one AutoProcessCheck at :4117).
-///
-/// (Batch A) The collector is now a real <see cref="SkillInfo"/> list, verbatim AS-IS — the earlier invented
-/// <c>PendingSecurityTrigger</c> record (which had a producer but no consumer) was RETIRED when ISecurityCheck
-/// landed as its true consumer; the collect branch reproduces AS-IS :5448-5451 exactly (GetSkillInfos + Add).
-/// AS-IS quirk kept 1:1: the hashtable key literally "SkillInfo" carries the ref list itself (a self-referential
-/// quirk of the AS-IS GetSkillInfos(hashtable, timing) reader). GManager.OnSecurityStackChanged = UI (stripped).
-///
-/// SEAM (deferred to Batch B, coordinator-authorized): the emit-now (null-collector) branch's manual
-/// StackSkillInfos(OnLoseSecurity) overlaps the caller's zone-derived Security-departure OnLoseSecurity
-/// (SecurityLossBatchId collapse). That single-fire reconciliation lands when ISecurityCheck goes live in
-/// AttackProcess (Batch B); this branch is inert until then.
-/// </summary>
-public class IReduceSecurity
-{
-    public IReduceSecurity(EngineContext context, HeadlessPlayerId playerId, List<SkillInfo>? refCollector, ICardEffect? cardEffect)
-    {
-        _context = context;
-        _playerId = playerId;
-        _refCollector = refCollector;
-        _cardEffect = cardEffect;
-    }
-
-    readonly EngineContext _context;
-    readonly HeadlessPlayerId _playerId;
-    readonly List<SkillInfo>? _refCollector;
-    readonly ICardEffect? _cardEffect;
-
-    public async Task ReduceSecurity(CancellationToken cancellationToken = default)
-    {
-        // AS-IS :5427 GManager.OnSecurityStackChanged?.Invoke(_player) = UI (stripped).
-
-        // AS-IS :5432-5437 Hashtable { {"Player", _player}, {"SkillInfo", _refSkillInfos}, {"CardEffect", _cardEffect} }
-        // — the "SkillInfo" key literally carries the (possibly-null) ref list itself, verbatim.
-        System.Collections.Hashtable hashtable = new System.Collections.Hashtable
-        {
-            { "Player", new Player(_context, _playerId) },
-            { "SkillInfo", _refCollector },
-            { "CardEffect", _cardEffect },
-        };
-
-        if (_refCollector is null)
-        {
-            // AS-IS :5442-5444 the null-ref (emit-now) branch: StackSkillInfos(hashtable, OnLoseSecurity).
-            // (Batch B seam) the zone-derived Security-departure carrier also fires OnLoseSecurity; single-fire
-            // reconciliation lands with the live ISecurityCheck wiring. Live _cardEffect re-threaded (RD-C1b-CARDARG).
-            await GManager.instance.autoProcessing.StackSkillInfos(
-                hashtable,
-                EffectTiming.OnLoseSecurity).ConfigureAwait(false);
-        }
-        else
-        {
-            // AS-IS :5448-5451 `foreach (SkillInfo skillInfo in AutoProcessing.GetSkillInfos(hashtable,
-            // OnLoseSecurity)) _refSkillInfos.Add(skillInfo);` — collect into the caller's list instead of firing.
-            foreach (SkillInfo skillInfo in AutoProcessing.GetSkillInfos(hashtable, EffectTiming.OnLoseSecurity))
-            {
-                _refCollector.Add(skillInfo);
-            }
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        await Task.CompletedTask.ConfigureAwait(false);
-    }
-}
-
-#endregion
-
-#region Add Security
-
-/// <summary>
-/// (MIG3-3a) 1:1 mirror of AS-IS <c>IAddSecurity</c> (CardController.cs:5462-5510): the "[When security cards
-/// are added]" (OnAddSecurity) window for a single card ALREADY placed in security (the placement move happens
-/// in the caller) — carried by the caller's ->Security zone move (zone-derived, per-card batch id; a manual
-/// emit would double-fire) — plus the "[When face up cards are added]" (OnFaceUpSecurityIncreased) window when
-/// the card is face up (:5494), which is NOT zone-derived: the manual emit here is its sole source.
-///
-/// Substrate notes: AS-IS <c>!_cardSource.IsFlipped</c> ("is face up") maps to
-/// <c>SecurityFaceState.IsFaceUpInSecurity</c> — the security face flag is deliberately distinct from the
-/// field-level <c>CardSource.IsFlipped</c>. GManager.OnSecurityStackChanged = UI (stripped).
-/// </summary>
-public class IAddSecurity
-{
-    public IAddSecurity(CardSource source)
-    {
-        _player = source.Owner;
-        _cardSource = source;
-    }
-
-    readonly HeadlessPlayerId _player;
-    readonly CardSource _cardSource;
-
-    public async Task AddSecurity(CancellationToken cancellationToken = default)
-    {
-        EngineContext context = _cardSource.Context;
-
-        // AS-IS :5475 GManager.OnSecurityStackChanged = UI (stripped).
-
-        // (C1) AS-IS CardController.cs:5481-5489 — drained from C2 flip. StackSkillInfos({"Player", _player},
-        // {"CardSources", [ _cardSource ]}, OnAddSecurity) — UNCONDITIONAL, before the face-up half. No
-        // CardEffect member. (_player is a HeadlessPlayerId here; the AS-IS live Player == the mirror Player view.)
-        await GManager.instance.autoProcessing.StackSkillInfos(
-            new System.Collections.Hashtable
-            {
-                { "Player", new Player(context, _player) },
-                { "CardSources", new List<CardSource> { _cardSource } },
-            },
-            EffectTiming.OnAddSecurity).ConfigureAwait(false);
-
-        // AS-IS :5494 `if (!_cardSource.IsFlipped)` — the face-up half, sole source.
-        if (SecurityFaceState.IsFaceUpInSecurity(context, _cardSource.InstanceId))
-        {
-            // (C1) AS-IS CardController.cs:5496-5506 StackSkillInfos({"Player", _player}, {"CardSources", [ _cardSource ]},
-            // OnFaceUpSecurityIncreased) inside the face-up guard — the SOLE opener (vestigial queue emit retired). No CardEffect.
-            await GManager.instance.autoProcessing.StackSkillInfos(
-                new System.Collections.Hashtable
-                {
-                    { "Player", new Player(context, _player) },
-                    { "CardSources", new List<CardSource> { _cardSource } },
-                },
-                EffectTiming.OnFaceUpSecurityIncreased).ConfigureAwait(false);
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        await Task.CompletedTask.ConfigureAwait(false);
-    }
-}
-
-#endregion
-
-#region Flip Security Face Up
-
-/// <summary>
-/// (MIG3-3a) 1:1 mirror of AS-IS <c>IFlipSecurity</c> (CardController.cs:5516-5552): flips a face-down security
-/// card face up, then fires OnFaceUpSecurityIncreased. Two guards preserved literally: the ENTRY guard (in
-/// security AND currently face-down, :5529) and the POST-SetFace re-check (:5546 — always true right after
-/// SetFace(), an AS-IS quirk kept rather than collapsed to an unconditional emit).
-///
-/// Substrate notes: SetFace()/IsFlipped map to SecurityFaceState.Stamp/IsFaceUpInSecurity (see
-/// <see cref="IAddSecurity"/>). This and <see cref="IAddSecurityFromLibrary"/> are the first wiring of the
-/// pre-built SecurityFaceState substrate (it had no callers before slice 3a).
-/// </summary>
-public class IFlipSecurity
-{
-    public IFlipSecurity(CardSource source)
-    {
-        _player = source.Owner;
-        _cardSource = source;
-    }
-
-    readonly HeadlessPlayerId _player;
-    readonly CardSource _cardSource;
-
-    public async Task FlipFaceUp(CancellationToken cancellationToken = default)
-    {
-        EngineContext context = _cardSource.Context;
-        var zones = (IZoneStateReader)context.ZoneMover;
-
-        // AS-IS :5529 `if (!_player.SecurityCards.Contains(_cardSource) || !_cardSource.IsFlipped) yield break;`
-        // — must be IN security AND currently face-DOWN (face-up == IsFaceUpInSecurity).
-        if (!zones.GetCards(_player, ChoiceZone.Security).Contains(_cardSource.InstanceId)
-            || SecurityFaceState.IsFaceUpInSecurity(context, _cardSource.InstanceId))
-        {
-            return;
-        }
-
-        // AS-IS :5532 _cardSource.SetFace().
-        SecurityFaceState.Stamp(context.CardInstanceRepository, _cardSource.InstanceId, faceUp: true);
-
-        // AS-IS :5546 post-SetFace re-check quirk, preserved literally.
-        if (SecurityFaceState.IsFaceUpInSecurity(context, _cardSource.InstanceId))
-        {
-            // (C1) AS-IS CardController.cs:5538-5548 StackSkillInfos({"Player", _player},
-            // {"CardSources", [ _cardSource ]}, OnFaceUpSecurityIncreased) inside the post-SetFace guard. No CardEffect.
-            await GManager.instance.autoProcessing.StackSkillInfos(
-                new System.Collections.Hashtable
-                {
-                    { "Player", new Player(context, _player) },
-                    { "CardSources", new List<CardSource> { _cardSource } },
-                },
-                EffectTiming.OnFaceUpSecurityIncreased).ConfigureAwait(false);
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        await Task.CompletedTask.ConfigureAwait(false);
-    }
-}
-
-#endregion
-
-#region Suspend permanents
-
-/// <summary>
-/// (MIG3-3b) 1:1 mirror of AS-IS <c>SuspendPermanentsClass</c> (CardController.cs:5558-5655): suspends (taps)
-/// a batch of permanents — the class design item RD9-87 names as the not-yet-wired OnTappedAnyone /
-/// CanSuspend / DPWhenSuspended source (this port supplies it; rewiring the attack-suspend call sites is a
-/// separate step). <c>PermanentCondition</c> (:5587-5614) preserved with its exact nesting — a null /
-/// null-TopCard permanent PASSES the filter (AS-IS defensive-dead-code quirk, kept). Per surviving target:
-/// IsSuspended = true THEN DPWhenSuspended = DP — the ORDER matters (:5618-5620, DP read AFTER the flag flips
-/// so a "gains DP while suspended" modifier is captured). ONE OnTappedAnyone window per batch (:5636-5648).
-///
-/// Substrate notes: the AS-IS ctor Hashtable (CardEffect + IsBlock + IsAttack) becomes direct params; IsAttack
-/// is read (:5583) but never referenced again (verified dead) — dropped. isSuspended reuses
-/// Permanent.IsSuspendedKey (the key Permanent.IsSuspended reads); dpWhenSuspended is a NEW key (no
-/// prior headless writer). CanSuspend = !ContinuousRestrictionGate.EvaluateSuspend(...).IsRestricted.
-/// OnTappedAnyone is NOT zone-derived — manual emit; zero prior consumers, batch-list payload style
-/// (design item MIG3-TAPPEDANYONE-PAYLOAD). ShowPermanentData / WaitForSeconds = UI (stripped).
-/// </summary>
-public class SuspendPermanentsClass
-{
-    /// <summary>AS-IS <c>Permanent.DPWhenSuspended</c> — the DP snapshot the instant a permanent suspends
-    /// (AS-IS :5620). No headless metadata key existed before this translation.</summary>
-    public const string DpWhenSuspendedKey = "dpWhenSuspended";
-
-    public SuspendPermanentsClass(List<Permanent> permanents, ICardEffect? cardEffect, bool isBlock)
-    {
-        _permanents = permanents;
-        _cardEffect = cardEffect;
-        // (C1c RD-C1b-CARDARG) AS-IS ctor Hashtable member `{"CardEffect", cardEffect}` — live cardEffect carried
-        // for the OnTappedAnyone window; substrate cause id derived from it (was the MIG3 param). null cause
-        // (e.g. keyword paths with a null activateClass) -> null id, byte-identical.
-        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
-        _isBlock = isBlock;
-    }
-
-    public bool IsSuspended(Permanent permanent) => SuspendedPermanents.Any(p => p.InstanceId == permanent.InstanceId);
-
-    readonly List<Permanent> _permanents;
-    public List<Permanent> SuspendedPermanents { get; } = new();
-    readonly ICardEffect? _cardEffect;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-    readonly bool _isBlock;
-
-    public async Task Tap(CancellationToken cancellationToken = default)
-    {
-        if (_permanents.Count == 0) return; // AS-IS :5577
-
-        Permanent? contextSource = _permanents.FirstOrDefault(p => p != null);
-        if (contextSource is null) return;
-        EngineContext context = contextSource.TopCard.Context;
-
-        // AS-IS :5587-5614 PermanentCondition — nesting preserved literally (a null / null-TopCard permanent
-        // PASSES: `return true` falls through the outer nested ifs untouched).
-        bool PermanentCondition(Permanent permanent)
-        {
-            if (permanent != null)
-            {
-                if (permanent.TopCard != null) // structurally dead, kept for 1:1 shape.
-                {
-                    if (permanent.IsSuspended) return false;
-
-                    if (!permanent.CanSuspend) return false; // (R1-d) AS-IS !Permanent.CanSuspend (was the unioned gate)
-
-                    if (_causeEffectSourceId is { IsEmpty: false } cause)
-                    {
-                        // (R3-W3c-2) rehomed to the AS-IS-literal live scan (threaded _cardEffect).
-                        if (permanent.TopCard.CanNotBeAffected(_cardEffect))
-                        {
-                            return false;
-                        }
-                    }
-                }
-            }
-
-            return true;
-        }
-
-        List<Permanent> suspendTargetPermanents = _permanents.Where(PermanentCondition).ToList();
-
-        foreach (Permanent permanent in suspendTargetPermanents)
-        {
-            if (permanent == null) continue; // defensive: AS-IS would NPE here too; never hit by real callers.
-
-            // AS-IS :5618 permanent.IsSuspended = true; — flips BEFORE the DP read below.
-            SetIsSuspended(context, permanent.InstanceId, true);
-
-            // AS-IS :5620 permanent.DPWhenSuspended = permanent.DP; — order preserved.
-            SetDpWhenSuspended(context, permanent.InstanceId, permanent.DP);
-
-            // AS-IS :5622-5625 ShowingPermanentCard.ShowPermanentData = UI (stripped).
-
-            SuspendedPermanents.Add(permanent);
-        }
-
-        if (suspendTargetPermanents.Count >= 1)
-        {
-            #region "Effects when permanents suspend" (OnTappedAnyone)
-
-            // AS-IS :5636-5648 {Permanents, IsBlock[, CardEffect]} -> StackSkillInfos(OnTappedAnyone) — manual
-            // (not zone-derived); design item MIG3-TAPPEDANYONE-PAYLOAD (also the emission half of RD9-87).
-            // (C1c) AS-IS CardController.cs:5636-5648 — the SOLE opener (vestigial queue emit retired). StackSkillInfos({"Permanents",
-            // suspendTargetPermanents}, {"IsBlock", IsBlock}[, {"CardEffect", CardEffect} if non-null],
-            // OnTappedAnyone). Live _cardEffect re-threaded (RD-C1b-CARDARG); the carrier Emit above stays (main
-            // instance undrained -> inert). CardEffect Add is conditional exactly per AS-IS :5642-5645.
-            var tappedHashtable = new System.Collections.Hashtable
-            {
-                { "Permanents", suspendTargetPermanents },
-                { "IsBlock", _isBlock },
-            };
-            if (_cardEffect != null)
-            {
-                tappedHashtable.Add("CardEffect", _cardEffect);
-            }
-            await GManager.instance.autoProcessing.StackSkillInfos(tappedHashtable, EffectTiming.OnTappedAnyone).ConfigureAwait(false);
-
-            #endregion
-
-            // AS-IS :5652 WaitForSeconds(0.3f) = UI (stripped).
-        }
-    }
-
-    private static void SetIsSuspended(EngineContext context, HeadlessEntityId permanentId, bool value)
-    {
-        if (!context.CardInstanceRepository.TryGetInstance(permanentId, out CardInstanceRecord? record) || record is null) return;
-        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal) { [Permanent.IsSuspendedKey] = value };
-        context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
-    }
-
-    private static void SetDpWhenSuspended(EngineContext context, HeadlessEntityId permanentId, int dp)
-    {
-        if (!context.CardInstanceRepository.TryGetInstance(permanentId, out CardInstanceRecord? record) || record is null) return;
-        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal) { [DpWhenSuspendedKey] = dp };
-        context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
-    }
-}
-
-#endregion
-
-#region Unsuspend permanents
-
-/// <summary>
-/// (MIG3-3b) 1:1 mirror of AS-IS <c>IUnsuspendPermanents</c> (CardController.cs:5661-5761): unsuspends a batch.
-/// Ctor pre-filters to battle-area residents (:5665). The unsuspend-target predicate (:5675-5680) is evaluated
-/// TWICE — before and after (:5723-5728) the "[When permanents would unsuspend]" (WhenUntapAnyone) cut-in,
-/// literally re-applied rather than cached. Per survivor: IsSuspended = false (:5734). ONE OnUnTappedAnyone
-/// window per post-cut-in batch (:5746-5754).
-///
-/// AS-IS :5682-5720 the WhenUntapAnyone cut-in (manual GetSkillInfos + PutStackedSkill + synchronous drain —
-/// a structurally DIFFERENT pattern from the StackSkillInfos cut-ins) is now WIRED (design item
-/// MIG3-CUTIN-WHENUNTAP RESOLVED = RD-SW-E-02): the Unsuspend body below opens the PRE cut-in over the pre-fix
-/// untappedPermanents list, and the re-filter (untappedPermanentsFixed) re-applies the identical predicate so a
-/// reactor (BT7_055) that cancels an unsuspend before it lands is honoured — the AS-IS PRE semantics.
-///
-/// Substrate notes: CanUnsuspend = the existing CardEffectCommons.CanUnsuspend mirror; null cause never
-/// blocked. OnUnTappedAnyone NOT zone-derived — manual emit, zero prior consumers
-/// (design item MIG3-UNTAPPEDANYONE-PAYLOAD). ShowUnsuspendEffect / WillUntapObject / waits = UI (stripped).
-/// </summary>
-public class IUnsuspendPermanents
-{
-    public IUnsuspendPermanents(List<Permanent> permanents, ICardEffect? cardEffect)
-    {
-        // AS-IS :5665 `permanents.Clone().Filter(CardEffectCommons.IsPermanentExistsOnBattleArea)`.
-        _permanents = (permanents ?? new List<Permanent>())
-            .Where(p => CardEffectCommons.CardEffectCommons.IsPermanentExistsOnBattleArea(p))
-            .ToList();
-        _cardEffect = cardEffect;
-        // (C1c RD-C1b-CARDARG) AS-IS `new IUnsuspendPermanents(list, cardEffect)` — live cardEffect carried for the
-        // OnUnTappedAnyone window; substrate cause id derived from it (was the MIG3 arg).
-        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
-    }
-
-    readonly List<Permanent> _permanents;
-    readonly ICardEffect? _cardEffect;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-
-    public async Task Unsuspend(CancellationToken cancellationToken = default)
-    {
-        // (substrate-necessitated) EngineContext from a list member; equivalent to the AS-IS natural no-op on
-        // an empty list.
-        if (_permanents.Count == 0) return;
-
-        EngineContext context = _permanents[0].TopCard.Context;
-
-        // AS-IS :5675-5680 — applied TWICE (before/after the would-unsuspend cut-in, :5723-5728).
-        bool IsUnsuspendTarget(Permanent permanent) =>
-            permanent != null
-            && permanent.TopCard != null // structurally dead, kept for 1:1 shape.
-            && permanent.IsSuspended
-            && CardEffectCommons.CardEffectCommons.CanUnsuspend(permanent)
-            // (R3-W3c-2) rehomed to the AS-IS-literal live scan (threaded _cardEffect).
-            && (_causeEffectSourceId is not { IsEmpty: false } cause
-                || !permanent.TopCard.CanNotBeAffected(_cardEffect));
-
-        List<Permanent> untappedPermanents = _permanents.Where(IsUnsuspendTarget).ToList();
-        _ = untappedPermanents; // AS-IS keeps the pre-cut-in list alive for the cut-in region below.
-
-        #region "When permanents would unsuspend" effect (cut-in)
-        // AS-IS :5682-5720 (design item MIG3-CUTIN-WHENUNTAP, now RESOLVED = RD-SW-E-02): the LIVE
-        // "[When permanents would unsuspend]" PRE cut-in — the MANUAL-push variant. AS-IS collects with
-        // AutoProcessing.GetSkillInfos (a pure live re-enumeration, NO ActivateBackgroundEffects — which is
-        // exactly why AS-IS hand-rolls the push here instead of StackSkillInfos), manually PutStackedSkill's
-        // each onto the cut-in stack, then synchronously drains with HasExecutedSameEffect as the skip
-        // predicate. INLINE geometry at the unsuspend step (this SuspendPermanentsClass/unsuspend side), NOT
-        // a SkillWindowSupply converter. Opened over the pre-fix `untappedPermanents` list BEFORE the untap
-        // applies (:5734 SetIsSuspended below), so a reactor (BT7_055) may cancel/change an unsuspend before
-        // it lands; the `untappedPermanentsFixed` re-filter below picks up any change. UI
-        // (ShowUnsuspendEffect / WillUntapObject) stripped. Structural no-op when no WhenUntapAnyone reactor
-        // is on field (GetSkillInfos returns empty → nothing stacked → drain skipped).
-        var wouldUnsuspendSkillInfos = AutoProcessing.GetSkillInfos(
-            new System.Collections.Hashtable
-            {
-                { "CardEffect", _cardEffect },
-                { "Permanents", untappedPermanents },
-            },
-            EffectTiming.WhenUntapAnyone);
-
-        if (wouldUnsuspendSkillInfos.Count >= 1)
-        {
-            AutoProcessing cutIn = AutoProcessing.ForCutIn(context);
-            foreach (var skillInfo in wouldUnsuspendSkillInfos)
-            {
-                cutIn.PutStackedSkill(skillInfo);
-            }
-
-            await cutIn.TriggeredSkillProcess(false, AutoProcessing.HasExecutedSameEffect).ConfigureAwait(false);
-        }
-        #endregion
-
-        // AS-IS :5723-5728 untappedPermanets_Fixed — re-filter after the (today inert) cut-in.
-        List<Permanent> untappedPermanentsFixed = _permanents.Where(IsUnsuspendTarget).ToList();
-
-        if (untappedPermanentsFixed.Count >= 1)
-        {
-            foreach (Permanent permanent in untappedPermanentsFixed)
-            {
-                SetIsSuspended(context, permanent.InstanceId, false); // AS-IS :5734
-                // AS-IS :5736-5739 ShowPermanentData = UI (stripped).
-            }
-
-            #region "When permanents are unsuspended" effect
-
-            // AS-IS :5746-5754 {CardEffect, Permanents} -> StackSkillInfos(OnUnTappedAnyone) — manual emit.
-            // (C1c) AS-IS CardController.cs:5746-5754 — the SOLE opener (vestigial queue emit retired). StackSkillInfos({"CardEffect",
-            // _cardEffect}, {"Permanents", untappedPermanents_Fixed}, OnUnTappedAnyone) — the tail MAIN-instance
-            // window (distinct from the AS-IS :5682-5720 WhenUntapAnyone CUT-IN, which stays deferred =
-            // MIG3-CUTIN-WHENUNTAP, cut-in insts excluded from C1 per the worksheet). Live _cardEffect re-threaded
-            // (RD-C1b-CARDARG); the carrier Emit above stays (main instance undrained -> inert).
-            await GManager.instance.autoProcessing.StackSkillInfos(
-                new System.Collections.Hashtable
-                {
-                    { "CardEffect", _cardEffect },
-                    { "Permanents", untappedPermanentsFixed },
-                },
-                EffectTiming.OnUnTappedAnyone).ConfigureAwait(false);
-
-            #endregion
-
-            // AS-IS :5758 WaitForSeconds(0.3f) = UI (stripped).
-        }
-    }
-
-    private static void SetIsSuspended(EngineContext context, HeadlessEntityId permanentId, bool value)
-    {
-        if (!context.CardInstanceRepository.TryGetInstance(permanentId, out CardInstanceRecord? record) || record is null) return;
-        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal) { [Permanent.IsSuspendedKey] = value };
-        context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
-    }
-}
-
-#endregion
-
-#region Trash deck cards
-
-/// <summary>
-/// (MIG3-3a) 1:1 mirror of AS-IS <c>ITrashDeckCards</c> (CardController.cs:5767-5821): trashes the subset of
-/// <c>cardSources</c> still actually in their owner's LIBRARY (:5788-5794 — a card an intervening effect
-/// already moved is silently skipped), then the "[When cards are trashed from security]"-labelled window — the
-/// AS-IS region comment is a copy-paste artifact; the timing actually fired is OnDiscardLibrary (:5815-5816) —
-/// opens ONCE for the whole batch, carried by the zone-derived timing on the shared discard batch id.
-/// </summary>
-public class ITrashDeckCards
-{
-    public ITrashDeckCards(List<CardSource> cardSources, ICardEffect? cardEffect)
-    {
-        this.cardSources = new List<CardSource>();
-
-        foreach (CardSource cardSource in cardSources)
-        {
-            this.cardSources.Add(cardSource);
-        }
-
-        _cardEffect = cardEffect;
-        // (C1c RD-C1b-CARDARG) AS-IS `new ITrashDeckCards(cardSources, cardEffect)` — live cardEffect carried for
-        // the OnDiscardLibrary window; substrate cause id derived from it (was the MIG3 arg).
-        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
-    }
-
-    List<CardSource> cardSources { get; set; } = new List<CardSource>();
-    readonly ICardEffect? _cardEffect;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-
-    public async Task TrashDeckCards(CancellationToken cancellationToken = default)
-    {
-        List<CardSource> trashCards = new List<CardSource>();
-
-        foreach (CardSource cardSource in cardSources)
-        {
-            var zones = (IZoneStateReader)cardSource.Context.ZoneMover;
-            if (zones.GetCards(cardSource.Owner, ChoiceZone.Library).Contains(cardSource.InstanceId))
-            {
-                trashCards.Add(cardSource);
-            }
-        }
-
-        if (trashCards.Count >= 1)
-        {
-            EngineContext context = trashCards[0].Context;
-
-            // ONE shared batch id = the AS-IS single StackSkillInfos(OnDiscardLibrary) call (:5815-5816); the
-            // zone-derived timing collapses on it (a manual emit here would double-fire).
-            long discardBatchId = context.NextDiscardBatchId();
-
-            foreach (CardSource cardSource in trashCards)
-            {
-                await context.ZoneMover.TrashCardAsync(
-                    cardSource.Owner, cardSource.InstanceId, discardBatchId, _causeEffectSourceId,
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
-            }
-
-            // (C1c) AS-IS CardController.cs:5808-5816 — drained from C2 flip. StackSkillInfos({"DiscardedCards",
-            // trashCards}, {"CardEffect", cardEffect}, OnDiscardLibrary). Live _cardEffect re-threaded
-            // (RD-C1b-CARDARG); the zone-derived OnDiscardLibrary above stays (main instance undrained -> inert).
-            await GManager.instance.autoProcessing.StackSkillInfos(
-                new System.Collections.Hashtable
-                {
-                    { "DiscardedCards", trashCards },
-                    { "CardEffect", _cardEffect },
-                },
-                EffectTiming.OnDiscardLibrary).ConfigureAwait(false);
-        }
-    }
-}
-
-#endregion
-
-#region Overflow of ace
-
-/// <summary>
-/// (MIG3-3a) 1:1 mirror of AS-IS <c>AceOverflowClass</c> (CardController.cs:5827-5852): filters
-/// <c>cardSources</c> to (an un-flipped ACE on the battle area) OR (any breeding-area Digimon — the breeding
-/// clause BYPASSES the ACE/flip gate entirely, per the AS-IS operator precedence `(A &amp;&amp; B &amp;&amp; C) || D`, :5839),
-/// orders turn-player-owned cards first, then charges each owner <c>-OverflowMemory</c> (a no-op for a non-ACE
-/// breeding Digimon, whose overflow reads 0).
-///
-/// Substrate notes: IsACE/OverflowMemory/IsFlipped fold into <see cref="OverflowFor(CardInstanceRecord)"/> (0 for
-/// non-ACE or flipped — exactly the AS-IS `IsACE &amp;&amp; !IsFlipped` half plus the printed value). PlayLog = UI.
-/// (ACE re-migration) The instance-metadata readers and the turn-relative memory sign, previously the substrate
-/// <c>AceOverflowGate.OverflowFor</c> / <c>.MemoryDelta</c>, are re-homed here — this class IS their AS-IS 원가
-/// (AS-IS AceOverflowClass reads <c>cardSource.IsACE</c> / <c>.OverflowMemory</c> / <c>.IsFlipped</c> and does the
-/// <c>MemoryController.Add</c> itself). The gate's third member, <c>ApplyTopOverflowOnDelete</c>, is RETIRED: it
-/// was a substrate patch for deletion finishers that bypassed <c>RemoveField</c>; those finishers are gone and
-/// the mirror <c>DestroyPermanentsClass</c> now routes the top through <c>CardObjectController.RemoveField</c>
-/// exactly as AS-IS (CardController.cs:4885/5062). Its metadata-key constants keep their string values.
-/// </summary>
-public class AceOverflowClass
-{
-    public AceOverflowClass(List<CardSource> cardSources)
-    {
-        _cardSources = cardSources is null ? new List<CardSource>() : new List<CardSource>(cardSources);
-    }
-
-    List<CardSource> _cardSources;
-
-    public async Task Overflow(CancellationToken cancellationToken = default)
-    {
-        if (_cardSources.Count == 0)
-        {
-            return;
-        }
-
-        EngineContext context = _cardSources[0].Context;
-        HeadlessPlayerId? turnPlayer = context.TurnController.Current.TurnPlayerId;
-
-        // AS-IS :5839 precedence: `(IsACE && !IsFlipped && OnBattleArea) || OnBreedingAreaDigimon` — the
-        // breeding-area Digimon clause bypasses the ACE/flip gate.
-        _cardSources = _cardSources
-            .Where(cardSource =>
-                (OverflowFor(context, cardSource) > 0 && CardEffectCommons.CardEffectCommons.IsExistOnBattleArea(cardSource))
-                || CardEffectCommons.CardEffectCommons.IsExistOnBreedingAreaDigimon(cardSource))
-            .OrderBy(cardSource => turnPlayer is { } tp && cardSource.Owner == tp ? -1 : 1)
-            .ToList();
-
-        foreach (CardSource cardSource in _cardSources)
-        {
-            int overflow = OverflowFor(context, cardSource);
-            if (overflow > 0)
-            {
-                context.MemoryController.Add(MemoryDelta(overflow, cardSource.Owner, turnPlayer));
-            }
-
-            // AS-IS :5847-5849 PlayLog = UI (stripped).
-            cancellationToken.ThrowIfCancellationRequested();
-        }
-
-        await Task.CompletedTask.ConfigureAwait(false);
-    }
-
-    /// <summary>Instance metadata: this card is an ACE (AS-IS <c>CardSource.IsACE</c>).</summary>
-    internal const string IsAceKey = "isAce";
-
-    /// <summary>Instance metadata: the card's printed Overflow value (AS-IS <c>CardSource.OverflowMemory</c>).</summary>
-    internal const string OverflowMemoryKey = "overflowMemory";
-
-    /// <summary>Instance metadata: the ACE is flipped, its overflow already accounted (AS-IS
-    /// <c>CardSource.IsFlipped</c>) — no penalty.</summary>
-    internal const string IsFlippedKey = "isFlipped";
-
-    /// <summary>AS-IS <c>IsACE &amp;&amp; !IsFlipped</c> gate plus the printed <c>OverflowMemory</c>: the overflow
-    /// penalty of <paramref name="record"/> when it is an un-flipped ACE, else 0.</summary>
-    internal static int OverflowFor(CardInstanceRecord record)
-    {
-        ArgumentNullException.ThrowIfNull(record);
-        if (!ReadBool(record.Metadata, IsAceKey) || ReadBool(record.Metadata, IsFlippedKey))
-        {
-            return 0;
-        }
-
-        return Math.Max(0, ReadInt(record.Metadata, OverflowMemoryKey));
-    }
-
-    /// <summary>The turn-player-relative memory delta for <paramref name="owner"/> losing
-    /// <paramref name="overflow"/> memory (the substrate memory value is single-signed, positive = turn player).
-    /// When the owner is the turn player the value drops (-overflow); an off-turn owner's loss moves the value
-    /// toward the turn player (+overflow). Unknown turn player ⇒ assume the owner is active (the common case:
-    /// an ACE leaves on its owner's turn).</summary>
-    internal static int MemoryDelta(int overflow, HeadlessPlayerId owner, HeadlessPlayerId? turnPlayer)
-    {
-        if (overflow <= 0)
-        {
-            return 0;
-        }
-
-        return turnPlayer is { } tp && tp != owner ? overflow : -overflow;
-    }
-
-    private static int OverflowFor(EngineContext context, CardSource cardSource) =>
-        context.CardInstanceRepository.TryGetInstance(cardSource.InstanceId, out CardInstanceRecord? record) && record is not null
-            ? OverflowFor(record)
-            : 0;
-
-    private static bool ReadBool(IReadOnlyDictionary<string, object?> metadata, string key) =>
-        metadata.TryGetValue(key, out object? raw) && raw is bool value && value;
-
-    private static int ReadInt(IReadOnlyDictionary<string, object?> metadata, string key) =>
-        metadata.TryGetValue(key, out object? raw) && raw is int value ? value : 0;
-}
-
-#endregion
-
-#region Place permanent to digivolution cards
-
-/// <summary>(RD-EXT3-05) 1:1 mirror of AS-IS <c>IPlacePermanentToDigivolutionCards</c>
-/// (CardController.cs:2838-3135): re-parents each source field permanent's TOP card as a digivolution (under)
-/// card of a target permanent, removing the source from the field (its under-stack is trashed first by
-/// DiscardEvoRoots — AS-IS only the source TOP card re-parents, not the whole stack). Opens the "when permanents
-/// would remove field" cut-in window first (verbatim scan), then per pair: DiscardEvoRoots, record
-/// PlaceOtherPermanentEffect, RemoveField(ignoreOverflow:true), AddDigivolutionCards Top/Bottom.
-/// Substrate: IEnumerator → Task, StartCoroutine(X) → await X;
-/// <c>GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer</c> →
-/// <c>new GameContext(context).Players_ForTurnPlayer</c>; <c>GManager.instance.autoProcessing_CutIn</c> →
-/// <c>AutoProcessing.ForCutIn(context)</c>; <c>AddDigivolutionCards*</c>'s <c>ICardEffect</c> arg →
-/// <c>cardEffect?.EffectSourceCard?.InstanceId</c> (the established DigiXros idiom). UI stripped:
-/// WillRemoveFieldObject / ShrinkSecurityDigimonDisplay / MoveToExecute / BrainStorm / PlayLog / ShowCardEffect.
-/// The DIE of each re-parented source is enforced at the InMemoryZoneMover chokepoint (RD-R3-02) via RemoveField
-/// — no PermanentContinuityKey stamp (a genuine death, not a top swap), so its bookkeeping is Reset.</summary>
-public class IPlacePermanentToDigivolutionCards
-{
-    public IPlacePermanentToDigivolutionCards(
-        List<Permanent[]> permanentArrays,
-        bool toTop,
-        ICardEffect cardEffect,
-        bool skipEffectAndActivateSkill = false,
-        bool isDigixros = false)
-    {
-        permanentArrays.Clone().ForEach(permanentArray => _permanentArrays.Add(permanentArray.CloneArray()));
-        _toTop = toTop;
-        _cardEffect = cardEffect;
-        _skipEffectAndActivateSkill = skipEffectAndActivateSkill;
-        _isDigixros = isDigixros;
-    }
-
-    public void SetNotShowCards()
-    {
-        _notShowCards = true;
-    }
-
-    List<Permanent[]> _permanentArrays = new List<Permanent[]>();
-    ICardEffect _cardEffect = null;
-    bool _toTop = false;
-    bool _notShowCards = false;
-    bool _skipEffectAndActivateSkill = false;
-    bool _isDigixros = false;
-    public bool Placed { get; private set; } = false;
-
-    public async Task PlacePermanentToDigivolutionCards()
-    {
-        if (_permanentArrays.Count == 0)
-        {
-            return;
-        }
-
-        List<CardSource> addedDigivolutionCards = new List<CardSource>();
-
-        List<Permanent> removeFieldPermanents = new List<Permanent>();
-
-        foreach (Permanent[] permanentArray in _permanentArrays)
-        {
-            if (permanentArray.Length == 2)
-            {
-                Permanent DigivolutionPermanent = permanentArray[0];
-                Permanent getDigivolutionPermanent = permanentArray[1];
-
-                if (DigivolutionPermanent != null && getDigivolutionPermanent != null)
-                {
-                    if (DigivolutionPermanent.TopCard != null && getDigivolutionPermanent.TopCard != null && !getDigivolutionPermanent.IsToken)
-                    {
-                        if (_cardEffect != null)
-                        {
-                            if (DigivolutionPermanent.TopCard.CanNotBeAffected(_cardEffect) || getDigivolutionPermanent.TopCard.CanNotBeAffected(_cardEffect))
-                            {
-                                continue;
-                            }
-                        }
-
-                        removeFieldPermanents.Add(DigivolutionPermanent);
-                    }
-                }
-            }
-        }
-
-        foreach (Permanent permanent in removeFieldPermanents)
-        {
-            permanent.willBeRemoveField = true;
-        }
-
-        if (removeFieldPermanents.Count == 0)
-        {
-            return;
-        }
-
-        EngineContext context = removeFieldPermanents[0].TopCard.Context;
-
-        #region "When permanents would remove field" effect (AS-IS :2913-3049; UI stripped)
-
-        List<CardEffectCommons.SkillInfo> skillInfos = new List<CardEffectCommons.SkillInfo>();
-
-        System.Collections.Hashtable hashtable1 =
-            CardEffectCommons.CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                removeFieldPermanents,
-                _cardEffect,
-                null!,
-                _isDigixros);
-
-        foreach (Player player in new GameContext(context).Players_ForTurnPlayer)
-        {
-            foreach (Permanent permanent1 in player.GetFieldPermanents())
-            {
-                foreach (ICardEffect cardEffect in permanent1.EffectList(EffectTiming.WhenRemoveField))
-                {
-                    if (cardEffect is ActivateICardEffect)
-                    {
-                        if (cardEffect.CanTrigger(hashtable1))
-                        {
-                            skillInfos.Add(new CardEffectCommons.SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
-                        }
-                    }
-                }
-            }
-
-            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.WhenRemoveField))
-            {
-                if (cardEffect is ActivateICardEffect)
-                {
-                    if (cardEffect.CanTrigger(hashtable1))
-                    {
-                        skillInfos.Add(new CardEffectCommons.SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
-                    }
-                }
-            }
-        }
-
-        if (skillInfos.Count >= 1)
-        {
-            foreach (CardEffectCommons.SkillInfo skillInfo in skillInfos)
-            {
-                AutoProcessing.ForCutIn(context).PutStackedSkill(skillInfo);
-            }
-
-            // AS-IS :2971-3026 showEffect() = WillRemoveFieldObject / attack-security display (UI stripped).
-            await AutoProcessing.ForCutIn(context).TriggeredSkillProcess(false, null!).ConfigureAwait(false);
-        }
-
-        #endregion
-
-        foreach (Permanent[] permanentArray in _permanentArrays)
-        {
-            if (permanentArray.Length == 2)
-            {
-                Permanent DigivolutionPermanent = permanentArray[0];
-                Permanent getDigivolutionPermanent = permanentArray[1];
-
-                if (DigivolutionPermanent != null && getDigivolutionPermanent != null)
-                {
-                    if (DigivolutionPermanent.TopCard != null && getDigivolutionPermanent.TopCard != null && !getDigivolutionPermanent.IsToken && DigivolutionPermanent.willBeRemoveField)
-                    {
-                        await DigivolutionPermanent.DiscardEvoRoots().ConfigureAwait(false);
-
-                        CardSource cardSource = DigivolutionPermanent.TopCard;
-
-                        #region record used effect
-
-                        if (_cardEffect != null)
-                        {
-                            if (DigivolutionPermanent.TopCard != null)
-                            {
-                                DigivolutionPermanent.PlaceOtherPermanentEffect = _cardEffect;
-                            }
-                        }
-
-                        #endregion
-
-                        await CardObjectController.RemoveField(
-                            DigivolutionPermanent,
-                            ignoreOverflow: true).ConfigureAwait(false);
-
-                        List<CardSource> digivolutionCards = new List<CardSource>() { cardSource };
-
-                        if (_toTop)
-                        {
-                            await getDigivolutionPermanent.AddDigivolutionCardsTop(digivolutionCards, _cardEffect?.EffectSourceCard?.InstanceId).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            await getDigivolutionPermanent.AddDigivolutionCardsBottom(digivolutionCards, _cardEffect?.EffectSourceCard?.InstanceId, _skipEffectAndActivateSkill).ConfigureAwait(false);
-                        }
-
-                        cardSource.cEntity_EffectController.InitUseCountThisTurn();
-
-                        addedDigivolutionCards.Add(cardSource);
-
-                        Placed = true;
-                    }
-                }
-            }
-        }
-
-        // AS-IS :3103-3133 add-log (PlayLog) + ShowCardEffect "Digivolution Cards" = UI (stripped).
-    }
-}
-
-#endregion
-
-#region Place permanent to another permanent's Link cards
-
-/// <summary>(G-Link batch 2) 1:1 mirror of AS-IS <c>IPlacePermanentToLinkCards</c> (CardController.cs:3141-3435):
-/// re-parents each source field permanent's TOP card as a LINK card of a target permanent, removing the source
-/// from the field (its under-stack is trashed first by DiscardEvoRoots — AS-IS only the source TOP card
-/// re-parents). Opens the "when permanents would remove field" cut-in window first (verbatim scan), then per
-/// pair: OnLeaveFieldAnyone window (AS-IS :3358-3369 — this class HAS it, unlike the digivolution variant),
-/// DiscardEvoRoots, record PlaceOtherPermanentEffect, RemoveField(ignoreOverflow:true), AddLinkCard,
-/// InitUseCountThisTurn. Substrate identical to <see cref="IPlacePermanentToDigivolutionCards"/> (the RD-EXT3-05
-/// precedent): IEnumerator → Task, StartCoroutine(X) → await X; <c>autoProcessing_CutIn</c> →
-/// <c>AutoProcessing.ForCutIn(context)</c>; <c>autoProcessing</c> → <c>AutoProcessing.For(context)</c>;
-/// <c>AddLinkCard</c>'s <c>ICardEffect</c> arg → <c>_cardEffect?.EffectSourceCard?.InstanceId</c> (established
-/// idiom). UI stripped: WillRemoveFieldObject / security-display shrink / PlayLog / ShowCardEffect. G-Link
-/// design risk 2 (double-delete): the field exit routes through the SAME <c>CardObjectController.RemoveField</c>
-/// chokepoint as every other removal (DeletionReplacementGate/bookkeeping intact), and the attach through the
-/// SAME <c>Permanent.AddLinkCard</c> link path (single WhenLinked emit — risk 1). AS-IS quirk KEPT:
-/// <c>_skipEffectAndActivateSkill</c> is stored but never read (AS-IS :3161 verified dead).</summary>
-public class IPlacePermanentToLinkCards
-{
-    public IPlacePermanentToLinkCards(
-        List<Permanent[]> permanentArrays,
-        ICardEffect cardEffect,
-        bool skipEffectAndActivateSkill = false)
-    {
-        permanentArrays.Clone().ForEach(permanentArray => _permanentArrays.Add(permanentArray.CloneArray()));
-        _cardEffect = cardEffect;
-        _skipEffectAndActivateSkill = skipEffectAndActivateSkill;
-    }
-
-    public void SetNotShowCards()
-    {
-        _notShowCards = true;
-    }
-
-    List<Permanent[]> _permanentArrays = new List<Permanent[]>();
-    ICardEffect _cardEffect = null;
-    bool _notShowCards = false;
-    bool _skipEffectAndActivateSkill = false;
-    public bool Placed { get; private set; } = false;
-
-    public async Task PlacePermanentToLinkCards()
-    {
-        if (_permanentArrays.Count == 0)
-        {
-            return;
-        }
-
-        List<CardSource> addedLinkCards = new List<CardSource>();
-
-        List<Permanent> removeFieldPermanents = new List<Permanent>();
-
-        foreach (Permanent[] permanentArray in _permanentArrays)
-        {
-            if (permanentArray.Length == 2)
-            {
-                Permanent LinkedPermanent = permanentArray[0];
-                Permanent getLinkPermanent = permanentArray[1];
-
-                if (LinkedPermanent != null && getLinkPermanent != null)
-                {
-                    if (LinkedPermanent.TopCard != null && getLinkPermanent.TopCard != null && !getLinkPermanent.IsToken)
-                    {
-                        if (_cardEffect != null)
-                        {
-                            if (LinkedPermanent.TopCard.CanNotBeAffected(_cardEffect) || getLinkPermanent.TopCard.CanNotBeAffected(_cardEffect))
-                            {
-                                continue;
-                            }
-                        }
-
-                        removeFieldPermanents.Add(LinkedPermanent);
-                    }
-                }
-            }
-        }
-
-        foreach (Permanent permanent in removeFieldPermanents)
-        {
-            permanent.willBeRemoveField = true;
-        }
-
-        if (removeFieldPermanents.Count == 0)
-        {
-            return;
-        }
-
-        EngineContext context = removeFieldPermanents[0].TopCard.Context;
-
-        #region "When permanents would remove field" effect (AS-IS :3210-3343; UI stripped)
-
-        List<CardEffectCommons.SkillInfo> skillInfos = new List<CardEffectCommons.SkillInfo>();
-
-        System.Collections.Hashtable hashtable1 =
-            CardEffectCommons.CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                removeFieldPermanents,
-                _cardEffect,
-                null!);
-
-        foreach (Player player in new GameContext(context).Players_ForTurnPlayer)
-        {
-            foreach (Permanent permanent1 in player.GetFieldPermanents())
-            {
-                foreach (ICardEffect cardEffect in permanent1.EffectList(EffectTiming.WhenRemoveField))
-                {
-                    if (cardEffect is ActivateICardEffect)
-                    {
-                        if (cardEffect.CanTrigger(hashtable1))
-                        {
-                            skillInfos.Add(new CardEffectCommons.SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
-                        }
-                    }
-                }
-            }
-
-            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.WhenRemoveField))
-            {
-                if (cardEffect is ActivateICardEffect)
-                {
-                    if (cardEffect.CanTrigger(hashtable1))
-                    {
-                        skillInfos.Add(new CardEffectCommons.SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
-                    }
-                }
-            }
-        }
-
-        if (skillInfos.Count >= 1)
-        {
-            foreach (CardEffectCommons.SkillInfo skillInfo in skillInfos)
-            {
-                AutoProcessing.ForCutIn(context).PutStackedSkill(skillInfo);
-            }
-
-            // AS-IS :3267-3322 showEffect() = WillRemoveFieldObject / attack-security display (UI stripped).
-            await AutoProcessing.ForCutIn(context).TriggeredSkillProcess(false, null!).ConfigureAwait(false);
-        }
-
-        #endregion
-
-        foreach (Permanent[] permanentArray in _permanentArrays)
-        {
-            if (permanentArray.Length == 2)
-            {
-                Permanent LinkedPermanent = permanentArray[0];
-                Permanent getLinkPermanent = permanentArray[1];
-
-                if (LinkedPermanent != null && getLinkPermanent != null)
-                {
-                    if (LinkedPermanent.TopCard != null && getLinkPermanent.TopCard != null && !getLinkPermanent.IsToken && LinkedPermanent.willBeRemoveField)
-                    {
-                        #region "When permanents leave the battle area" effect (AS-IS :3358-3369)
-
-                        await AutoProcessing.For(context).StackSkillInfos(
-                            CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
-                                new List<Permanent> { LinkedPermanent },
-                                _cardEffect,
-                                null!,
-                                false
-                            ),
-                            EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
-
-                        #endregion
-
-                        await LinkedPermanent.DiscardEvoRoots().ConfigureAwait(false);
-
-                        CardSource cardSource = LinkedPermanent.TopCard;
-
-                        #region record used effect
-
-                        if (_cardEffect != null)
-                        {
-                            if (LinkedPermanent.TopCard != null)
-                            {
-                                LinkedPermanent.PlaceOtherPermanentEffect = _cardEffect;
-                            }
-                        }
-
-                        #endregion
-
-                        await CardObjectController.RemoveField(
-                            LinkedPermanent,
-                            ignoreOverflow: true).ConfigureAwait(false);
-
-                        await getLinkPermanent.AddLinkCard(cardSource, _cardEffect?.EffectSourceCard?.InstanceId).ConfigureAwait(false);
-
-                        cardSource.cEntity_EffectController.InitUseCountThisTurn();
-
-                        addedLinkCards.Add(cardSource);
-
-                        Placed = true;
-                    }
-                }
-            }
-        }
-
-        // AS-IS :3403-3433 add-log (PlayLog) + ShowCardEffect "Link Cards" = UI (stripped; _notShowCards is
-        // the AS-IS UI-only flag, kept for surface parity).
-        _ = _notShowCards;
-    }
-}
-
-#endregion
-
-#region Link a Card to a Permanent
-
-/// <summary>(G-Link batch 2 / RD-P6C2-7) 1:1 mirror of AS-IS <c>ILinkCard</c> (CardController.cs:3440-3498):
-/// the link-play resolution verb — (1) null guards, (2) root zone determination
-/// (Hand/Trash/DigivolutionCards/LinkedCards/None), (3) WhenWouldLink CUT-IN window
-/// (<c>autoProcessing_CutIn.StackSkillInfos(WouldLinkHashtable, WhenWouldLink)</c> + TriggeredSkillProcess —
-/// BEFORE payment), (4) if payCost: <c>Owner.AddMemory(-GetChangedLinkCost(permanent, root))</c>, (5) placement:
-/// root==None → <see cref="IPlacePermanentToLinkCards"/> (field permanent becomes a link card), else
-/// <c>Permanent.AddLinkCard</c> (hand/trash/digivolution-source card attaches — the ONE link path whose
-/// single WhenLinked emit G-Link risk 1 protects), then <c>WasLinked</c> + the owner's
-/// <c>UntilCalculateFixedCostEffect</c> reset (AS-IS :3496). Substrate: IEnumerator → Task,
-/// StartCoroutine(X) → await X; <c>autoProcessing_CutIn</c> → <c>AutoProcessing.ForCutIn(context)</c>;
-/// <c>_linkCard.PermanentOfThisCard()</c> → <c>ICardEffect.ResolvePermanentOfThisCard</c> (established bridge);
-/// <c>AddLinkCard</c>'s <c>ICardEffect</c> arg → <c>EffectSourceCard?.InstanceId</c>;
-/// <c>Owner.UntilCalculateFixedCostEffect</c> → the mirror <see cref="Player"/> store-backed property.</summary>
-public class ILinkCard
-{
-    public ILinkCard(bool payCost, CardSource card, Permanent permanent, ICardEffect cardEffect)
-    {
-        _payCost = payCost;
-        _linkCard = card;
-        _permanent = permanent;
-        _cardEffect = cardEffect;
-    }
-
-    bool _payCost = false;
-    CardSource _linkCard = null;
-    Permanent _permanent = null;
-    ICardEffect _cardEffect = null;
-    public bool WasLinked = false;
-
-    public async Task LinkCard()
-    {
-        if (_linkCard == null) return;
-        if (_permanent == null || _permanent.TopCard == null) return;
-        if (_cardEffect == null) return;
-
-        EngineContext context = _linkCard.Context;
-
-        #region Trigger When Would Link effects
-        SelectCardEffect.Root root;
-        if (CardEffectCommons.CardEffectCommons.IsExistOnHand(_linkCard))
-            root = SelectCardEffect.Root.Hand;
-        else if (CardEffectCommons.CardEffectCommons.IsExistInAnyTrash(_linkCard))
-            root = SelectCardEffect.Root.Trash;
-        else if (CardEffectCommons.CardEffectCommons.IsExistDigivolutionCards(_linkCard))
-            root = SelectCardEffect.Root.DigivolutionCards;
-        else if (CardEffectCommons.CardEffectCommons.IsExistLinked(_linkCard))
-            root = SelectCardEffect.Root.LinkedCards;
-        else
-            root = SelectCardEffect.Root.None;
-
-        await AutoProcessing.ForCutIn(context).StackSkillInfos(
-            CardEffectCommons.CardEffectCommons.WouldLinkHashtable(_linkCard, _permanent, root, null),
-            EffectTiming.WhenWouldLink).ConfigureAwait(false);
-
-        await AutoProcessing.ForCutIn(context).TriggeredSkillProcess(false, null!).ConfigureAwait(false);
-        #endregion
-
-        if (_payCost)
-        {
-            int Cost = _linkCard.GetChangedLinkCost(_permanent, root);
-
-            await _linkCard.Owner.AddMemory(-1 * Cost, _cardEffect).ConfigureAwait(false);
-        }
-
-        if (root == SelectCardEffect.Root.None)
-            await new IPlacePermanentToLinkCards(new List<Permanent[]>() { new Permanent[] { ICardEffect.ResolvePermanentOfThisCard(_linkCard), _permanent } }, _cardEffect).PlacePermanentToLinkCards().ConfigureAwait(false);
-        else
-            await _permanent.AddLinkCard(_linkCard, _cardEffect?.EffectSourceCard?.InstanceId).ConfigureAwait(false);
-
-        WasLinked = _permanent.LinkedCards.Contains(_linkCard);
-
-        new Player(context, _linkCard.Owner).UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();
-    }
-}
-
-#endregion
-
-#region TrashStack
-
-/// <summary>
-/// (MIG3-3b) 1:1 mirror of AS-IS <c>ITrashStack</c> (CardController.cs:5858-5986): the [Trash Stack] shape —
-/// trashes up to <c>trashCount</c> cards from a Digimon's stack top-down, promoting the next under-source each
-/// step, with NEITHER the de-digivolve immunity guard NOR the rookie/level-3 floor (AS-IS StopCondition
-/// :5899-5911 checks ONLY HasNoDigivolutionCards and the count; guards :5882-5887 have no ImmuneFromDeDigivolve).
-/// The <c>fromTop</c> ctor param is accepted but DEAD — AS-IS never branches on it (the loop always reads
-/// TopCard); preserved exactly, not "fixed". ONE WhenTopCardTrashed window per batch, UNCONDITIONAL once the
-/// count gate was reached (same AS-IS quirk as IDegeneration).
-///
-/// Substrate notes: same as IDegeneration (ArmorPurgeTopAsync — deliberately not DeDigivolveAsync, whose
-/// immunity/floor re-checks this class must NOT inherit). AS-IS <c>StackCards.Count</c> (:5889 = TopCard +
-/// DigivolutionCards) has no headless property — computed inline as DigivolutionCards.Count + 1 (provably
-/// inert cap: each step needs an under-source to promote). SetChangedLocationTime = MIG3-LOCATIONTIME.
-/// </summary>
-public class ITrashStack
-{
-    public ITrashStack(Permanent permanent, int trashCount, HeadlessEntityId? causeEffectSourceId, bool fromTop = true, ICardEffect? cardEffect = null)
-    {
-        _permanent = permanent;
-        _trashCount = trashCount;
-        _causeEffectSourceId = causeEffectSourceId;
-        _fromTop = fromTop; // AS-IS :5867/5872 — accepted, never branched on (dead param, preserved).
-        _cardEffect = cardEffect;
-    }
-
-    Permanent _permanent = null!;
-    int _trashCount;
-    readonly HeadlessEntityId? _causeEffectSourceId;
-    // (C1b RD-C1-CARDEFFECT-IDTHREAD / R3-W3c-2) AS-IS live `_cardEffect` threaded for the S2 immunity live scan.
-    // No mirror caller yet — AS-IS-shaped for when a trash-stack card lands.
-    readonly ICardEffect? _cardEffect;
-#pragma warning disable CS0414 // AS-IS dead field (fromTop stored, never read in the AS-IS loop either).
-    readonly bool _fromTop;
-#pragma warning restore CS0414
-
-    public async Task TrashStack(CancellationToken cancellationToken = default)
-    {
-        if (_causeEffectSourceId is not { IsEmpty: false }) return; // AS-IS :5882-5883
-        if (_permanent == null) return; // AS-IS :5884
-        if (_permanent.TopCard == null) return; // AS-IS :5885 — structurally dead, kept for 1:1 shape.
-
-        EngineContext context = _permanent.TopCard.Context;
-
-        // AS-IS :5886 ImmuneFromStackTrashing(_cardEffect). (R3-W3c B6) rehomed to the AS-IS-literal live getter.
-        if (_permanent.ImmuneFromStackTrashing(_cardEffect!)) return;
-        // AS-IS :5887 TopCard.CanNotBeAffected(_cardEffect). (R3-W3c-2) rehomed to the AS-IS-literal live scan.
-        if (_permanent.TopCard.CanNotBeAffected(_cardEffect)) return;
-
-        // AS-IS :5889 `_permanent.StackCards.Count` = TopCard + DigivolutionCards (no headless StackCards
-        // property — provably inert cap, kept for literal fidelity).
-        _trashCount = Math.Min(_permanent.DigivolutionCards.Count + 1, _trashCount);
-
-        if (_trashCount < 1) return; // AS-IS :5891 complement.
-
-        int count = 0;
-        List<CardSource> selectedCards = new();
-        // (MIG3 review P1-1) walk the live top id across steps — see IDegeneration.
-        HeadlessEntityId currentTopId = _permanent.InstanceId;
-
-        while (true)
-        {
-            var current = new Permanent(context, currentTopId, _permanent.OwnerId);
-
-            // AS-IS :5899-5911 StopCondition — HasNoDigivolutionCards or count reached; NO level-3 floor.
-            if (current.HasNoDigivolutionCards) break;
-            if (count >= _trashCount) break;
-
-            // AS-IS :5921 CreateDebuffEffect (first iteration only) = UI (stripped).
-
-            CardSource cardSource = current.TopCard;
-            selectedCards.Add(cardSource);
-
-            HeadlessEntityId? promotedId = IDegeneration.NextPromotedSourceId(context, currentTopId);
-
-            await new AceOverflowClass(new List<CardSource> { cardSource }).Overflow(cancellationToken).ConfigureAwait(false);
-
-            bool promoted = await Permanent.ArmorPurgeTopAsync(
-                context.CardInstanceRepository, context.ZoneMover, cardSource.InstanceId,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (!promoted || promotedId is not { } nextTopId) break;
-            currentTopId = nextTopId;
-
-            // AS-IS :5940 SetChangedLocationTime() — design item MIG3-LOCATIONTIME.
-
-            count++;
-        }
-
-        #region "When Top Card is Trashed" effect
-
-        // UNCONDITIONAL (matches AS-IS scope — not gated on selectedCards.Count). (MIG3 review P2-3)
-        // subject = the surviving top after the walk.
-        // (C1) AS-IS CardController.cs:5949-5958 StackSkillInfos({"Permanent", _permanent}, {"CardSources",
-        // selectedCards}, WhenTopCardTrashed) — the SOLE opener (the vestigial queue emit was retired). No CardEffect.
-        await GManager.instance.autoProcessing.StackSkillInfos(
-            new System.Collections.Hashtable { { "Permanent", _permanent }, { "CardSources", selectedCards } },
-            EffectTiming.WhenTopCardTrashed).ConfigureAwait(false);
-
-        #endregion
-
-        // AS-IS :5962-5981 add log (gated on selectedCards.Count >= 1) = UI (stripped).
-    }
-}
-
-#endregion
-}
-
-
-// ===== (R2-C) PlayCardClass / CardSourceAsIsPlayAccessors / IBattle relocated back into CardController.cs
-// AS-IS these are top-level classes in the SAME CardController.cs file (:118-933 PlayCardClass, :4427 IBattle).
-// The mirror keeps them in namespace `...CardEffectCommons` (unchanged) to avoid rewiring ~30 consumers
-// (incl. the parallel-owned MatchStateMutationSink.cs); a file can hold two block-scoped namespaces.
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
-{
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-
-
-// AS-IS CardController.cs:118-933.
 public class PlayCardClass
 {
-    // AS-IS :120-134.
     public PlayCardClass(List<CardSource> cardSources, Hashtable hashtable, bool payCost, Permanent targetPermanent, bool isTapped, SelectCardEffect.Root root,
     bool activateETB)
     {
@@ -2854,7 +133,6 @@ public class PlayCardClass
         _activateETB = activateETB;
     }
 
-    // AS-IS :136-142.
     public void SetJogress(int[] jogressEvoRootsFrameIDs)
     {
         if (jogressEvoRootsFrameIDs != null)
@@ -2863,23 +141,14 @@ public class PlayCardClass
         }
     }
 
-    // AS-IS :144-150. FRAME ADAPTATION (RD-P6C1-1 RESOLVED): AS-IS bounds the id against the FIXED per-player slot
-    // count (`card.Owner.fieldCardFrames.Count`); the mirror has no slot array. A burst-tamer frame id is a
-    // Permanent.PermanentFrame.FrameID, i.e. an index into the owner's COMPACTED field-permanent list
-    // (Permanent.cs:118-135, the established READ-side no-slot-model idiom RD-P6C2-11), so the bound is that list's
-    // Count — tighter than AS-IS and exact: every in-range id references an occupied frame. An out-of-range id is the
-    // AS-IS not-set fallthrough (kept: BurstTamer then returns null ⇒ IsBurst false on ordinary plays).
-    // (RD-JOGRESS-P2 #3 compacted-index time-stability — the id is stable only across the synchronous SetBurst→
-    // BurstTamer span, which every live burst flow satisfies; docs/audit/rebuild_p6_cluster1_notes.md.)
     public void SetBurst(int BurstTamerFrameID, CardSource card)
     {
-        if (0 <= BurstTamerFrameID && BurstTamerFrameID <= new Player(card.Context, card.Owner).GetFieldPermanents().Count - 1)
+        if (0 <= BurstTamerFrameID && BurstTamerFrameID <= card.Owner.fieldCardFrames.Count - 1)
         {
             _burstTamerFrameID = BurstTamerFrameID;
         }
     }
 
-    // AS-IS :152-158.
     public void SetAppFusion(int[] AppFusionFrameID)
     {
         if (AppFusionFrameID != null)
@@ -2888,50 +157,42 @@ public class PlayCardClass
         }
     }
 
-    // AS-IS :160-163.
     public void SetShowEffect()
     {
         _showEffect = true;
     }
 
-    // AS-IS :165-169.
     public void SetIgnoreLevel()
     {
         _ignoreLevel = true;
         SetIgnoreRequirements(CardEffectCommons.IgnoreRequirement.Level);
     }
 
-    // AS-IS :171-174.
     public void SetIgnoreRequirements(CardEffectCommons.IgnoreRequirement ignore)
     {
         _ignoreRequirement = ignore;
     }
 
-    // AS-IS :176-179.
     private bool GetIgnoreRequirement(CardEffectCommons.IgnoreRequirement ignore)
     {
         return _ignoreRequirement.Equals(ignore) || _ignoreRequirement.Equals(CardEffectCommons.IgnoreRequirement.All);
     }
 
-    // AS-IS :181-184.
     public void SetFixedCost(int FixedCost)
     {
         _fixedCost = FixedCost;
     }
 
-    // AS-IS :186-189.
     public void SetReducedCost(int ReducedCost)
     {
         _reducedCost = ReducedCost;
     }
 
-    // AS-IS :191-194.
     public void SetIsBreedingArea()
     {
         _isBreedingArea = true;
     }
 
-    // AS-IS :196-211.
     public List<CardSource> CardSources { get; private set; } = new List<CardSource>();
     Hashtable _hashtable = null;
     public bool PayCost { get; private set; }
@@ -2949,11 +210,8 @@ public class PlayCardClass
     int[] _appFusionFrameIDs = null;
     bool _isBreedingArea = false;
 
-    // AS-IS :213.
     public bool isJogress => _jogressEvoRootsFrameIDs != null && _jogressEvoRootsFrameIDs.Length == 2;
 
-    // AS-IS :215-237. `card.burstDigivolutionCondition` -> `card.BurstDigivolutionConditionOf()`
-    // (adaptation (6); re-read per access, exactly like the AS-IS property re-scan).
     bool IsBurst(CardSource card)
     {
         Permanent burstTamer = BurstTamer(card);
@@ -2962,11 +220,11 @@ public class PlayCardClass
         {
             if (burstTamer.TopCard != null)
             {
-                if (card.BurstDigivolutionConditionOf() != null)
+                if (card.burstDigivolutionCondition != null)
                 {
-                    if (card.BurstDigivolutionConditionOf().tamerCondition != null)
+                    if (card.burstDigivolutionCondition.tamerCondition != null)
                     {
-                        if (card.BurstDigivolutionConditionOf().tamerCondition(burstTamer))
+                        if (card.burstDigivolutionCondition.tamerCondition(burstTamer))
                         {
                             return true;
                         }
@@ -2978,17 +236,11 @@ public class PlayCardClass
         return false;
     }
 
-    // AS-IS :239-249. FRAME ADAPTATION (RD-P6C1-1 RESOLVED): `card.Owner.fieldCardFrames[_burstTamerFrameID]
-    // .GetFramePermanent()` → the occupant at that index of the owner's COMPACTED field-permanent list (the same
-    // Permanent.PermanentFrame convention SetBurst stores against). `_burstTamerFrameID < 0` (never SetBurst) = the
-    // AS-IS null fallthrough.
     Permanent BurstTamer(CardSource card)
     {
-        List<Permanent> fieldPermanents = new Player(card.Context, card.Owner).GetFieldPermanents();
-
-        if (0 <= _burstTamerFrameID && _burstTamerFrameID <= fieldPermanents.Count - 1)
+        if (0 <= _burstTamerFrameID && _burstTamerFrameID <= card.Owner.fieldCardFrames.Count - 1)
         {
-            Permanent tamer = fieldPermanents[_burstTamerFrameID];
+            Permanent tamer = card.Owner.fieldCardFrames[_burstTamerFrameID].GetFramePermanent();
 
             return tamer;
         }
@@ -2996,26 +248,21 @@ public class PlayCardClass
         return null;
     }
 
-    // AS-IS :251-275. `card.appFusionCondition` -> the EXISTING mirror `card.AppFusionConditionOf()`
-    // (adaptation (6)). (G-AppF / RD-EXT3-02 = RD-P6C3-D1) ADAPTATION: AS-IS host-digimon frame lookup
-    // `card.Owner.fieldCardFrames[_appFusionFrameIDs[0]].GetFramePermanent()` → the field-list index (same
-    // FrameID convention as LinkedCard; the index is validated by LinkedCard returning non-null above).
-    // `linkCard == null` (never SetAppFusion / LinkedCard fallthrough) = the AS-IS false path, kept.
     bool IsAppFusion(CardSource card)
     {
         CardSource linkCard = LinkedCard(card);
 
         if (linkCard != null)
         {
-            if (card.AppFusionConditionOf() != null)
+            if (card.appFusionCondition != null)
             {
-                if (card.AppFusionConditionOf()!.digimonCondition != null)
+                if (card.appFusionCondition.digimonCondition != null)
                 {
-                    Permanent digimon = new Player(card.Context, card.Owner).GetFieldPermanents()[_appFusionFrameIDs[0]];
+                    Permanent digimon = card.Owner.fieldCardFrames[_appFusionFrameIDs[0]].GetFramePermanent();
 
-                    if (card.AppFusionConditionOf()!.linkedCondition != null)
+                    if (card.appFusionCondition.linkedCondition != null)
                     {
-                        if (card.AppFusionConditionOf()!.linkedCondition(digimon, linkCard))
+                        if (card.appFusionCondition.linkedCondition(digimon, linkCard))
                         {
                             return true;
                         }
@@ -3027,20 +274,13 @@ public class PlayCardClass
         return false;
     }
 
-    // AS-IS :277-294. (G-AppF / RD-EXT3-02 = RD-P6C3-D1) ADAPTATION: AS-IS
-    // `card.Owner.fieldCardFrames[i].GetFramePermanent()` → the mirror field-list index — FrameID is the index
-    // into `new Player(...).GetFieldPermanents()` (the documented no-slot-model frame convention that
-    // Permanent.PermanentFrame produces, Permanent.cs:118-135). `_appFusionFrameIDs` unset = the AS-IS null
-    // fallthrough, kept.
     public CardSource LinkedCard(CardSource card)
     {
         if (_appFusionFrameIDs != null && _appFusionFrameIDs.Length == 2)
         {
-            List<Permanent> fieldPermanents = new Player(card.Context, card.Owner).GetFieldPermanents();
-
-            if (0 <= _appFusionFrameIDs[0] && _appFusionFrameIDs[0] <= fieldPermanents.Count - 1)
+            if (0 <= _appFusionFrameIDs[0] && _appFusionFrameIDs[0] <= card.Owner.fieldCardFrames.Count - 1)
             {
-                Permanent targetPermanent = fieldPermanents[_appFusionFrameIDs[0]];
+                Permanent targetPermanent = card.Owner.fieldCardFrames[_appFusionFrameIDs[0]].GetFramePermanent();
 
                 if (targetPermanent.LinkedCards.Count > _appFusionFrameIDs[1])
                 {
@@ -3053,8 +293,7 @@ public class PlayCardClass
         return null;
     }
 
-    // AS-IS :296-1042. `IEnumerator PlayCard()` -> `async Task PlayCard()` (see file header, adaptation (2)).
-    public async Task PlayCard()
+    public IEnumerator PlayCard()
     {
         bool burstDigivolved = false;
         bool appFusion = false;
@@ -3065,7 +304,6 @@ public class PlayCardClass
         foreach (CardSource card in CardSources)
         {
             GManager.instance.GetComponent<SelectDigiXrosClass>().ResetSelectDigiXrosClass();
-            // AS-IS :307 (RD-EXT3-02): the SelectAssemblyClass instance now carries component state.
             GManager.instance.GetComponent<SelectAssemblyClass>().ResetSelectAssemblyClass();
             GManager.instance.GetComponent<SelectDNACondition>().ResetSelectDNAConditionClass();
 
@@ -3084,23 +322,23 @@ public class PlayCardClass
             {
                 Root = SelectCardEffect.Root.Trash;
             }
-            else if (new Player(card.Context, card.Owner).HandCards.Contains(card))
+            else if (card.Owner.HandCards.Contains(card))
             {
                 Root = SelectCardEffect.Root.Hand;
             }
-            else if (new Player(card.Context, card.Owner).LibraryCards.Contains(card))
+            else if (card.Owner.LibraryCards.Contains(card))
             {
                 Root = SelectCardEffect.Root.Library;
             }
-            else if (new Player(card.Context, card.Owner).GetFieldPermanents().Count((permanent) => permanent.DigivolutionCards.Contains(card)) >= 1)
+            else if (card.Owner.GetFieldPermanents().Count((permanent) => permanent.DigivolutionCards.Contains(card)) >= 1)
             {
                 Root = SelectCardEffect.Root.DigivolutionCards;
             }
-            else if (new Player(card.Context, card.Owner).GetFieldPermanents().Count((permanent) => permanent.LinkedCards.Contains(card)) >= 1)
+            else if (card.Owner.GetFieldPermanents().Count((permanent) => permanent.LinkedCards.Contains(card)) >= 1)
             {
                 Root = SelectCardEffect.Root.LinkedCards;
             }
-            else if (new Player(card.Context, card.Owner).SecurityCards.Contains(card))
+            else if (card.Owner.SecurityCards.Contains(card))
             {
                 Root = SelectCardEffect.Root.Security;
             }
@@ -3115,7 +353,7 @@ public class PlayCardClass
 
             List<Permanent> targetPermanents = new List<Permanent>();
 
-            if (card.IsPermanent())
+            if (card.IsPermanent)
             {
                 if (!isJogress)
                 {
@@ -3126,22 +364,20 @@ public class PlayCardClass
                 }
                 else
                 {
-                    // AS-IS :367-381 (RD-P6C1-1 RESOLVED): resolve the two jogress evolution roots from
-                    // `card.Owner.fieldCardFrames[JogressFrameID].GetFramePermanent()`. FRAME ADAPTATION: a jogress
-                    // frame id is a Permanent.PermanentFrame.FrameID = an index into the owner's COMPACTED
-                    // field-permanent list (Permanent.cs:118-135) — the same currency PlayPermanentClass's jogress
-                    // arm consumes (CardController.cs:3969-3984). The AS-IS SetPermanentIndexText(:378-381) display
-                    // loop is UI (adaptation (4), stripped).
-                    List<Permanent> ownerField = new Player(card.Context, card.Owner).GetFieldPermanents();
                     for (int i = 0; i < _jogressEvoRootsFrameIDs.Length; i++)
                     {
                         int JogressFrameID = _jogressEvoRootsFrameIDs[i];
 
-                        if (0 <= JogressFrameID && JogressFrameID <= ownerField.Count - 1)
+                        if (0 <= JogressFrameID && JogressFrameID <= card.Owner.fieldCardFrames.Count - 1)
                         {
-                            Permanent targetPermanent = ownerField[JogressFrameID];
+                            Permanent targetPermanent = card.Owner.fieldCardFrames[JogressFrameID].GetFramePermanent();
                             targetPermanents.Add(targetPermanent);
                         }
+                    }
+
+                    foreach (Permanent permanent in targetPermanents)
+                    {
+                        permanent.ShowingPermanentCard.SetPermanentIndexText(targetPermanents);
                     }
                 }
             }
@@ -3197,18 +433,16 @@ public class PlayCardClass
                 }
             }
 
-            foreach (CardSource cardSource in new Player(card.Context, card.Owner).TrashCards)
+            foreach (CardSource cardSource in card.Owner.TrashCards)
             {
                 oldTrashCards.Add(cardSource);
             }
 
             // effect of removing digivolution/linked cards
-            // AS-IS :441-445: `if (card.IsPermanent && !isEvolution && card.PermanentOfThisCard() != null &&
-            // (Root == DigivolutionCards || Root == LinkedCards)) yield return ... GManager.instance.
-            // GetComponent<Effects>().RemoveDigivolveRootEffect(card, card.PermanentOfThisCard());` —
-            // Effects.RemoveDigivolveRootEffect (Effects.cs:2162-2265) is a pure ShowUseHandCard/DOTween
-            // display animation (no game-state change; the actual digivolution-card removal happens in the
-            // play flow itself) = UI, stripped (adaptation (4)).
+            if (card.IsPermanent && !isEvolution && card.PermanentOfThisCard() != null && (Root == SelectCardEffect.Root.DigivolutionCards || Root == SelectCardEffect.Root.LinkedCards))
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().RemoveDigivolveRootEffect(card, card.PermanentOfThisCard()));
+            }
 
             #region select digivolution cost
 
@@ -3216,10 +450,9 @@ public class PlayCardClass
 
             bool costSelected = false;
 
-            await SelectCost();
+            yield return ContinuousController.instance.StartCoroutine(SelectCost());
 
-            // AS-IS :455. `IEnumerator SelectCost()` -> `async Task SelectCost()` (adaptation (2)).
-            async Task SelectCost()
+            IEnumerator SelectCost()
             {
                 if (!isJogress)
                 {
@@ -3244,10 +477,10 @@ public class PlayCardClass
                                 if (isBurst || isAppFusion)
                                 {
                                     if (isBurst)
-                                        CostList.Add(card.BurstDigivolutionConditionOf().cost);
+                                        CostList.Add(card.burstDigivolutionCondition.cost);
 
                                     if (isAppFusion)
-                                        CostList.Add(card.AppFusionConditionOf().cost);
+                                        CostList.Add(card.appFusionCondition.cost);
                                 }
                                 else
                                 {
@@ -3274,23 +507,33 @@ public class PlayCardClass
                                     {
                                         costSelected = true;
 
-                                        // AS-IS :506-518 the `MoveToExecuteCardEffect` bool + its ShowingHandCard
-                                        // visibility probe, and :533-536 the Effects.MoveToExecuteCardEffect
-                                        // animation await — Unity-client presentation only (adaptation (4)); the
-                                        // mirror ChoiceProvider is the decider.
-                                        //
-                                        // (isAI restore) AS-IS :520-525's availability guard IS restored: it also
-                                        // resets `costSelected`, which is real mirror state. Verified in the
-                                        // original (CardController.cs:520-525) — `!card.Owner.isYou &&
-                                        // GManager.instance.IsAI` sets MoveToExecuteCardEffect=false and
-                                        // costSelected=false. Headless isYou and IsAI are both false, so the
-                                        // condition is false and costSelected stays true, exactly as before.
-                                        // NOT restored: the sibling :527-531 `card.Owner.isYou &&
-                                        // ContinuousController.instance.autoMinDigivolutionCost` branch (same
-                                        // body) — likewise unreachable headless (isYou is false).
-                                        if (!new Player(card.Context, card.Owner).isYou && GManager.instance!.IsAI)
+                                        bool MoveToExecuteCardEffect = true;
+
+                                        if (card.Owner.HandCards.Contains(card) && card.ShowingHandCard != null)
                                         {
+                                            if (card.ShowingHandCard.gameObject.activeSelf)
+                                            {
+                                                MoveToExecuteCardEffect = false;
+                                            }
+                                        }
+
+                                        if (!card.Owner.isYou && GManager.instance.IsAI)
+                                        {
+                                            MoveToExecuteCardEffect = false;
+
                                             costSelected = false;
+                                        }
+
+                                        if (card.Owner.isYou && ContinuousController.instance.autoMinDigivolutionCost)
+                                        {
+                                            MoveToExecuteCardEffect = false;
+
+                                            costSelected = false;
+                                        }
+
+                                        if (MoveToExecuteCardEffect)
+                                        {
+                                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().MoveToExecuteCardEffect(card));
                                         }
 
                                         SelectCountEffect selectCountEffect = GManager.instance.GetComponent<SelectCountEffect>();
@@ -3310,15 +553,12 @@ public class PlayCardClass
                                             selectCountEffect.SetPreferMin(true);
                                             selectCountEffect.SetIsDigivolutionCost(true);
 
-                                            await selectCountEffect.Activate();
+                                            yield return ContinuousController.instance.StartCoroutine(selectCountEffect.Activate());
 
-                                            // AS-IS :558. `IEnumerator SelectCountCoroutine(int count)` ->
-                                            // `async Task SelectCountCoroutine(int count)` (adaptation (2));
-                                            // lone `yield return null;` -> `await Task.CompletedTask;`.
-                                            async Task SelectCountCoroutine(int count)
+                                            IEnumerator SelectCountCoroutine(int count)
                                             {
                                                 baseCost = count;
-                                                await Task.CompletedTask;
+                                                yield return null;
                                             }
                                         }
                                     }
@@ -3326,7 +566,7 @@ public class PlayCardClass
                             }
                             else
                             {
-                                baseCost = card.BasePlayCostFromEntity();
+                                baseCost = card.BasePlayCostFromEntity;
                             }
                         }
                     }
@@ -3361,13 +601,12 @@ public class PlayCardClass
 
             #endregion
 
-            // AS-IS :606 `cardSource.PermanentOfThisCard()` -> `ICardEffect.ResolvePermanentOfThisCard(cardSource)` (adaptation (3)).
             List<SkillInfo> skillInfos_BeforePayCost = AutoProcessing.GetSkillInfos(hashtable, EffectTiming.BeforePayCost)
             .Concat(AutoProcessing.GetSkillInfosOfCards(hashtable, EffectTiming.BeforePayCost, new List<CardSource>() { card }
-                .Filter(cardSource => !CardEffectCommons.IsExistOnHand(cardSource) && !CardEffectCommons.IsExistOnTrash(cardSource) && !CardEffectCommons.IsExistInSecurity(cardSource) && ICardEffect.ResolvePermanentOfThisCard(cardSource) == null)))
+                .Filter(cardSource => !CardEffectCommons.IsExistOnHand(cardSource) && !CardEffectCommons.IsExistOnTrash(cardSource) && !CardEffectCommons.IsExistInSecurity(cardSource) && cardSource.PermanentOfThisCard() == null)))
             .ToList();
 
-            await AutoProcessing.ActivateBackgroundEffects(hashtable, EffectTiming.BeforePayCost);
+            yield return ContinuousController.instance.StartCoroutine(AutoProcessing.ActivateBackgroundEffects(hashtable, EffectTiming.BeforePayCost));
 
             #region IsShowEffect()
 
@@ -3384,7 +623,7 @@ public class PlayCardClass
                         return true;
                     }
                 }
-                else if (card.HasDigiXros() && !isEvolution)
+                else if (card.HasDigiXros && !isEvolution)
                 {
                     return true;
                 }
@@ -3410,15 +649,32 @@ public class PlayCardClass
                 {
                     if (card.IsOption || IsShowEffect())
                     {
-                        // AS-IS :649-673: the `noHandCard` ShowingHandCard visibility probe + the
-                        // Effects.MoveToExecuteCardEffect display move = UI, stripped (adaptation (4)).
+                        bool noHandCard = true;
+
+                        if (card.Owner.HandCards.Contains(card))
+                        {
+                            if (card.ShowingHandCard != null)
+                            {
+                                if (card.ShowingHandCard.gameObject.activeSelf)
+                                {
+                                    if (card.ShowingHandCard.gameObject.transform.GetChild(0).gameObject.activeSelf)
+                                    {
+                                        noHandCard = false;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (noHandCard)
+                        {
+                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().MoveToExecuteCardEffect(card));
+                        }
                     }
                     else
                     {
                         if (CardEffect == null)
                         {
-                            // AS-IS :679: Effects.ShrinkUpUseHandCard(Effects.ShowUseHandCard) = UI, stripped
-                            // (adaptation (4)).
+                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShrinkUpUseHandCard(GManager.instance.GetComponent<Effects>().ShowUseHandCard));
                         }
                     }
                 }
@@ -3428,11 +684,23 @@ public class PlayCardClass
 
             #region show expected cost
 
-            // AS-IS :688-704: computes the expected paying cost ONLY to feed
-            // `GManager.instance.memoryObject.ShowMemoryPredictionLine(card.Owner.ExpectedMemory(cost))` — the
-            // memory-gauge prediction overlay = UI; the whole region (including its side-effect-free
-            // GetPayingCostWithBaseCost probe) is stripped (adaptation (4)). The AUTHORITATIVE cost fix happens
-            // below in `#region fix cost to pay`.
+            if (PayCost)
+            {
+                if (!isJogress)
+                {
+                    int cost = card.GetPayingCostWithBaseCost(baseCost, Root, targetPermanents, checkAvailability: false, FixedCost: _fixedCost);
+
+                    GManager.instance.memoryObject.ShowMemoryPredictionLine(card.Owner.ExpectedMemory(cost));
+                }
+                else
+                {
+                    if (card.jogressCondition.Count > 0)
+                    {
+                        int cost = card.GetPayingCostWithBaseCost(card.jogressCondition[baseDNA].cost, Root, targetPermanents, checkAvailability: false, FixedCost: _fixedCost);
+                        GManager.instance.memoryObject.ShowMemoryPredictionLine(card.Owner.ExpectedMemory(cost));
+                    }
+                }
+            }
 
             #endregion
 
@@ -3445,13 +713,26 @@ public class PlayCardClass
                     GManager.instance.autoProcessing_CutIn.PutStackedSkill(skillInfo);
                 }
 
-                // AS-IS :745-757 `if (IsShowEffect()) targetPermanent.ShowWillEvolutionEffect();` loop —
-                // WillEvolutionObject display = UI, stripped (adaptation (4)).
+                if (IsShowEffect())
+                {
+                    foreach (Permanent targetPermanent in targetPermanents)
+                    {
+                        if (targetPermanent != null)
+                        {
+                            targetPermanent.ShowWillEvolutionEffect();
+                        }
+                    }
+                }
 
-                await GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, AutoProcessing.HasExecutedSameEffect);
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, AutoProcessing.HasExecutedSameEffect));
 
-                // AS-IS :763-769 `targetPermanent.HideWillEvolutionEffect();` loop = UI, stripped
-                // (adaptation (4)).
+                foreach (Permanent targetPermanent in targetPermanents)
+                {
+                    if (targetPermanent != null)
+                    {
+                        targetPermanent.HideWillEvolutionEffect();
+                    }
+                }
             }
 
             #endregion
@@ -3461,10 +742,10 @@ public class PlayCardClass
 
                 #region select DigiXros
 
-                if (card.HasDigiXros() && !isEvolution)
+                if (card.HasDigiXros && !isEvolution)
                 {
                     GManager.instance.GetComponent<SelectDigiXrosClass>().SetExcludedCards(CardSources);
-                    await GManager.instance.GetComponent<SelectDigiXrosClass>().Select(card);
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<SelectDigiXrosClass>().Select(card));
                 }
 
                 #endregion
@@ -3473,11 +754,8 @@ public class PlayCardClass
 
                 if (card.HasAssembly && !isEvolution)
                 {
-                    // AS-IS :757-758 (RD-EXT3-02): the SelectAssemblyClass instance component now mirrors the
-                    // interactive Assembly material pre-selection 1:1 (its STATIC feasibility half still serves
-                    // the parameterized play action).
                     GManager.instance.GetComponent<SelectAssemblyClass>().SetExcludedCards(CardSources);
-                    await GManager.instance.GetComponent<SelectAssemblyClass>().Select(card);
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<SelectAssemblyClass>().Select(card));
                 }
 
                 #endregion
@@ -3488,23 +766,13 @@ public class PlayCardClass
 
             if (IsBurst(card))
             {
-                // AS-IS :767-781 (RD-P6C1-6 RESOLVED): `GManager.instance.selectBurstDigivolutionEffect.BounceTamer(
-                // BurstTamer(card))` then the `!TamerBounced` retry (`_burstTamerFrameID = -1; SelectCost();`) else
-                // `burstDigivolved = true;`. All parts are now live: BurstTamer resolves the tamer frame (RD-P6C1-1
-                // above), the bounce METHOD is mirrored 1:1 (SelectBurstDigivolutionEffect.BounceTamer, RD-R5-02),
-                // SelectCost is the mirror re-entry. `GManager.instance.selectBurstDigivolutionEffect` → the
-                // match-scoped mirror component via `GManager.instance.GetComponent<SelectBurstDigivolutionEffect>()`
-                // (context-cached: the SAME instance across the two accesses, so TamerBounced is the flag BounceTamer
-                // just set — the SelectAppFusionEffect.LinkAdded idiom directly below).
-                SelectBurstDigivolutionEffect selectBurst = GManager.instance.GetComponent<SelectBurstDigivolutionEffect>();
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.selectBurstDigivolutionEffect.BounceTamer(BurstTamer(card)));
 
-                await selectBurst.BounceTamer(BurstTamer(card)).ConfigureAwait(false);
-
-                if (!selectBurst.TamerBounced)
+                if (!GManager.instance.selectBurstDigivolutionEffect.TamerBounced)
                 {
                     _burstTamerFrameID = -1;
 
-                    await SelectCost().ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(SelectCost());
                 }
                 else
                 {
@@ -3518,23 +786,19 @@ public class PlayCardClass
 
             if (IsAppFusion(card))
             {
-                // AS-IS :787-802. `GManager.instance.selectAppFusionEffect` → the match-scoped mirror component
-                // via `GManager.instance.GetComponent<SelectAppFusionEffect>()` (context-cached: the same
-                // instance across the two accesses, so LinkAdded state is preserved). The link-card → source
-                // conversion is the fully-ported R5-C SelectAppFusionEffect.AddToSources (RD-P6C1-6 resolved for
-                // App-Fusion). On failure the AS-IS clears the frame ids and re-selects cost; on success App-Fuse.
-                await GManager.instance.GetComponent<SelectAppFusionEffect>().AddToSources(LinkedCard(card)).ConfigureAwait(false);
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.selectAppFusionEffect.AddToSources(LinkedCard(card)));
 
-                if (!GManager.instance.GetComponent<SelectAppFusionEffect>().LinkAdded)
+                if (!GManager.instance.selectAppFusionEffect.LinkAdded)
                 {
                     _appFusionFrameIDs = new int[0];
 
-                    await SelectCost().ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(SelectCost());
                 }
                 else
                 {
                     appFusion = true;
                 }
+
             }
 
             #endregion
@@ -3552,14 +816,13 @@ public class PlayCardClass
                 }
                 else
                 {
-                    if (card.JogressConditionOf().Count > 0)
+                    if (card.jogressCondition.Count > 0)
                     {
-                        Cost = card.GetPayingCostWithBaseCost(card.JogressConditionOf()[baseDNA].cost, Root, targetPermanents, checkAvailability: false, FixedCost: _fixedCost);
+                        Cost = card.GetPayingCostWithBaseCost(card.jogressCondition[baseDNA].cost, Root, targetPermanents, checkAvailability: false, FixedCost: _fixedCost);
                     }
                 }
 
-                // AS-IS :826 memoryObject.ShowMemoryPredictionLine(card.Owner.ExpectedMemory(Cost)) = UI,
-                // stripped (adaptation (4)).
+                GManager.instance.memoryObject.ShowMemoryPredictionLine(card.Owner.ExpectedMemory(Cost));
             }
 
             #endregion
@@ -3571,7 +834,7 @@ public class PlayCardClass
 
             if (PayCost)
             {
-                if (Cost > new Player(card.Context, card.Owner).MaxMemoryCost)
+                if (Cost > card.Owner.MaxMemoryCost)
                 {
                     endPlayCard = true;
                     playFailed = true;
@@ -3599,22 +862,10 @@ public class PlayCardClass
                         {
                             if (!isJogress && !IsBurst(card) && !IsAppFusion(card))
                             {
-                                if (!GetIgnoreRequirement(CardEffectCommons.IgnoreRequirement.Level))
+                                if (!GetIgnoreRequirement(CardEffectCommons.IgnoreRequirement.Level) && !card.CanPlayCardTargetFrame(targetPermanents[0].PermanentFrame, PayCost, CardEffect, root: Root, fixedCost: -1))
                                 {
-                                    // AS-IS :813 `!card.CanPlayCardTargetFrame(targetPermanents[0].PermanentFrame,
-                                    // PayCost, CardEffect, root: Root, fixedCost: -1)` — (R4 S3c-c) the former STOP
-                                    // is now REAL: the OCCUPIED-frame arm of CanPlayCardTargetFrame (:1116-1195)
-                                    // reduces to the frame-owner gate (:1140) + CanEvolve(framePermanent,
-                                    // checkAvailability: true) (:1160-1165; the :1144 cost check is
-                                    // empty-frame-only), and the requirement engine landed at S3b-2
-                                    // (EvoCosts/CanEvolve). Frame identity = the target permanent itself
-                                    // (RD-P6C1-1 adaptation).
-                                    if (targetPermanents[0].OwnerId != card.Owner
-                                        || !card.CanEvolve(targetPermanents[0], true))
-                                    {
-                                        endPlayCard = true;
-                                        playFailed = true;
-                                    }
+                                    endPlayCard = true;
+                                    playFailed = true;
                                 }
                             }
                             else if (isJogress)
@@ -3648,35 +899,42 @@ public class PlayCardClass
 
             if (endPlayCard)
             {
-                // AS-IS :785 PlayLog = UI (stripped, adaptation (4)).
+                PlayLog.OnAddLog?.Invoke($"\nFailed to play:\n{card.BaseENGCardNameFromEntity}({card.CardID})\n");
 
                 GManager.instance.GetComponent<SelectDigiXrosClass>().ResetSelectDigiXrosClass();
                 GManager.instance.GetComponent<SelectDNACondition>().ResetSelectDNAConditionClass();
 
-                // AS-IS :790 (RD-EXT3-02): the SelectAssemblyClass instance now carries component state.
                 GManager.instance.GetComponent<SelectAssemblyClass>().ResetSelectAssemblyClass();
 
-                // AS-IS :791: Effects.FailedPlayCardEffect(card) — a DOTween shake on the brainstorm hand-card
-                // display (Effects.cs:2267-2306) = UI, stripped (adaptation (4)).
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().FailedPlayCardEffect(card));
 
-                if (new Player(card.Context, card.Owner).HandCards.Contains(card))
+                if (card.Owner.HandCards.Contains(card))
                 {
-                    // AS-IS :913-915 (RD-P6C1-8 / RD-P6C2-1 RESOLVED): the failed-play hand restore.
-                    // The mirror zone-move statics now exist (CardObjectController.RemoveFromAllArea +
-                    // AddHandCards, ported R6-P / RD-R6-03), so the STOP re-points to the 1:1 AS-IS calls:
-                    // `RemoveFromAllArea(card)` then `AddHandCards(new List<CardSource>() { card }, false, null)`.
-                    await CardObjectController.RemoveFromAllArea(card).ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveFromAllArea(card));
 
-                    await CardObjectController.AddHandCards(new List<CardSource>() { card }, false, null).ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCards(new List<CardSource>() { card }, false, null));
                 }
 
-                // AS-IS :801 fire-and-forget OffMemoryPredictionLine() = UI, stripped (adaptation (4)).
+                ContinuousController.instance.StartCoroutine(OffMemoryPredictionLine());
 
-                // AS-IS :803-809: the brainStormObject.BrainStormHandCards loop + CloseBrainstrorm — the
-                // brainstorm hand display = UI, stripped (adaptation (4)).
+                foreach (HandCard handCard in card.Owner.brainStormObject.BrainStormHandCards)
+                {
+                    if (handCard.gameObject.activeSelf && handCard.cardSource == card)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(card.Owner.brainStormObject.CloseBrainstrorm(card));
+                    }
+                }
 
-                // AS-IS :811-821: the player.FieldPermanentObjects / fieldPermanentCard.OffPermanentIndexText()
-                // loop — the jogress index-badge display = UI, stripped (adaptation (4)).
+                foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+                {
+                    foreach (FieldPermanentCard fieldPermanentCard in player.FieldPermanentObjects)
+                    {
+                        if (fieldPermanentCard != null)
+                        {
+                            fieldPermanentCard.OffPermanentIndexText();
+                        }
+                    }
+                }
 
                 if (playFailed)
                 {
@@ -3692,10 +950,7 @@ public class PlayCardClass
                     {
                         if (!CardEffectCommons.IsExistOnTrash(cardSource))
                         {
-                            // AS-IS :953 (RD-P6C1-8 / RD-P6C2-1 RESOLVED): the failed-play trash restore.
-                            // The mirror zone-move static now exists (CardObjectController.AddTrashCard,
-                            // ported R3-A), so the STOP re-points to the 1:1 AS-IS call.
-                            await CardObjectController.AddTrashCard(cardSource).ConfigureAwait(false);
+                            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
                         }
                     }
                 }
@@ -3703,12 +958,7 @@ public class PlayCardClass
 
             #endregion
 
-            // AS-IS :851/:961 `card.Owner.UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();`
-            // — verbatim. (EffectDurationExpiry retirement) The substrate helper that wrapped this single
-            // assignment is retired: the registry binding-set half it also cleared is gone (③-B, continuous-binding
-            // producer 0), so the player bucket is the only carrier and AS-IS clears it inline right here.
-            new Player(card.Context, card.Owner).UntilCalculateFixedCostEffect =
-                new List<Func<EffectTiming, ICardEffect>>();
+            card.Owner.UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();
 
             if (endPlayCard)
             {
@@ -3720,24 +970,24 @@ public class PlayCardClass
             if (PayCost)
             {
                 // memory lose
-                if (Cost <= new Player(card.Context, card.Owner).MaxMemoryCost)
+                if (Cost <= card.Owner.MaxMemoryCost)
                 {
-                    await card.Owner.AddMemory(-1 * Cost, null);
+                    yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(-1 * Cost, null));
                 }
 
-                // AS-IS :861 fire-and-forget OffMemoryPredictionLine() = UI, stripped (adaptation (4)).
+                ContinuousController.instance.StartCoroutine(OffMemoryPredictionLine());
             }
 
             #endregion
 
             #region cut in effect after paying cost
 
-            await GManager.instance.autoProcessing_CutIn.StackSkillInfos(hashtable, EffectTiming.AfterPayCost);
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(hashtable, EffectTiming.AfterPayCost));
 
             // cur in effect process
-            await GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(
                 false,
-                AutoProcessing.HasExecutedSameEffect);
+                AutoProcessing.HasExecutedSameEffect));
 
             #endregion
 
@@ -3748,11 +998,9 @@ public class PlayCardClass
         #region filter cards
 
         bool isDualCardAsOption(CardSource cardSource) => cardSource.IsDigimon && cardSource.IsOption && !isEvolution;
-        List<CardSource> permanentCards = playedCards_fixed.Filter(cardSource => cardSource.IsPermanent() && !isDualCardAsOption(cardSource));
-        List<CardSource> optionCards = playedCards_fixed.Filter(cardSource => !cardSource.IsPermanent() || isDualCardAsOption(cardSource));
+        List<CardSource> permanentCards = playedCards_fixed.Filter(cardSource => cardSource.IsPermanent && !isDualCardAsOption(cardSource));
+        List<CardSource> optionCards = playedCards_fixed.Filter(cardSource => !cardSource.IsPermanent || isDualCardAsOption(cardSource));
 
-        // (R4 S3b-2) AS-IS :868-960 `#region play permanent` + `#region use option` — the final hand-off,
-        // now REAL (STOP RD-P6C1-4 resolved; the sibling classes are ported below in AS-IS file order).
         #region play permanent
 
         PlayPermanentClass playPermanent = new PlayPermanentClass(permanentCards, _hashtable, _targetPermanent, _isTapped, Root, _activateETB);
@@ -3768,44 +1016,137 @@ public class PlayCardClass
         }
 
         if (appFusion)
-        {
             playPermanent.SetAppFusion(_appFusionFrameIDs);
-        }
 
         if (_isBreedingArea)
         {
             playPermanent.SetIsBreedingArea();
         }
 
-        await playPermanent.PlayPermanent().ConfigureAwait(false);
+        yield return ContinuousController.instance.StartCoroutine(playPermanent.PlayPermanent());
 
         #endregion
 
         #region use option
 
-        UseOptionClass useOption = new UseOptionClass(optionCards, _hashtable, Root) { _showEffect = _showEffect };
+        UseOptionClass useOption = new UseOptionClass(optionCards, _hashtable, Root)
+        {
+            _showEffect = _showEffect
+        };
 
-        await useOption.UseOption().ConfigureAwait(false);
+        yield return ContinuousController.instance.StartCoroutine(useOption.UseOption());
 
         #endregion
 
         #endregion
     }
 
-    // AS-IS :1044-1049 `IEnumerator OffMemoryPredictionLine()` — a WaitForSeconds-delayed
-    // `GManager.instance.memoryObject.OffMemoryPredictionLine()` (the memory-gauge prediction overlay) = UI,
-    // stripped WITH its two fire-and-forget call sites (:801/:861) (adaptation (4)).
+    IEnumerator OffMemoryPredictionLine()
+    {
+        yield return new WaitForSeconds(0.5f);
+
+        GManager.instance.memoryObject.OffMemoryPredictionLine();
+    }
 }
 
-/// <summary>(R4 S3b-2 — docs/audit/r4_tsm_s1_design_2026-07-16.md "S3b-2" 절) 1:1 mirror of AS-IS
-/// <c>PlayPermanentClass</c> (CardController.cs:1150-1703) — the permanent-play EXECUTOR the PlayCardClass
-/// hand-off drives (resolves STOP RD-P6C1-4). Established adaptations: coroutine → async Task; UI
-/// (brainStorm / PlayLog / Effects.Create-/DigivolveFieldPermanentCardEffect / ShowCardEffect / the
-/// transform-position "move permanents (hybrid)" region) stripped; the FRAME model (frameId / PreferredFrame /
-/// fieldCardFrames) reduces to zone placement + placeability booleans (RD-P6C1-2 family — capacity omitted);
-/// `new Permanent + CreateNewPermanent + EnterFieldTurnCount` / `AddCardSource` = the S3b-2① substrate ops
-/// (view rebind); the :1526-1529 digivolve counter+draw is inline here (PlayerTurnCounters.Increment + DrawClass);
-/// jogress evo-root "frame IDs" = field-permanent LIST indexes (the TurnFlowDriver currency).</summary>
+#endregion
+
+#region Hatch DigiEgg
+
+public class HatchDigiEggClass
+{
+    public HatchDigiEggClass(Player player, Hashtable hashtable)
+    {
+        _player = player;
+        _hashtable = hashtable;
+    }
+
+    Player _player { get; set; }
+    Hashtable _hashtable { get; set; }
+
+    public IEnumerator Hatch()
+    {
+        if (_player == null) yield break;
+        if (!_player.CanHatch) yield break;
+
+        CardSource card = _player.DigitamaLibraryCards[0];
+
+        PlayPermanentClass playPermanentClass = new PlayPermanentClass(
+        cardSources: new List<CardSource>() { card },
+        hashtable: _hashtable,
+        targetPermanent: null,
+        isTapped: false,
+        root: SelectCardEffect.Root.Library,
+        ActivateETB: true);
+
+        playPermanentClass.SetIsBreedingArea();
+        playPermanentClass.SetIsHatching();
+
+        yield return ContinuousController.instance.StartCoroutine(playPermanentClass.PlayPermanent());
+
+        if (card.PermanentOfThisCard() != null)
+        {
+            card.PermanentOfThisCard().EnterFieldTurnCount = -1;
+        }
+    }
+}
+
+#endregion
+
+#region Play permanents
+
+#region Hashtable setting class
+
+public class OnEnterFieldHashtableParams
+{
+    public OnEnterFieldHashtableParams(
+        Permanent permanent,
+        List<CardSource> evoRoots,
+        List<CardSource> evoRootTops,
+        SelectCardEffect.Root root,
+        List<int> oldLevels,
+        bool isFromDigimonDigivolutionCards,
+        int digiXrosCount = 0,
+        int assemblyCount = 0)
+    {
+        Permanent = permanent;
+
+        if (evoRoots != null)
+        {
+            EvoRoots = evoRoots.Clone();
+        }
+
+        if (evoRootTops != null)
+        {
+            EvoRootTops = evoRootTops.Clone();
+        }
+
+        Root = root;
+
+        if (oldLevels != null)
+        {
+            OldLevels = oldLevels.Clone();
+        }
+
+        IsFromDigimonDigivolutionCards = isFromDigimonDigivolutionCards;
+
+        DigixrosCount = digiXrosCount;
+
+        AssemblyCount = assemblyCount;
+    }
+
+    public Permanent Permanent { get; private set; } = null;
+    public List<CardSource> EvoRoots = new List<CardSource>();
+    public List<CardSource> EvoRootTops { get; private set; } = new List<CardSource>();
+    public SelectCardEffect.Root Root { get; private set; } = SelectCardEffect.Root.None;
+    public List<int> OldLevels { get; private set; } = new List<int>();
+    public bool IsFromDigimonDigivolutionCards { get; private set; } = false;
+    public int DigixrosCount { get; private set; } = 0;
+    public int AssemblyCount { get; private set; } = 0;
+}
+
+#endregion
+
 public class PlayPermanentClass
 {
     public PlayPermanentClass(List<CardSource> cardSources, Hashtable hashtable, Permanent targetPermanent, bool isTapped, SelectCardEffect.Root root, bool ActivateETB)
@@ -3881,7 +1222,7 @@ public class PlayPermanentClass
 
     public bool isAppFusion => _appFusionFrameIDs != null && _appFusionFrameIDs.Length == 2;
 
-    public async Task PlayPermanent(CancellationToken cancellationToken = default)
+    public IEnumerator PlayPermanent()
     {
         List<OnEnterFieldHashtableParams> hashtableParams = new List<OnEnterFieldHashtableParams>();
 
@@ -3891,16 +1232,17 @@ public class PlayPermanentClass
 
         foreach (CardSource card in _cardSources)
         {
-            // AS-IS :1235 / :1276 brainStormObject.CloseBrainstrorm — UI (stripped).
+            yield return ContinuousController.instance.StartCoroutine(card.Owner.brainStormObject.CloseBrainstrorm(card));
 
             if (_cardSources.Count > 1) //Do Digixros in this loop if playing more than 1 card as they shouldn't be paying cost and can then correctly work for each card being played
             {
+
                 #region select DigiXros
 
-                if (card.HasDigiXros() && !isEvolution)
+                if (card.HasDigiXros && !isEvolution)
                 {
                     GManager.instance.GetComponent<SelectDigiXrosClass>().SetExcludedCards(_cardSources);
-                    await GManager.instance.GetComponent<SelectDigiXrosClass>().Select(card);
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<SelectDigiXrosClass>().Select(card));
                 }
 
                 #endregion
@@ -3909,13 +1251,12 @@ public class PlayPermanentClass
 
                 if (card.HasAssembly && !isEvolution)
                 {
-                    // AS-IS :1254-1255 (RD-EXT3-02): the SelectAssemblyClass instance component mirrors the
-                    // interactive Assembly material pre-selection 1:1 (same seat as the single-card arm).
                     GManager.instance.GetComponent<SelectAssemblyClass>().SetExcludedCards(_cardSources);
-                    await GManager.instance.GetComponent<SelectAssemblyClass>().Select(card);
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<SelectAssemblyClass>().Select(card));
                 }
 
                 #endregion
+
             }
 
             if (GManager.instance.GetComponent<SelectDigiXrosClass>().playCard == card)
@@ -3924,17 +1265,17 @@ public class PlayPermanentClass
                 _maxDigixrosCount = Math.Max(_digiXrosCount, _maxDigixrosCount);
             }
 
-            // AS-IS :1268-1270 (RD-EXT3-02): the SelectAssemblyClass instance now carries live component state.
             if (GManager.instance.GetComponent<SelectAssemblyClass>().playCard == card)
             {
                 _assemblyCount = GManager.instance.GetComponent<SelectAssemblyClass>().selectedAssemblyCards.Count;
                 _maxAssemblyCount = Math.Max(_assemblyCount, _maxAssemblyCount);
             }
 
-            bool isFromDigimonDigivolutionCards = new Player(card.Context, card.Owner).GetFieldPermanents()
-                .Some((permanent) => permanent.DigivolutionCards.Contains(card));
+            bool isFromDigimonDigivolutionCards = card.Owner.GetFieldPermanents().Some((permanent) => permanent.DigivolutionCards.Contains(card));
 
-            bool isFromSecurity = new Player(card.Context, card.Owner).SecurityCards.Contains(card);
+            bool isFromSecurity = card.Owner.SecurityCards.Contains(card);
+
+            yield return ContinuousController.instance.StartCoroutine(card.Owner.brainStormObject.CloseBrainstrorm(card));
 
             Permanent permanent = null;
             isEvolution = false;
@@ -3943,34 +1284,60 @@ public class PlayPermanentClass
             bool played = false;
             List<int> oldLevels = new List<int>();
 
-            // AS-IS :1290-1340 frame targeting — FRAME ADAPTATION (no frame/slot model): the frameId search
-            // reduces to a PLACEABILITY decision. Breeding arm (:1295-1312): one breeding slot ⇔ the breeding
-            // area being empty; the digiegg-frame CanPlayCardTargetFrame(PayCost:false) reduces to
-            // CanEnterField (the cost check is PayCost-gated). Battle arm (:1315-1338): PreferredFrame / the
-            // first-empty-frame fallback always resolves in the frame-less model (capacity omitted,
-            // RD-P6C1-2) — the rule gate is the :1350 CanPlayAsNewPermanent below. Target arm (:1324): the
-            // evolve target IS the placement.
-            bool framePlaceable;
+            int frameId = -1;
+
             if (_targetPermanent == null)
             {
                 if (_isBreedingArea)
                 {
-                    framePlaceable = new Player(card.Context, card.Owner).GetBreedingAreaPermanents().Count == 0
-                        && (_isHatching || card.CanEnterField(CardEffect));
+                    if (card.Owner.GetBreedingAreaPermanents().Count == 0)
+                    {
+                        FieldCardFrame digieggFrame = card.Owner.fieldCardFrames.Find(fieldCardFrame =>
+                        fieldCardFrame.IsEmptyFrame() &&
+                        !fieldCardFrame.IsBattleAreaFrame());
+
+                        if (digieggFrame != null)
+                        {
+                            if (_isHatching)
+                                frameId = digieggFrame.FrameID;
+                            else if (card.CanPlayCardTargetFrame(digieggFrame, false, CardEffect, isBreedingArea: _isBreedingArea))
+                                frameId = digieggFrame.FrameID;
+                        }
+                    }
                 }
                 else
                 {
-                    framePlaceable = true;
+                    FieldCardFrame preferredFrame = card.PreferredFrame();
+
+                    if (preferredFrame != null)
+                    {
+                        frameId = preferredFrame.FrameID;
+                    }
                 }
             }
             else
             {
-                framePlaceable = true;
+                frameId = _targetPermanent.PermanentFrame.FrameID;
             }
 
             if (!isJogress)
             {
-                if (framePlaceable)
+                if (!(0 <= frameId && frameId < card.Owner.fieldCardFrames.Count))
+                {
+                    foreach (FieldCardFrame fieldCardFrame in card.Owner.fieldCardFrames)
+                    {
+                        if (card.CanPlayCardTargetFrame(fieldCardFrame, false, CardEffect, isBreedingArea: _isBreedingArea))
+                        {
+                            if (fieldCardFrame.IsEmptyFrame())
+                            {
+                                frameId = fieldCardFrame.FrameID;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (0 <= frameId && frameId < card.Owner.fieldCardFrames.Count)
                 {
                     played = true;
 
@@ -3980,9 +1347,7 @@ public class PlayPermanentClass
                     }
                     else
                     {
-                        // AS-IS :1350 — mirror CanPlayAsNewPermanent carries no isBreedingArea parameter (its
-                        // frame-scan half is the same frame adaptation); the breeding placeability was gated above.
-                        if (!CardEffectCommons.CanPlayAsNewPermanent(card, false, CardEffect, isPlayOption: _isPlayOption))
+                        if (!CardEffectCommons.CanPlayAsNewPermanent(card, false, CardEffect, isBreedingArea: _isBreedingArea, isPlayOption: _isPlayOption))
                         {
                             played = false;
                         }
@@ -3993,34 +1358,74 @@ public class PlayPermanentClass
 
                     if (played)
                     {
-                        // AS-IS :1360 card.Init() — transient-view substrate no-op (CardObjectController header).
+                        card.Init();
 
-                        await CardObjectController.RemoveFromAllArea(card, cancellationToken).ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveFromAllArea(card));
 
                         if (isEvolution)
                         {
                             oldLevels.Add(_targetPermanent.Level);
 
-                            // AS-IS :1369 PlayLog — stripped.
+                            PlayLog.OnAddLog?.Invoke($"\nEvolution:\n{card.BaseENGCardNameFromEntity}({card.CardID})\n");
 
                             permanent = _targetPermanent;
                             evoRoots.Add(_targetPermanent.TopCard);
                             evoRootTops.Add(_targetPermanent.TopCard);
-                            permanent = await permanent.AddCardSource(card, cancellationToken).ConfigureAwait(false);   // :1375 (S3b-2① view rebind)
+                            permanent.AddCardSource(card);
                         }
                         else
                         {
-                            // AS-IS :1378-1382 PlayLog (token vs card) — stripped.
+                            if (card.IsToken)
+                                PlayLog.OnAddLog?.Invoke($"\nPlay on field:\n{card.BaseENGCardNameFromEntity} token\n");
+                            else
+                                PlayLog.OnAddLog?.Invoke($"\nPlay on field:\n{card.BaseENGCardNameFromEntity}({card.CardID})\n");
 
-                            // AS-IS :1384-1387 `new Permanent{IsSuspended} + CreateNewPermanent(frameId)` — the
-                            // S3b-2① single substrate op; EnterFieldTurnCount write kept 1:1.
-                            permanent = await CardObjectController.CreateNewPermanent(card, isSuspended: _isTapped, isBreedingArea: _isBreedingArea, cancellationToken).ConfigureAwait(false);
+                            permanent = new Permanent(new List<CardSource>() { card }) { IsSuspended = _isTapped };
+
+                            yield return ContinuousController.instance.StartCoroutine(CardObjectController.CreateNewPermanent(permanent, frameId));
                             permanent.EnterFieldTurnCount = GManager.instance.turnStateMachine.TurnCount;
                         }
 
-                        // AS-IS :1389-1414 DoneStartGame UI region — the HasETB probe + CreateFieldPermanentCard-
-                        // Effect / DigivolveFieldPermanentCardEffect exist only to parameterize the card-entry
-                        // ANIMATION; the rule-side window is the OnEnterFieldAnyone stack at the tail. Stripped.
+                        if (GManager.instance.turnStateMachine.DoneStartGame)
+                        {
+                            if (!isEvolution)
+                            {
+                                #region wheter to have ETB effects
+
+                                Hashtable hashtable = CardEffectCommons.OnEnterFieldHashtable(
+                                hashtableParams: new List<OnEnterFieldHashtableParams>()
+                                {
+                                    new OnEnterFieldHashtableParams(
+                                        permanent: permanent,
+                                        evoRoots: evoRoots,
+                                        evoRootTops: evoRootTops,
+                                        root: _root,
+                                        oldLevels: oldLevels,
+                                        isFromDigimonDigivolutionCards:isFromDigimonDigivolutionCards,
+                                        digiXrosCount: _digiXrosCount,
+                                        assemblyCount: _assemblyCount
+                                    )
+                                },
+                                isEvolution: isEvolution,
+                                isJogress: isJogress,
+                                digiXrosCount: _digiXrosCount,
+                                assemblyCount: _assemblyCount,
+                                cardEffect: CardEffect);
+
+                                bool HasETB = permanent.EffectList(EffectTiming.OnEnterFieldAnyone).Some(cardEffect =>
+                                cardEffect is ActivateICardEffect && cardEffect.CanUse(hashtable) && _activateETB && cardEffect.IsOnPlay);
+
+                                #endregion
+
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateFieldPermanentCardEffect(permanent.ShowingPermanentCard, HasETB: HasETB, isDigiXros: _digiXrosCount >= 1));
+                            }
+                            else
+                            {
+                                bool isBlast = CardEffect != null && CardEffect.EffectName != null && CardEffect.EffectName.Contains("Blast");
+                                //effect
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().DigivolveFieldPermanentCardEffect(permanent.ShowingPermanentCard, _burstDigivolved, isBlast, _appFusion));
+                            }
+                        }
                     }
                 }
             }
@@ -4030,21 +1435,18 @@ public class PlayPermanentClass
                 {
                     played = true;
 
-                    // AS-IS :1424 card.Init() — substrate no-op.
+                    card.Init();
 
-                    await CardObjectController.RemoveFromAllArea(card, cancellationToken).ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveFromAllArea(card));
 
                     isEvolution = true;
 
                     List<Permanent> evoRootPermanents = new List<Permanent>();
 
-                    // AS-IS :1432-1444 fieldCardFrames[frameID].GetFramePermanent() — FRAME ADAPTATION: the
-                    // jogress evo-root "frame IDs" are field-permanent LIST indexes (the TurnFlowDriver currency).
-                    List<Permanent> ownerField = new Player(card.Context, card.Owner).GetFieldPermanents();
                     for (int i = 0; i < _jogressEvoRootsFrameIDs.Length; i++)
                     {
                         int frameID = _jogressEvoRootsFrameIDs[i];
-                        Permanent evoRoot = 0 <= frameID && frameID < ownerField.Count ? ownerField[frameID] : null;
+                        Permanent evoRoot = card.Owner.fieldCardFrames[frameID].GetFramePermanent();
 
                         if (evoRoot != null)
                         {
@@ -4055,9 +1457,7 @@ public class PlayPermanentClass
                         }
                     }
 
-                    // AS-IS :1446 targetFrameID = evoRootPermanents[0]'s frame — frame-less: placement is the
-                    // zone append (the first root's slot has no mirror meaning). ADAPTATION (RD-JOGRESS-P2 #1
-                    // survivor field position — docs/audit/rebuild_p6_cluster1_notes.md).
+                    int targetFrameID = evoRootPermanents[0].PermanentFrame.FrameID;
 
                     foreach (Permanent evoRootPermanent in evoRootPermanents)
                     {
@@ -4081,31 +1481,30 @@ public class PlayPermanentClass
 
                     foreach (Permanent evoRootPermanent in evoRootPermanents)
                     {
-                        await evoRootPermanent.DiscardEvoRoots(ignoreOverflow: true, putToTrash: false, cancellationToken).ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(evoRootPermanent.DiscardEvoRoots(ignoreOverflow: true, putToTrash: false));
 
-                        await CardObjectController.RemoveField(evoRootPermanent, ignoreOverflow: true, cancellationToken).ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(evoRootPermanent, ignoreOverflow: true));
                     }
 
                     foreach (CardSource linkCard in linkCards)
                     {
-                        await CardObjectController.AddTrashCard(linkCard, cancellationToken).ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(linkCard));
                     }
 
-                    // AS-IS :1493 PlayLog — stripped.
+                    PlayLog.OnAddLog?.Invoke($"\nJogress:\n{card.BaseENGCardNameFromEntity}({card.CardID})\n");
 
-                    // AS-IS :1495-1500 `new Permanent{IsSuspended=false} + CreateNewPermanent(targetFrameID)` +
-                    // `EnterFieldTurnCount = -1` (a jogress permanent is never summoning-sick).
-                    permanent = await CardObjectController.CreateNewPermanent(card, isSuspended: false, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    permanent = new Permanent(new List<CardSource>() { card }) { IsSuspended = false };
+
+                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.CreateNewPermanent(permanent, targetFrameID));
                     permanent.EnterFieldTurnCount = -1;
 
                     newDigivolutionCards.Reverse();
 
-                    // AS-IS :1504 AddDigivolutionCardsTop(newDigivolutionCards, null) — the mirror op takes the
-                    // CAUSE id (null cardEffect ⇒ null cause, the AS-IS natural-jogress no-window path).
-                    await permanent.AddDigivolutionCardsTop(newDigivolutionCards, null, cancellationToken).ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(permanent.AddDigivolutionCardsTop(newDigivolutionCards, null));
 
-                    // AS-IS :1506-1508 CreateFieldPermanentCardEffect / ShowCardEffect ("DNA Digivolution
-                    // Cards") — UI, stripped.
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateFieldPermanentCardEffect(permanent.ShowingPermanentCard, isDigiXros: false, jogressEvoRoots: evoRootTops.ToArray()));
+
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(evoRootTops, "DNA Digivolution Cards", true, true));
 
                     foreach (CardSource evolutionCard in permanent.DigivolutionCards)
                     {
@@ -4118,26 +1517,16 @@ public class PlayPermanentClass
             {
                 if (isFromSecurity)
                 {
-                    // AS-IS :1520-1524 `new IReduceSecurity(player, ref nullSkillInfos, GetCardEffectFromHashtable)`
-                    // — mirror ctor (context, playerId, refCollector:null = the AS-IS null-ref emit-now branch, cause).
-                    await new IReduceSecurity(
-                        card.Context,
-                        card.Owner,
-                        null,
-                        CardEffectCommons.GetCardEffectFromHashtable(_hashtable)).ReduceSecurity(cancellationToken).ConfigureAwait(false);
+                    yield return ContinuousController.instance.StartCoroutine(new IReduceSecurity(
+                        player: card.Owner,
+                        refSkillInfos: ref ContinuousController.instance.nullSkillInfos,
+                        CardEffectCommons.GetCardEffectFromHashtable(_hashtable)).ReduceSecurity());
                 }
 
                 if (isEvolution)
                 {
-                    // AS-IS :1526-1529 `DigivolveCount_ThisTurn++` + `new DrawClass(owner,1,null).Draw()` — the
-                    // AS-IS statements themselves, inline at the AS-IS position (the retired substrate
-                    // DigivolveCommons.OnDigivolveCompletedAsync wrapper is folded back into its single AS-IS
-                    // home: this chokepoint). The counter is the substrate PlayerTurnCounterController seat for
-                    // `Player.DigivolveCount_ThisTurn`; the draw is the mirror DrawClass with a null cardEffect
-                    // (the AS-IS `new DrawClass(owner, 1, null)` digivolve-draw), which opens OnDraw at the
-                    // AS-IS emit position.
-                    card.Context.PlayerTurnCounters.Increment(card.Owner, Headless.Runtime.PlayerTurnCounterController.DigivolveCountKey);
-                    await new DrawClass(card.Context, card.Owner, 1, (ICardEffect?)null).Draw(cancellationToken).ConfigureAwait(false);
+                    card.Owner.DigivolveCount_ThisTurn++;
+                    yield return ContinuousController.instance.StartCoroutine(new DrawClass(card.Owner, 1, null).Draw());
 
                     if (_burstDigivolved)
                     {
@@ -4145,12 +1534,7 @@ public class PlayPermanentClass
                         {
                             permanent.IsBurstDigivolved = true;
 
-                            // AS-IS :1537 (RD-P6C1-6 RESOLVED): `GManager.instance.selectBurstDigivolutionEffect.
-                            // AddTrashTopCardAtTurnEnd(permanent)` — registers the OnEndTurn ace-overflow+trash of the
-                            // burst top card. The mirror component method is landed 1:1 (RD-R5-03,
-                            // SelectBurstDigivolutionEffect.cs:349); the singleton `selectBurstDigivolutionEffect` →
-                            // the match-scoped `GManager.instance.GetComponent<SelectBurstDigivolutionEffect>()`.
-                            GManager.instance.GetComponent<SelectBurstDigivolutionEffect>().AddTrashTopCardAtTurnEnd(permanent);
+                            GManager.instance.selectBurstDigivolutionEffect.AddTrashTopCardAtTurnEnd(permanent);
                         }
                     }
 
@@ -4162,7 +1546,7 @@ public class PlayPermanentClass
                         }
                     }
 
-                    permanent.CardNamesJustAfterDigivolved = permanent.TopCard.CardNames.ToList();
+                    permanent.CardNamesJustAfterDigivolved = permanent.TopCard.CardNames.Clone();
 
                     permanent.DigivolvingEffect = CardEffect;
                 }
@@ -4180,23 +1564,74 @@ public class PlayPermanentClass
                         permanent.PlayCostJustAfterPlayed = permanent.TopCard.GetCostItself;
                     }
 
-                    permanent.CardNamesJustAfterPlayed = permanent.TopCard.CardNames.ToList();
+                    permanent.CardNamesJustAfterPlayed = permanent.TopCard.CardNames.Clone();
 
-                    permanent.TraitsJustAfterPlayed = permanent.TopCard.CardTraits.ToList();
+                    permanent.TraitsJustAfterPlayed = permanent.TopCard.CardTraits.Clone();
                 }
 
-                // AS-IS :1573-1626 "move permanents (hybrid)" — pure UI canvas repositioning
-                // (transform.localPosition comparisons); no rule mutation. Stripped.
+                #region move permanents (hybrid)
 
-                // AS-IS :1630-1634 (RD-EXT3-01/02/05): the SelectDigiXros/Assembly apply halves (:882-1018) are
-                // ported — the DigiXros/Assembly materials selected pre-play stack UNDER this permanent, including
-                // the field-permanent material sub-branch (RD-EXT3-05: IPlacePermanentToDigivolutionCards now
-                // mirrored). The hand/trash/tamer/security branches run as before.
-                await GManager.instance.GetComponent<SelectDigiXrosClass>().AddDigivolutiuonCardsByEffect(card);
-                await GManager.instance.GetComponent<SelectDigiXrosClass>().AddDigivolutiuonCards(card);
+                if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
+                {
+                    if (permanent.TopCard.PreferredFrame() != null)
+                    {
+                        if (permanent.PermanentFrame != permanent.TopCard.PreferredFrame())
+                        {
+                            if (permanent.TopCard.PreferredFrame().IsEmptyFrame())
+                            {
+                                bool move = false;
 
-                await GManager.instance.GetComponent<SelectAssemblyClass>().AddDigivolutiuonCardsByEffect(card);
-                await GManager.instance.GetComponent<SelectAssemblyClass>().AddDigivolutiuonCards(card);
+                                if (permanent.IsDigimon)
+                                {
+                                    if (permanent.TopCard.Owner.isYou)
+                                    {
+                                        if (permanent.TopCard.PreferredFrame().Frame.transform.parent.localPosition.y > permanent.PermanentFrame.Frame.transform.parent.localPosition.y + 5)
+                                        {
+                                            move = true;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (permanent.TopCard.PreferredFrame().Frame.transform.parent.localPosition.y < permanent.PermanentFrame.Frame.transform.parent.localPosition.y - 5)
+                                        {
+                                            move = true;
+                                        }
+                                    }
+                                }
+                                else if (permanent.IsTamer || permanent.TopCard.IsOption)
+                                {
+                                    if (permanent.TopCard.Owner.isYou)
+                                    {
+                                        if (permanent.TopCard.PreferredFrame().Frame.transform.parent.localPosition.y < permanent.PermanentFrame.Frame.transform.parent.localPosition.y - 5)
+                                        {
+                                            move = true;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (permanent.TopCard.PreferredFrame().Frame.transform.parent.localPosition.y > permanent.PermanentFrame.Frame.transform.parent.localPosition.y + 5)
+                                        {
+                                            move = true;
+                                        }
+                                    }
+                                }
+
+                                if (move)
+                                {
+                                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.MovePermanent(permanent.PermanentFrame));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                #endregion
+
+                yield return GManager.instance.GetComponent<SelectDigiXrosClass>().AddDigivolutiuonCardsByEffect(card);
+                yield return GManager.instance.GetComponent<SelectDigiXrosClass>().AddDigivolutiuonCards(card);
+
+                yield return GManager.instance.GetComponent<SelectAssemblyClass>().AddDigivolutiuonCardsByEffect(card);
+                yield return GManager.instance.GetComponent<SelectAssemblyClass>().AddDigivolutiuonCards(card);
 
                 if (GManager.instance.turnStateMachine.DoneStartGame)
                 {
@@ -4216,9 +1651,9 @@ public class PlayPermanentClass
             }
 
             GManager.instance.GetComponent<SelectDigiXrosClass>().ResetSelectDigiXrosClass();
-            // AS-IS :1654 (RD-EXT3-02): the SelectAssemblyClass instance now carries component state.
             GManager.instance.GetComponent<SelectAssemblyClass>().ResetSelectAssemblyClass();
             GManager.instance.GetComponent<SelectDNACondition>().ResetSelectDNAConditionClass();
+
         }
 
         // except [On Play] effect
@@ -4253,73 +1688,19 @@ public class PlayPermanentClass
 
         #region "When permanents are played" effect
 
-        // (design doc S3b-2① option B) the INLINE OnEnterFieldAnyone window — the zone entries above carried no
-        // supply metadata, so this stack is the single opener (no double-fire with SkillWindowSupply).
-        await GManager.instance.autoProcessing.StackSkillInfos(
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(
             hashtable: effectHashtable,
             timing: EffectTiming.OnEnterFieldAnyone,
-            cardEffectCondition: CardEffectCondition).ConfigureAwait(false);
-
-        // (R4 S3c-c, DISPATCH-REMAP BRIDGE) AS-IS fires [When Digivolving] members THROUGH this same
-        // OnEnterFieldAnyone stack (discriminated by the CanTriggerWhenDigivolving hashtable gate) — but the
-        // ported card corpus registers those effects under the mirror's DEDICATED WhenDigivolving key (the
-        // batch-2 BT1_025/BT1_062 remap, because the OLD driver dispatches digivolves via
-        // DigivolveAction's WhenDigivolving emit). Until the corpus re-keys to the literal AS-IS timing, the
-        // executor must speak the corpus's dialect: an EVOLUTION play ALSO opens the WhenDigivolving window
-        // (same hashtable/gates — a member's own CanTrigger discriminates). The S3c-a shadow caught this:
-        // ST2_09's opponent-source trash fired on OLD and stayed silent on the pump path.
-        if (isEvolution)
-        {
-            // (리뷰3 P2-②) DOUBLE-KEY GUARD: with BOTH windows open on an evolution, a card that registers
-            // the SAME effect under OnEnterFieldAnyone (the literal AS-IS key) AND WhenDigivolving (the remap
-            // dialect key) would fire it TWICE per digivolve. AS-IS has exactly ONE key, so a double
-            // registration is structurally impossible there — it can only be a corpus authoring defect
-            // (a card ported half-verbatim / half-remapped). The honest mirror translation is therefore to
-            // SURFACE the defect immediately, not to silently dedup (choosing which copy fires would invent
-            // behavior AS-IS cannot express). Same-effect = same source card instance + same (non-empty)
-            // AS-IS EffectDiscription, on the members that actually pass this window's CanTrigger gates.
-            List<SkillInfo> enterKeyMembers = AutoProcessing.GetSkillInfos(
-                effectHashtable, EffectTiming.OnEnterFieldAnyone, CardEffectCondition);
-            List<SkillInfo> digivolveKeyMembers = AutoProcessing.GetSkillInfos(
-                effectHashtable, EffectTiming.WhenDigivolving, CardEffectCondition);
-            foreach (SkillInfo digivolveMember in digivolveKeyMembers)
-            {
-                if (digivolveMember.CardEffect?.EffectSourceCard is not CardSource digivolveSource
-                    || string.IsNullOrEmpty(digivolveMember.CardEffect.EffectDiscription))
-                {
-                    continue;
-                }
-
-                bool doubleKeyed = enterKeyMembers.Some(enterMember =>
-                    enterMember.CardEffect?.EffectSourceCard is CardSource enterSource
-                    && enterSource.InstanceId == digivolveSource.InstanceId
-                    && enterMember.CardEffect.EffectDiscription == digivolveMember.CardEffect.EffectDiscription);
-                if (doubleKeyed)
-                {
-                    throw new NotSupportedException(
-                        $"STOP: card '{digivolveSource.InstanceId.Value}' registers the same effect " +
-                        $"('{digivolveMember.CardEffect.EffectDiscription}') under BOTH OnEnterFieldAnyone and " +
-                        "WhenDigivolving — the DISPATCH-REMAP dialect requires exactly one key per effect " +
-                        "(AS-IS has a single OnEnterFieldAnyone key; a double registration would double-fire " +
-                        "on every digivolve). Corpus defect — fix the card's timing key (리뷰3 P2-② guard).");
-                }
-            }
-
-            await GManager.instance.autoProcessing.StackSkillInfos(
-                hashtable: effectHashtable,
-                timing: EffectTiming.WhenDigivolving,
-                cardEffectCondition: CardEffectCondition).ConfigureAwait(false);
-        }
+            cardEffectCondition: CardEffectCondition));
 
         #endregion
     }
 }
 
-/// <summary>(R4 S3b-2) 1:1 mirror of AS-IS <c>UseOptionClass</c> (CardController.cs:1704-1902) — the option
-/// EXECUTOR (the PlayCardClass hand-off's second half). Established adaptations: coroutine → async Task; UI
-/// (Effects.* / brainStorm / PlayLog) stripped; ExecutingCards = the Execution-zone views (S3b-2③); the
-/// multi-resolution pick (AS-IS selectCardPanel.OpenSelectCardPanel, MaxCount 1) = a ChoiceController request
-/// via the engine-wide choice provider (pump-aware await / RunToStable throw contract).</summary>
+#endregion
+
+#region Use option
+
 public class UseOptionClass
 {
     public UseOptionClass(List<CardSource> cardSources, Hashtable hashtable, SelectCardEffect.Root root)
@@ -4338,25 +1719,35 @@ public class UseOptionClass
     Hashtable _hashtable = null;
     public bool _showEffect = false;
 
-    public async Task UseOption(CancellationToken cancellationToken = default)
+    public IEnumerator UseOption()
     {
         ICardEffect CardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
-        _ = CardEffect;   // AS-IS reads it only via GetCardEffectFromHashtable below (the :1725 local is unused past scope)
 
         foreach (CardSource card in _cardSources)
         {
-            // AS-IS :1728-1735 _showEffect Effects.* — UI (stripped).
-            // AS-IS :1737 PlayLog — stripped.
-            // AS-IS :1739 card.Init() / :1741 card.SetFace() — transient-view no-op / the move's face stamp.
+            if (_showEffect)
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().DeleteHandCardEffectCoroutine(card));
+
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowUseHandCardEffect_PlayCard(card));
+
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().MoveToExecuteCardEffect(card));
+            }
+
+            PlayLog.OnAddLog?.Invoke($"\nPlay Option:\n{card.BaseENGCardNameFromEntity}({card.CardID})\n");
+
+            card.Init();
+
+            card.SetFace();
 
             int cost = card.GetCostItself;
 
             //Remove from all areas
-            await CardObjectController.RemoveFromAllArea(card, cancellationToken).ConfigureAwait(false);
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveFromAllArea(card));
 
-            await CardObjectController.AddExecutingCard(card, cancellationToken).ConfigureAwait(false);
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddExecutingCard(card));
 
-            // AS-IS :1750 brainStormObject.BrainStormCoroutine — UI (stripped).
+            yield return ContinuousController.instance.StartCoroutine(card.Owner.brainStormObject.BrainStormCoroutine(card));
 
             #region Set HashTable
 
@@ -4371,9 +1762,9 @@ public class UseOptionClass
 
             #region "When option is used" effect
 
-            await GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnUseOption).ConfigureAwait(false);
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnUseOption));
 
-            await AutoProcessing.ActivateBackgroundEffects(hashtable, EffectTiming.OnUseOption).ConfigureAwait(false);
+            yield return ContinuousController.instance.StartCoroutine(AutoProcessing.ActivateBackgroundEffects(hashtable, EffectTiming.OnUseOption));
 
             #endregion
 
@@ -4385,16 +1776,16 @@ public class UseOptionClass
                 {
                     if (cardEffect.CanUse(hashtable))
                     {
-                        await GManager.instance.autoProcessing.ActivateEffectProcess(
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.ActivateEffectProcess(
                                                     cardEffect,
-                                                    hashtable).ConfigureAwait(false);
+                                                    hashtable));
                     }
                 }
             }
 
             #endregion
 
-            if (new Player(card.Context, card.Owner).ExecutingCards.Contains(card))
+            if (card.Owner.ExecutingCards.Contains(card))
             {
                 List<OptionResolutionClass> optionResolutionEffects = new List<OptionResolutionClass>();
                 foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
@@ -4442,7 +1833,7 @@ public class UseOptionClass
                 }
                 #endregion
 
-                while (new Player(card.Context, card.Owner).ExecutingCards.Contains(card))
+                while (card.Owner.ExecutingCards.Contains(card))
                 {
                     List<OptionResolutionClass> possibleEffects = optionResolutionEffects.Filter(effect => effect.CanResolve(card));
                     if (possibleEffects.Count() == 0)
@@ -4452,58 +1843,38 @@ public class UseOptionClass
                     else if (possibleEffects.Count() == 1)
                     {
                         OptionResolutionClass currentEffect = possibleEffects[0];
-                        if (currentEffect != null) await currentEffect.Resolve(card).ConfigureAwait(false);
+                        if (currentEffect != null) yield return ContinuousController.instance.StartCoroutine(currentEffect.Resolve(card));
                         optionResolutionEffects.Remove(currentEffect);
                     }
                     else
                     {
-                        // AS-IS :1855-1880 selectCardPanel.OpenSelectCardPanel (MaxCount 1, no-decline) — the
-                        // mirror seat is a ChoiceController request through the engine-wide choice provider
-                        // (pump-aware await-mode / RunToStable throw, the established suspension contract).
                         List<SkillInfo> skillInfos = possibleEffects.Map(effect => new SkillInfo(effect, null, EffectTiming.None));
-                        var candidates = new List<Headless.Choices.ChoiceCandidate>(skillInfos.Count);
-                        for (int i = 0; i < skillInfos.Count; i++)
-                        {
-                            CardSource source = skillInfos[i].CardEffect?.EffectSourceCard;
-                            candidates.Add(new Headless.Choices.ChoiceCandidate(
-                                new Headless.Services.HeadlessEntityId((source?.InstanceId.Value ?? "<null>") + "#" + i),
-                                skillInfos[i].CardEffect?.EffectName ?? "resolution",
-                                Headless.Choices.ChoiceZone.Custom,
-                                IsSelectable: true,
-                                ownerId: card.Owner));
-                        }
-
-                        var request = new Headless.Choices.ChoiceRequest(
-                            Headless.Choices.ChoiceType.Card,
-                            card.Owner,
-                            "Option has multiple resolutions instead of going to trash.\nChoose which to process.",
-                            minCount: 1,
-                            maxCount: 1,
-                            canSkip: false,
-                            Headless.Choices.ChoiceZone.Custom,
-                            candidates.ToArray());
-
-                        Headless.Choices.ChoiceResult picked = await card.Context.ChoiceProvider
-                            .ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+                        List<CardSource> rootCardSources = skillInfos.Map(skillInfo => skillInfo.CardEffect.EffectSourceCard);
 
                         int skillIndex = -1;
-                        if (!picked.IsSkipped && picked.SelectedIds.Count > 0)
+
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.selectCardPanel.OpenSelectCardPanel(
+                                Message: "Option has multiple resolutions instead of going to trash.\nChoose which to process.",
+                                RootCardSources: rootCardSources,
+                                _CanTargetCondition: _ => true,
+                                _CanTargetCondition_ByPreSelecetedList: null,
+                                _CanEndSelectCondition: null,
+                                _MaxCount: 1,
+                                _CanEndNotMax: false,
+                                _CanNoSelect: () => false,
+                                CanLookReverseCard: true,
+                                skillInfos: skillInfos,
+                                root: SelectCardEffect.Root.None));
+
+                        if (GManager.instance.selectCardPanel.SelectedIndex.Count > 0)
                         {
-                            string pickedId = picked.SelectedIds[0].Value;
-                            for (int i = 0; i < candidates.Count; i++)
-                            {
-                                if (candidates[i].Id.Value == pickedId)
-                                {
-                                    skillIndex = i;
-                                    break;
-                                }
-                            }
+                            skillIndex = GManager.instance.selectCardPanel.SelectedIndex[0];
                         }
 
                         if (skillIndex >= 0)
                         {
                             OptionResolutionClass currentEffect = possibleEffects[skillIndex];
-                            if (currentEffect != null) await currentEffect.Resolve(card).ConfigureAwait(false);
+                            if (currentEffect != null) yield return ContinuousController.instance.StartCoroutine(currentEffect.Resolve(card));
                             optionResolutionEffects.Remove(currentEffect);
                         }
                         else
@@ -4514,149 +1885,1998 @@ public class UseOptionClass
                 }
             }
 
-            if (new Player(card.Context, card.Owner).ExecutingCards.Contains(card))
+            if (card.Owner.ExecutingCards.Contains(card))
             {
-                await CardObjectController.AddTrashCard(card, cancellationToken).ConfigureAwait(false);
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(card));
             }
 
-            // AS-IS :1898 CloseBrainstrorm — UI (stripped).
+            yield return ContinuousController.instance.StartCoroutine(card.Owner.brainStormObject.CloseBrainstrorm(card));
+
         }
     }
 }
 
-/// <summary>(P6C1) AS-IS <c>CardSource</c> members the AS-IS-verbatim play pipeline reads, bridged as
-/// extensions because their AS-IS home (<c>CardSource.cs</c>) belongs to another P6 remediation cluster —
-/// relocate them into the mirror <c>CardSource</c> when that file is free (design item RD-P6C1-9,
-/// docs/audit/rebuild_p6_cluster1_notes.md). Two kinds:
-/// <list type="bullet">
-/// <item>REAL 1:1 accessors (the AS-IS property bodies verbatim over the live <c>EffectList(None)</c> scan —
-/// the same shape the existing mirror <c>AppFusionConditionOf</c>/<c>AssemblyConditionOf</c> established):
-/// <see cref="JogressConditionOf"/>, <see cref="BurstDigivolutionConditionOf"/>, <see cref="DigiXrosConditionOf"/>,
-/// <see cref="HasDigiXros"/>, <see cref="IsPermanent"/>, <see cref="BasePlayCostFromEntity"/>.</item>
-/// <item>STOP bridges for the play/digivolution cost+requirement engine (the MIG5 PLAY-COST gap — AS-IS
-/// <c>EvoCosts</c>/<c>GetChangedCostItselef</c>/<c>GetChangedPayingCost</c>/requirement scans are a whole
-/// unported subsystem): <see cref="CanEvolve"/>, <see cref="CostList"/>, <see cref="GetPayingCostWithBaseCost"/>,
-/// <see cref="CanJogressFromTargetPermanents"/>, <see cref="CanBurstDigivolutionFromTargetPermanent"/>,
-/// <see cref="CanAppFusionFromTargetPermanent"/> — design item RD-P6C1-2; they keep the AS-IS call-site text
-/// verbatim and throw, never guess.</item>
-/// </list></summary>
-public static class CardSourceAsIsPlayAccessors
+#endregion
+
+#region Draw cards
+
+public class DrawClass
 {
-    /// <summary>(P6C1) AS-IS <c>CardSource.jogressCondition</c> (CardSource.cs:2707-2722) — verbatim: every
-    /// usable <c>IAddJogressConditionEffect</c>'s non-null condition from this card's live effect list.</summary>
-    public static List<JogressCondition> JogressConditionOf(this CardSource card)
+    public DrawClass(Player player, int drawCount, ICardEffect cardEffect)
     {
-        List<JogressCondition> addJogressConditionEffect =
-        card.EffectList(EffectTiming.None)
-        .Filter(cardEffect => cardEffect is IAddJogressConditionEffect
-            && cardEffect.CanUse(null)
-            && ((IAddJogressConditionEffect)cardEffect).GetJogressCondition(card) != null)
-        .Select(cardEffect => ((IAddJogressConditionEffect)cardEffect).GetJogressCondition(card))
-        .ToList();
-
-        return addJogressConditionEffect;
+        _player = player;
+        _drawCount = drawCount;
+        _cardEffect = cardEffect;
     }
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.burstDigivolutionCondition</c> (CardSource.cs:2987-3009) — verbatim:
-    /// the first usable <c>IAddBurstDigivolutionConditionEffect</c>'s non-null condition.</summary>
-    public static BurstDigivolutionCondition BurstDigivolutionConditionOf(this CardSource card)
-    {
-        foreach (ICardEffect cardEffect in card.EffectList(EffectTiming.None))
-        {
-            if (cardEffect is IAddBurstDigivolutionConditionEffect)
-            {
-                if (cardEffect.CanUse(null))
-                {
-                    BurstDigivolutionCondition burstDigivolutionCondition = ((IAddBurstDigivolutionConditionEffect)cardEffect).GetBurstDigivolutionCondition(card);
+    Player _player = null;
+    int _drawCount = 0;
+    ICardEffect _cardEffect = null;
 
-                    if (burstDigivolutionCondition != null)
-                    {
-                        return burstDigivolutionCondition;
-                    }
-                }
+    public IEnumerator Draw()
+    {
+        if (_drawCount <= 0) yield break;
+        if (_player.LibraryCards.Count <= 0) yield break;
+
+        List<CardSource> DrawCards = new List<CardSource>();
+
+        for (int i = 0; i < _drawCount; i++)
+        {
+            if (_player.LibraryCards.Count > 0)
+            {
+                CardSource DrawCard = _player.LibraryCards[0];
+
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveFromAllArea(DrawCard));
+
+                DrawCards.Add(DrawCard);
             }
         }
 
-        return null;
-    }
+        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCards(DrawCards, true, _cardEffect));
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.digiXrosCondition</c> (CardSource.cs:2959-2981) — verbatim: the
-    /// first usable <c>IAddDigiXrosConditionEffect</c>'s non-null condition.</summary>
-    public static DigiXrosCondition DigiXrosConditionOf(this CardSource card)
-    {
-        foreach (ICardEffect cardEffect in card.EffectList(EffectTiming.None))
+        #region add log
+
+        if (DrawCards.Count >= 1)
         {
-            if (cardEffect is IAddDigiXrosConditionEffect)
-            {
-                if (cardEffect.CanUse(null))
-                {
-                    DigiXrosCondition digiXrosCondition = ((IAddDigiXrosConditionEffect)cardEffect).GetDigiXrosCondition(card);
-
-                    if (digiXrosCondition != null)
-                    {
-                        return digiXrosCondition;
-                    }
-                }
-            }
+            PlayLog.OnAddLog?.Invoke($"\nDraw {DrawCards.Count} card{Utils.PluralFormSuffix(DrawCards.Count)}\n{_player.PlayerName}\n");
         }
 
-        return null;
+        #endregion
+
+        #region "When draw cards" effect
+
+        if (DrawCards.Count >= 1)
+        {
+            #region Hashtable setting
+
+            Hashtable _hashtable = new Hashtable()
+            {
+                {"Player", _player},
+                {"CardEffect", _cardEffect}
+            };
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(_hashtable, EffectTiming.OnDraw));
+        }
+
+        #endregion
     }
-
-    /// <summary>(P6C1) AS-IS <c>CardSource.HasDigiXros</c> (CardSource.cs:2569) — verbatim
-    /// (<c>digiXrosCondition != null</c>).</summary>
-    public static bool HasDigiXros(this CardSource card) => card.DigiXrosConditionOf() != null;
-
-    /// <summary>(P6C1) AS-IS <c>CardSource.IsPermanent</c> (CardSource.cs:3488 → CEntity_Base.cs:238):
-    /// Digimon OR Tamer OR Digi-Egg (static printed card kind).</summary>
-    public static bool IsPermanent(this CardSource card) => card.IsDigimon || card.IsTamer || card.IsDigiEgg;
-
-    /// <summary>(P6C1) AS-IS <c>CardSource.BasePlayCostFromEntity</c> (CardSource.cs:757-763 —
-    /// <c>_cEntity_Base.PlayCost</c>, the raw printed play cost): the mirror carrier of exactly that value is
-    /// <c>CardSource.GetCostItself</c> (<c>Definition?.PlayCost ?? 0</c>).</summary>
-    public static int BasePlayCostFromEntity(this CardSource card) => card.GetCostItself;
-
-    // (R4 S3b-2) The AS-IS CardSource.CanEvolve STOP extension stub is retired — the real 1:1 instance method
-    // (EvoCosts/CostList/CanEvolve, the printed+added digivolution cost engine) now lives on CardSource
-    // (CardSource.cs, R4 S3b-2); `card.CanEvolve(...)` calls resolve to that instance method.
-
-    // (R2-C) The AS-IS CardSource.CostList STOP extension stub was retired — it is now the real (still-STOP,
-    // printed-EvoCost-engine RD-P6C1-2) 1:1 instance method on CardSource (CardSource.cs, R2-C).
-
-    // (R2-C) The AS-IS CardSource.GetPayingCostWithBaseCost STOP extension stub was retired — it is now the real
-    // 1:1 instance method on CardSource (CardSource.cs, R2-C). `card.GetPayingCostWithBaseCost(...)` calls here
-    // resolve to that instance method.
-
-    // (P6C1 — RD-P6C1-2 RESOLVED) The AS-IS CardSource.CanJogressFromTargetPermanents STOP extension stub is retired
-    // — it is now the real 1:1 instance method on the mirror CardSource (CardSource.cs, right after OrderedPairs).
-    // `card.CanJogressFromTargetPermanents(...)` call sites resolve to that instance method (its cost-engine
-    // dependency GetChangedCostItselef, consumed inside CanPlayJogress only when PayCost, landed at R2-C).
-
-    // (P6C1 — RD-P6C1-2 RESOLVED) The AS-IS CardSource.CanBurstDigivolutionFromTargetPermanent STOP extension stub is
-    // retired — it is now the real 1:1 instance method on the mirror CardSource (CardSource.cs, next to the Jogress
-    // sibling). `card.CanBurstDigivolutionFromTargetPermanent(...)` call sites resolve to that instance method.
-
-    // (G-AppF / RD-EXT3-02) The AS-IS CardSource.CanAppFusionFromTargetPermanent STOP extension stub is retired
-    // — it is now the real 1:1 instance method on the mirror CardSource (CardSource.cs, right after
-    // AppFusionConditionOf). `card.CanAppFusionFromTargetPermanent(...)` call sites resolve to that instance
-    // method (RD-P6C1-2 resolved for App-Fusion; the Jogress/Burst siblings above remain STOP).
 }
 
+#endregion
 
-/// <summary>AS-IS <c>ISecurityCheck</c> (CardController.cs:3880-4229) 1:1 — the attacker's security check: while
-/// Strike remains (bounded by the <c>StopSecurityCheck</c> re-eval loop, :3893/:3911/:3930/:3935), break the top
-/// security card, resolve its [Security] (SecuritySkill) effect, batch the OnSecurityCheck + OnLoseSecurity
-/// windows (fired together at :4111), and — if the broken card is a Digimon — battle it (<see cref="IBattle"/>).
-///
-/// ADAPTATION (sanctioned substrate only): IEnumerator→Task, <c>StartCoroutine(X)</c>→<c>await X</c>,
-/// <c>yield break</c>→<c>return</c>; UI/animation stripped (securityBreakGlass, <c>Effects.*</c>, brainStorm*,
-/// <c>WaitForSeconds</c>, ShowUseHandCard, PlayLog — none gate game state); <c>turnStateMachine.isSecurityCehck</c>
-/// (:3920/:4226) is a UI input-guard (only <c>NextPhaseButton</c> reads it) DROPPED like the sibling IsSelecting
-/// guard; a card's <c>Owner</c> (a HeadlessPlayerId in the mirror) → <c>new Player(card.Context, card.Owner)</c>
-/// when a Player member is read (<c>ExecutingCards</c>). The OnLoseSecurity DEFERRAL is faithful: the collect-mode
-/// <see cref="IReduceSecurity"/> gathers its SkillInfos into the SAME <c>triggeredSkillInfos</c> the OnSecurityCheck
-/// triggers went into (:3954/:3982), and both fire together in the single PutStackedSkill loop (:4111), resolved by
-/// the one AutoProcessCheck (:4117) — AFTER the security card's own [Security] effect.</summary>
+#region Trash cards from deck too
+
+public class IAddTrashCardsFromLibraryTop
+{
+    public IAddTrashCardsFromLibraryTop(int addTrashCount, Player player, ICardEffect cardEffect)
+    {
+        _addTrashCount = addTrashCount;
+        _player = player;
+        _cardEffect = cardEffect;
+    }
+
+    public void SetNotShowCards()
+    {
+        _notShowCards = true;
+    }
+
+    int _addTrashCount;
+    Player _player;
+    public List<CardSource> discardedCards = new List<CardSource>();
+    ICardEffect _cardEffect { get; set; } = null;
+    bool _notShowCards = false;
+
+    public IEnumerator AddTrashCardsFromLibraryTop()
+    {
+        if (_addTrashCount <= 0) yield break;
+        if (_player.LibraryCards.Count == 0) yield break;
+
+        string log = "";
+
+        log += $"\nTrash cards from deck :";
+
+        for (int i = 0; i < _addTrashCount; i++)
+        {
+            if (_player.LibraryCards.Count > i)
+            {
+                CardSource DiscardCard = _player.LibraryCards[i];
+
+                discardedCards.Add(DiscardCard);
+
+                log += $"\n{DiscardCard.BaseENGCardNameFromEntity}({DiscardCard.CardID})";
+            }
+        }
+
+        if (discardedCards.Count >= 1)
+        {
+            if (!_notShowCards)
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(discardedCards, "Discarded Cards", true, true));
+            }
+        }
+
+        yield return ContinuousController.instance.StartCoroutine(new ITrashDeckCards(discardedCards, _cardEffect).TrashDeckCards());
+
+        if (discardedCards.Count >= 1)
+        {
+            for (int i = 0; i < discardedCards.Count; i++)
+            {
+                ContinuousController.instance.PlaySE(GManager.instance.DrawSE);
+                yield return new WaitForSeconds(0.06f);
+            }
+
+            log += "\n";
+
+            PlayLog.OnAddLog?.Invoke(log);
+        }
+    }
+}
+
+#endregion
+
+#region Add security from deck top
+
+public class IAddSecurityFromLibrary
+{
+    public IAddSecurityFromLibrary(Player player, int addLifeCount)
+    {
+        _player = player;
+        _addSecurityCount = addLifeCount;
+    }
+
+    Player _player = null;
+    int _addSecurityCount = 0;
+
+    public IEnumerator AddSecurity()
+    {
+        int count = 0;
+
+        for (int i = 0; i < _addSecurityCount; i++)
+        {
+            if (_player.LibraryCards.Count > 0)
+            {
+                CardSource StockCard = _player.LibraryCards[0];
+
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddSecurityCard(StockCard, useEffect: (i == 0)));
+
+                count++;
+            }
+        }
+
+        if (count > 0)
+        {
+            string log = "";
+
+            log += $"\nAdd {count} cards to security:{_player.PlayerName}";
+
+            log += "\n";
+
+            PlayLog.OnAddLog?.Invoke(log);
+        }
+    }
+}
+
+#endregion
+
+#region Recovery
+
+public class IRecovery
+{
+    public IRecovery(Player player, int AddLifeCount, ICardEffect cardEffect)
+    {
+        _player = player;
+        _addLifeCount = AddLifeCount;
+        _cardEffect = cardEffect;
+    }
+
+    Player _player = null;
+    int _addLifeCount = 0;
+    ICardEffect _cardEffect = null;
+
+    public IEnumerator Recovery()
+    {
+        if (_player.LibraryCards.Count == 0) yield break;
+        if (_addLifeCount <= 0) yield break;
+        if (!_player.CanAddSecurity(_cardEffect)) yield break;
+
+        yield return ContinuousController.instance.StartCoroutine(new IAddSecurityFromLibrary(_player, _addLifeCount).AddSecurity());
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateRecoveryEffect(_player));
+    }
+}
+
+#endregion
+
+#region Digi-Burst
+
+public class IDigiBurst
+{
+    public IDigiBurst(Permanent permanent, int DigiBurstCount, ICardEffect cardEffect)
+    {
+        _permanent = permanent;
+        _digiBurstCount = DigiBurstCount;
+        _cardEffect = cardEffect;
+    }
+
+    Permanent _permanent = null;
+    int _digiBurstCount = 0;
+    ICardEffect _cardEffect = null;
+    bool _upToMaxCount = false;
+
+    public List<CardSource> discardedCards = new List<CardSource>();
+
+    public void SetUpToMaxCount()
+    {
+        _upToMaxCount = true;
+    }
+
+    public bool CanDigiBurst()
+    {
+        if (_permanent != null)
+        {
+            if (_permanent.TopCard != null)
+            {
+                if (_permanent.ImmuneFromStackTrashing(_cardEffect)) return false;
+
+                if (_upToMaxCount)
+                {
+                    if (_permanent.DigivolutionCards.Some((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(_cardEffect)))
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    if (_permanent.DigivolutionCards.Count((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(_cardEffect)) >= _digiBurstCount)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public IEnumerator DigiBurst()
+    {
+        if (CanDigiBurst())
+        {
+            discardedCards = new List<CardSource>();
+
+            List<CardSource> selectedCards = new List<CardSource>();
+
+            SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+            selectCardEffect.SetUp(
+                        canTargetCondition: (cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(_cardEffect),
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: CanEndSelectCondition,
+                        canNoSelect: () => false,
+                        selectCardCoroutine: SelectCardCoroutine,
+                        afterSelectCardCoroutine: null,
+                        message: "Select digivolution cards to discard.",
+                        maxCount: _digiBurstCount,
+                        canEndNotMax: _upToMaxCount,
+                        isShowOpponent: true,
+                        mode: SelectCardEffect.Mode.Custom,
+                        root: SelectCardEffect.Root.Custom,
+                        customRootCardList: _permanent.DigivolutionCards,
+                        canLookReverseCard: true,
+                        selectPlayer: _permanent.TopCard.Owner,
+                        cardEffect: null);
+
+            selectCardEffect.SetUseFaceDown();
+
+            selectCardEffect.SetUpCustomMessage("Select digivolution cards to discard.", "The opponent is selecting digivolution cards to discard.");
+
+            yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
+
+            bool CanEndSelectCondition(List<CardSource> cardSources)
+            {
+                if (CardEffectCommons.HasNoElement(cardSources))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+
+            IEnumerator SelectCardCoroutine(CardSource cardSource)
+            {
+                selectedCards.Add(cardSource);
+
+                yield return null;
+            }
+
+            if (selectedCards.Count >= 1)
+            {
+                #region "When use Digi-Burst" effect
+
+                #region Hashtable setting
+
+                Hashtable hashtable = new Hashtable()
+                {
+                    {"Permanent", _permanent},
+                    {"CardEffect", _cardEffect},
+                };
+
+                #endregion
+
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnUseDigiburst));
+
+                #endregion
+
+                // trash digivolution cards
+                yield return ContinuousController.instance.StartCoroutine(new ITrashDigivolutionCards(_permanent, selectedCards, _cardEffect).TrashDigivolutionCards());
+
+                foreach (CardSource cardSource in selectedCards)
+                {
+                    discardedCards.Add(cardSource);
+                }
+
+                #region add log
+
+                if (selectedCards.Count >= 1)
+                {
+                    string log = "";
+
+                    log += $"\nDigiburst :";
+
+                    foreach (CardSource cardSource in selectedCards)
+                    {
+                        if (cardSource != null)
+                        {
+                            log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+                        }
+                    }
+
+                    log += "\n";
+
+                    PlayLog.OnAddLog?.Invoke(log);
+                }
+
+                #endregion
+            }
+        }
+    }
+}
+
+#endregion
+
+#region Place permanents to deck bottom
+
+public class DeckBottomBounceClass
+{
+    public DeckBottomBounceClass(List<Permanent> deckBounceTargetPermanents, Hashtable hashtable)
+    {
+        _deckBounceTargetPermanents = deckBounceTargetPermanents.Clone();
+
+        _hashtable = hashtable;
+    }
+
+    public void SetNotShowCards()
+    {
+        _notShowCards = true;
+    }
+
+    public bool IsDeckBounced(Permanent permanent)
+    {
+        return DeckBouncedPermanents.Contains(permanent);
+    }
+
+    List<Permanent> _deckBounceTargetPermanents = new List<Permanent>();
+    public List<Permanent> DeckBouncedPermanents { get; private set; } = new List<Permanent>();
+    Hashtable _hashtable = new Hashtable();
+    bool _notShowCards = false;
+
+    public IEnumerator DeckBounce()
+    {
+        if (_deckBounceTargetPermanents == null) yield break;
+
+        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+
+        _deckBounceTargetPermanents = _deckBounceTargetPermanents.Filter(permanent =>
+        permanent != null
+        && permanent.TopCard != null
+        && (cardEffect == null ||
+        (!permanent.TopCard.CanNotBeAffected(cardEffect)
+        && !permanent.CannotReturnToLibrary(cardEffect)
+        && permanent.CanBeRemoved())));
+
+        if (_deckBounceTargetPermanents.Count == 0) yield break;
+
+        _deckBounceTargetPermanents.ForEach(permanent => permanent.willBeRemoveField = true);
+
+        #region cut in effect
+
+        // "When permanents would return to deck" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                _deckBounceTargetPermanents,
+                cardEffect,
+                null
+            ),
+            EffectTiming.WhenReturntoLibraryAnyone));
+
+        // "When permanents would remove field" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                _deckBounceTargetPermanents,
+                cardEffect,
+                null
+            ),
+            EffectTiming.WhenRemoveField));
+
+        if (GManager.instance.autoProcessing_CutIn.HasAwaitingActivateEffects())
+        {
+            foreach (Permanent permanent in _deckBounceTargetPermanents)
+            {
+                permanent.ShowDeckBounceEffect();
+            }
+
+            // cut in effect process
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null));
+
+            foreach (Permanent permanent in _deckBounceTargetPermanents)
+            {
+                permanent.HideDeckBounceEffect();
+            }
+        }
+
+        #endregion
+
+        // fix deck bounce target permanents
+        List<Permanent> deckBounceTargetPermanents_Fixed = _deckBounceTargetPermanents.Filter(permanent =>
+        permanent != null
+        && permanent.TopCard != null
+        && permanent.willBeRemoveField);
+
+        #region show cards
+
+        List<CardSource> returnedCards = deckBounceTargetPermanents_Fixed.Map(permanent => permanent.TopCard);
+
+        if (!_notShowCards)
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(returnedCards, "Deck bottom cards", true, true));
+        }
+
+        #endregion
+
+        #region "When permanents leave the battle area" effect
+
+        if (deckBounceTargetPermanents_Fixed.Count > 0) yield return ContinuousController.instance.StartCoroutine(
+            GManager.instance.autoProcessing.StackSkillInfos(
+                CardEffectCommons.OnDeletionHashtable(
+                    deckBounceTargetPermanents_Fixed,
+                    cardEffect,
+                    null,
+                    false
+                ),
+                EffectTiming.OnLeaveFieldAnyone));
+
+        #endregion
+
+        #region
+
+        List<CardSource> deckBottomCards = new List<CardSource>();
+
+        foreach (Permanent permanent in deckBounceTargetPermanents_Fixed)
+        {
+            #region recoed used effect
+
+            if (permanent.TopCard != null)
+            {
+                permanent.LibraryBounceEffect = cardEffect;
+            }
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().DeckBounceEffect(permanent));
+
+            yield return ContinuousController.instance.StartCoroutine(permanent.DiscardEvoRoots());
+
+            CardSource topCard = permanent.TopCard;
+
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(permanent));
+
+            deckBottomCards.Add(topCard);
+
+            DeckBouncedPermanents.Add(permanent);
+        }
+
+        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryBottomCards(deckBottomCards));
+
+        #endregion
+
+        #region off icon
+
+        foreach (Permanent permanent in _deckBounceTargetPermanents)
+        {
+            if (permanent != null)
+            {
+                if (permanent.TopCard != null)
+                {
+                    permanent.willBeRemoveField = false;
+                }
+            }
+        }
+
+        #endregion
+    }
+}
+
+#endregion
+
+#region Place permanents to deck top
+
+public class DeckTopBounceClass
+{
+    public DeckTopBounceClass(List<Permanent> deckBounceTargetPermanents, Hashtable hashtable)
+    {
+        _deckBounceTargetPermanents = deckBounceTargetPermanents.Clone();
+
+        _hashtable = hashtable;
+    }
+
+    public void SetNotShowCards()
+    {
+        _notShowCards = true;
+    }
+
+    public bool IsDeckBounced(Permanent permanent)
+    {
+        return DeckBouncedPermanents.Contains(permanent);
+    }
+
+    List<Permanent> _deckBounceTargetPermanents = new List<Permanent>();
+    public List<Permanent> DeckBouncedPermanents { get; private set; } = new List<Permanent>();
+    Hashtable _hashtable = new Hashtable();
+    bool _notShowCards = false;
+
+    public IEnumerator DeckBounce()
+    {
+        if (_deckBounceTargetPermanents == null) yield break;
+
+        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+
+        _deckBounceTargetPermanents = _deckBounceTargetPermanents.Filter(permanent =>
+        permanent != null
+        && permanent.TopCard != null
+        && (cardEffect == null ||
+        (!permanent.TopCard.CanNotBeAffected(cardEffect)
+        && !permanent.CannotReturnToLibrary(cardEffect)
+        && permanent.CanBeRemoved())));
+
+        if (_deckBounceTargetPermanents.Count == 0) yield break;
+
+        _deckBounceTargetPermanents.ForEach(permanent => permanent.willBeRemoveField = true);
+
+        #region cut in effect
+
+        // "When permanents would return to deck" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                _deckBounceTargetPermanents,
+                cardEffect,
+                null
+            ),
+            EffectTiming.WhenReturntoLibraryAnyone));
+
+        // "When permanents would remove field" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                _deckBounceTargetPermanents,
+                cardEffect,
+                null
+            ),
+            EffectTiming.WhenRemoveField));
+
+        if (GManager.instance.autoProcessing_CutIn.HasAwaitingActivateEffects())
+        {
+            foreach (Permanent permanent in _deckBounceTargetPermanents)
+            {
+                permanent.ShowDeckBounceEffect();
+            }
+
+            // cut in effect process
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null));
+
+            foreach (Permanent permanent in _deckBounceTargetPermanents)
+            {
+                permanent.HideDeckBounceEffect();
+            }
+        }
+
+        #endregion
+
+        // fix deck bounce target permanents
+        List<Permanent> deckBounceTargetPermanents_Fixed = _deckBounceTargetPermanents.Filter(permanent =>
+        permanent != null
+        && permanent.TopCard != null
+        && permanent.willBeRemoveField);
+
+        #region show cards
+
+        List<CardSource> returnedCards = deckBounceTargetPermanents_Fixed.Map(permanent => permanent.TopCard);
+
+        if (!_notShowCards)
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(returnedCards, "Deck bottom cards", true, true));
+        }
+
+        #endregion
+
+        #region "When permanents leave the battle area" effect
+
+        if (deckBounceTargetPermanents_Fixed.Count > 0) yield return ContinuousController.instance.StartCoroutine(
+            GManager.instance.autoProcessing.StackSkillInfos(
+                CardEffectCommons.OnDeletionHashtable(
+                    deckBounceTargetPermanents_Fixed,
+                    cardEffect,
+                    null,
+                    false
+                ),
+                EffectTiming.OnLeaveFieldAnyone));
+
+        #endregion
+
+        #region
+
+        List<CardSource> deckTopCards = new List<CardSource>();
+
+        foreach (Permanent permanent in deckBounceTargetPermanents_Fixed)
+        {
+            #region recoed used effect
+
+            if (permanent.TopCard != null)
+            {
+                permanent.LibraryBounceEffect = cardEffect;
+            }
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().DeckBounceEffect(permanent));
+
+            yield return ContinuousController.instance.StartCoroutine(permanent.DiscardEvoRoots());
+
+            CardSource topCard = permanent.TopCard;
+
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(permanent));
+
+            deckTopCards.Add(topCard);
+
+            DeckBouncedPermanents.Add(permanent);
+        }
+
+        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryTopCards(deckTopCards));
+
+        #endregion
+
+        #region off icon
+
+        foreach (Permanent permanent in _deckBounceTargetPermanents)
+        {
+            if (permanent != null)
+            {
+                if (permanent.TopCard != null)
+                {
+                    permanent.willBeRemoveField = false;
+                }
+            }
+        }
+
+        #endregion
+    }
+}
+
+#endregion
+
+#region Return permanent to hand
+
+public class HandBounceClaass
+{
+    public HandBounceClaass(List<Permanent> bounceTargetPermanents, Hashtable hashtable)
+    {
+        _bounceTargetPermanents = bounceTargetPermanents.Clone().Filter(CardEffectCommons.IsPermanentExistsOnBattleArea);
+
+        _hashtable = hashtable;
+    }
+
+    public bool IsBounced(Permanent permanent)
+    {
+        return BouncedPermanents.Contains(permanent);
+    }
+
+    List<Permanent> _bounceTargetPermanents = new List<Permanent>();
+    public List<Permanent> BouncedPermanents { get; private set; } = new List<Permanent>();
+    Hashtable _hashtable = new Hashtable();
+    bool _notShowCards = false;
+
+    public IEnumerator Bounce()
+    {
+        if (_bounceTargetPermanents == null) yield break;
+
+        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+
+        _bounceTargetPermanents = _bounceTargetPermanents.Filter(permanent =>
+        permanent != null
+        && permanent.TopCard != null
+        && (cardEffect == null ||
+        (!permanent.TopCard.CanNotBeAffected(cardEffect)
+        && !permanent.CannotReturnToHand(cardEffect)
+        && permanent.CanBeRemoved())));
+
+        if (_bounceTargetPermanents.Count == 0) yield break;
+
+        _bounceTargetPermanents.ForEach(permanent => permanent.willBeRemoveField = true);
+
+        #region cut in effect
+
+        // "When permanents would return to hand" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                _bounceTargetPermanents,
+                cardEffect,
+                null
+            ),
+            EffectTiming.WhenReturntoHandAnyone));
+
+        // "When permanents would remove field" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                _bounceTargetPermanents,
+                cardEffect,
+                null
+            ),
+            EffectTiming.WhenRemoveField));
+
+        if (GManager.instance.autoProcessing_CutIn.HasAwaitingActivateEffects())
+        {
+            foreach (Permanent permanent in _bounceTargetPermanents)
+            {
+                permanent.ShowHandBounceEffect();
+            }
+
+            // shrink security Digimon display
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.ShrinkSecurityDigimonDisplay());
+
+            // cut in effect process
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null));
+
+            foreach (Permanent permanent in _bounceTargetPermanents)
+            {
+                permanent.HideHandBounceEffect();
+            }
+        }
+
+        #endregion
+
+        // fix bounce target permanents
+        List<Permanent> bounceTargetPermanents_Fixed = _bounceTargetPermanents.Filter(permanent =>
+        permanent != null
+        && permanent.TopCard != null
+        && permanent.willBeRemoveField);
+
+        #region "When permanents returned to hand" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing
+            .StackSkillInfos(CardEffectCommons.OnDeletionHashtable(
+                bounceTargetPermanents_Fixed,
+                cardEffect,
+                null,
+                false
+                ),
+                EffectTiming.OnPermamemtReturnedToHand));
+
+        #endregion
+
+        #region "When permanents leave the battle area" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(
+            CardEffectCommons.OnDeletionHashtable(
+                bounceTargetPermanents_Fixed,
+                cardEffect,
+                null,
+                false
+            ),
+            EffectTiming.OnLeaveFieldAnyone));
+
+        #endregion
+
+        #region record parameter just before bounce
+
+        foreach (Permanent permanent in bounceTargetPermanents_Fixed)
+        {
+            permanent.DPJustBeforeRemoveField = permanent.DP;
+
+            if (permanent.TopCard.HasLevel)
+            {
+                permanent.LevelJustBeforeRemoveField = permanent.Level;
+            }
+
+            if (permanent.TopCard.HasPlayCost)
+            {
+                permanent.CostJustBeforeRemoveField = permanent.TopCard.GetCostItself;
+            }
+
+            permanent.CardNamesJustBeforeRemoveField = new List<string>(permanent.TopCard.CardNames);
+            permanent.CardTraitsJustBeforeRemoveField = new List<string>(permanent.TopCard.CardTraits);
+
+            foreach (CardSource cardSource in permanent.cardSources)
+            {
+                cardSource.PermanentJustBeforeRemoveField = permanent;
+            }
+        }
+
+        #endregion
+
+        #region add log
+
+        if (bounceTargetPermanents_Fixed.Count >= 1)
+        {
+            string log = "";
+
+            log += $"\nReturn to hand:";
+
+            foreach (Permanent permanent in bounceTargetPermanents_Fixed)
+            {
+                log += $"\n{permanent.TopCard.BaseENGCardNameFromEntity}({permanent.TopCard.CardID})";
+            }
+
+            log += "\n";
+
+            PlayLog.OnAddLog?.Invoke(log);
+        }
+
+        #endregion
+
+        #region show cards
+
+        List<CardSource> returnedCards = bounceTargetPermanents_Fixed.Map(permanent => permanent.TopCard);
+
+        if (!_notShowCards)
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(returnedCards, "Cards returned to hand", true, true));
+        }
+
+        #endregion
+
+        #region return permanent cards to hand
+
+        List<CardSource> handCards = new List<CardSource>();
+
+        foreach (Permanent permanent in bounceTargetPermanents_Fixed)
+        {
+            #region record used effect
+
+            if (permanent.TopCard != null)
+            {
+                permanent.HandBounceEffect = cardEffect;
+            }
+
+            #endregion
+
+            // record whether to return to hand by Burst Digivolution
+            permanent.IsReturnedToHandByBurstDigivolution = CardEffectCommons.IsBurst(_hashtable);
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().BounceEffect(permanent, !permanent.IsReturnedToHandByBurstDigivolution));
+
+            yield return ContinuousController.instance.StartCoroutine(permanent.DiscardEvoRoots());
+
+            CardSource topCard = permanent.TopCard;
+
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(permanent));
+
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveFromAllArea(topCard));
+
+            if (!topCard.IsDigiEgg)
+            {
+                handCards.Add(topCard);
+
+                BouncedPermanents.Add(permanent);
+            }
+            else
+            {
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryBottomCards(new List<CardSource>() { topCard }));
+            }
+        }
+
+        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCards(handCards, false, cardEffect));
+
+        #endregion
+
+        #region hide icon
+
+        foreach (Permanent permanent in _bounceTargetPermanents)
+        {
+            if (permanent != null)
+            {
+                if (permanent.TopCard != null)
+                {
+                    permanent.willBeRemoveField = false;
+                }
+            }
+        }
+
+        #endregion
+    }
+}
+
+#endregion
+
+#region Place permanent to another permanent's digivolution cards
+
+public class IPlacePermanentToDigivolutionCards
+{
+    public IPlacePermanentToDigivolutionCards(
+        List<Permanent[]> permanentArrays,
+        bool toTop,
+        ICardEffect cardEffect,
+        bool skipEffectAndActivateSkill = false,
+        bool isDigixros = false)
+    {
+        permanentArrays.Clone().ForEach(permanentArray => _permanentArrays.Add(permanentArray.CloneArray()));
+        _toTop = toTop;
+        _cardEffect = cardEffect;
+        _skipEffectAndActivateSkill = skipEffectAndActivateSkill;
+        _isDigixros = isDigixros;
+    }
+
+    public void SetNotShowCards()
+    {
+        _notShowCards = true;
+    }
+
+    List<Permanent[]> _permanentArrays = new List<Permanent[]>();
+    ICardEffect _cardEffect = null;
+    bool _toTop = false;
+    bool _notShowCards = false;
+    bool _skipEffectAndActivateSkill = false;
+    bool _isDigixros = false;
+    public bool Placed { get; private set; } = false;
+
+    public IEnumerator PlacePermanentToDigivolutionCards()
+    {
+        if (_permanentArrays.Count == 0)
+        {
+            yield break;
+        }
+
+        List<CardSource> addedDigivolutionCards = new List<CardSource>();
+
+        List<Permanent> removeFieldPermanents = new List<Permanent>();
+
+        foreach (Permanent[] permanentArray in _permanentArrays)
+        {
+            if (permanentArray.Length == 2)
+            {
+                Permanent DigivolutionPermanent = permanentArray[0];
+                Permanent getDigivolutionPermanent = permanentArray[1];
+
+                if (DigivolutionPermanent != null && getDigivolutionPermanent != null)
+                {
+                    if (DigivolutionPermanent.TopCard != null && getDigivolutionPermanent.TopCard != null && !getDigivolutionPermanent.IsToken)
+                    {
+                        if (_cardEffect != null)
+                        {
+                            if (DigivolutionPermanent.TopCard.CanNotBeAffected(_cardEffect) || getDigivolutionPermanent.TopCard.CanNotBeAffected(_cardEffect))
+                            {
+                                continue;
+                            }
+                        }
+
+                        removeFieldPermanents.Add(DigivolutionPermanent);
+                    }
+                }
+            }
+        }
+
+        foreach (Permanent permanent in removeFieldPermanents)
+        {
+            permanent.willBeRemoveField = true;
+        }
+
+        if (removeFieldPermanents.Count == 0)
+        {
+            yield break;
+        }
+
+        #region
+
+        List<SkillInfo> skillInfos = new List<SkillInfo>();
+
+        Hashtable hashtable1 =
+        CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                removeFieldPermanents,
+                _cardEffect,
+                null,
+                _isDigixros);
+
+        #region  "When permanents would remove field" effect
+
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            #region permanents' effects
+
+            foreach (Permanent permanent1 in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent1.EffectList(EffectTiming.WhenRemoveField))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (cardEffect.CanTrigger(hashtable1))
+                        {
+                            skillInfos.Add(new SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
+                        }
+                    }
+                }
+            }
+
+            #endregion
+
+            #region players' effects
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.WhenRemoveField))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.CanTrigger(hashtable1))
+                    {
+                        skillInfos.Add(new SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
+                    }
+                }
+            }
+
+            #endregion
+        }
+
+        #endregion
+
+        if (skillInfos.Count >= 1)
+        {
+            foreach (SkillInfo skillInfo in skillInfos)
+            {
+                GManager.instance.autoProcessing_CutIn.PutStackedSkill(skillInfo);
+            }
+
+            bool showEffect()
+            {
+                if (skillInfos.Count >= 2)
+                {
+                    return true;
+                }
+                else if (skillInfos.Count == 1)
+                {
+                    if (skillInfos[0].CardEffect.CanActivate(skillInfos[0].Hashtable))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            if (showEffect())
+            {
+                foreach (Permanent Permanent in removeFieldPermanents)
+                {
+                    if (Permanent != null)
+                    {
+                        if (Permanent.TopCard != null)
+                        {
+                            if (Permanent.willBeRemoveField)
+                            {
+                                if (Permanent.ShowingPermanentCard != null)
+                                {
+                                    if (Permanent.ShowingPermanentCard.WillRemoveFieldObject != null)
+                                    {
+                                        Permanent.ShowingPermanentCard.WillRemoveFieldObject.transform.parent.gameObject.SetActive(true);
+                                        Permanent.ShowingPermanentCard.WillRemoveFieldObject.SetActive(true);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                #region shrink security Digimon display
+
+                if (GManager.instance.attackProcess.IsAttacking)
+                {
+                    if (GManager.instance.attackProcess.SecurityDigimon != null)
+                    {
+                        if (GManager.instance.GetComponent<Effects>().ShowUseHandCard.gameObject.activeSelf && GManager.instance.GetComponent<Effects>().ShowUseHandCard.cardSource == GManager.instance.attackProcess.SecurityDigimon)
+                        {
+                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().MoveToExecuteCardEffect(GManager.instance.attackProcess.SecurityDigimon));
+                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.attackProcess.SecurityDigimon.Owner.brainStormObject.BrainStormCoroutine(GManager.instance.attackProcess.SecurityDigimon));
+                        }
+                    }
+                }
+
+                #endregion
+            }
+
+            // cut in effect process
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null));
+
+            foreach (Permanent Permanent in removeFieldPermanents)
+            {
+                if (Permanent != null)
+                {
+                    if (Permanent.TopCard != null)
+                    {
+                        if (Permanent.ShowingPermanentCard != null)
+                        {
+                            if (Permanent.ShowingPermanentCard.WillRemoveFieldObject != null)
+                            {
+                                Permanent.ShowingPermanentCard.WillRemoveFieldObject.SetActive(false);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        #endregion
+
+        foreach (Permanent[] permanentArray in _permanentArrays)
+        {
+            if (permanentArray.Length == 2)
+            {
+                Permanent DigivolutionPermanent = permanentArray[0];
+                Permanent getDigivolutionPermanent = permanentArray[1];
+
+                if (DigivolutionPermanent != null && getDigivolutionPermanent != null)
+                {
+                    if (DigivolutionPermanent.TopCard != null && getDigivolutionPermanent.TopCard != null && !getDigivolutionPermanent.IsToken && DigivolutionPermanent.willBeRemoveField)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(DigivolutionPermanent.DiscardEvoRoots());
+
+                        CardSource cardSource = DigivolutionPermanent.TopCard;
+
+                        #region record used effect
+
+                        if (_cardEffect != null)
+                        {
+                            if (DigivolutionPermanent.TopCard != null)
+                            {
+                                DigivolutionPermanent.PlaceOtherPermanentEffect = _cardEffect;
+                            }
+                        }
+
+                        #endregion
+
+                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(
+                            DigivolutionPermanent,
+                            ignoreOverflow: true));
+
+                        List<CardSource> digivolutionCards = new List<CardSource>() { cardSource };
+
+                        if (_toTop)
+                        {
+                            yield return ContinuousController.instance.StartCoroutine(getDigivolutionPermanent.AddDigivolutionCardsTop(digivolutionCards, _cardEffect));
+                        }
+                        else
+                        {
+                            yield return ContinuousController.instance.StartCoroutine(getDigivolutionPermanent.AddDigivolutionCardsBottom(digivolutionCards, _cardEffect, _skipEffectAndActivateSkill));
+                        }
+
+                        cardSource.cEntity_EffectController.InitUseCountThisTurn();
+
+                        addedDigivolutionCards.Add(cardSource);
+
+                        Placed = true;
+                    }
+                }
+            }
+        }
+
+        #region add log
+
+        if (addedDigivolutionCards.Count >= 1)
+        {
+            string log = "";
+
+            log += $"\nPlace in digivolution cards:";
+
+            foreach (CardSource cardSource in addedDigivolutionCards)
+            {
+                log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+            }
+
+            log += "\n";
+
+            PlayLog.OnAddLog?.Invoke(log);
+        }
+
+        #endregion
+
+        #region hide icon
+
+        if (addedDigivolutionCards.Count >= 1)
+        {
+            if (!_notShowCards)
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(addedDigivolutionCards, "Digivolution Cards", true, true));
+            }
+        }
+
+        #endregion
+    }
+}
+
+#endregion
+
+#region Place permanent to another permanent's Link cards
+
+public class IPlacePermanentToLinkCards
+{
+    public IPlacePermanentToLinkCards(
+        List<Permanent[]> permanentArrays,
+        ICardEffect cardEffect,
+        bool skipEffectAndActivateSkill = false)
+    {
+        permanentArrays.Clone().ForEach(permanentArray => _permanentArrays.Add(permanentArray.CloneArray()));
+        _cardEffect = cardEffect;
+        _skipEffectAndActivateSkill = skipEffectAndActivateSkill;
+    }
+
+    public void SetNotShowCards()
+    {
+        _notShowCards = true;
+    }
+
+    List<Permanent[]> _permanentArrays = new List<Permanent[]>();
+    ICardEffect _cardEffect = null;
+    bool _notShowCards = false;
+    bool _skipEffectAndActivateSkill = false;
+    public bool Placed { get; private set; } = false;
+
+    public IEnumerator PlacePermanentToLinkCards()
+    {
+        if (_permanentArrays.Count == 0)
+        {
+            yield break;
+        }
+
+        List<CardSource> addedLinkCards = new List<CardSource>();
+
+        List<Permanent> removeFieldPermanents = new List<Permanent>();
+
+        foreach (Permanent[] permanentArray in _permanentArrays)
+        {
+            if (permanentArray.Length == 2)
+            {
+                Permanent LinkedPermanent = permanentArray[0];
+                Permanent getLinkPermanent = permanentArray[1];
+
+                if (LinkedPermanent != null && getLinkPermanent != null)
+                {
+                    if (LinkedPermanent.TopCard != null && getLinkPermanent.TopCard != null && !getLinkPermanent.IsToken)
+                    {
+                        if (_cardEffect != null)
+                        {
+                            if (LinkedPermanent.TopCard.CanNotBeAffected(_cardEffect) || getLinkPermanent.TopCard.CanNotBeAffected(_cardEffect))
+                            {
+                                continue;
+                            }
+                        }
+
+                        removeFieldPermanents.Add(LinkedPermanent);
+                    }
+                }
+            }
+        }
+
+        foreach (Permanent permanent in removeFieldPermanents)
+        {
+            permanent.willBeRemoveField = true;
+        }
+
+        if (removeFieldPermanents.Count == 0)
+        {
+            yield break;
+        }
+
+        #region Cut in Effects
+
+        List<SkillInfo> skillInfos = new List<SkillInfo>();
+
+        Hashtable hashtable1 =
+        CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                removeFieldPermanents,
+                _cardEffect,
+                null);
+
+        #region  "When permanents would remove field" effect
+
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            #region permanents' effects
+
+            foreach (Permanent permanent1 in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent1.EffectList(EffectTiming.WhenRemoveField))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (cardEffect.CanTrigger(hashtable1))
+                        {
+                            skillInfos.Add(new SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
+                        }
+                    }
+                }
+            }
+
+            #endregion
+
+            #region players' effects
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.WhenRemoveField))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.CanTrigger(hashtable1))
+                    {
+                        skillInfos.Add(new SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
+                    }
+                }
+            }
+
+            #endregion
+        }
+
+        #endregion
+
+        if (skillInfos.Count >= 1)
+        {
+            foreach (SkillInfo skillInfo in skillInfos)
+            {
+                GManager.instance.autoProcessing_CutIn.PutStackedSkill(skillInfo);
+            }
+
+            bool showEffect()
+            {
+                if (skillInfos.Count >= 2)
+                {
+                    return true;
+                }
+                else if (skillInfos.Count == 1)
+                {
+                    if (skillInfos[0].CardEffect.CanActivate(skillInfos[0].Hashtable))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            if (showEffect())
+            {
+                foreach (Permanent Permanent in removeFieldPermanents)
+                {
+                    if (Permanent != null)
+                    {
+                        if (Permanent.TopCard != null)
+                        {
+                            if (Permanent.willBeRemoveField)
+                            {
+                                if (Permanent.ShowingPermanentCard != null)
+                                {
+                                    if (Permanent.ShowingPermanentCard.WillRemoveFieldObject != null)
+                                    {
+                                        Permanent.ShowingPermanentCard.WillRemoveFieldObject.transform.parent.gameObject.SetActive(true);
+                                        Permanent.ShowingPermanentCard.WillRemoveFieldObject.SetActive(true);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                #region shrink security Digimon display
+
+                if (GManager.instance.attackProcess.IsAttacking)
+                {
+                    if (GManager.instance.attackProcess.SecurityDigimon != null)
+                    {
+                        if (GManager.instance.GetComponent<Effects>().ShowUseHandCard.gameObject.activeSelf && GManager.instance.GetComponent<Effects>().ShowUseHandCard.cardSource == GManager.instance.attackProcess.SecurityDigimon)
+                        {
+                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().MoveToExecuteCardEffect(GManager.instance.attackProcess.SecurityDigimon));
+                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.attackProcess.SecurityDigimon.Owner.brainStormObject.BrainStormCoroutine(GManager.instance.attackProcess.SecurityDigimon));
+                        }
+                    }
+                }
+
+                #endregion
+            }
+
+            // cut in effect process
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null));
+
+            foreach (Permanent Permanent in removeFieldPermanents)
+            {
+                if (Permanent != null)
+                {
+                    if (Permanent.TopCard != null)
+                    {
+                        if (Permanent.ShowingPermanentCard != null)
+                        {
+                            if (Permanent.ShowingPermanentCard.WillRemoveFieldObject != null)
+                            {
+                                Permanent.ShowingPermanentCard.WillRemoveFieldObject.SetActive(false);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        #endregion
+
+        foreach (Permanent[] permanentArray in _permanentArrays)
+        {
+            if (permanentArray.Length == 2)
+            {
+                Permanent LinkedPermanent = permanentArray[0];
+                Permanent getLinkPermanent = permanentArray[1];
+
+                if (LinkedPermanent != null && getLinkPermanent != null)
+                {
+                    if (LinkedPermanent.TopCard != null && getLinkPermanent.TopCard != null && !getLinkPermanent.IsToken && LinkedPermanent.willBeRemoveField)
+                    {
+                        #region "When permanents leave the battle area" effect
+
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(
+                            CardEffectCommons.OnDeletionHashtable(
+                                new List<Permanent> { LinkedPermanent },
+                                _cardEffect,
+                                null,
+                                false
+                            ),
+                            EffectTiming.OnLeaveFieldAnyone));
+
+                        #endregion
+
+                        yield return ContinuousController.instance.StartCoroutine(LinkedPermanent.DiscardEvoRoots());
+
+                        CardSource cardSource = LinkedPermanent.TopCard;
+
+                        #region record used effect
+
+                        if (_cardEffect != null)
+                        {
+                            if (LinkedPermanent.TopCard != null)
+                            {
+                                LinkedPermanent.PlaceOtherPermanentEffect = _cardEffect;
+                            }
+                        }
+
+                        #endregion
+
+                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(
+                            LinkedPermanent,
+                            ignoreOverflow: true));
+
+                        yield return ContinuousController.instance.StartCoroutine(getLinkPermanent.AddLinkCard(cardSource, _cardEffect));
+
+                        cardSource.cEntity_EffectController.InitUseCountThisTurn();
+
+                        addedLinkCards.Add(cardSource);
+
+                        Placed = true;
+                    }
+                }
+            }
+        }
+
+        #region add log
+
+        if (addedLinkCards.Count >= 1)
+        {
+            string log = "";
+
+            log += $"\nLink cards:";
+
+            foreach (CardSource cardSource in addedLinkCards)
+            {
+                log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+            }
+
+            log += "\n";
+
+            PlayLog.OnAddLog?.Invoke(log);
+        }
+
+        #endregion
+
+        #region hide icon
+
+        if (addedLinkCards.Count >= 1)
+        {
+            if (!_notShowCards)
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(addedLinkCards, "Link Cards", true, true));
+            }
+        }
+
+        #endregion
+    }
+}
+
+#endregion
+
+#region Link a Card to a Permanent
+public class ILinkCard
+{
+    public ILinkCard(bool payCost, CardSource card, Permanent permanent, ICardEffect cardEffect)
+    {
+        _payCost = payCost;
+        _linkCard = card;
+        _permanent = permanent;
+        _cardEffect = cardEffect;
+    }
+
+    bool _payCost = false;
+    CardSource _linkCard = null;
+    Permanent _permanent = null;
+    ICardEffect _cardEffect = null;
+    public bool WasLinked = false;
+
+    public IEnumerator LinkCard()
+    {
+        if (_linkCard == null) yield break;
+        if (_permanent == null || _permanent.TopCard == null) yield break;
+        if (_cardEffect == null) yield break;
+
+        #region Trigger When Would Link effects
+        SelectCardEffect.Root root;
+        if (CardEffectCommons.IsExistOnHand(_linkCard))
+            root = SelectCardEffect.Root.Hand;
+        else if (CardEffectCommons.IsExistInAnyTrash(_linkCard))
+            root = SelectCardEffect.Root.Trash;
+        else if (CardEffectCommons.IsExistDigivolutionCards(_linkCard))
+            root = SelectCardEffect.Root.DigivolutionCards;
+        else if (CardEffectCommons.IsExistLinked(_linkCard))
+            root = SelectCardEffect.Root.LinkedCards;
+        else
+            root = SelectCardEffect.Root.None;
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WouldLinkHashtable(_linkCard, _permanent, root, null),
+            EffectTiming.WhenWouldLink));
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null));
+        #endregion
+
+        if (_payCost)
+        {
+            int Cost = _linkCard.GetChangedLinkCost(_permanent, root);
+
+            yield return ContinuousController.instance.StartCoroutine(_linkCard.Owner.AddMemory(-1 * Cost, _cardEffect));
+        }
+
+        if (root == SelectCardEffect.Root.None)
+            yield return ContinuousController.instance.StartCoroutine(new IPlacePermanentToLinkCards(new List<Permanent[]>() { new Permanent[] { _linkCard.PermanentOfThisCard(), _permanent } }, _cardEffect).PlacePermanentToLinkCards());
+        else
+            yield return ContinuousController.instance.StartCoroutine(_permanent.AddLinkCard(_linkCard, _cardEffect));
+
+        WasLinked = _permanent.LinkedCards.Contains(_linkCard);
+
+        _linkCard.Owner.UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();
+    }
+}
+#endregion
+
+#region Place permanents to security
+
+public class IPutSecurityPermanent
+{
+    public IPutSecurityPermanent(Permanent permanent, Hashtable hashtable, bool toTop, bool isFaceup = false)
+    {
+        _permanent = permanent;
+        _hashtable = hashtable;
+        _toTop = toTop;
+        _isFaceup = isFaceup;
+    }
+
+    Permanent _permanent = null;
+    Hashtable _hashtable = new Hashtable();
+    bool _toTop = false;
+    bool _isFaceup = false;
+    public bool IsPlacedSecurity = false;
+
+    public IEnumerator PutSecurity()
+    {
+        if (_permanent == null) yield break;
+        if (_permanent.TopCard == null) yield break;
+        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+
+        if (_permanent.TopCard.CanNotBeAffected(cardEffect) || !_permanent.TopCard.Owner.CanAddSecurity(cardEffect)) yield break;
+        if (!_permanent.CanBeRemoved()) yield break;
+
+        _permanent.willBeRemoveField = true;
+
+        #region "When permanents would remove field" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                new List<Permanent>() { _permanent },
+                cardEffect,
+                null
+            ),
+            EffectTiming.WhenRemoveField));
+
+        if (GManager.instance.autoProcessing_CutIn.HasAwaitingActivateEffects())
+        {
+            _permanent.ShowWillRemoveFieldEffect();
+
+            //effect
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.ShrinkSecurityDigimonDisplay());
+
+            // cut in effect process
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null));
+
+            _permanent.HideWillRemoveFieldEffect();
+        }
+
+        #endregion
+
+        CardSource topCard = _permanent.TopCard;
+
+        if (!_permanent.willBeRemoveField)
+            yield break;
+
+        if (topCard == null)
+            yield break;
+
+        #region add log
+
+        string log = "";
+        string fromString = _toTop ? "top" : "bottom";
+
+        log += $"\nPut cards on {fromString} of security:";
+
+        log += $"\n{_permanent.TopCard.BaseENGCardNameFromEntity}({_permanent.TopCard.CardID})";
+
+        log += "\n";
+
+        PlayLog.OnAddLog?.Invoke(log);
+
+        #endregion
+
+        IsPlacedSecurity = true;
+
+        #region show cards
+
+        if (!topCard.IsToken)
+        {
+            if (_toTop)
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(new List<CardSource>() { topCard }, "Security Top Card", true, true));
+            }
+            else
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(new List<CardSource>() { topCard }, "Security Bottom Card", true, true));
+            }
+        }
+
+        #endregion
+
+        #region "When permanents leave the battle area" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(
+            CardEffectCommons.OnDeletionHashtable(
+                new List<Permanent> { _permanent },
+                cardEffect,
+                null,
+                false
+            ),
+            EffectTiming.OnLeaveFieldAnyone));
+
+        #endregion
+
+        #region place permanent to security
+
+        yield return ContinuousController.instance.StartCoroutine(_permanent.DiscardEvoRoots());
+        yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(_permanent));
+
+        if (!topCard.IsToken)
+        {
+            if (!topCard.IsDigiEgg)
+            {
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddSecurityCard(topCard, faceUp: _isFaceup));
+
+                if (!_isFaceup)
+                    topCard.SetReverse();
+                else
+                    topCard.SetFace();
+
+                if (!_toTop)
+                {
+                    topCard.Owner.SecurityCards.Remove(topCard);
+                    topCard.Owner.SecurityCards.Add(topCard);
+                }
+
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateRecoveryEffect(topCard.Owner));
+                yield return ContinuousController.instance.StartCoroutine(new IAddSecurity(topCard).AddSecurity());
+            }
+            else
+            {
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryBottomCards(new List<CardSource>() { topCard }));
+            }
+        }
+
+        #endregion
+    }
+}
+
+#endregion
+
+#region Delete permanents
+
+public class DestroyPermanentsClass
+{
+    public DestroyPermanentsClass(List<Permanent> destroyTargetPermanents, Hashtable hashtable, bool notShowCards = false)
+    {
+        _destroytargetPermanents = destroyTargetPermanents.Clone();
+        _hashtable = hashtable;
+        _notShowCards = notShowCards;
+    }
+
+    public bool IsDestroyed(Permanent permanent)
+    {
+        return DestroyedPermanents.Contains(permanent);
+    }
+
+    List<Permanent> _destroytargetPermanents = new List<Permanent>();
+    public List<Permanent> DestroyedPermanents { get; private set; } = new List<Permanent>();
+    Hashtable _hashtable = null;
+    bool _notShowCards = false;
+
+    public IEnumerator Destroy()
+    {
+        if (_destroytargetPermanents == null) yield break;
+
+        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+        IBattle battle = CardEffectCommons.GetBattleFromHashtable(_hashtable);
+        bool isDPZero = CardEffectCommons.IsDPZeroDelete(_hashtable);
+
+        _destroytargetPermanents = _destroytargetPermanents.Filter(permanent =>
+        permanent != null
+        && permanent.TopCard != null
+        && (cardEffect == null ||
+        (!permanent.TopCard.CanNotBeAffected(cardEffect)
+        && permanent.CanBeDestroyedBySkill(cardEffect))));
+
+        if (_destroytargetPermanents.Count == 0) yield break;
+
+        _destroytargetPermanents.ForEach(permanent => permanent.willBeRemoveField = true);
+
+        #region cut in effect
+
+        // "When permanents would be deleted" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                _destroytargetPermanents,
+                cardEffect,
+                battle
+            ),
+            EffectTiming.WhenPermanentWouldBeDeleted));
+
+        // "When permanents would remove field" effect
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                _destroytargetPermanents,
+                cardEffect,
+                battle
+            ),
+            EffectTiming.WhenRemoveField));
+
+        if (GManager.instance.autoProcessing_CutIn.HasAwaitingActivateEffects())
+        {
+            foreach (Permanent permanent in _destroytargetPermanents)
+            {
+                permanent.ShowDeleteEffect();
+            }
+
+            // effect
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.ShrinkSecurityDigimonDisplay());
+
+            // cut in effect process
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null));
+
+            foreach (Permanent permanent in _destroytargetPermanents)
+            {
+                permanent.HideDeleteEffect();
+            }
+        }
+
+        #endregion
+
+        // fix delete target permanents
+        List<Permanent> destroyTargetPermanents_Fixed = _destroytargetPermanents.Filter(permanent =>
+            permanent != null
+            && permanent.TopCard != null
+            && permanent.willBeRemoveField);
+
+        #region "When permanents are deleted" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing
+            .StackSkillInfos(CardEffectCommons.OnDeletionHashtable(
+                destroyTargetPermanents_Fixed,
+                cardEffect,
+                battle,
+                isDPZero
+                ),
+                EffectTiming.OnDestroyedAnyone));
+
+        #endregion
+
+        #region "When permanents leave the battle area" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(
+            CardEffectCommons.OnDeletionHashtable(
+                destroyTargetPermanents_Fixed,
+                cardEffect,
+                battle,
+                isDPZero
+            ),
+            EffectTiming.OnLeaveFieldAnyone));
+
+        #endregion
+
+        #region record parameters just before deletion
+
+        foreach (Permanent permanent in destroyTargetPermanents_Fixed)
+        {
+            permanent.DPJustBeforeRemoveField = permanent.DP;
+
+            if (permanent.TopCard.HasLevel)
+            {
+                permanent.LevelJustBeforeRemoveField = permanent.Level;
+            }
+
+            if (permanent.TopCard.HasPlayCost)
+            {
+                permanent.CostJustBeforeRemoveField = permanent.TopCard.GetCostItself;
+            }
+
+            permanent.CardNamesJustBeforeRemoveField = new List<string>(permanent.TopCard.CardNames);
+            permanent.CardTraitsJustBeforeRemoveField = new List<string>(permanent.TopCard.CardTraits);
+
+            foreach (CardSource cardSource in permanent.cardSources)
+            {
+                cardSource.PermanentJustBeforeRemoveField = permanent;
+            }
+        }
+
+        #endregion
+
+        #region add log
+
+        if (destroyTargetPermanents_Fixed.Count >= 1)
+        {
+            string log = "";
+
+            log += $"\nDelete:";
+
+            foreach (Permanent permanent in destroyTargetPermanents_Fixed)
+            {
+                log += $"\n{permanent.TopCard.BaseENGCardNameFromEntity}({permanent.TopCard.CardID})";
+            }
+
+            log += "\n";
+
+            PlayLog.OnAddLog?.Invoke(log);
+        }
+
+        #endregion
+
+        #region show cards
+
+        List<CardSource> destroyedCards = destroyTargetPermanents_Fixed.Map(permanent => permanent.TopCard);
+
+        if (!_notShowCards)
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(destroyedCards, "Deleted cards", true, true));
+        }
+
+        #endregion
+
+        #region trash permanent cards
+
+        foreach (Permanent permanent in destroyTargetPermanents_Fixed)
+        {
+            #region record wheter to be deleted by battle
+
+            if (battle != null)
+            {
+                if (permanent.TopCard != null)
+                {
+                    if (CardEffectCommons.GetLoserPermanentsFromHashtable(battle.hashtable).Contains(permanent))
+                        permanent.IsDestroyedByBattle = true;
+                }
+            }
+
+            #endregion
+
+            #region record used effect
+
+            if (permanent.TopCard != null)
+            {
+                permanent.DestroyingEffect = cardEffect;
+            }
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().DestroyPermanentEffect(permanent));
+
+            yield return ContinuousController.instance.StartCoroutine(permanent.DiscardEvoRoots());
+
+            CardSource topCard = permanent.TopCard;
+
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveField(permanent));
+
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(topCard));
+
+            DestroyedPermanents.Add(permanent);
+        }
+
+        #endregion
+
+        #region hide icon
+
+        foreach (Permanent permanent in _destroytargetPermanents)
+        {
+            if (permanent != null)
+            {
+                if (permanent.TopCard != null)
+                {
+                    permanent.willBeRemoveField = false;
+                }
+            }
+        }
+
+        #endregion
+    }
+}
+
+#endregion
+
+#region Security check
+
 public class ISecurityCheck
 {
     public ISecurityCheck(Permanent AttackingPermanent, Player player)
@@ -4668,7 +3888,7 @@ public class ISecurityCheck
     Permanent AttackingPermanent { get; set; }
     Player player { get; set; }
 
-    public async Task SecurityCheck(CancellationToken cancellationToken = default)
+    public IEnumerator SecurityCheck()
     {
         bool StopSecurityCheck()
         {
@@ -4692,12 +3912,12 @@ public class ISecurityCheck
         {
             if (AttackingPermanent.Strike == 0)
             {
-                return;
+                yield break;
             }
 
             GManager.instance.turnStateMachine.IsSelecting = true;
 
-            // AS-IS :3920 `turnStateMachine.isSecurityCehck = true` — UI input-guard (NextPhaseButton only); DROPPED.
+            GManager.instance.turnStateMachine.isSecurityCehck = true;
 
             #region loop while there are 1 or more security cards
 
@@ -4738,35 +3958,31 @@ public class ISecurityCheck
 
                         checkedCount++;
 
-                        // AS-IS :3961 PlayLog.OnAddLog (Security Check log) — UI (stripped).
+                        PlayLog.OnAddLog?.Invoke($"\nSecurity Check:\n{brokenSecurityCard.BaseENGCardNameFromEntity}({brokenSecurityCard.CardID})\n");
 
                         if (brokenSecurityCard.IsDigimon)
                         {
-                            // ADAPTATION (substrate id currency): AS-IS `attackProcess.SecurityDigimon` is a
-                            // CardSource reference; the mirror AttackProcess holds the id
-                            // (AttackProcess.cs:113 `HeadlessEntityId? SecurityDigimon`), so the assignment
-                            // carries the instance id — the established mirror id adaptation.
-                            GManager.instance.attackProcess.SecurityDigimon = brokenSecurityCard.InstanceId;
+                            GManager.instance.attackProcess.SecurityDigimon = brokenSecurityCard;
                         }
 
                         #region effect
 
-                        // AS-IS :3970-3976 securityBreakGlass.ShowBlueMatarial / BreakSecurityEffect / WaitForSeconds /
-                        // EnterSecurityCardEffect — UI/animation (stripped).
+                        player.securityObject.securityBreakGlass.ShowBlueMatarial();
+
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().BreakSecurityEffect(player));
+
+                        yield return new WaitForSeconds(0.1f);
+
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().EnterSecurityCardEffect(brokenSecurityCard));
 
                         #endregion
 
-                        await CardObjectController.AddExecutingCard(brokenSecurityCard).ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddExecutingCard(brokenSecurityCard));
 
-                        // AS-IS :3982-3985 `new IReduceSecurity(player: brokenSecurityCard.Owner, refSkillInfos:
-                        // ref triggeredSkillInfos, null)` in COLLECT mode — the OnLoseSecurity SkillInfos are
-                        // gathered into triggeredSkillInfos (alongside the OnSecurityCheck ones) to fire together at
-                        // :4111. Mirror ctor is (EngineContext, HeadlessPlayerId, List<SkillInfo>? refCollector, ICardEffect?).
-                        await new IReduceSecurity(
-                            brokenSecurityCard.Context,
-                            brokenSecurityCard.Owner,
-                            refCollector: triggeredSkillInfos,
-                            cardEffect: null).ReduceSecurity().ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(new IReduceSecurity(
+                            player: brokenSecurityCard.Owner,
+                            refSkillInfos: ref triggeredSkillInfos,
+                            null).ReduceSecurity());
 
                         #region security effect
 
@@ -4795,12 +4011,14 @@ public class ISecurityCheck
                         {
                             if (!brokenSecurityCard.IsDigimon)
                             {
-                                // AS-IS :4014-4015 WaitForSeconds + ShrinkUpUseHandCard — UI (stripped).
+                                yield return new WaitForSeconds(0.3f);
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShrinkUpUseHandCard(GManager.instance.GetComponent<Effects>().ShowUseHandCard));
                             }
                         }
                         else
                         {
-                            // AS-IS :4020-4021 MoveToExecuteCardEffect + BrainStormCoroutine — UI (stripped).
+                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().MoveToExecuteCardEffect(brokenSecurityCard));
+                            yield return ContinuousController.instance.StartCoroutine(player.brainStormObject.BrainStormCoroutine(brokenSecurityCard));
 
                             List<SkillInfo> skillInfos = new List<SkillInfo>();
 
@@ -4843,7 +4061,7 @@ public class ISecurityCheck
                                         root: SelectCardEffect.Root.Custom,
                                         customRootCardList: cardSources,
                                         canLookReverseCard: true,
-                                        selectPlayer: player.PlayerId,
+                                        selectPlayer: player,
                                         cardEffect: null);
 
                                     selectCardEffect.SetUpSkillInfos(skillInfos);
@@ -4852,16 +4070,15 @@ public class ISecurityCheck
 
                                     selectCardEffect.SetUpAfterSelectIndexCoroutine(AfterSelectIndexCoroutine);
 
-                                    await selectCardEffect.Activate().ConfigureAwait(false);
+                                    yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
 
-                                    async Task AfterSelectIndexCoroutine(List<int> selectedIndexes)
+                                    IEnumerator AfterSelectIndexCoroutine(List<int> selectedIndexes)
                                     {
                                         if (selectedIndexes.Count == 1)
                                         {
                                             selectedSkillInfo = skillInfos[selectedIndexes[0]];
+                                            yield return null;
                                         }
-
-                                        await Task.CompletedTask.ConfigureAwait(false);
                                     }
                                 }
 
@@ -4876,9 +4093,9 @@ public class ISecurityCheck
                                         {
                                             skillInfos.Remove(selectedSkillInfo);
 
-                                            await GManager.instance.autoProcessing.ActivateEffectProcess(
+                                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.ActivateEffectProcess(
                                                 cardEffect,
-                                                hashtable2).ConfigureAwait(false);
+                                                hashtable2));
                                         }
                                     }
                                 }
@@ -4888,7 +4105,7 @@ public class ISecurityCheck
                         #endregion
 
                         // auto process check
-                        await GManager.instance.autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.AutoProcessCheck());
 
                         // stack effect of "When cards are removed from security" and "checks secuirty"
                         foreach (SkillInfo skillInfo in triggeredSkillInfos)
@@ -4897,7 +4114,7 @@ public class ISecurityCheck
                         }
 
                         // auto process check
-                        await GManager.instance.autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.AutoProcessCheck());
 
                         if (!StopSecurityCheck())
                         {
@@ -4957,9 +4174,9 @@ public class ISecurityCheck
 
                                 if (doBattle)
                                 {
-                                    // AS-IS :4177 WaitForSeconds — UI (stripped).
+                                    yield return new WaitForSeconds(0.3f);
 
-                                    await new IBattle(AttackingPermanent: AttackingPermanent, DefendingPermanent: null, DefendingCard: brokenSecurityCard).Battle().ConfigureAwait(false);
+                                    yield return ContinuousController.instance.StartCoroutine(new IBattle(AttackingPermanent: AttackingPermanent, DefendingPermanent: null, DefendingCard: brokenSecurityCard).Battle());
                                 }
                             }
 
@@ -4968,16 +4185,19 @@ public class ISecurityCheck
 
                         #region effect
 
-                        // AS-IS :4188 brokenSecurityCard.Owner.brainStormObject.CloseBrainstrorm — UI (stripped).
+                        yield return ContinuousController.instance.StartCoroutine(brokenSecurityCard.Owner.brainStormObject.CloseBrainstrorm(brokenSecurityCard));
 
-                        if (new Player(brokenSecurityCard.Context, brokenSecurityCard.Owner).ExecutingCards.Contains(brokenSecurityCard))
+                        if (brokenSecurityCard.Owner.ExecutingCards.Contains(brokenSecurityCard))
                         {
-                            await CardObjectController.AddTrashCard(brokenSecurityCard).ConfigureAwait(false);
+                            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(brokenSecurityCard));
 
-                            // AS-IS :4194-4197 `if (ShowUseHandCard.gameObject.activeSelf) ShrinkUpUseHandCard(...)` — UI (stripped).
+                            if (GManager.instance.GetComponent<Effects>().ShowUseHandCard.gameObject.activeSelf)
+                            {
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShrinkUpUseHandCard(GManager.instance.GetComponent<Effects>().ShowUseHandCard));
+                            }
                         }
 
-                        // AS-IS :4200 ShowUseHandCard.OffDP() — UI (stripped).
+                        GManager.instance.GetComponent<Effects>().ShowUseHandCard.OffDP();
 
                         GManager.instance.attackProcess.SecurityDigimon = null;
 
@@ -4990,7 +4210,7 @@ public class ISecurityCheck
                         }
 
                         // auto process check
-                        await GManager.instance.autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.AutoProcessCheck());
 
                         GManager.instance.turnStateMachine.IsSelecting = true;
                     }
@@ -5003,13 +4223,207 @@ public class ISecurityCheck
 
             #endregion
 
-            // AS-IS :4226 `turnStateMachine.isSecurityCehck = false` — UI input-guard; DROPPED.
+            GManager.instance.turnStateMachine.isSecurityCehck = false;
         }
     }
 }
 
+#endregion
 
-/// <summary>AS-IS <c>IBattle</c> (CardController.cs:4427) — the per-battle context holder.</summary>
+#region trash cards from security
+
+public class IDestroySecurity
+{
+    private enum TrashMode
+    {
+        TopSecurity,
+        BottomSecurity,
+        SelectedCard,
+    }
+
+    public IDestroySecurity(Player player, int destroySecurityCount, ICardEffect cardEffect, bool fromTop)
+    {
+        _player = player;
+        _destroySecurityCount = destroySecurityCount;
+        _cardEffect = cardEffect;
+        _trashMode = fromTop ? TrashMode.TopSecurity : TrashMode.BottomSecurity;
+    }
+
+    public IDestroySecurity(Player player, CardSource card, ICardEffect cardEffect)
+    {
+        _player = player;
+        _destroySecurityCount = 1;
+        _cardEffect = cardEffect;
+        _trashMode = TrashMode.SelectedCard;
+        _selectedCard = card;
+    }
+
+    Player _player = null;
+    int _destroySecurityCount = 0;
+    public List<CardSource> DestroyedSecurity = new List<CardSource>();
+    ICardEffect _cardEffect = null;
+    TrashMode _trashMode = TrashMode.TopSecurity;
+    CardSource _selectedCard = null;
+
+    public bool IsDestroyed(CardSource cardSource)
+    {
+        return DestroyedSecurity.Contains(cardSource);
+    }
+
+    public IEnumerator DestroySecurity()
+    {
+        bool StopDestroySecurity()
+        {
+            if (_player.SecurityCards.Count == 0)
+            {
+                return true;
+            }
+
+            if (!_player.CanReduceSecurity())
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        if (_player.SecurityCards.Count >= 1 && _destroySecurityCount >= 1)
+        {
+            int count = 0;
+
+            List<CardSource> discardedCards = new List<CardSource>();
+
+            while (true)
+            {
+                if (StopDestroySecurity())
+                {
+                    break;
+                }
+
+                if (count >= _destroySecurityCount)
+                {
+                    break;
+                }
+
+                if (_player.SecurityCards.Count >= 1)
+                {
+                    count++;
+
+                    CardSource destroyedSecurityCard = null;
+
+                    switch (_trashMode)
+                    {
+                        case TrashMode.TopSecurity:
+                            destroyedSecurityCard = _player.SecurityCards[0];
+                            break;
+                        case TrashMode.BottomSecurity:
+                            destroyedSecurityCard = _player.SecurityCards[_player.SecurityCards.Count - 1];
+                            break;
+                        case TrashMode.SelectedCard:
+                            destroyedSecurityCard = _player.SecurityCards.Contains(_selectedCard) ? _selectedCard : null;
+                            break;
+                    }
+
+                    if (destroyedSecurityCard == null)
+                    {
+                        break;
+                    }
+
+                    discardedCards.Add(destroyedSecurityCard);
+
+                    #region effect
+
+                    _player.securityObject.securityBreakGlass.ShowBlueMatarial();
+
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().BreakSecurityEffect(_player));
+
+                    yield return new WaitForSeconds(0.1f);
+
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().EnterSecurityCardEffect(destroyedSecurityCard));
+
+                    yield return new WaitForSeconds(0.5f);
+
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().DestroySecurityEffect(destroyedSecurityCard));
+
+                    #endregion
+
+                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(destroyedSecurityCard));
+
+                    DestroyedSecurity.Add(destroyedSecurityCard);
+                }
+            }
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(discardedCards, "Discarded Cards", true, true));
+
+            if (discardedCards.Count >= 1)
+            {
+                yield return ContinuousController.instance.StartCoroutine(new IReduceSecurity(
+                    player: _player,
+                    refSkillInfos: ref ContinuousController.instance.nullSkillInfos,
+                    cardEffect: _cardEffect).ReduceSecurity());
+
+                #region "When security cards are trashed" effect
+
+                #region Hashtable setting
+
+                Hashtable hashtable = new Hashtable()
+                {
+                    {"DiscardedCards", discardedCards},
+                    {"CardEffect", _cardEffect},
+                };
+
+                #endregion
+
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnDiscardSecurity));
+
+                #endregion
+            }
+
+            #region add log
+
+            if (discardedCards.Count >= 1)
+            {
+                string log = "";
+
+                string modeString = "";
+
+                switch (_trashMode)
+                {
+                    case TrashMode.TopSecurity:
+                        modeString = "Top";
+                        break;
+                    case TrashMode.BottomSecurity:
+                        modeString = "Bottom";
+                        break;
+                    case TrashMode.SelectedCard:
+                        modeString = "Selected";
+                        break;
+                }
+
+                log += $"\nDiscarded From {modeString} Security Cards:";
+
+                foreach (CardSource cardSource in discardedCards)
+                {
+                    if (cardSource != null)
+                    {
+                        log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+                    }
+                }
+
+                log += "\n";
+
+                PlayLog.OnAddLog?.Invoke(log);
+            }
+
+            #endregion
+        }
+    }
+}
+
+#endregion
+
+#region Battle
+
 public class IBattle
 {
     public IBattle(Permanent AttackingPermanent, Permanent DefendingPermanent, CardSource DefendingCard, bool IsWithoutAttack = false)
@@ -5052,44 +4466,20 @@ public class IBattle
         else
             statCheck = AttackingPermanent.DP - DefendingPermanent.DP;
 
-        // ADAPTATION: AS-IS `Mathf.Clamp(int, -1, 1)` (UnityEngine) — System.Math.Clamp is the established
-        // mirror substitute (identical int semantics; Player.cs MaxMemoryCost precedent).
-        statCheck = Math.Clamp(statCheck, -1, 1);
+        statCheck = Mathf.Clamp(statCheck, -1, 1);
 
         return statCheck;
     }
 
-    /// <summary>(RD-EXT2B-01) AS-IS <c>IBattle.Battle()</c> (CardController.cs:4474-4772) 1:1 — the participant-explicit
-    /// battle. EX11_074's [All Turns] forces a battle with NO pending attack (<c>IsWithoutAttack=true</c>): AS-IS then
-    /// SKIPS every <c>if (!IsWithoutAttack)</c> block (the mid-battle AutoProcessCheck / IsSelecting / IsEndAttack
-    /// pre-empt and the end-of-battle reset), so this path runs NONE of the attack-declaration / security machinery —
-    /// only the pure battle sub-steps: OnStartBattle window (STACK-only, drained by the outer loop — AS-IS does NOT
-    /// AutoProcessCheck it before the compare for an effect battle), DP compare (<see cref="CompareStats"/>) → winner /
-    /// loser gated by <c>CanBeDestroyedByBattle</c>, loser deletion via <see cref="DestroyPermanentsClass"/> (which
-    /// itself opens the would-be-deleted PRE cut-in + OnDeletion windows), OnEndBattle window, and the
-    /// OnDetermineDoSecurityCheck [Pierce] stack. Mirrors AS-IS exactly, INCLUDING the guarded
-    /// <c>if (!IsWithoutAttack)</c> blocks (kept 1:1 for the full-fidelity real-battle caller shape, though the mirror's
-    /// real attack-vs-Digimon / attack-vs-security battles route through the attack pipeline / SecurityResolver, so this
-    /// method is only reached with <c>IsWithoutAttack=true</c> today).
-    ///
-    /// ADAPTATION (substrate only): IEnumerator→Task, StartCoroutine(X)→await X; UI (log / BattleEffect / ShowEffect /
-    /// target-arrow / move-up display) stripped; snapshot <c>new Permanent(permanent.cardSources)</c> → the mirror
-    /// InstanceId view <c>new Permanent(context, InstanceId, OwnerId)</c> (HashtableSetting precedent). The AS-IS
-    /// <c>AttackingPermanent.battle = this</c> / <c>DefendingPermanent.battle = this</c> field writes (and the null
-    /// reset) are OMITTED — the mirror <see cref="Permanent"/> is a reconstructed view with no <c>battle</c> field
-    /// (design item RD-EXT2B-01-BATTLEFIELD: no live mirror reader; the "battle" HASHTABLE key added at
-    /// AS-IS :4700 is the channel effects actually read via <c>GetBattleFromHashtable</c>, and IS populated here).</summary>
-    public async Task Battle(CancellationToken cancellationToken = default)
+    public IEnumerator Battle()
     {
         hashtable = new Hashtable();
 
         if (AttackingPermanent != null && AttackingPermanent.HasDP)
         {
-            var context = AttackingPermanent.TopCard.Context;
-
             bool IsExistingDefender()
             {
-                // AS-IS :4480-4499 — exactly one of DefendingPermanent / DefendingCard is set, and it HAS a DP.
+                // whether defender exists
                 if ((DefendingPermanent == null) != (DefendingCard == null))
                 {
                     if (DefendingPermanent != null)
@@ -5110,54 +4500,110 @@ public class IBattle
 
             if (IsExistingDefender())
             {
-                // AS-IS :4503-4511 `AttackingPermanent.battle = this` / `DefendingPermanent.battle = this` —
-                // OMITTED (no mirror Permanent.battle field; see method summary, RD-EXT2B-01-BATTLEFIELD).
+                if (AttackingPermanent != null)
+                {
+                    AttackingPermanent.battle = this;
+                }
+
+                if (DefendingPermanent != null)
+                {
+                    DefendingPermanent.battle = this;
+                }
 
                 List<Permanent> WinnerPermanents = new List<Permanent>();
                 List<Permanent> LoserPermanents = new List<Permanent>();
                 CardSource LoserCard = null;
                 bool WasTie = false;
 
-                // AS-IS :4518-4530 PlayLog — UI stripped.
+                //add log
+                string log = $"\nBattle:\n{AttackingPermanent.TopCard.BaseENGCardNameFromEntity}({AttackingPermanent.TopCard.CardID})";
+
+                if (DefendingPermanent != null)
+                {
+                    log += $"\n??\n{DefendingPermanent.TopCard.BaseENGCardNameFromEntity}({DefendingPermanent.TopCard.CardID})\n";
+                }
+                else if (DefendingCard != null)
+                {
+                    log += $"\n??\n{DefendingCard.BaseENGCardNameFromEntity}({DefendingCard.CardID})\n";
+                }
+
+                PlayLog.OnAddLog?.Invoke(log);
 
                 #region "At the start of battle" effect
 
-                // AS-IS :4534-4551 snapshot the participants for the OnStartBattle payload. Mirror snapshot =
-                // the InstanceId view (HashtableSetting precedent) when the top card is present, else null.
                 Permanent _AttackingPermanent = null;
                 Permanent _DefendingPermanent = null;
 
-                if (AttackingPermanent != null && AttackingPermanent.TopCard != null)
+                if (AttackingPermanent != null)
                 {
-                    _AttackingPermanent = new Permanent(context, AttackingPermanent.InstanceId, AttackingPermanent.OwnerId);
+                    if (AttackingPermanent.TopCard != null)
+                    {
+                        _AttackingPermanent = new Permanent(AttackingPermanent.cardSources);
+                    }
                 }
 
-                if (DefendingPermanent != null && DefendingPermanent.TopCard != null)
+                if (DefendingPermanent != null)
                 {
-                    _DefendingPermanent = new Permanent(context, DefendingPermanent.InstanceId, DefendingPermanent.OwnerId);
+                    if (DefendingPermanent.TopCard != null)
+                    {
+                        _DefendingPermanent = new Permanent(DefendingPermanent.cardSources);
+                    }
                 }
 
                 hashtable.Add("AttackingPermanent", _AttackingPermanent);
                 hashtable.Add("DefendingPermanent", _DefendingPermanent);
                 hashtable.Add("DefendingCard", DefendingCard);
 
-                await GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnStartBattle).ConfigureAwait(false);
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnStartBattle));
 
                 #endregion
 
-                // AS-IS :4561-4595 ShowEffect() — pure UI (BrainStorm display), only meaningful mid-attack; stripped.
+                #region Show effect
 
-                if (!IsWithoutAttack) // AS-IS :4597 — an effect battle (IsWithoutAttack) does NOT run mid-battle processing.
+                bool ShowEffect()
                 {
-                    await GManager.instance.autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+                    if (GManager.instance.autoProcessing.StackedSkillInfos.Count >= 2)
+                    {
+                        return true;
+                    }
+                    else if (GManager.instance.autoProcessing.StackedSkillInfos.Count == 1)
+                    {
+                        if (GManager.instance.autoProcessing.StackedSkillInfos[0].CardEffect.CanActivate(GManager.instance.autoProcessing.StackedSkillInfos[0].Hashtable))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
+                if (ShowEffect())
+                {
+                    if (GManager.instance.attackProcess.IsAttacking)
+                    {
+                        if (GManager.instance.attackProcess.SecurityDigimon != null)
+                        {
+                            if (GManager.instance.GetComponent<Effects>().ShowUseHandCard.gameObject.activeSelf && GManager.instance.GetComponent<Effects>().ShowUseHandCard.cardSource == GManager.instance.attackProcess.SecurityDigimon)
+                            {
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().MoveToExecuteCardEffect(GManager.instance.attackProcess.SecurityDigimon));
+                                yield return ContinuousController.instance.StartCoroutine(GManager.instance.attackProcess.SecurityDigimon.Owner.brainStormObject.BrainStormCoroutine(GManager.instance.attackProcess.SecurityDigimon));
+                            }
+                        }
+                    }
+                }
+
+                #endregion
+
+                if (!IsWithoutAttack)//If started by effect, do not perform processing during this battle
+                {
+                    // auto process check
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.AutoProcessCheck());
 
                     GManager.instance.turnStateMachine.IsSelecting = true;
 
-                    // AS-IS :4605-4606 preemptive end-battle if the attack process already ended.
+                    //Preemptive end battle if the attack process is ended
                     if (GManager.instance.attackProcess.IsEndAttack)
-                    {
-                        return;
-                    }
+                        yield break;
                 }
 
                 #region battle with permanent
@@ -5226,7 +4672,6 @@ public class IBattle
 
                 #endregion
 
-                // AS-IS :4675-4692 snapshot the winner/loser lists for the payload.
                 List<Permanent> _WinnerPermanents = new List<Permanent>();
                 List<Permanent> _LoserPermanents = new List<Permanent>();
 
@@ -5234,7 +4679,7 @@ public class IBattle
                 {
                     if (permanent.TopCard != null)
                     {
-                        _WinnerPermanents.Add(new Permanent(context, permanent.InstanceId, permanent.OwnerId));
+                        _WinnerPermanents.Add(new Permanent(permanent.cardSources));
                     }
                 }
 
@@ -5242,7 +4687,7 @@ public class IBattle
                 {
                     if (permanent.TopCard != null)
                     {
-                        _LoserPermanents.Add(new Permanent(context, permanent.InstanceId, permanent.OwnerId));
+                        _LoserPermanents.Add(new Permanent(permanent.cardSources));
                     }
                 }
 
@@ -5254,12 +4699,13 @@ public class IBattle
                 hashtable.Add("WasTie", WasTie);
                 hashtable.Add("battle", this);
 
-                // AS-IS :4703 BattleEffect(...) — UI stripped.
+                // battle effect
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().BattleEffect(WinnerPermanents, LoserPermanents, LoserCard));
 
                 DestroyPermanentsClass destoryBattlePermanents = new DestroyPermanentsClass(LoserPermanents, hashtable);
-                await destoryBattlePermanents.Destroy(cancellationToken).ConfigureAwait(false);
+                yield return ContinuousController.instance.StartCoroutine(destoryBattlePermanents.Destroy());
 
-                // AS-IS :4708-4715 fix LoserPermanents to the actually-destroyed set.
+                //Fix Loser Permanents
                 if (LoserPermanents.Count != destoryBattlePermanents.DestroyedPermanents.Count)
                 {
                     LoserPermanents = destoryBattlePermanents.DestroyedPermanents;
@@ -5268,19 +4714,22 @@ public class IBattle
                     hashtable["LoserPermanents_real"] = LoserPermanents;
                 }
 
-                // AS-IS :4717-4718 "At the end of battle" effect.
-                await GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnEndBattle).ConfigureAwait(false);
+                // "At the end of battle" effect
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnEndBattle));
 
-                // AS-IS :4720-4727 move-up display — UI stripped.
+                #region move up effect
+
+                if (ShowEffect())
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.ShrinkSecurityDigimonDisplay());
+                }
+
+                #endregion
 
                 #region effect when determine whether to do security check
 
-                // AS-IS :4731-4737 — a battle-winner [Pierce] check stacks (for a security-Digimon battle it would
-                // continue the attack into security; for an effect battle it is stacked and drained by the outer loop).
-                List<SkillInfo> skillInfos_Pierce = AutoProcessing
-                    .GetSkillInfos(hashtable, EffectTiming.OnDetermineDoSecurityCheck)
-                    .Where(skillInfo => skillInfo.CardEffect != null && skillInfo.CardEffect.CanActivate(skillInfo.Hashtable))
-                    .ToList();
+                List<SkillInfo> skillInfos_Pierce = AutoProcessing.GetSkillInfos(hashtable, EffectTiming.OnDetermineDoSecurityCheck)
+                    .Filter(skillInfo => skillInfo.CardEffect != null && skillInfo.CardEffect.CanActivate(skillInfo.Hashtable));
 
                 if (skillInfos_Pierce.Count >= 1)
                 {
@@ -5291,9 +4740,10 @@ public class IBattle
             }
         }
 
-        if (!IsWithoutAttack) // AS-IS :4743 — an effect battle does NOT reset the actual-attack until-end-battle buckets.
+        if (!IsWithoutAttack)//If started by effect, do not perform processing & don't reset effects relevant to the actual attack process
         {
-            await GManager.instance.autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+            // auto process check
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.AutoProcessCheck());
 
             #region reset effect until the end of battle
 
@@ -5310,934 +4760,1229 @@ public class IBattle
             #endregion
         }
 
-        // AS-IS :4763-4771 `AttackingPermanent.battle = null` / `DefendingPermanent.battle = null` — OMITTED
-        // (no mirror Permanent.battle field; see method summary, RD-EXT2B-01-BATTLEFIELD).
-    }
-}
-
-#region Place permanents to deck bottom
-
-/// <summary>(RDW-01 re-migration) 1:1 of AS-IS <c>DeckBottomBounceClass</c> (CardController.cs:2271-2431): return a
-/// list of field permanents to the BOTTOM of their owners' decks. Conventions from <see cref="DestroyPermanentsClass"/>:
-/// IEnumerator→async Task; <c>yield return StartCoroutine(autoProcessing[_CutIn].StackSkillInfos/TriggeredSkillProcess)</c>
-/// → <c>await … .ConfigureAwait(false)</c>; <c>HasAwaitingActivateEffects</c> = the inlined AutoProcessing helper; UI
-/// (ShowDeckBounceEffect/DeckBounceEffect/ShowCardEffect) and PlayLog stripped.</summary>
-public class DeckBottomBounceClass
-{
-    public DeckBottomBounceClass(List<Permanent> deckBounceTargetPermanents, Hashtable hashtable)
-    {
-        _deckBounceTargetPermanents = deckBounceTargetPermanents.Clone();
-
-        _hashtable = hashtable;
-    }
-
-    public void SetNotShowCards()
-    {
-        _notShowCards = true;
-    }
-
-    public bool IsDeckBounced(Permanent permanent)
-    {
-        return DeckBouncedPermanents.Contains(permanent);
-    }
-
-    List<Permanent> _deckBounceTargetPermanents = new List<Permanent>();
-    public List<Permanent> DeckBouncedPermanents { get; private set; } = new List<Permanent>();
-    Hashtable _hashtable = new Hashtable();
-    bool _notShowCards = false;
-
-    public async Task DeckBounce(CancellationToken cancellationToken = default)
-    {
-        if (_deckBounceTargetPermanents == null) return;
-
-        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
-
-        _deckBounceTargetPermanents = _deckBounceTargetPermanents.Filter(permanent =>
-        permanent != null
-        && permanent.TopCard != null
-        && (cardEffect == null ||
-        (!permanent.TopCard.CanNotBeAffected(cardEffect)
-        && !permanent.CannotReturnToLibrary(cardEffect)
-        && permanent.CanBeRemoved())));
-
-        if (_deckBounceTargetPermanents.Count == 0) return;
-
-        _deckBounceTargetPermanents.ForEach(permanent => permanent.willBeRemoveField = true);
-
-        #region cut in effect
-
-        // "When permanents would return to deck" effect
-        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
-            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                _deckBounceTargetPermanents,
-                cardEffect,
-                null
-            ),
-            EffectTiming.WhenReturntoLibraryAnyone).ConfigureAwait(false);
-
-        // "When permanents would remove field" effect
-        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
-            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                _deckBounceTargetPermanents,
-                cardEffect,
-                null
-            ),
-            EffectTiming.WhenRemoveField).ConfigureAwait(false);
-
-        if (HasAwaitingActivateEffects(GManager.instance.autoProcessing_CutIn))
+        if (AttackingPermanent != null)
         {
-            // AS-IS ShowDeckBounceEffect / HideDeckBounceEffect = UI (stripped).
-
-            // cut in effect process
-            await GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null).ConfigureAwait(false);
+            AttackingPermanent.battle = null;
         }
 
-        #endregion
-
-        // fix deck bounce target permanents
-        List<Permanent> deckBounceTargetPermanents_Fixed = _deckBounceTargetPermanents.Filter(permanent =>
-        permanent != null
-        && permanent.TopCard != null
-        && permanent.willBeRemoveField);
-
-        // AS-IS "show cards" (:2359-2368) = UI (stripped).
-
-        #region "When permanents leave the battle area" effect
-
-        if (deckBounceTargetPermanents_Fixed.Count > 0) await GManager.instance.autoProcessing.StackSkillInfos(
-                CardEffectCommons.OnDeletionHashtable(
-                    deckBounceTargetPermanents_Fixed,
-                    cardEffect,
-                    null,
-                    false
-                ),
-                EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
-
-        #endregion
-
-        #region
-
-        List<CardSource> deckBottomCards = new List<CardSource>();
-
-        foreach (Permanent permanent in deckBounceTargetPermanents_Fixed)
+        if (DefendingPermanent != null)
         {
-            #region recoed used effect
-
-            if (permanent.TopCard != null)
-            {
-                permanent.LibraryBounceEffect = cardEffect;
-            }
-
-            #endregion
-
-            // AS-IS DeckBounceEffect (:2399) = UI (stripped).
-
-            await permanent.DiscardEvoRoots(cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            CardSource topCard = permanent.TopCard;
-
-            await CardObjectController.RemoveField(permanent, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            deckBottomCards.Add(topCard);
-
-            DeckBouncedPermanents.Add(permanent);
+            DefendingPermanent.battle = null;
         }
-
-        await CardObjectController.AddLibraryBottomCards(deckBottomCards, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        #endregion
-
-        #region off icon
-
-        foreach (Permanent permanent in _deckBounceTargetPermanents)
-        {
-            if (permanent != null)
-            {
-                if (permanent.TopCard != null)
-                {
-                    permanent.willBeRemoveField = false;
-                }
-            }
-        }
-
-        #endregion
-    }
-
-    // (R3-A) AS-IS AutoProcessing.HasAwaitingActivateEffects (AutoProcessing.cs:750-766), inlined verbatim (see
-    // DestroyPermanentsClass) because the AS-IS method lives on the R3-B-owned AutoProcessing surface (read-only).
-    private static bool HasAwaitingActivateEffects(AutoProcessing autoProcessing)
-    {
-        if (autoProcessing.StackedSkillInfos.Count >= 2)
-        {
-            return true;
-        }
-        else if (autoProcessing.StackedSkillInfos.Count == 1)
-        {
-            if (autoProcessing.StackedSkillInfos[0].CardEffect.CanActivate(autoProcessing.StackedSkillInfos[0].Hashtable))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }
 
 #endregion
 
-#region Place permanents to deck top
+#region De-digivolve
 
-/// <summary>(RDW-01 re-migration) 1:1 of AS-IS <c>DeckTopBounceClass</c> (CardController.cs:2437-2597): the deck-TOP
-/// sibling of <see cref="DeckBottomBounceClass"/> — identical body except the top insert
-/// (<c>AddLibraryTopCards</c>). Same substrate conventions.</summary>
-public class DeckTopBounceClass
+public class IDegeneration
 {
-    public DeckTopBounceClass(List<Permanent> deckBounceTargetPermanents, Hashtable hashtable)
-    {
-        _deckBounceTargetPermanents = deckBounceTargetPermanents.Clone();
-
-        _hashtable = hashtable;
-    }
-
-    public void SetNotShowCards()
-    {
-        _notShowCards = true;
-    }
-
-    public bool IsDeckBounced(Permanent permanent)
-    {
-        return DeckBouncedPermanents.Contains(permanent);
-    }
-
-    List<Permanent> _deckBounceTargetPermanents = new List<Permanent>();
-    public List<Permanent> DeckBouncedPermanents { get; private set; } = new List<Permanent>();
-    Hashtable _hashtable = new Hashtable();
-    bool _notShowCards = false;
-
-    public async Task DeckBounce(CancellationToken cancellationToken = default)
-    {
-        if (_deckBounceTargetPermanents == null) return;
-
-        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
-
-        _deckBounceTargetPermanents = _deckBounceTargetPermanents.Filter(permanent =>
-        permanent != null
-        && permanent.TopCard != null
-        && (cardEffect == null ||
-        (!permanent.TopCard.CanNotBeAffected(cardEffect)
-        && !permanent.CannotReturnToLibrary(cardEffect)
-        && permanent.CanBeRemoved())));
-
-        if (_deckBounceTargetPermanents.Count == 0) return;
-
-        _deckBounceTargetPermanents.ForEach(permanent => permanent.willBeRemoveField = true);
-
-        #region cut in effect
-
-        // "When permanents would return to deck" effect
-        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
-            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                _deckBounceTargetPermanents,
-                cardEffect,
-                null
-            ),
-            EffectTiming.WhenReturntoLibraryAnyone).ConfigureAwait(false);
-
-        // "When permanents would remove field" effect
-        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
-            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                _deckBounceTargetPermanents,
-                cardEffect,
-                null
-            ),
-            EffectTiming.WhenRemoveField).ConfigureAwait(false);
-
-        if (HasAwaitingActivateEffects(GManager.instance.autoProcessing_CutIn))
-        {
-            // AS-IS ShowDeckBounceEffect / HideDeckBounceEffect = UI (stripped).
-
-            // cut in effect process
-            await GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null).ConfigureAwait(false);
-        }
-
-        #endregion
-
-        // fix deck bounce target permanents
-        List<Permanent> deckBounceTargetPermanents_Fixed = _deckBounceTargetPermanents.Filter(permanent =>
-        permanent != null
-        && permanent.TopCard != null
-        && permanent.willBeRemoveField);
-
-        // AS-IS "show cards" (:2525-2534) = UI (stripped).
-
-        #region "When permanents leave the battle area" effect
-
-        if (deckBounceTargetPermanents_Fixed.Count > 0) await GManager.instance.autoProcessing.StackSkillInfos(
-                CardEffectCommons.OnDeletionHashtable(
-                    deckBounceTargetPermanents_Fixed,
-                    cardEffect,
-                    null,
-                    false
-                ),
-                EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
-
-        #endregion
-
-        #region
-
-        List<CardSource> deckTopCards = new List<CardSource>();
-
-        foreach (Permanent permanent in deckBounceTargetPermanents_Fixed)
-        {
-            #region recoed used effect
-
-            if (permanent.TopCard != null)
-            {
-                permanent.LibraryBounceEffect = cardEffect;
-            }
-
-            #endregion
-
-            // AS-IS DeckBounceEffect (:2565) = UI (stripped).
-
-            await permanent.DiscardEvoRoots(cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            CardSource topCard = permanent.TopCard;
-
-            await CardObjectController.RemoveField(permanent, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            deckTopCards.Add(topCard);
-
-            DeckBouncedPermanents.Add(permanent);
-        }
-
-        await CardObjectController.AddLibraryTopCards(deckTopCards, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        #endregion
-
-        #region off icon
-
-        foreach (Permanent permanent in _deckBounceTargetPermanents)
-        {
-            if (permanent != null)
-            {
-                if (permanent.TopCard != null)
-                {
-                    permanent.willBeRemoveField = false;
-                }
-            }
-        }
-
-        #endregion
-    }
-
-    private static bool HasAwaitingActivateEffects(AutoProcessing autoProcessing)
-    {
-        if (autoProcessing.StackedSkillInfos.Count >= 2)
-        {
-            return true;
-        }
-        else if (autoProcessing.StackedSkillInfos.Count == 1)
-        {
-            if (autoProcessing.StackedSkillInfos[0].CardEffect.CanActivate(autoProcessing.StackedSkillInfos[0].Hashtable))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-}
-
-#endregion
-
-#region Return permanent to hand
-
-/// <summary>(RDW-01 re-migration) 1:1 of AS-IS <c>HandBounceClaass</c> (CardController.cs:2603-2831): return a list
-/// of field permanents to their owners' hands (a DigiEgg top card goes to the deck bottom instead). Same substrate
-/// conventions as <see cref="DestroyPermanentsClass"/>; the "record parameters just before" block is the AS-IS
-/// snapshot verbatim; the burst marker (<c>IsReturnedToHandByBurstDigivolution</c>) + <c>HandBounceEffect</c> record
-/// the causing effect / burst flag; AddHandCards fires the OnAddHand window (derived, see CardObjectController).</summary>
-public class HandBounceClaass
-{
-    public HandBounceClaass(List<Permanent> bounceTargetPermanents, Hashtable hashtable)
-    {
-        _bounceTargetPermanents = bounceTargetPermanents.Clone().Filter(CardEffectCommons.IsPermanentExistsOnBattleArea);
-
-        _hashtable = hashtable;
-    }
-
-    public bool IsBounced(Permanent permanent)
-    {
-        return BouncedPermanents.Contains(permanent);
-    }
-
-    List<Permanent> _bounceTargetPermanents = new List<Permanent>();
-    public List<Permanent> BouncedPermanents { get; private set; } = new List<Permanent>();
-    Hashtable _hashtable = new Hashtable();
-    bool _notShowCards = false;
-
-    public async Task Bounce(CancellationToken cancellationToken = default)
-    {
-        if (_bounceTargetPermanents == null) return;
-
-        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
-
-        _bounceTargetPermanents = _bounceTargetPermanents.Filter(permanent =>
-        permanent != null
-        && permanent.TopCard != null
-        && (cardEffect == null ||
-        (!permanent.TopCard.CanNotBeAffected(cardEffect)
-        && !permanent.CannotReturnToHand(cardEffect)
-        && permanent.CanBeRemoved())));
-
-        if (_bounceTargetPermanents.Count == 0) return;
-
-        _bounceTargetPermanents.ForEach(permanent => permanent.willBeRemoveField = true);
-
-        #region cut in effect
-
-        // "When permanents would return to hand" effect
-        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
-            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                _bounceTargetPermanents,
-                cardEffect,
-                null
-            ),
-            EffectTiming.WhenReturntoHandAnyone).ConfigureAwait(false);
-
-        // "When permanents would remove field" effect
-        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
-            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                _bounceTargetPermanents,
-                cardEffect,
-                null
-            ),
-            EffectTiming.WhenRemoveField).ConfigureAwait(false);
-
-        if (HasAwaitingActivateEffects(GManager.instance.autoProcessing_CutIn))
-        {
-            // AS-IS ShowHandBounceEffect / ShrinkSecurityDigimonDisplay / HideHandBounceEffect = UI (stripped).
-
-            // cut in effect process
-            await GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null).ConfigureAwait(false);
-        }
-
-        #endregion
-
-        // fix bounce target permanents
-        List<Permanent> bounceTargetPermanents_Fixed = _bounceTargetPermanents.Filter(permanent =>
-        permanent != null
-        && permanent.TopCard != null
-        && permanent.willBeRemoveField);
-
-        #region "When permanents returned to hand" effect
-
-        await GManager.instance.autoProcessing
-            .StackSkillInfos(CardEffectCommons.OnDeletionHashtable(
-                bounceTargetPermanents_Fixed,
-                cardEffect,
-                null,
-                false
-                ),
-                EffectTiming.OnPermamemtReturnedToHand).ConfigureAwait(false);
-
-        #endregion
-
-        #region "When permanents leave the battle area" effect
-
-        await GManager.instance.autoProcessing.StackSkillInfos(
-            CardEffectCommons.OnDeletionHashtable(
-                bounceTargetPermanents_Fixed,
-                cardEffect,
-                null,
-                false
-            ),
-            EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
-
-        #endregion
-
-        #region record parameter just before bounce
-
-        foreach (Permanent permanent in bounceTargetPermanents_Fixed)
-        {
-            permanent.DPJustBeforeRemoveField = permanent.DP;
-
-            if (permanent.TopCard.HasLevel)
-            {
-                permanent.LevelJustBeforeRemoveField = permanent.Level;
-            }
-
-            if (permanent.TopCard.HasPlayCost)
-            {
-                permanent.CostJustBeforeRemoveField = permanent.TopCard.GetCostItself;
-            }
-
-            permanent.CardNamesJustBeforeRemoveField = new List<string>(permanent.TopCard.CardNames);
-            permanent.CardTraitsJustBeforeRemoveField = new List<string>(permanent.TopCard.CardTraits);
-
-            foreach (CardSource cardSource in permanent.cardSources)
-            {
-                cardSource.PermanentJustBeforeRemoveField = permanent;
-            }
-        }
-
-        #endregion
-
-        // AS-IS "add log" (:2742-2758) + "show cards" (:2762-2771) = PlayLog / UI (stripped).
-
-        #region return permanent cards to hand
-
-        List<CardSource> handCards = new List<CardSource>();
-
-        foreach (Permanent permanent in bounceTargetPermanents_Fixed)
-        {
-            #region record used effect
-
-            if (permanent.TopCard != null)
-            {
-                permanent.HandBounceEffect = cardEffect;
-            }
-
-            #endregion
-
-            // record whether to return to hand by Burst Digivolution
-            permanent.IsReturnedToHandByBurstDigivolution = CardEffectCommons.IsBurst(_hashtable);
-
-            // AS-IS BounceEffect (:2791) = UI (stripped).
-
-            await permanent.DiscardEvoRoots(cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            CardSource topCard = permanent.TopCard;
-
-            await CardObjectController.RemoveField(permanent, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            await CardObjectController.RemoveFromAllArea(topCard, cancellationToken).ConfigureAwait(false);
-
-            if (!topCard.IsDigiEgg)
-            {
-                handCards.Add(topCard);
-
-                BouncedPermanents.Add(permanent);
-            }
-            else
-            {
-                await CardObjectController.AddLibraryBottomCards(new List<CardSource>() { topCard }, cancellationToken: cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        await CardObjectController.AddHandCards(handCards, false, cardEffect, cancellationToken).ConfigureAwait(false);
-
-        #endregion
-
-        #region hide icon
-
-        foreach (Permanent permanent in _bounceTargetPermanents)
-        {
-            if (permanent != null)
-            {
-                if (permanent.TopCard != null)
-                {
-                    permanent.willBeRemoveField = false;
-                }
-            }
-        }
-
-        #endregion
-    }
-
-    private static bool HasAwaitingActivateEffects(AutoProcessing autoProcessing)
-    {
-        if (autoProcessing.StackedSkillInfos.Count >= 2)
-        {
-            return true;
-        }
-        else if (autoProcessing.StackedSkillInfos.Count == 1)
-        {
-            if (autoProcessing.StackedSkillInfos[0].CardEffect.CanActivate(autoProcessing.StackedSkillInfos[0].Hashtable))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-}
-
-#endregion
-
-#region Place permanent to security
-
-/// <summary>(RDW-01 re-migration) 1:1 of AS-IS <c>IPutSecurityPermanent</c> (CardController.cs:3503-3642): place a
-/// single field permanent's top card into its owner's security (top/bottom, face-up/down), gated by
-/// <c>!TopCard.CanNotBeAffected</c>, the owner's <see cref="Player.CanAddSecurity"/>, and <c>CanBeRemoved</c>.
-/// Substrate: <c>TopCard.Owner.CanAddSecurity(cardEffect)</c> → <c>new Player(context, ownerId).CanAddSecurity(id)</c>
-/// (the established id-adaptation); the AS-IS "insert top then demote a !toTop card via SecurityCards.Remove+Add"
-/// (:3618/:3625-3629) is folded into <c>AddSecurityCard(toTop:)</c>; the AS-IS SECOND
-/// <c>new IAddSecurity(topCard).AddSecurity()</c> (:3632, in addition to AddSecurityCard's own :1004 window) is kept
-/// 1:1; UI (Show/HideWillRemoveFieldEffect, ShowCardEffect, CreateRecoveryEffect) and PlayLog stripped.</summary>
-public class IPutSecurityPermanent
-{
-    public IPutSecurityPermanent(Permanent permanent, Hashtable hashtable, bool toTop, bool isFaceup = false)
+    /// <summary>
+    /// De-Digivolve Class
+    /// </summary>
+    /// <param name="permanent">Target Permanent</param>
+    /// <param name="DegenerationCount">De-Digivolve Amount</param>
+    /// <param name="cardEffect">Card Effect</param>
+    /// <param name="DegenerationCountRuling">Should we enforce rule to select De-digivolve amount before digimon, disabled by default</param>
+    public IDegeneration(Permanent permanent, int DegenerationCount, ICardEffect cardEffect, bool? DegenerationCountRuling = null)
     {
         _permanent = permanent;
-        _hashtable = hashtable;
-        _toTop = toTop;
-        _isFaceup = isFaceup;
+        _degenerationCount = DegenerationCount;
+        _cardEffect = cardEffect;
+        _degenerationCountRuling = DegenerationCountRuling;
     }
 
     Permanent _permanent = null;
-    Hashtable _hashtable = new Hashtable();
-    bool _toTop = false;
-    bool _isFaceup = false;
-    public bool IsPlacedSecurity = false;
+    int _degenerationCount;
+    ICardEffect _cardEffect = null;
+    bool? _degenerationCountRuling;
 
-    public async Task PutSecurity(CancellationToken cancellationToken = default)
+    public IEnumerator Degeneration()
     {
-        if (_permanent == null) return;
-        if (_permanent.TopCard == null) return;
-        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+        if (_cardEffect == null) yield break;
+        if (_cardEffect.EffectSourceCard == null) yield break;
+        if (_permanent == null) yield break;
+        if (_permanent.TopCard == null) yield break;
+        if (_permanent.ImmuneFromDeDigivolve()) yield break;
+        if (_permanent.ImmuneFromStackTrashing(_cardEffect)) yield break;
+        if (_permanent.TopCard.CanNotBeAffected(_cardEffect)) yield break;
 
-        if (_permanent.TopCard.CanNotBeAffected(cardEffect) || !new Player(_permanent.TopCard.Context, _permanent.TopCard.Owner).CanAddSecurity(cardEffect?.EffectSourceCard?.InstanceId)) return;
-        if (!_permanent.CanBeRemoved()) return;
+        int maxCount = Math.Min(_permanent.DigivolutionCards.Count, _degenerationCount);
 
-        _permanent.willBeRemoveField = true;
+        SelectCountEffect selectCountEffect = GManager.instance.GetComponent<SelectCountEffect>();
 
-        #region "When permanents would remove field" effect
-
-        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
-            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                new List<Permanent>() { _permanent },
-                cardEffect,
-                null
-            ),
-            EffectTiming.WhenRemoveField).ConfigureAwait(false);
-
-        if (HasAwaitingActivateEffects(GManager.instance.autoProcessing_CutIn))
+        if (selectCountEffect != null && _degenerationCountRuling == null)
         {
-            // AS-IS ShowWillRemoveFieldEffect / ShrinkSecurityDigimonDisplay / HideWillRemoveFieldEffect = UI (stripped).
+            Player selectPlayer = _cardEffect.EffectSourceCard.Owner;
 
-            // cut in effect process
-            await GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null).ConfigureAwait(false);
-        }
+            selectCountEffect.SetUp(
+                SelectPlayer: selectPlayer,
+                targetPermanent: _permanent,
+                MaxCount: maxCount,
+                CanNoSelect: false,
+                Message: "How many cards do you trash?",
+                Message_Enemy: "The opponent is choosing how many cards to trash.",
+                SelectCountCoroutine: SelectCountCoroutine);
 
-        #endregion
+            yield return ContinuousController.instance.StartCoroutine(selectCountEffect.Activate());
 
-        CardSource topCard = _permanent.TopCard;
-
-        if (!_permanent.willBeRemoveField)
-            return;
-
-        if (topCard == null)
-            return;
-
-        // AS-IS "add log" (:3563-3576) = PlayLog (stripped).
-
-        IsPlacedSecurity = true;
-
-        // AS-IS "show cards" (:3580-3594) = UI (stripped).
-
-        #region "When permanents leave the battle area" effect
-
-        await GManager.instance.autoProcessing.StackSkillInfos(
-            CardEffectCommons.OnDeletionHashtable(
-                new List<Permanent> { _permanent },
-                cardEffect,
-                null,
-                false
-            ),
-            EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
-
-        #endregion
-
-        #region place permanent to security
-
-        await _permanent.DiscardEvoRoots(cancellationToken: cancellationToken).ConfigureAwait(false);
-        await CardObjectController.RemoveField(_permanent, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        if (!topCard.IsToken)
-        {
-            if (!topCard.IsDigiEgg)
+            IEnumerator SelectCountCoroutine(int count)
             {
-                // AS-IS :3618 AddSecurityCard(topCard, faceUp:_isFaceup) — toTop defaults true; AS-IS then demotes a
-                // !_toTop card via SecurityCards.Remove+Add (:3625-3629). The mirror expresses the final position via
-                // AddSecurityCard's toTop param (the sanctioned AddToSecurityAsync(toTop) demote seam).
-                await CardObjectController.AddSecurityCard(topCard, toTop: _toTop, faceUp: _isFaceup, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                // AS-IS :3620-3623 SetReverse()/SetFace() — the face restamp.
-                // (namespace qualification) this class sits in the file's SECOND block-scoped namespace
-                // (`...Script.CardEffectCommons`, :2800), which does not import Headless.Runtime — the same
-                // fully-qualified `Headless.Runtime.SecurityFaceState` idiom the card corpus uses.
-                Headless.Runtime.SecurityFaceState.Stamp(topCard.Context.CardInstanceRepository, topCard.InstanceId, faceUp: _isFaceup);
-
-                // AS-IS :3631 CreateRecoveryEffect = UI (stripped).
-
-                // AS-IS :3632 the SECOND "when security cards are added" window (fired in addition to AddSecurityCard's).
-                await new IAddSecurity(topCard).AddSecurity(cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                await CardObjectController.AddLibraryBottomCards(new List<CardSource>() { topCard }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                _degenerationCount = count;
+                yield return null;
             }
         }
 
-        #endregion
+        if (_degenerationCount >= 1)
+        {
+            int count = 0;
+
+            List<CardSource> selectedCards = new List<CardSource>();
+
+            while (true)
+            {
+                bool StopCondition()
+                {
+                    if (_permanent.HasNoDigivolutionCards)
+                    {
+                        return true;
+                    }
+
+                    if (_permanent.Level == 3)
+                    {
+                        if (_permanent.TopCard != null)
+                        {
+                            if (_permanent.TopCard.HasLevel)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+
+                    if (count >= _degenerationCount)
+                    {
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                if (StopCondition())
+                {
+                    break;
+                }
+
+                if (count == 0)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(_permanent));
+                }
+
+                CardSource cardSource = _permanent.TopCard;
+
+                selectedCards.Add(cardSource);
+
+                yield return ContinuousController.instance.StartCoroutine(new AceOverflowClass(new List<CardSource>() { cardSource }).Overflow());
+
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveFromAllArea(cardSource));
+
+                if (!cardSource.IsToken)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
+                }
+
+                _permanent.ShowingPermanentCard.ShowPermanentData(true);
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().RemoveDigivolveRootEffect(cardSource, _permanent));
+
+                _permanent.TopCard.SetChangedLocationTime();//register that the new topcard just became a top card for the purpose of the start of timestamped continuous effects
+
+                count++;
+            }
+
+            #region "When Top Card is Trashed" effect
+
+            #region Hashtable Setting
+
+            System.Collections.Hashtable hashtable = new System.Collections.Hashtable()
+                        {
+                            {"Permanent", _permanent},
+                            {"CardSources", selectedCards}
+                        };
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing
+                .StackSkillInfos(hashtable, EffectTiming.WhenTopCardTrashed));
+
+            #endregion
+
+            #region add log
+
+            if (selectedCards.Count >= 1)
+            {
+                string log = "";
+
+                log += $"\nDe-Digivolve :";
+
+                foreach (CardSource cardSource in selectedCards)
+                {
+                    if (cardSource != null)
+                    {
+                        log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+                    }
+                }
+
+                log += "\n";
+
+                PlayLog.OnAddLog?.Invoke(log);
+            }
+
+            #endregion
+        }
+    }
+}
+
+public class IMassDegeneration
+{
+    /// <summary>
+    /// De-Digivolve Class for applying simultaneous De-digivolve to multiple digimon at once 
+    /// to behave correctly around immunity effects, especially blanket immunity
+    /// </summary>
+    /// <param name="permanents">Target Permanents</param>
+    /// <param name="DegenerationCount">De-Digivolve Amount</param>
+    /// <param name="cardEffect">Card Effect</param>
+    /// <param name="DegenerationCountRuling">Should we enforce rule to select De-digivolve amount before digimon, disabled by default.</param>
+    public IMassDegeneration(List<Permanent> permanents, int DegenerationCount, ICardEffect cardEffect, bool? DegenerationCountRuling = null)
+    {
+        _permanents = permanents;
+        _degenerationCount = DegenerationCount;
+        _cardEffect = cardEffect;
+        _degenerationCountRuling = DegenerationCountRuling;
     }
 
-    private static bool HasAwaitingActivateEffects(AutoProcessing autoProcessing)
+    List<Permanent> _permanents = null;
+    int _degenerationCount;
+    ICardEffect _cardEffect = null;
+    bool? _degenerationCountRuling;
+
+    public IEnumerator Degeneration()
     {
-        if (autoProcessing.StackedSkillInfos.Count >= 2)
+        if (_cardEffect == null) yield break;
+        if (_cardEffect.EffectSourceCard == null) yield break;
+
+        bool ValidTarget(Permanent permanent)
         {
-            return true;
-        }
-        else if (autoProcessing.StackedSkillInfos.Count == 1)
-        {
-            if (autoProcessing.StackedSkillInfos[0].CardEffect.CanActivate(autoProcessing.StackedSkillInfos[0].Hashtable))
-            {
-                return true;
-            }
+            return permanent != null
+                && permanent.TopCard != null
+                && !permanent.ImmuneFromDeDigivolve()
+                && !permanent.ImmuneFromStackTrashing(_cardEffect)
+                && !permanent.TopCard.CanNotBeAffected(_cardEffect);
         }
 
-        return false;
+        List<Permanent> permanents_Fixed = _permanents.Filter(ValidTarget);
+
+        // Removed the choice for now as the only possible card is de-digivolve 1 several times, and choice as previously written is per single target. 
+        // Would need to make another SelectCountEffect or edit every current usage such that it can take an array of targetPermanents. Not needed for the 1 card that uses this method so leaving it for now.
+        // SelectCountEffect selectCountEffect = GManager.instance.GetComponent<SelectCountEffect>();
+
+        // if (selectCountEffect != null && _degenerationCountRuling == null && _degenerationCount > 1)
+        // {
+        //     Player selectPlayer = _cardEffect.EffectSourceCard.Owner;
+
+        //     selectCountEffect.SetUp(
+        //         SelectPlayer: selectPlayer,
+        //         targetPermanent: _permanent,
+        //         MaxCount: maxCount,
+        //         CanNoSelect: false,
+        //         Message: "How many cards do you trash?",
+        //         Message_Enemy: "The opponent is choosing how many cards to trash.",
+        //         SelectCountCoroutine: SelectCountCoroutine);
+
+        //     yield return ContinuousController.instance.StartCoroutine(selectCountEffect.Activate());
+
+        //     IEnumerator SelectCountCoroutine(int count)
+        //     {
+        //         _degenerationCount = count;
+        //         yield return null;
+        //     }
+        // }
+
+        if (_degenerationCount >= 1)
+        {
+            foreach(Permanent _permanent in permanents_Fixed)
+            {
+                int count = 0;
+
+                int maxCount = Math.Min(_degenerationCount, _permanent.DigivolutionCards.Count);
+
+                List<CardSource> selectedCards = new List<CardSource>();
+
+                while (true)
+                {
+                    bool StopCondition()
+                    {
+                        if (_permanent.HasNoDigivolutionCards)
+                        {
+                            return true;
+                        }
+
+                        if (_permanent.Level == 3)
+                        {
+                            if (_permanent.TopCard != null)
+                            {
+                                if (_permanent.TopCard.HasLevel)
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+
+                        if (count >= maxCount)
+                        {
+                            return true;
+                        }
+
+                        return false;
+                    }
+
+                    if (StopCondition())
+                    {
+                        break;
+                    }
+
+                    if (count == 0)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(_permanent));
+                    }
+
+                    CardSource cardSource = _permanent.TopCard;
+
+                    selectedCards.Add(cardSource);
+
+                    yield return ContinuousController.instance.StartCoroutine(new AceOverflowClass(new List<CardSource>() { cardSource }).Overflow());
+
+                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveFromAllArea(cardSource));
+
+                    if (!cardSource.IsToken)
+                    {
+                        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
+                    }
+
+                    _permanent.ShowingPermanentCard.ShowPermanentData(true);
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().RemoveDigivolveRootEffect(cardSource, _permanent));
+
+                    _permanent.TopCard.SetChangedLocationTime();//register that the new topcard just became a top card for the purpose of the start of timestamped continuous effects
+
+                    count++;
+                }
+
+                #region "When Top Card is Trashed" effect
+
+                #region Hashtable Setting
+
+                System.Collections.Hashtable hashtable = new System.Collections.Hashtable()
+                            {
+                                {"Permanent", _permanent},
+                                {"CardSources", selectedCards}
+                            };
+
+                #endregion
+
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing
+                    .StackSkillInfos(hashtable, EffectTiming.WhenTopCardTrashed));
+
+                #endregion
+
+                #region add log
+
+                if (selectedCards.Count >= 1)
+                {
+                    string log = "";
+
+                    log += $"\nDe-Digivolve :";
+
+                    foreach (CardSource cardSource in selectedCards)
+                    {
+                        if (cardSource != null)
+                        {
+                            log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+                        }
+                    }
+
+                    log += "\n";
+
+                    PlayLog.OnAddLog?.Invoke(log);
+                }
+                
+                #endregion
+            }
+        }
     }
 }
 
 #endregion
 
-#region Destroy permanents
+#region Trash digivolution cards
 
-/// <summary>
-/// (R3-A) 1:1 mirror of AS-IS <c>DestroyPermanentsClass</c> (CardController.cs:3648-3874): the effect/rule
-/// deletion pipeline over a list of permanents. Ctor takes the target list + the causing <c>Hashtable</c>
-/// (from which the LIVE causing <c>ICardEffect</c>, <c>IBattle</c>, and DP-zero flag are read exactly as AS-IS —
-/// <see cref="CardEffectCommons.GetCardEffectFromHashtable"/> / <see cref="CardEffectCommons.GetBattleFromHashtable"/>
-/// / <see cref="CardEffectCommons.IsDPZeroDelete"/>). <see cref="Destroy"/> performs, in AS-IS order: filter by the
-/// causing effect's per-target immunity (<c>!TopCard.CanNotBeAffected(cardEffect)</c> AND
-/// <c>CanBeDestroyedBySkill(cardEffect)</c> — this is the RD-R2-02 resolution: the real ICardEffect is threaded into
-/// those getters, no more source-id-only cause seam) → mark willBeRemoveField on all → PRE cut-in windows
-/// (WhenPermanentWouldBeDeleted / WhenRemoveField, the owner's would-be-deleted replacements: Evade/Fragment/Decoy/…)
-/// → fix survivors (willBeRemoveField still true) → POST windows (OnDestroyedAnyone / OnLeaveFieldAnyone) → record
-/// the "just before deletion" parameters → per-permanent trash (DiscardEvoRoots the sources, RemoveField the top off
-/// the field, AddTrashCard the top).
-///
-/// Substrate/ADAPTATION: IEnumerator→Task; ShowDeleteEffect/HideDeleteEffect/ShrinkSecurityDigimonDisplay/
-/// ShowCardEffect/DestroyPermanentEffect/PlayLog = UI (stripped). The AS-IS
-/// <c>autoProcessing_CutIn.HasAwaitingActivateEffects()</c> gate is a private method on the AutoProcessing surface
-/// (owned by the parallel R3-B batch — read-only here), so it is inlined verbatim over the public
-/// <c>StackedSkillInfos</c> (AS-IS AutoProcessing.cs:750-766); when R3-B lands HasAwaitingActivateEffects the call
-/// can replace this local. Window drive uses the existing mirror <c>autoProcessing</c>/<c>autoProcessing_CutIn</c>
-/// surface (R3-B's home); the cut-in DRAIN (TriggeredSkillProcess) still routes to R3-B's MultipleSkills STOP
-/// (RD-P6C1-3) for a batch that actually stacked a would-be-deleted replacement — an existing R3-B design item, not
-/// a new one here. NOTE (R3-A cutover): the LIVE effect-delete path is still MatchStateMutationSink.ApplyDelete —
-/// routing the sink's Delete emission through this class (bigbang §3-R2, item 4) is blocked until R3-B lands the
-/// cut-in drain (else every replacement-window deletion would throw) and is tracked as design item RD-R3-01.
-/// </summary>
-public class DestroyPermanentsClass
+public class ITrashDigivolutionCards
 {
-    public DestroyPermanentsClass(List<Permanent> destroyTargetPermanents, Hashtable hashtable, bool notShowCards = false)
+    public ITrashDigivolutionCards(Permanent permanent, List<CardSource> trashTargetCards, ICardEffect cardEffect)
     {
-        _destroytargetPermanents = destroyTargetPermanents.Clone();
-        _hashtable = hashtable;
-        _notShowCards = notShowCards;
+        _permanent = permanent;
+
+        _trashTargetCards = trashTargetCards.Clone();
+
+        _cardEffect = cardEffect;
     }
 
-    public bool IsDestroyed(Permanent permanent)
+    public bool IsTrashed(CardSource cardSource)
     {
-        return DestroyedPermanents.Contains(permanent);
+        return TrashedCards.Contains(cardSource);
     }
 
-    List<Permanent> _destroytargetPermanents = new List<Permanent>();
-    public List<Permanent> DestroyedPermanents { get; private set; } = new List<Permanent>();
-    Hashtable _hashtable = null;
-    bool _notShowCards = false;
+    Permanent _permanent = null;
+    List<CardSource> _trashTargetCards = new List<CardSource>();
+    public List<CardSource> TrashedCards = new List<CardSource>();
+    ICardEffect _cardEffect = null;
 
-    public async Task Destroy(CancellationToken cancellationToken = default)
+    public IEnumerator TrashDigivolutionCards()
     {
-        if (_destroytargetPermanents == null) return;
+        if (_trashTargetCards == null) yield break;
+        if (_cardEffect == null) yield break;
+        if (_permanent == null) yield break;
+        if (_permanent.TopCard == null) yield break;
+        if (_permanent.ImmuneFromStackTrashing(_cardEffect)) yield break;
+        if (_permanent.TopCard.CanNotBeAffected(_cardEffect)) yield break;
+        if (_permanent.HasNoDigivolutionCards) yield break;
 
-        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
-        IBattle battle = CardEffectCommons.GetBattleFromHashtable(_hashtable);
-        bool isDPZero = CardEffectCommons.IsDPZeroDelete(_hashtable);
+        _trashTargetCards = _trashTargetCards.Filter((cardSource) =>
+            _permanent.DigivolutionCards.Contains(cardSource) &&
+            !cardSource.CanNotTrashFromDigivolutionCards(_cardEffect));
 
-        _destroytargetPermanents = _destroytargetPermanents.Filter(permanent =>
-        permanent != null
-        && permanent.TopCard != null
-        && (cardEffect == null ||
-        (!permanent.TopCard.CanNotBeAffected(cardEffect)
-        && permanent.CanBeDestroyedBySkill(cardEffect))));
+        if (_trashTargetCards.Count == 0) yield break;
 
-        if (_destroytargetPermanents.Count == 0) return;
+        _trashTargetCards.ForEach(source => source.willBeRemoveSources = true);
 
-        _destroytargetPermanents.ForEach(permanent => permanent.willBeRemoveField = true);
+        string message = "Discarded card" + Utils.PluralFormSuffix(_trashTargetCards.Count);
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_trashTargetCards, message, true, true));
 
-        #region cut in effect
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(_permanent));
 
-        // "When permanents would be deleted" effect
+        #region cut in effect - Would discard
 
-        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
-            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                _destroytargetPermanents,
-                cardEffect,
-                battle
+        // "When digivolution cards would be trashed" effect
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenDigivolutionCardWouldDiscardedCheckHashtable(
+                _permanent,
+                _trashTargetCards,
+                _cardEffect
             ),
-            EffectTiming.WhenPermanentWouldBeDeleted).ConfigureAwait(false);
+            EffectTiming.WhenWouldDigivolutionCardDiscarded));
 
-        // "When permanents would remove field" effect
-        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
-            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
-                _destroytargetPermanents,
-                cardEffect,
-                battle
-            ),
-            EffectTiming.WhenRemoveField).ConfigureAwait(false);
-
-        if (HasAwaitingActivateEffects(GManager.instance.autoProcessing_CutIn))
+        if (GManager.instance.autoProcessing_CutIn.HasAwaitingActivateEffects())
         {
-            // AS-IS ShowDeleteEffect / ShrinkSecurityDigimonDisplay / HideDeleteEffect = UI (stripped).
+            // effect
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.ShrinkSecurityDigimonDisplay());
 
             // cut in effect process
-            await GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null).ConfigureAwait(false);
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, AutoProcessing.HasExecutedSameEffect));
         }
 
         #endregion
 
-        // fix delete target permanents
-        List<Permanent> destroyTargetPermanents_Fixed = _destroytargetPermanents.Filter(permanent =>
-            permanent != null
-            && permanent.TopCard != null
-            && permanent.willBeRemoveField);
+        //fix trash target permanent
+        Permanent permanentTarget_Fixed = _permanent;
 
-        #region "When permanents are deleted" effect
+        // fix trash sources sources
+        List<CardSource> trashDigivolutionCards_Fixed = _trashTargetCards.Filter(cardsource =>
+            cardsource != null
+            && cardsource.willBeRemoveSources);
 
-        await GManager.instance.autoProcessing
-            .StackSkillInfos(CardEffectCommons.OnDeletionHashtable(
-                destroyTargetPermanents_Fixed,
-                cardEffect,
-                battle,
-                isDPZero
-                ),
-                EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
+        #region "When digivolution cards are trashed" effect
+
+        #region Hashtable Setting
+
+        Hashtable hashtable = new Hashtable()
+            {
+                {"CardEffect", _cardEffect},
+                {"Permanent", permanentTarget_Fixed},
+                {"DiscardedCards", trashDigivolutionCards_Fixed},
+            };
 
         #endregion
 
-        #region "When permanents leave the battle area" effect
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnDigivolutionCardDiscarded));
 
-        await GManager.instance.autoProcessing.StackSkillInfos(
-            CardEffectCommons.OnDeletionHashtable(
-                destroyTargetPermanents_Fixed,
-                cardEffect,
-                battle,
-                isDPZero
+        #endregion
+
+        yield return ContinuousController.instance.StartCoroutine(new AceOverflowClass(_trashTargetCards).Overflow());
+
+        foreach (CardSource cardSource in trashDigivolutionCards_Fixed)
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().RemoveDigivolveRootEffect(cardSource, permanentTarget_Fixed));
+
+            yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveFromAllArea(cardSource));
+
+            if (!cardSource.IsToken)
+            {
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
+            }
+
+            cardSource.willBeRemoveSources = false;
+            TrashedCards.Add(cardSource);
+        }
+    }
+}
+
+#endregion
+
+#region Trash link cards
+
+public class ITrashLinkCards
+{
+    public ITrashLinkCards(Permanent permanent, List<CardSource> trashTargetCards, ICardEffect cardEffect)
+    {
+        _permanent = permanent;
+
+        _trashTargetCards = trashTargetCards.Clone();
+
+        _cardEffect = cardEffect;
+    }
+
+    public bool IsTrashed(CardSource cardSource)
+    {
+        return TrashedLinkCards.Contains(cardSource);
+    }
+
+    Permanent _permanent = null;
+    List<CardSource> _trashTargetCards = new List<CardSource>();
+    public List<CardSource> TrashedLinkCards = new List<CardSource>();
+    ICardEffect _cardEffect = null;
+
+    public IEnumerator TrashLinkCards()
+    {
+        if (_trashTargetCards == null) yield break;
+        if (_permanent == null) yield break;
+        if (_permanent.TopCard == null) yield break;
+        if (_cardEffect != null && _permanent.TopCard.CanNotBeAffected(_cardEffect)) yield break;
+        if (_permanent.HasNoLinkCards) yield break;
+
+        _trashTargetCards = _trashTargetCards.Filter((cardSource) =>
+            _permanent.LinkedCards.Contains(cardSource));
+
+        if (_trashTargetCards.Count == 0) yield break;
+
+        _trashTargetCards.ForEach(source => source.willBeRemoveSources = true);
+
+        string message = "Discarded card" + Utils.PluralFormSuffix(_trashTargetCards.Count);
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_trashTargetCards, message, true, true));
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(_permanent));
+
+        #region cut in effect - Would discard
+
+        // "When link cards would be trashed" effect
+        //TODO: Create CardEffectCommons.WhenLinkCardWouldDiscard function
+        /*yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenDigivolutionCardWouldDiscardedCheckHashtable(
+                _permanent,
+                _trashTargetCards,
+                _cardEffect
             ),
-            EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
+            EffectTiming.WhenWouldDigivolutionCardDiscarded));*/
 
-        #endregion
-
-        #region record parameters just before deletion
-
-        foreach (Permanent permanent in destroyTargetPermanents_Fixed)
+        if (GManager.instance.autoProcessing_CutIn.HasAwaitingActivateEffects())
         {
-            permanent.DPJustBeforeRemoveField = permanent.DP;
+            // effect
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.ShrinkSecurityDigimonDisplay());
 
-            if (permanent.TopCard.HasLevel)
-            {
-                permanent.LevelJustBeforeRemoveField = permanent.Level;
-            }
-
-            if (permanent.TopCard.HasPlayCost)
-            {
-                permanent.CostJustBeforeRemoveField = permanent.TopCard.GetCostItself;
-            }
-
-            permanent.CardNamesJustBeforeRemoveField = new List<string>(permanent.TopCard.CardNames);
-            permanent.CardTraitsJustBeforeRemoveField = new List<string>(permanent.TopCard.CardTraits);
-
-            foreach (CardSource cardSource in permanent.cardSources)
-            {
-                cardSource.PermanentJustBeforeRemoveField = permanent;
-            }
+            // cut in effect process
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, AutoProcessing.HasExecutedSameEffect));
         }
 
         #endregion
 
-        // AS-IS "add log" (:3787-3805) + "show cards" (:3807-3816) = UI / PlayLog (stripped).
+        //fix trash target permanent
+        Permanent permanentTarget_Fixed = _permanent;
 
-        #region trash permanent cards
+        // fix trash sources sources
+        List<CardSource> trashLinkCards_Fixed = _trashTargetCards.Filter(cardsource =>
+            cardsource != null
+            && cardsource.willBeRemoveSources);
 
-        foreach (Permanent permanent in destroyTargetPermanents_Fixed)
-        {
-            #region record wheter to be deleted by battle
+        #region "When link cards are trashed" effect
 
-            if (battle != null)
+        #region Hashtable Setting
+
+        Hashtable hashtable = new Hashtable()
             {
-                if (permanent.TopCard != null)
-                {
-                    if (CardEffectCommons.GetLoserPermanentsFromHashtable(battle.hashtable).Contains(permanent))
-                        permanent.IsDestroyedByBattle = true;
-                }
-            }
-
-            #endregion
-
-            #region record used effect
-
-            if (permanent.TopCard != null)
-            {
-                permanent.DestroyingEffect = cardEffect;
-            }
-
-            #endregion
-
-            // AS-IS DestroyPermanentEffect (:3844) = UI (stripped).
-
-            await permanent.DiscardEvoRoots(cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            CardSource topCard = permanent.TopCard;
-
-            await CardObjectController.RemoveField(permanent, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            await CardObjectController.AddTrashCard(topCard, cancellationToken).ConfigureAwait(false);
-
-            DestroyedPermanents.Add(permanent);
-        }
+                {"CardEffect", _cardEffect},
+                {"Permanent", permanentTarget_Fixed},
+                {"DiscardedCards", trashLinkCards_Fixed},
+            };
 
         #endregion
 
-        #region hide icon
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnLinkCardDiscarded));
 
-        foreach (Permanent permanent in _destroytargetPermanents)
+        #endregion
+
+        yield return ContinuousController.instance.StartCoroutine(new AceOverflowClass(_trashTargetCards).Overflow());
+
+        foreach (CardSource cardSource in trashLinkCards_Fixed)
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().RemoveDigivolveRootEffect(cardSource, permanentTarget_Fixed));
+
+            if (!cardSource.IsToken)
+            {
+                yield return ContinuousController.instance.StartCoroutine(permanentTarget_Fixed.RemoveLinkedCard(cardSource));
+            }
+
+            cardSource.willBeRemoveSources = false;
+            TrashedLinkCards.Add(cardSource);
+        }
+    }
+}
+
+#endregion
+
+#region Return digivolution cards to deck bottom
+
+public class ReturnToLibraryBottomDigivolutionCardsClass
+{
+    public ReturnToLibraryBottomDigivolutionCardsClass(Permanent permanent, List<CardSource> cardSources, Hashtable hashtable)
+    {
+        _permanent = permanent;
+
+        _cardSources = cardSources.Clone();
+
+        _hashtable = hashtable;
+    }
+
+    Permanent _permanent = null;
+    List<CardSource> _cardSources = new List<CardSource>();
+    Hashtable _hashtable = null;
+
+    public IEnumerator ReturnToLibraryBottomDigivolutionCards()
+    {
+        if (_permanent == null) yield break;
+        if (_permanent.TopCard == null) yield break;
+        if (_cardSources == null) yield break;
+
+        _cardSources = _cardSources.Filter(cardSource => _permanent.DigivolutionCards.Contains(cardSource));
+
+        if (_cardSources.Count == 0) yield break;
+
+        ICardEffect CardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+
+        if (CardEffect != null && _permanent.TopCard.CanNotBeAffected(CardEffect)) yield break;
+
+        string message = "Deck Bottom card" + Utils.PluralFormSuffix(_cardSources.Count);
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_cardSources, message, true, true));
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(_permanent));
+
+        #region "When digivolution cards are returned to deck" effect
+
+        #region Hashtable Setting
+
+        Hashtable hashtable1 = new Hashtable()
+        {
+            {"Permanent", _permanent},
+            {"DeckBottomCards", _cardSources},
+            {"CardEffect", CardEffect},
+        };
+
+        #endregion
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable1, EffectTiming.OnDigivolutionCardReturnToDeckBottom));
+
+        #endregion
+
+        yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryBottomCards(_cardSources));
+    }
+}
+
+#endregion
+
+#region Reduce security
+
+public class IReduceSecurity
+{
+    public IReduceSecurity(Player player, ref List<SkillInfo> refSkillInfos, ICardEffect cardEffect)
+    {
+        _player = player;
+        _refSkillInfos = refSkillInfos;
+        _cardEffect = cardEffect;
+    }
+
+    Player _player = null;
+    List<SkillInfo> _refSkillInfos = null;
+    ICardEffect _cardEffect = null;
+
+    public IEnumerator ReduceSecurity()
+    {
+        GManager.OnSecurityStackChanged?.Invoke(_player);
+
+        #region "When cards are removed from security" effect
+
+        #region Hashtable Setting
+
+        Hashtable hashtable = new Hashtable()
+        {
+            {"Player", _player},
+            {"SkillInfo",_refSkillInfos },
+            {"CardEffect",_cardEffect}
+        };
+
+        #endregion
+
+        if (_refSkillInfos == null)
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnLoseSecurity));
+        }
+        else
+        {
+            foreach (SkillInfo skillInfo in AutoProcessing.GetSkillInfos(hashtable, EffectTiming.OnLoseSecurity))
+            {
+                _refSkillInfos.Add(skillInfo);
+            }
+        }
+
+        #endregion
+    }
+}
+
+#endregion
+
+#region Add Security
+
+public class IAddSecurity
+{
+    public IAddSecurity(CardSource source)
+    {
+        _player = source.Owner;
+        _cardSource = source;
+    }
+
+    Player _player { get; set; }
+    CardSource _cardSource { get; set; }
+
+    public IEnumerator AddSecurity()
+    {
+        GManager.OnSecurityStackChanged?.Invoke(_player);
+
+        #region "When security cards are added" effect
+
+        #region Hashtable setting
+
+        Hashtable hashtable = new Hashtable()
+        {
+            {"Player", _player},
+            {"CardSources", new List<CardSource> { _cardSource } }
+        };
+
+        #endregion
+
+        yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnAddSecurity));
+
+        #endregion
+
+        #region "When face up cards are added"
+        if (!_cardSource.IsFlipped)
+        {
+            #region Hashtable setting
+
+            Hashtable faceUpHashtable = new Hashtable()
+            {
+                {"Player", _player},
+                {"CardSources", new List<CardSource> { _cardSource } }
+            };
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(faceUpHashtable, EffectTiming.OnFaceUpSecurityIncreased));
+        }
+        #endregion
+    }
+}
+
+#endregion
+
+#region Flip Security Face Up
+
+public class IFlipSecurity
+{
+    public IFlipSecurity(CardSource source)
+    {
+        _player = source.Owner;
+        _cardSource = source;
+    }
+
+    Player _player { get; set; }
+    CardSource _cardSource { get; set; }
+
+    public IEnumerator FlipFaceUp()
+    {
+        if (!_player.SecurityCards.Contains(_cardSource) || !_cardSource.IsFlipped)
+            yield break;
+
+        _cardSource.SetFace();
+
+        #region "When face up cards are added"
+
+        #region Hashtable setting
+
+        Hashtable hashtable = new Hashtable()
+        {
+            {"Player", _player},
+            {"CardSources", new List<CardSource> { _cardSource } }
+        };
+
+        #endregion
+
+        if (!_cardSource.IsFlipped)
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnFaceUpSecurityIncreased));
+        }
+        #endregion
+    }
+}
+
+#endregion
+
+#region Suspend permanents
+
+public class SuspendPermanentsClass
+{
+    public SuspendPermanentsClass(List<Permanent> permanents, Hashtable hashtable)
+    {
+        _permanents = permanents;
+        _hashtable = hashtable;
+    }
+
+    public bool IsSuspended(Permanent permanent)
+    {
+        return SuspendedPermanents.Contains(permanent);
+    }
+
+    List<Permanent> _permanents { get; set; }
+    public List<Permanent> SuspendedPermanents { get; private set; } = new List<Permanent>();
+    Hashtable _hashtable { get; set; }
+
+    public IEnumerator Tap()
+    {
+        if (_permanents.Count == 0) yield break;
+
+        ICardEffect CardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+
+        bool IsBlock = CardEffectCommons.IsBlock(_hashtable);
+
+        bool IsAttack = CardEffectCommons.IsAttack(_hashtable);
+
+        List<Permanent> suspendTargetPermanents = _permanents.Filter(PermanentCondition);
+
+        bool PermanentCondition(Permanent permanent)
         {
             if (permanent != null)
             {
                 if (permanent.TopCard != null)
                 {
-                    permanent.willBeRemoveField = false;
+                    if (permanent.IsSuspended)
+                    {
+                        return false;
+                    }
+
+                    if (!permanent.CanSuspend)
+                    {
+                        return false;
+                    }
+
+                    if (CardEffect != null)
+                    {
+                        if (permanent.TopCard.CanNotBeAffected(CardEffect))
+                        {
+                            return false;
+                        }
+                    }
                 }
             }
-        }
 
-        #endregion
-    }
-
-    // (R3-A) AS-IS AutoProcessing.HasAwaitingActivateEffects (AutoProcessing.cs:750-766), inlined verbatim over the
-    // public StackedSkillInfos because the AS-IS method lives on the R3-B-owned AutoProcessing surface (read-only).
-    private static bool HasAwaitingActivateEffects(AutoProcessing autoProcessing)
-    {
-        if (autoProcessing.StackedSkillInfos.Count >= 2)
-        {
             return true;
         }
-        else if (autoProcessing.StackedSkillInfos.Count == 1)
+
+        foreach (Permanent permanent in suspendTargetPermanents)
         {
-            if (autoProcessing.StackedSkillInfos[0].CardEffect.CanActivate(autoProcessing.StackedSkillInfos[0].Hashtable))
+            permanent.IsSuspended = true;
+
+            permanent.DPWhenSuspended = permanent.DP;
+
+            if (permanent.ShowingPermanentCard != null)
             {
-                return true;
+                permanent.ShowingPermanentCard.ShowPermanentData(true);
             }
+
+            SuspendedPermanents.Add(permanent);
         }
 
-        return false;
+        if (suspendTargetPermanents.Count >= 1)
+        {
+            #region "Effects when permanents suspend
+
+            #region Hashtable Setting
+
+            Hashtable _hashtable = new Hashtable(){
+                {"Permanents", suspendTargetPermanents},
+                {"IsBlock", IsBlock}
+            };
+
+            if (CardEffect != null)
+            {
+                _hashtable.Add("CardEffect", CardEffect);
+            }
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(_hashtable, EffectTiming.OnTappedAnyone));
+
+            #endregion
+
+            yield return new WaitForSeconds(0.3f);
+        }
     }
 }
 
 #endregion
+
+#region Unsuspend permanents
+
+public class IUnsuspendPermanents
+{
+    public IUnsuspendPermanents(List<Permanent> permanents, ICardEffect cardEffect)
+    {
+        _permanents = permanents.Clone().Filter(CardEffectCommons.IsPermanentExistsOnBattleArea);
+        _cardEffect = cardEffect;
+    }
+
+    List<Permanent> _permanents { get; set; }
+    ICardEffect _cardEffect { get; set; }
+
+    public IEnumerator Unsuspend()
+    {
+        //Permanent list that will unsuspend
+        List<Permanent> untappedPermanets = _permanents.Filter((permanent) =>
+            permanent != null
+            && permanent.TopCard != null
+            && permanent.IsSuspended
+            && permanent.CanUnsuspend
+            && (_cardEffect == null || !permanent.TopCard.CanNotBeAffected(_cardEffect)));
+
+        #region "When permanents would unsuspend" effect
+
+        #region Hashtable Setting
+
+        Hashtable hashtable1 = new Hashtable()
+        {
+            {"CardEffect", _cardEffect},
+            {"Permanents", untappedPermanets},
+        };
+
+        #endregion
+
+        List<SkillInfo> skillInfos = AutoProcessing.GetSkillInfos(hashtable1, EffectTiming.WhenUntapAnyone);
+
+        if (skillInfos.Count >= 1)
+        {
+            foreach (SkillInfo skillInfo in skillInfos)
+            {
+                GManager.instance.autoProcessing_CutIn.PutStackedSkill(skillInfo);
+            }
+
+            foreach (Permanent permanent in untappedPermanets)
+            {
+                permanent.ShowUnsuspendEffect();
+            }
+
+            //cut in effects
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, AutoProcessing.HasExecutedSameEffect));
+
+            untappedPermanets.ForEach(permanent =>
+            {
+                if (permanent.ShowingPermanentCard != null)
+                {
+                    permanent.ShowingPermanentCard.WillUntapObject.SetActive(false);
+                }
+            });
+        }
+
+        #endregion
+
+        // fix unsuspend target permanents
+        List<Permanent> untappedPermanets_Fixed = untappedPermanets.Filter((permanent) =>
+            permanent != null
+            && permanent.TopCard != null
+            && permanent.IsSuspended
+            && permanent.CanUnsuspend
+            && (_cardEffect == null || !permanent.TopCard.CanNotBeAffected(_cardEffect)));
+
+        if (untappedPermanets_Fixed.Count >= 1)
+        {
+            foreach (Permanent permanent in untappedPermanets_Fixed)
+            {
+                permanent.IsSuspended = false;
+
+                if (permanent.ShowingPermanentCard != null)
+                {
+                    permanent.ShowingPermanentCard.ShowPermanentData(true);
+                }
+            }
+
+            #region "When permanents are unsuspended" effect
+
+            #region Hashtable Setting
+
+            Hashtable hashtable2 = new Hashtable()
+            {
+                {"CardEffect", _cardEffect},
+                {"Permanents", untappedPermanets_Fixed},
+            };
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(hashtable2, EffectTiming.OnUnTappedAnyone));
+
+            #endregion
+
+            yield return new WaitForSeconds(0.3f);
+        }
+    }
 }
+
+#endregion
+
+#region Trash cards from deck top
+
+public class ITrashDeckCards
+{
+    public ITrashDeckCards(List<CardSource> cardSources, ICardEffect cardEffect)
+    {
+        this.cardSources = new List<CardSource>();
+
+        foreach (CardSource cardSource in cardSources)
+        {
+            this.cardSources.Add(cardSource);
+        }
+
+        this.cardEffect = cardEffect;
+    }
+
+    List<CardSource> cardSources { get; set; } = new List<CardSource>();
+    ICardEffect cardEffect { get; set; } = null;
+
+    public IEnumerator TrashDeckCards()
+    {
+        List<CardSource> trashCards = new List<CardSource>();
+
+        foreach (CardSource cardSource in cardSources)
+        {
+            if (cardSource.Owner.LibraryCards.Contains(cardSource))
+            {
+                trashCards.Add(cardSource);
+            }
+        }
+
+        if (trashCards.Count >= 1)
+        {
+            foreach (CardSource cardSource in trashCards)
+            {
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
+            }
+
+            #region "When cards are trashed from security" effect
+
+            #region Hashtable setting
+
+            Hashtable hashtable = new Hashtable()
+            {
+                {"DiscardedCards", trashCards},
+                {"CardEffect", cardEffect},
+            };
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing.StackSkillInfos(
+                hashtable, EffectTiming.OnDiscardLibrary));
+
+            #endregion
+        }
+    }
+}
+
+#endregion
+
+#region Overflow of ace
+
+public class AceOverflowClass
+{
+    public AceOverflowClass(List<CardSource> cardSources)
+    {
+        _cardSources = cardSources.Clone();
+    }
+
+    List<CardSource> _cardSources = new List<CardSource>();
+
+    public IEnumerator Overflow()
+    {
+        _cardSources = _cardSources
+        .Filter(cardSource => cardSource.IsACE && !cardSource.IsFlipped && CardEffectCommons.IsExistOnBattleArea(cardSource) || CardEffectCommons.IsExistOnBreedingAreaDigimon(cardSource))
+        .OrderBy(cardSource => cardSource.Owner == GManager.instance.turnStateMachine.gameContext.TurnPlayer ? -1 : 1)
+        .ToList();
+
+        foreach (CardSource cardSource in _cardSources)
+        {
+            yield return ContinuousController.instance.StartCoroutine(cardSource.Owner.AddMemory(-cardSource.OverflowMemory, null));
+
+            string log = $"\nOverflow -{cardSource.OverflowMemory}:\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})\n";
+
+            PlayLog.OnAddLog?.Invoke(log);
+        }
+    }
+}
+
+#endregion
+
+#region TrashStack
+
+public class ITrashStack
+{
+    /// <summary>
+    /// Trash Stack Class
+    /// </summary>
+    /// <param name="permanent">Target Permanent</param>
+    /// <param name="TrashCount">Amount of cards to trash</param>
+    /// <param name="cardEffect">Card Effect</param>
+    /// <param name="fromTop">Should trashing start from top, true by default</param>
+    public ITrashStack(Permanent permanent, int TrashCount, ICardEffect cardEffect, bool fromTop = true)
+    {
+        _permanent = permanent;
+        _trashCount = TrashCount;
+        _cardEffect = cardEffect;
+        _fromTop = fromTop;
+    }
+
+    Permanent _permanent = null;
+    int _trashCount;
+    ICardEffect _cardEffect = null;
+    bool _fromTop;
+
+    public IEnumerator TrashStack()
+    {
+        if (_cardEffect == null) yield break;
+        if (_cardEffect.EffectSourceCard == null) yield break;
+        if (_permanent == null) yield break;
+        if (_permanent.TopCard == null) yield break;
+        if (_permanent.ImmuneFromStackTrashing(_cardEffect)) yield break;
+        if (_permanent.TopCard.CanNotBeAffected(_cardEffect)) yield break;
+
+        _trashCount = Math.Min(_permanent.StackCards.Count, _trashCount);
+
+        if (_trashCount >= 1)
+        {
+            int count = 0;
+
+            List<CardSource> selectedCards = new List<CardSource>();
+
+            while (true)
+            {
+                bool StopCondition()
+                {
+                    if (_permanent.HasNoDigivolutionCards)
+                    {
+                        return true;
+                    }
+
+                    if (count >= _trashCount)
+                    {
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                if (StopCondition())
+                {
+                    break;
+                }
+
+                if (count == 0)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(_permanent));
+                }
+
+                CardSource cardSource = _permanent.TopCard;
+
+                selectedCards.Add(cardSource);
+
+                yield return ContinuousController.instance.StartCoroutine(new AceOverflowClass(new List<CardSource>() { cardSource }).Overflow());
+
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.RemoveFromAllArea(cardSource));
+
+                if (!cardSource.IsToken)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
+                }
+
+                _permanent.ShowingPermanentCard.ShowPermanentData(true);
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().RemoveDigivolveRootEffect(cardSource, _permanent));
+
+                _permanent.TopCard.SetChangedLocationTime();//register that the new topcard just became a top card for the purpose of the start of timestamped continuous effects
+
+                count++;
+            }
+
+            #region "When Top Card is Trashed" effect
+
+            #region Hashtable Setting
+
+            System.Collections.Hashtable hashtable = new System.Collections.Hashtable()
+                        {
+                            {"Permanent", _permanent},
+                            {"CardSources", selectedCards}
+                        };
+
+            #endregion
+
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.autoProcessing
+                .StackSkillInfos(hashtable, EffectTiming.WhenTopCardTrashed));
+
+            #endregion
+
+            #region add log
+
+            if (selectedCards.Count >= 1)
+            {
+                string log = "";
+
+                log += $"\nStack Trashed :";
+
+                foreach (CardSource cardSource in selectedCards)
+                {
+                    if (cardSource != null)
+                    {
+                        log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+                    }
+                }
+
+                log += "\n";
+
+                PlayLog.OnAddLog?.Invoke(log);
+            }
+
+            #endregion
+        }
+    }
+}
+
+#endregion

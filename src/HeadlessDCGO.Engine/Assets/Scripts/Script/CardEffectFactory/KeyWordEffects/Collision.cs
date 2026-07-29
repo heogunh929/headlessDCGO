@@ -1,22 +1,13 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Collision.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord SYNC slice) 1:1 mirror of the AS-IS Collision.cs factory partial.
-// Returns the ported CollisionClass kind-class (CardEffects/CollisionClass.cs). Replaces the monolith's old
-// invented SelfKeywordByNameEffect/ContinuousPlayerScopeKeywordEffect-based CollisionSelfStaticEffect/CollisionStaticEffect.
-// ADAPTATION (substrate only; logic verbatim): AS-IS card.PermanentOfThisCard() returns a PermanentView on the
-// mirror, not a Permanent -> bridge via ICardEffect.ResolvePermanentOfThisCard(card) (ICardEffect.cs).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System;
 using System.Collections;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CollisionClass (kind-class layer)
+
 
 public partial class CardEffectFactory
 {
     #region Static effect of [Collision] on oneself
     public static CollisionClass CollisionSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool> condition, bool isLinkedEffect = false)
     {
-        bool PermanentCondition(Permanent permanent) => permanent == ICardEffect.ResolvePermanentOfThisCard(card);
+        bool PermanentCondition(Permanent permanent) => permanent == card.PermanentOfThisCard();
 
         bool CanUseCondition()
         {

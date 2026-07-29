@@ -1,44 +1,21 @@
-// Source: DCGO/Assets/Scripts/Script/OptionalSkill.cs
-// (EFFECT-MODEL REBUILD / P6 stage A) Mirror of the AS-IS `OptionalSkill` — the "Will you use ~?" yes/no
-// prompt `ActivateICardEffectExtensionClass.Activate_Optional` reaches through
-// `GManager.instance.GetComponent<OptionalSkill>().SelectOptional(cardEffect, hash)` (AS-IS ICardEffect.cs:1054).
-//
-// The AS-IS body (OptionalSkill.cs:14-133) is ~90% presentation: trash-card display, outline/highlight
-// toggling, command-text panels, Photon RPC plumbing (`SetUseOptional` RPC → QueuePlayerSelection), an AI
-// 0.9-probability auto-answer. The GAME-LOGIC skeleton ported here 1:1:
-//   1. the deciding player = the effect source card's OWNER (AS-IS `Player player = cardEffect.EffectSourceCard.Owner`);
-//   2. the message = `Will you use "{EffectName}"?`, with the `EffectTargets(hash)` targeting variant
-//      (OptionalSkill.cs:24-33);
-//   3. WAIT for the player's yes/no (AS-IS WaitUntil(HasPlayerSelection) ← RPC; mirror = the engine
-//      ChoiceProvider, the same substrate seam every other selection flow uses — a select answers YES, a skip
-//      answers NO, exactly the established ChoiceType.OptionalEffect prompt shape);
-//   4. `cardEffect.SetUseOptional(answer)` (OptionalSkill.cs:130) — the flag Activate_Execute gates on.
-// Component lifetime: ONE match-scoped instance via GManager.GetComponent<OptionalSkill>() (context-cached,
-// same as SelectPermanentEffect/SelectCardEffect — see GManager.cs bridge W4 note).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
-
+using Photon;
+using Photon.Pun;
+using Photon.Realtime;
+using System;
 using System.Collections;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public class OptionalSkill
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+public class OptionalSkill : MonoBehaviourPunCallbacks
 {
-    // AS-IS OptionalSkill.cs:11.
     public string waitingText { get; set; } = "The opponent is considering whether to use the effect.";
 
-    private EngineContext? _context;
-
-    public void AttachContext(EngineContext context) => _context = context;
-
     bool _useOptional = false;
-
-    // AS-IS OptionalSkill.cs:14-133 (game-logic skeleton; UI/Photon stripped — see file header).
-    public async Task SelectOptional(ICardEffect cardEffect, Hashtable hash)
+    public IEnumerator SelectOptional(ICardEffect cardEffect, Hashtable hash)
     {
-        EngineContext context = _context ?? AmbientMatchContext.Require();
+        List<string> _YesNoTexts = new List<string>() { "Use", "Not use" };
+
+        Player player = cardEffect.EffectSourceCard.Owner;
 
         _useOptional = false;
 
@@ -55,37 +32,115 @@ public class OptionalSkill
             _Message = $"Will you use \"{cardEffect.EffectName}\" targeting {string.Join(", ", effectTargets.Select(permanent => permanent.TopCard.CardNames[0]))}?";
         }
 
-        // AS-IS OptionalSkill.cs:36-58: trash-card display (UI, stripped).
-        // AS-IS OptionalSkill.cs:60-115: outline/highlight + command panel + Photon RPC / AI auto-answer
-        // (presentation + transport, stripped — the mirror transport is the ChoiceProvider below).
 
-        HeadlessPlayerId decider = cardEffect.EffectSourceCard.Owner;
-        var request = new ChoiceRequest(
-            ChoiceType.OptionalEffect,
-            decider,
-            _Message,
-            minCount: 0,
-            maxCount: 1,
-            canSkip: true,
-            ChoiceZone.Custom,
-            new[]
+        #region ƒgƒ‰ƒbƒVƒ…‚ÌƒJ[ƒh‚ð•\Ž¦
+        if (cardEffect != null)
+        {
+            if (cardEffect.EffectSourceCard != null)
             {
-                new ChoiceCandidate(
-                    cardEffect.EffectSourceCard.InstanceId,
-                    string.IsNullOrEmpty(cardEffect.EffectName) ? cardEffect.EffectDiscription : cardEffect.EffectName,
-                    ChoiceZone.Custom,
-                    IsSelectable: true,
-                    ownerId: decider),
-            });
+                if (cardEffect.EffectSourceCard.Owner.TrashCards.Contains(cardEffect.EffectSourceCard) || cardEffect.EffectSourceCard.Owner.LostCards.Contains(cardEffect.EffectSourceCard))
+                {
+                    if (cardEffect.EffectSourceCard.Owner.TrashHandCard != null)
+                    {
+                        if (!cardEffect.EffectSourceCard.Owner.TrashHandCard.gameObject.activeSelf)
+                        {
+                            cardEffect.EffectSourceCard.Owner.TrashHandCard.gameObject.SetActive(true);
+                            cardEffect.EffectSourceCard.Owner.TrashHandCard.SetUpHandCard(cardEffect.EffectSourceCard);
+                            cardEffect.EffectSourceCard.Owner.TrashHandCard.SetUpHandCardImage();
+                            cardEffect.EffectSourceCard.Owner.TrashHandCard.OnOutline();
+                            cardEffect.EffectSourceCard.Owner.TrashHandCard.SetBlueOutline();
+                            cardEffect.EffectSourceCard.Owner.TrashHandCard.transform.localScale = new Vector3(1.4f, 1.4f, 1.4f);
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
 
-        // AS-IS OptionalSkill.cs:117-119: WaitUntil(player.HasPlayerSelection()) → ValueSelection.ValueAsBool().
-        ChoiceResult decision = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
-        _useOptional = !decision.IsSkipped && decision.SelectedIds.Count > 0;
+        if (cardEffect.EffectSourceCard.Owner.isYou)
+        {
+            Permanent permanent = cardEffect.EffectSourceCard.PermanentOfThisCard();
+            List<FieldPermanentCard> highlightPermanents = new List<FieldPermanentCard>();
 
-        // AS-IS OptionalSkill.cs:121-128: panel/outline teardown (UI, stripped).
+            if (permanent != null)
+            {
+                if (permanent.ShowingPermanentCard != null)
+                {
+                    highlightPermanents.Add(permanent.ShowingPermanentCard);
+                
+                }
+            }
+
+            if (effectTargets != null)
+            {
+                foreach (Permanent targetPermanent in effectTargets)
+                {
+                    if (targetPermanent.ShowingPermanentCard != null)
+                    {
+                        highlightPermanents.Add(targetPermanent.ShowingPermanentCard);
+                    }
+                }
+            }
+
+            if (highlightPermanents.Count > 0)
+            {
+                GManager.instance.hideCannotSelectObject.SetUpHideCannotSelectObject(highlightPermanents, false);
+            }
+
+            GManager.instance.commandText.OpenCommandText(_Message);
+
+            List<Command_SelectCommand> commands = new List<Command_SelectCommand>()
+            {
+                new Command_SelectCommand(_YesNoTexts[0] ,() => photonView.RPC("SetUseOptional",RpcTarget.All, player.PlayerID, true),0),
+            };
+
+            GManager.instance.BackButton.OpenSelectCommandButton(_YesNoTexts[1], () => { photonView.RPC("SetUseOptional", RpcTarget.All, player.PlayerID, false); }, 0);
+
+            GManager.instance.selectCommandPanel.SetUpCommandButton(commands);
+        }
+
+        else
+        {
+            bool ShowOpponentMessage = cardEffect.EffectDiscription.Contains("[Hand]") && GManager.instance.autoProcessing.executingMultipleSkills != null && !GManager.instance.autoProcessing.executingMultipleSkills.IsOnlyHandEffectStacked;
+
+            if (ShowOpponentMessage)
+            {
+                GManager.instance.commandText.OpenCommandText(waitingText);
+            }
+
+            if (GManager.instance.IsAI)
+            {
+                SetUseOptional(player.PlayerID, RandomUtility.IsSucceedProbability(0.9f));
+            }
+        }
+
+        yield return new WaitUntil(() => player.HasPlayerSelection());
+        ValueSelection valueSelection = player.DequeuePlayerSelection<ValueSelection>();
+        _useOptional = valueSelection != null ? valueSelection.ValueAsBool() : false;
+
+        GManager.instance.selectCommandPanel.Off();
+
+        GManager.instance.BackButton.CloseSelectCommandButton();
+        GManager.instance.hideCannotSelectObject.Close();
+
+        GManager.instance.commandText.CloseCommandText();
+        yield return new WaitWhile(() => GManager.instance.commandText.gameObject.activeSelf);
 
         cardEffect.SetUseOptional(_useOptional);
 
-        // AS-IS OptionalSkill.cs:132: TrashHandCard.SetActive(false) (UI, stripped).
+        cardEffect.EffectSourceCard.Owner.TrashHandCard.gameObject.SetActive(false);
+    }
+
+    [PunRPC]
+    public void SetUseOptional(int playerID, bool useOptional)
+    {
+        Player selectionPlayer = GManager.instance.GetPlayerFromID(playerID);
+
+        if (selectionPlayer == null)
+        {
+            return;
+        }
+
+        selectionPlayer.QueuePlayerSelection(new ValueSelection(useOptional));
     }
 }

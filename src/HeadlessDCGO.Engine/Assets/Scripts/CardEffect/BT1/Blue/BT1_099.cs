@@ -1,22 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Blue/BT1_099.cs
-// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_099 (BT1/Blue) — an Option.
-//   [Main] Trash all digivolution cards under 1 of your opponent's Digimon.
-// AS-IS structure kept verbatim: inline ActivateClass + SelectPermanentEffect(Mode.Custom); the per-target
-// coroutine calls TrashDigivolutionCardsFromTopOrBottom(trashCount: selectedPermanent.DigivolutionCards.Count,
-// isFromTop:true) — "trash them ALL" — the count read directly off the id-shape `DigivolutionCards` helper
-// (Permanent has `.DigivolutionCards`; the selected value here is a mirror `Permanent`, so `.DigivolutionCards.
-// Count` is available 1:1). No [Security] branch — AS-IS defines only EffectTiming.OptionSkill for this card.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_099 : CEntity_Effect
+public class BT1_099 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -49,11 +39,11 @@ public sealed class BT1_099 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -72,13 +62,13 @@ public sealed class BT1_099 : CEntity_Effect
 
                     selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will trash digivolution cards.", "The opponent is selecting 1 Digimon that will trash digivolution cards.");
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
                         Permanent selectedPermanent = permanent;
 
-                        await CardEffectCommons.TrashDigivolutionCardsFromTopOrBottom(targetPermanent: selectedPermanent, trashCount: selectedPermanent.DigivolutionCards.Count, isFromTop: true, activateClass: activateClass);
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.TrashDigivolutionCardsFromTopOrBottom(targetPermanent: selectedPermanent, trashCount: selectedPermanent.DigivolutionCards.Count, isFromTop: true, activateClass: activateClass));
                     }
                 }
             }

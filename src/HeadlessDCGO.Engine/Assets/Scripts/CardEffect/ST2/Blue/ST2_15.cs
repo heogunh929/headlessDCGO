@@ -1,32 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST2/Blue/ST2_15.cs
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS ST2_15
-// (ST2/Blue Option). ([Security] AddActivateMainOptionSecurityEffect branch was already new-model, untouched.)
-//   [Main] Choose a Digimon digivolution card placed under 1 of your Digimon and play it as another Digimon
-//   without paying its memory cost.
-// AS-IS: ActivateClass on OptionSkill, ORDER=-1, ISOPTIONAL=false, CanUseCondition = CanTriggerOptionMainEffect.
-// ActivateCoroutine (guarded by HasMatchConditionPermanent): SelectPermanentEffect (Mode.Custom, select 1 of
-// owner's Digimon that has >=1 playable digivolution card) -> SelectCardEffect (Mode.Custom, Root.Custom over
-// that permanent's DigivolutionCards) -> PlayPermanentCards(payCost:false, Root.DigivolutionCards, ETB).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; select flow via bridge W4
-// (`GManager.instance.GetComponent<SelectPermanentEffect/SelectCardEffect>()`, BT9_109/BT1_044 idiom); AS-IS
-// `Func<Permanent,bool> CanSelectPermanentCondition = IsPermanentExistsOnOwnerBattleAreaDigimon(permanent,card)
-// && permanent.DigivolutionCards.Count(CanSelectCardCondition) >= 1` kept verbatim on the canonical
-// `Func<Permanent,bool>` shape (id-flip 3b — SelectPermanentEffect.SetUp takes it directly, no id round-trip
-// needed); `Permanent.DigivolutionCards` -> `.ToList()` for the
-// `List<CardSource>? customRootCardList` param; `Mathf`->`Math`; SelectCardEffect Root/Mode enum members kept
-// verbatim; `CardEffectCommons.PlayPermanentCards(...)` = the AS-IS-signature bridge overload (BT1_044 idiom).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
-
-using System;
 using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class ST2_15 : CEntity_Effect
+public class ST2_15 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -75,13 +55,13 @@ public sealed class ST2_15 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    Permanent? selectedPermanent = null;
+                    Permanent selectedPermanent = null;
 
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -100,13 +80,13 @@ public sealed class ST2_15 : CEntity_Effect
 
                     selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that has digivolution cards.", "The opponent is selecting 1 Digimon that has digivolution cards.");
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
                         selectedPermanent = permanent;
 
-                        await Task.CompletedTask;
+                        yield return null;
                     }
 
                     if (selectedPermanent != null)
@@ -132,7 +112,7 @@ public sealed class ST2_15 : CEntity_Effect
                                         isShowOpponent: true,
                                         mode: SelectCardEffect.Mode.Custom,
                                         root: SelectCardEffect.Root.Custom,
-                                        customRootCardList: selectedPermanent.DigivolutionCards.ToList(),
+                                        customRootCardList: selectedPermanent.DigivolutionCards,
                                         canLookReverseCard: true,
                                         selectPlayer: card.Owner,
                                         cardEffect: activateClass);
@@ -140,23 +120,23 @@ public sealed class ST2_15 : CEntity_Effect
                             selectCardEffect.SetUpCustomMessage("Select 1 digivolution card to play.", "The opponent is selecting 1 digivolution card to play.");
                             selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
 
-                            await selectCardEffect.Activate();
+                            yield return StartCoroutine(selectCardEffect.Activate());
 
-                            async Task SelectCardCoroutine(CardSource cardSource)
+                            IEnumerator SelectCardCoroutine(CardSource cardSource)
                             {
                                 selectedCards.Add(cardSource);
 
-                                await Task.CompletedTask;
+                                yield return null;
                             }
                         }
 
-                        await CardEffectCommons.PlayPermanentCards(
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.PlayPermanentCards(
                             cardSources: selectedCards,
                             activateClass: activateClass,
                             payCost: false,
                             isTapped: false,
                             root: SelectCardEffect.Root.DigivolutionCards,
-                            activateETB: true);
+                            activateETB: true));
                     }
                 }
             }
@@ -164,7 +144,7 @@ public sealed class ST2_15 : CEntity_Effect
 
         if (timing == EffectTiming.SecuritySkill)
         {
-            CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: "Play a digivolution card as another Digimon");
+            CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $"Play 1 digivolution card");
         }
 
         return cardEffects;

@@ -1,15 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ImmuneFromDPMinus.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of AS-IS ImmuneFromDPMinus.cs factory partial.
-// Returns the ported ImmuneFromDPMinusClass kind-class (CardEffects/ImmuneFromDPMinusClass.cs).
-// ADAPTATION: permanent.TopCard.CanNotBeAffected(ICardEffect) -> CanNotBeAffected(EffectSourceCard?.InstanceId).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ImmuneFromDPMinusClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {

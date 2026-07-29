@@ -1,13 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/PermanentEnterField/PermanentEnterField.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger one of [On Play] effect or [When Digivolving] effect
     static bool CanTriggerOnEnterField(Hashtable hashtable, CardSource card, bool isEvolution, Func<SelectCardEffect.Root, bool> rootCondition = null)

@@ -1,7 +1,30 @@
-// Source: Assets/Scripts/Script/CEntity_Effect.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+﻿using Photon.Pun;
+using System;
+using System.Collections.Generic;
+using System.Collections;
+using UnityEngine;
+using System.Linq;
+
+public abstract partial class CEntity_Effect : MonoBehaviourPunCallbacks
+{
+    public virtual List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource)
+    {
+        return new List<ICardEffect>();
+    }
+
+    public List<ICardEffect> GetCardEffects(EffectTiming timing, CardSource cardSource)
+    {
+        return CardEffects(timing,cardSource).Filter(cardEffect => cardEffect != null);
+    }
+
+    //後で消す
+    public static bool isExistOnField(CardSource card)
+    {
+        if (card.PermanentOfThisCard() != null)
+        {
+            return true;
+        }
+
+        return false;
+    }
+}

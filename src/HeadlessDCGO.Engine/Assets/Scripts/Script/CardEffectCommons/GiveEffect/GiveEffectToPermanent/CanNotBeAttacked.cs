@@ -1,77 +1,43 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/CanNotBeAttacked.cs
-// (J-4) 1:1 mirror of AS-IS CardEffectCommons.GainCanNotBeAttacked (…/GiveEffectToPermanent/CanNotBeAttacked.cs
-// :10-68): grant the TARGET permanent a timed "can't BE attacked by THIS attacker" restriction. Builds the AS-IS
-// kind-class via CardEffectFactory.CanNotAttackStaticEffect with the roles MIRRORED vs GainCanNotAttack
-// (AttackerCondition = caller `attackerCondition` wrap, DefenderCondition = attacker==target, live CanUseCondition
-// = on-battle-area && !TopCard.CanNotBeAffected(cause)) and stores it in the target's duration bucket via
-// AddEffectToPermanent(timing: EffectTiming.None). Read LIVE by the interface scan
-// (NewModelContinuousScan.CanNotBeAttacked / CannotAttackJoint over EffectList(None)), which the
-// ContinuousRestrictionGate (EvaluateBeAttacked, CannotBeAttackedKey) already unions — producer-only (the registry
-// joint arm goes silent). The AS-IS coroutine only drove the CreateBuffEffect UI visual (dropped). The public
-// AS-IS-signature `Task` overload threads the LIVE `activateClass` as the CanNotBeAffected cause (AS-IS 1:1); the
-// CardSource-only substrate overload (CardEffectCommons.cs) collapses the cause to BareCauseEffect.For(sourceCard).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using System.Collections;
+using System.Collections.Generic;
 using System;
-using System.Threading.Tasks;
+using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>1:1 mirror of AS-IS <c>GainCanNotBeAttacked</c> (GiveEffect/GiveEffectToPermanent/CanNotBeAttacked.cs:10)
-    /// — the AS-IS-signature overload: threads the LIVE <paramref name="activateClass"/> as the
-    /// <c>CanNotBeAffected</c> cause. <paramref name="attackerCondition"/> narrows WHICH attackers cannot attack
-    /// this permanent.</summary>
-    public static async Task GainCanNotBeAttacked(
+    #region Target 1 Digimon can't be attacked
+    public static IEnumerator GainCanNotBeAttacked(
         Permanent targetPermanent,
         Func<Permanent, bool> attackerCondition,
         EffectDuration effectDuration,
         ICardEffect activateClass,
         string effectName)
     {
-        // AS-IS :19-20 guards (activateClass / EffectSourceCard null).
-        if (activateClass is null || activateClass.EffectSourceCard is null)
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+
+        CardSource card = activateClass.EffectSourceCard;
+
+        bool AttackerCondition(Permanent defender)
         {
-            await Task.CompletedTask;
-            return;
+            if (attackerCondition == null || attackerCondition(defender))
+            {
+                return true;
+            }
+
+            return false;
         }
 
-        GainCanNotBeAttackedImpl(
-            targetPermanent, attackerCondition, effectDuration,
-            card: activateClass.EffectSourceCard, cause: activateClass, effectName);
-        await Task.CompletedTask;
-    }
+        bool DefenderCondition(Permanent attacker) => attacker == targetPermanent;
 
-    /// <summary>AS-IS 1:1 body shared by the <c>ICardEffect</c> overload (above) and the CardSource-only substrate
-    /// overload (CardEffectCommons.cs). <paramref name="cause"/> is the effect passed to the live
-    /// <c>CanNotBeAffected</c> guard (AS-IS threads <c>activateClass</c>; the source-only path passes
-    /// <see cref="BareCauseEffect"/>).</summary>
-    private static bool GainCanNotBeAttackedImpl(
-        Permanent? targetPermanent,
-        Func<Permanent, bool>? attackerCondition,
-        EffectDuration effectDuration,
-        CardSource? card,
-        ICardEffect? cause,
-        string effectName)
-    {
-        if (targetPermanent is null) return false;                          // AS-IS :17
-        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return false;  // AS-IS :18
-        if (card is null || cause is null) return false;                    // AS-IS :19-20
-
-        // (RD-J-01) AS-IS grants UNCONDITIONALLY — there is NO grant-time immunity guard (the AS-IS CanNotBeAffected
-        // check is read-time inside CanUseCondition below, plus a dropped UI visual). The earlier invented grant-time
-        // refusal is removed so a temporarily-immune target still receives the inert grant, which activates once
-        // immunity lifts (the AS-IS re-application semantics the invented guard broke).
-
-        bool AttackerCondition(Permanent defender)                                  // AS-IS :24-32
-            => attackerCondition is null || attackerCondition(defender);
-
-        bool DefenderCondition(Permanent attacker) => attacker == targetPermanent;  // AS-IS :34
-
-        bool CanUseCondition()                                                      // AS-IS :36-47
+        bool CanUseCondition()
         {
             if (IsPermanentExistsOnBattleArea(targetPermanent))
             {
-                if (!targetPermanent.TopCard.CanNotBeAffected(cause))
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
                 {
                     return true;
                 }
@@ -80,7 +46,7 @@ public static partial class CardEffectCommons
             return false;
         }
 
-        CardEffects.CanNotAttackTargetDefendingPermanentClass canNotAttackClass = CardEffectFactory.CanNotAttackStaticEffect(  // AS-IS :49-55
+        CanNotAttackTargetDefendingPermanentClass canNotAttackClass = CardEffectFactory.CanNotAttackStaticEffect(
             attackerCondition: AttackerCondition,
             defenderCondition: DefenderCondition,
             isInheritedEffect: false,
@@ -88,14 +54,17 @@ public static partial class CardEffectCommons
             condition: CanUseCondition,
             effectName: effectName);
 
-        AddEffectToPermanent(  // AS-IS :57-62
+        AddEffectToPermanent(
             targetPermanent: targetPermanent,
             effectDuration: effectDuration,
             card: card,
             cardEffect: canNotAttackClass,
             timing: EffectTiming.None);
 
-        // AS-IS :64-67 conditionally ran CreateBuffEffect (a UI icon), immunity-gated — pure visual; dropped.
-        return true;
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(targetPermanent));
+        }
     }
+    #endregion
 }

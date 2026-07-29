@@ -1,28 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_105.cs — an Option (single OptionSkill block).
-// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS
-// BT1_105 — inline `new ActivateClass()` + local functions.
-//   [Main] Change the original DP of 1 of your opponent's Digimon to 3000 until the end of your opponent's
-//   next turn.
-// AS-IS: ActivateClass on OptionSkill, CanUseCondition = CanTriggerOptionMainEffect, CanActivateCondition = null,
-//   ORDER=-1, ISOPTIONAL=false. CanSelectPermanentCondition = IsPermanentExistsOnOpponentBattleAreaDigimon.
-//   ActivateCoroutine (unconditional SetUp): maxCount = Min(1, MatchConditionPermanentCount); SelectPermanentEffect
-//   .SetUp(mode: Custom, canNoSelect:false, canEndNotMax:false, selectPermanentCoroutine); per selected permanent
-//   CardEffectCommons.ChangeBaseDigimonDP(permanent, 3000, UntilOpponentTurnEnd, activateClass).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>
-//   CanSelectPermanentCondition` is expressed verbatim on the canonical Func<Permanent,bool> shape (id-flip 3b),
-//   serving both MatchConditionPermanentCount and SelectPermanentEffect.canTargetCondition;
-//   `GManager.instance.GetComponent<SelectPermanentEffect>()` -> bridge W4.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_105 : CEntity_Effect
+public class BT1_105 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -56,9 +40,9 @@ public sealed class BT1_105 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -77,11 +61,11 @@ public sealed class BT1_105 : CEntity_Effect
 
                 selectPermanentEffect.SetUpCustomMessage(customMessageArray: CardEffectCommons.customPermanentMessageArray_ChangeOriginDP(changeValue: 3000, maxCount: maxCount));
 
-                await selectPermanentEffect.Activate();
+                yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                async Task SelectPermanentCoroutine(Permanent permanent)
+                IEnumerator SelectPermanentCoroutine(Permanent permanent)
                 {
-                    await CardEffectCommons.ChangeBaseDigimonDP(targetPermanent: permanent, changeValue: 3000, effectDuration: EffectDuration.UntilOpponentTurnEnd, activateClass: activateClass);
+                    yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeBaseDigimonDP(targetPermanent: permanent, changeValue: 3000, effectDuration: EffectDuration.UntilOpponentTurnEnd, activateClass: activateClass));
                 }
             }
         }

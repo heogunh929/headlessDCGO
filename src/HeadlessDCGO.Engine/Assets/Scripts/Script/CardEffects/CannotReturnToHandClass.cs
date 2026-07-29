@@ -1,13 +1,7 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffects/CannotReturnToHandClass.cs
-// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class CannotReturnToHandClass : ICardEffect, ICannotReturnToHandEffect
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 using System;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 public class CannotReturnToHandClass : ICardEffect, ICannotReturnToHandEffect
 {
     public void SetUpCannotReturnToHandClass(Func<Permanent, bool> permanentCondition, Func<ICardEffect, bool> cardEffectCondition)

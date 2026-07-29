@@ -1,24 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_112.cs — a Green Option (two timings).
-// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_112 (BT1/Green).
-//   [Main] 1 of your Digimon gains the following effect for the turn: When this Digimon deletes an
-//   opponent's Digimon in battle and survives, unsuspend it.
-//   [Security] Add this card to its owner's hand.
-// AS-IS structure kept verbatim: inline ActivateClass + SelectPermanentEffect(Mode.Custom); the per-target
-// coroutine builds a nested ActivateClass ("Unsuspend this Digimon", self = selected.TopCard) using the
-// bridged Hashtable-based CanTriggerWhenDeleteOpponentDigimonByBattle + CanUnsuspend + IUnsuspendPermanents,
-// then registers it on the selected permanent via AddEffectToPermanent.
-// CreateBuffEffect (pure VFX/SE, Effects.cs:1433) is stripped.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_112 : CEntity_Effect
+public class BT1_112 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -46,9 +34,9 @@ public sealed class BT1_112 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -67,9 +55,9 @@ public sealed class BT1_112 : CEntity_Effect
 
                 selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get effects.", "The opponent is selecting 1 Digimon that will get effects.");
 
-                await selectPermanentEffect.Activate();
+                yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                async Task SelectPermanentCoroutine(Permanent permanent)
+                IEnumerator SelectPermanentCoroutine(Permanent permanent)
                 {
                     Permanent selectedPermanent = permanent;
 
@@ -81,8 +69,7 @@ public sealed class BT1_112 : CEntity_Effect
                         activateClass1.SetEffectSourcePermanent(selectedPermanent);
                         CardEffectCommons.AddEffectToPermanent(targetPermanent: selectedPermanent, effectDuration: EffectDuration.UntilEachTurnEnd, card: card, cardEffect: activateClass1, timing: EffectTiming.OnEndBattle);
 
-                        // AS-IS `GManager.instance.GetComponent<Effects>().CreateBuffEffect(selectedPermanent)`
-                        // — pure VFX/SE (Effects.cs:1433), stripped (see file header).
+                        yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(selectedPermanent));
 
                         string EffectDiscription1()
                         {
@@ -93,8 +80,8 @@ public sealed class BT1_112 : CEntity_Effect
                         {
                             if (CardEffectCommons.IsPermanentExistsOnBattleArea(selectedPermanent))
                             {
-                                bool WinnerCondition(Permanent p) => p.InstanceId == selectedPermanent.InstanceId;
-                                bool LoserCondition(Permanent p) => CardEffectCommons.IsOpponentPermanent(p, card);
+                                bool WinnerCondition(Permanent permanent) => permanent.cardSources.Contains(selectedPermanent.TopCard);
+                                bool LoserCondition(Permanent permanent) => CardEffectCommons.IsOpponentPermanent(permanent, card);
 
                                 if (CardEffectCommons.CanTriggerWhenDeleteOpponentDigimonByBattle(hashtable: hashtable1, winnerCondition: WinnerCondition, loserCondition: LoserCondition, isOnlyWinnerSurvive: true))
                                 {
@@ -118,19 +105,20 @@ public sealed class BT1_112 : CEntity_Effect
                             return false;
                         }
 
-                        async Task ActivateCoroutine1(Hashtable _hashtable1)
+                        IEnumerator ActivateCoroutine1(Hashtable _hashtable1)
                         {
-                            await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass1).Unsuspend();
+                            yield return ContinuousController.instance.StartCoroutine(new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass1).Unsuspend());
                         }
                     }
                 }
             }
         }
 
+
         if (timing == EffectTiming.SecuritySkill)
         {
             ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect("Add this card to hand", CanUseCondition, card);
+            activateClass.SetUpICardEffect($"Add this card to hand", CanUseCondition, card);
             activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
             activateClass.SetIsSecurityEffect(true);
             cardEffects.Add(activateClass);
@@ -139,15 +127,14 @@ public sealed class BT1_112 : CEntity_Effect
             {
                 return "[Security] Add this card to its owner's hand.";
             }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await CardEffectCommons.AddThisCardToHand(card, activateClass.EffectSourceCard);
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.AddThisCardToHand(card, activateClass));
             }
         }
 

@@ -1,7 +1,38 @@
-// Source: Assets/Scripts/CardEffect/BT6/Blue/BT6_020.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT6.Blue
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+
+public class BT6_020 : CEntity_Effect
+{
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+        if (timing == EffectTiming.None)
+        {
+            bool Condition()
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (card.Owner.Enemy.GetBattleAreaDigimons().Count((permanent) => permanent.DigivolutionCards.Count >= 1) == 0)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(changeValue: 2000, isInheritedEffect: true, card: card, condition: Condition));
+        }
+
+        return cardEffects;
+    }
+}

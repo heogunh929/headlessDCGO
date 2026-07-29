@@ -1,7 +1,32 @@
-// Source: Assets/Scripts/CardEffect/BT7/Purple/BT7_071.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT7.Purple
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+
+public class BT7_071 : CEntity_Effect
+{
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+        if (timing == EffectTiming.None)
+        {
+            bool Condition()
+            {
+                return card.Owner.HandCards.Contains(card);
+            }
+
+            bool PermanentCondition(Permanent targetPermanent)
+            {
+                return targetPermanent.TopCard.CardColors.Contains(CardColor.Purple) && targetPermanent.IsTamer;
+            }
+
+            cardEffects.Add(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(permanentCondition: PermanentCondition, digivolutionCost: 2, ignoreDigivolutionRequirement: false, card: card, condition: Condition));
+        }
+
+        return cardEffects;
+    }
+}

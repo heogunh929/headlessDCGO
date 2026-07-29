@@ -1,7 +1,22 @@
-// Source: Assets/Scripts/CardEffect/EX8/Yellow/EX8_037_token.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX8.Yellow
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections;
+using System.Collections.Generic;
+
+namespace DCGO.CardEffects.Tokens
+{
+    public class EX8_037_token : CEntity_Effect
+    {
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+        {
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
+            
+            #region Rush
+            if (timing == EffectTiming.None)
+            {
+                cardEffects.Add(CardEffectFactory.RushSelfStaticEffect(isInheritedEffect: false, card: card, condition: null));
+            }
+            #endregion
+
+            return cardEffects;
+        }
+    }
+}

@@ -1,59 +1,31 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/GiveEffect/GiveEffectToPlayer/CanNoReturnToDeck.cs
-// (J-4) 1:1 mirror of AS-IS CardEffectCommons.GainCanNotReturnToDeckPlayerEffect (…/GiveEffectToPlayer/
-// CanNoReturnToDeck.cs:10-61): the OWNING PLAYER gains a timed "its permanents can't be returned to deck (by
-// matching effects)" restriction. Builds the AS-IS kind-class via CardEffectFactory.CannotReturnToDeckStaticEffect
-// where the PermanentCondition folds on-battle-area + !TopCard.CanNotBeAffected(cause) + the caller's predicate,
-// and the caller's `cardEffectCondition` gates WHICH causing effects are refused; CanUseCondition = true. Stores it
-// in the owning player's duration bucket via AddEffectToPlayer(timing: EffectTiming.None). Read LIVE by
-// Permanent.CannotReturnToLibrary (player arm) / NewModelContinuousScan.HasCannotReturnToLibrary — the registry
-// joint arm goes silent. AS-IS coroutine only drove the per-permanent CreateBuffEffect UI visual (dropped). The
-// public AS-IS-signature `Task` overload threads the LIVE `activateClass` as the CanNotBeAffected cause and the
-// REAL Func<ICardEffect,bool> cardEffectCondition (AS-IS 1:1); the CardSource-only substrate overload
-// (CardEffectCommons.cs) collapses the cause to BareCauseEffect.For(sourceCard) and lifts its CardSource predicate.
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using System.Collections;
+using System.Collections.Generic;
 using System;
-using System.Threading.Tasks;
+using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>1:1 mirror of AS-IS <c>GainCanNotReturnToDeckPlayerEffect</c> (GiveEffectToPlayer/CanNoReturnToDeck.cs:10)
-    /// — the AS-IS-signature overload: threads the LIVE <paramref name="activateClass"/> as the
-    /// <c>CanNotBeAffected</c> cause and the REAL <paramref name="cardEffectCondition"/> into the kind-class.</summary>
-    public static async Task GainCanNotReturnToDeckPlayerEffect(Func<Permanent, bool> permanentCondition, Func<ICardEffect, bool> cardEffectCondition, EffectDuration effectDuration, ICardEffect activateClass, string effectName)
-    {
-        // AS-IS :17-18 guards.
-        if (activateClass is null || activateClass.EffectSourceCard is null)
-        {
-            await Task.CompletedTask;
-            return;
-        }
-
-        GainCanNotReturnToDeckPlayerEffectImpl(
-            permanentCondition, cardEffectCondition, effectDuration,
-            card: activateClass.EffectSourceCard, cause: activateClass, effectName);
-        await Task.CompletedTask;
-    }
-
-    /// <summary>AS-IS 1:1 body shared by the <c>ICardEffect</c> overload (above) and the CardSource-only substrate
-    /// overload (CardEffectCommons.cs). Mirrors AS-IS GainCanNotReturnToDeckPlayerEffect :10-61.</summary>
-    private static bool GainCanNotReturnToDeckPlayerEffectImpl(
-        Func<Permanent, bool>? permanentCondition,
-        Func<ICardEffect, bool>? cardEffectCondition,
+    #region Player gains effect to have Digimon can't return to deck
+    public static IEnumerator GainCanNotReturnToDeckPlayerEffect(
+        Func<Permanent, bool> permanentCondition,
+        Func<ICardEffect, bool> cardEffectCondition,
         EffectDuration effectDuration,
-        CardSource? card,
-        ICardEffect? cause,
+        ICardEffect activateClass,
         string effectName)
     {
-        if (card is null || cause is null) return false;   // AS-IS :17-18
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
 
-        bool PermanentCondition(Permanent attacker)   // AS-IS :22-36
+        CardSource card = activateClass.EffectSourceCard;
+
+        bool PermanentCondition(Permanent attacker)
         {
             if (IsPermanentExistsOnBattleArea(attacker))
             {
-                if (!attacker.TopCard.CanNotBeAffected(cause))
+                if (!attacker.TopCard.CanNotBeAffected(activateClass))
                 {
-                    if (permanentCondition is null || permanentCondition(attacker))
+                    if (permanentCondition == null || permanentCondition(attacker))
                     {
                         return true;
                     }
@@ -63,23 +35,28 @@ public static partial class CardEffectCommons
             return false;
         }
 
-        bool CanUseCondition() => true;   // AS-IS :38-41
+        bool CanUseCondition()
+        {
+            return true;
+        }
 
-        CardEffects.CannotReturnToLibraryClass cannotReturnToLibraryClass = CardEffectFactory.CannotReturnToDeckStaticEffect(  // AS-IS :43-49
+        CannotReturnToLibraryClass cannotReturnToHandClass = CardEffectFactory.CannotReturnToDeckStaticEffect(
             permanentCondition: PermanentCondition,
-            cardEffectCondition: cardEffectCondition!,
+            cardEffectCondition: cardEffectCondition,
             isInheritedEffect: false,
             card: card,
             condition: CanUseCondition,
             effectName: effectName);
 
-        AddEffectToPlayer(  // AS-IS :51
-            effectDuration: effectDuration,
-            card: card,
-            cardEffect: cannotReturnToLibraryClass,
-            timing: EffectTiming.None);
+        AddEffectToPlayer(effectDuration: effectDuration, card: card, cardEffect: cannotReturnToHandClass, timing: EffectTiming.None);
 
-        // AS-IS :53-59 iterated PermanentsForTurnPlayer running CreateBuffEffect (UI visual) — dropped headless.
-        return true;
+        foreach (Permanent permanent in GManager.instance.turnStateMachine.gameContext.PermanentsForTurnPlayer)
+        {
+            if (PermanentCondition(permanent))
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(permanent));
+            }
+        }
     }
+    #endregion
 }

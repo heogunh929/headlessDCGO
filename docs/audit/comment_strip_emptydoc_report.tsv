@@ -1,0 +1,5 @@
+rel	doc_blocks	empty_blocks	deleted	kept_because_asis	lines_removed	token_gate
+Script/CardController.cs	22	22	22	0	44	PASS
+Script/CardSource.cs	1	1	1	0	2	PASS
+Script/ContinuousController.cs	6	6	6	0	6	PASS
+Script/Permanent.cs	2	2	2	0	4	PASS

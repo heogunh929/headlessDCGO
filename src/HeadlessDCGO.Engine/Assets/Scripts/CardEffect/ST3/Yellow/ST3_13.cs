@@ -1,36 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST3/Yellow/ST3_13.cs
-// TRUE AS-IS-verbatim re-port (ST3 Yellow batch). 1:1 mirror of the original ST3_13 (ST3/Yellow) — an Option.
-//   [Main]     1 of your Digimon gets +3000 DP for the turn.
-//   [Security] All of your Digimon and Security Digimon get +5000 DP for the turn. Then add this card to its
-//              owner's hand.
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndBuffDpEffect` /
-// `PlayerScopeBuffDpEffect`/`PlayerScopeBuffSecurityDpEffect`/`AddThisCardToHandEffect` calls (invented helpers
-// with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` structure per timing block.
-// AS-IS structure kept verbatim: [Main] passes `null` for CanActivateCondition (only CanUseCondition gates;
-// the ActivateCoroutine itself no-ops when there is no valid target); [Security] likewise passes `null` and
-// calls `SetIsSecurityEffect(true)`.
-// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// the [Main] AS-IS `Func<Permanent,bool>` CanSelectPermanentCondition is kept Permanent-shaped as the local
-// `PermanentCondition(Permanent)` fed directly to HasMatchConditionPermanent/MatchConditionPermanentCount AND
-// SelectPermanentEffect.SetUp's canTargetCondition (id-flip 3b canonical overload — no id-shape sibling
-// needed). The [Security] body's own local `PermanentCondition
-// (Permanent permanent)` stays Permanent-shaped because the player-scope helpers it feeds
-// (`ChangeDigimonDPPlayerEffect`/`ChangeSecurityDigimonCardDPPlayerEffect`) already take that AS-IS
-// `Func<Permanent,bool>`/`Func<CardSource,bool>` shape directly. AS-IS `CardEffectCommons.AddThisCardToHand(card,
-// activateClass)` -> the mirror `AddThisCardToHand(CardSource card1, CardSource sourceCard)` overload, where
-// `sourceCard` plays the AS-IS `activateClass`/cause-card role (== `card`, since `SetUpICardEffect` sets
-// `EffectSourceCard = card`), so both arguments are `card`.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST3.Yellow;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class ST3_13 : CEntity_Effect
+public class ST3_13 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -48,7 +24,7 @@ public sealed class ST3_13 : CEntity_Effect
                 return "[Main] 1 of your Digimon gets +3000 DP for the turn.";
             }
 
-            bool PermanentCondition(Permanent permanent)
+            bool CanSelectPermanentCondition(Permanent permanent)
             {
                 return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
             }
@@ -58,17 +34,17 @@ public sealed class ST3_13 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, PermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, PermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
                     selectPermanentEffect.SetUp(
                         selectPlayer: card.Owner,
-                        canTargetCondition: PermanentCondition,
+                        canTargetCondition: CanSelectPermanentCondition,
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: null,
                         maxCount: maxCount,
@@ -81,11 +57,11 @@ public sealed class ST3_13 : CEntity_Effect
 
                     selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get DP +3000.", "The opponent is selecting 1 Digimon that will get DP +3000.");
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
-                        await CardEffectCommons.ChangeDigimonDP(targetPermanent: permanent, changeValue: +3000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass);
+                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonDP(targetPermanent: permanent, changeValue: +3000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass));
                     }
                 }
             }
@@ -109,26 +85,26 @@ public sealed class ST3_13 : CEntity_Effect
                 return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
                 bool PermanentCondition(Permanent permanent)
                 {
                     return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
                 }
 
-                await CardEffectCommons.ChangeDigimonDPPlayerEffect(
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonDPPlayerEffect(
                     permanentCondition: PermanentCondition,
                     changeValue: 5000,
                     effectDuration: EffectDuration.UntilEachTurnEnd,
-                    activateClass: activateClass);
+                    activateClass: activateClass));
 
-                await CardEffectCommons.ChangeSecurityDigimonCardDPPlayerEffect(
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeSecurityDigimonCardDPPlayerEffect(
                     cardCondition: cardSource => cardSource.Owner == card.Owner,
                     changeValue: 5000,
                     effectDuration: EffectDuration.UntilEachTurnEnd,
-                    activateClass: activateClass);
+                    activateClass: activateClass));
 
-                await CardEffectCommons.AddThisCardToHand(card, card);
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.AddThisCardToHand(card, activateClass));
             }
         }
 

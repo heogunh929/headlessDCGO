@@ -1,12 +1,10 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnReturnLibraryBottomDigivolutionCards.cs
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
     #region Can trigger "When card is returned to library bottom from this permanent due to effect" effect
     public static bool CanTriggerOnReturnToLibraryBottomDigivolutionCard(Hashtable hashtable, Func<CardSource, bool> cardCondition, CardSource card)
@@ -19,7 +17,7 @@ public static partial class CardEffectCommons
 
                 if (Permanent != null)
                 {
-                    if (Permanent == ICardEffect.ResolvePermanentOfThisCard(card))
+                    if (Permanent == card.PermanentOfThisCard())
                     {
                         List<CardSource> DeckBottomCards = GetDeckBottomCardsFromHashtable(hashtable);
 

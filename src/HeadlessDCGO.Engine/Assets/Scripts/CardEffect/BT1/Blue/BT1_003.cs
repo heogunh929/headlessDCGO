@@ -1,25 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Blue/BT1_003.cs
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the original
-// BT1_003 (BT1/Blue).
-//   [When Attacking][Once Per Turn] If your opponent has a Digimon with no digivolution cards in play,
-//   trigger <Draw 1>.
-// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
-// functions, SetIsInheritedEffect(true) (AS-IS BT1_003.cs:20). Substrate translations only: `card.Owner.
-// HasMatchConditionOpponentsPermanent`'s AS-IS `Func<Permanent,bool>` predicate -> the mirror
-// `HasMatchConditionOpponentsPermanent(card, Func<Permanent,bool>)` (same predicate split, id-helpers fed via
-// permanent.InstanceId: IsBattleAreaDigimon + HasNoDigivolutionCards);
-// `new DrawClass(card.Owner, 1, activateClass).Draw()` -> the mirror ctor (EngineContext/HeadlessPlayerId/
-// HeadlessEntityId? cause), the established BT1_029/BT1_092 idiom.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_003 : CEntity_Effect
+public class BT1_003 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -47,8 +34,7 @@ public sealed class BT1_003 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(
-                        card, permanent => CardEffectCommons.IsBattleAreaDigimon(card, permanent.InstanceId) && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)))
+                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon && permanent.HasNoDigivolutionCards))
                     {
                         return true;
                     }
@@ -57,9 +43,9 @@ public sealed class BT1_003 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await new DrawClass(card.Context, card.Owner, 1, activateClass).Draw();
+                yield return ContinuousController.instance.StartCoroutine(new DrawClass(card.Owner, 1, activateClass).Draw());
             }
         }
 

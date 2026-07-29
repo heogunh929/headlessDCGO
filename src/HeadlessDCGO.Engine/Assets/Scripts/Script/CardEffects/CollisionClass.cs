@@ -1,10 +1,4 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffects/CollisionClass.cs
-// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class CollisionClass : ICardEffect, ICollisionEffect
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
 using System;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 public class CollisionClass : ICardEffect, ICollisionEffect
 {

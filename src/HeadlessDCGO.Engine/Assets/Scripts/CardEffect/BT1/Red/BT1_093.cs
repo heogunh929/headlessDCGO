@@ -1,27 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Red/BT1_093.cs — a Red Option.
-// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS
-// BT1_093 — inline `new ActivateClass()` (twice) + local functions.
-//   [Main] (OptionSkill) 1 of your Digimon gets +2000 DP and <Security Attack +1> for the turn.
-//     ActivateClass(CanUseCondition = CanTriggerOptionMainEffect, CanActivateCondition = null, ORDER=-1,
-//     ISOPTIONAL=false). ActivateCoroutine (guarded by HasMatchConditionPermanent): SelectPermanentEffect.SetUp(
-//     mode: Custom, maxCount = Min(1, count), canNoSelect:false, canEndNotMax:false). SelectPermanentCoroutine
-//     applies BOTH to the SAME picked permanent: ChangeDigimonDP(permanent, 2000, UntilEachTurnEnd) THEN
-//     ChangeDigimonSAttack(permanent, 1, UntilEachTurnEnd).
-//   [Security] (SecuritySkill, independent) SetIsSecurityEffect(true); ActivateCoroutine: AddThisCardToHand(card).
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` kept
-//   verbatim on the canonical shape (id-flip 3b); GManager.GetComponent -> bridge W4;
-//   `AddThisCardToHand(card, activateClass)` -> mirror `(card, card)` (BT1_098 convention).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_093 : CEntity_Effect
+public class BT1_093 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -49,11 +34,11 @@ public sealed class BT1_093 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -72,17 +57,17 @@ public sealed class BT1_093 : CEntity_Effect
 
                     selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to DP +2000 and Security Attack +1.", "The opponent is selecting 1 Digimon to DP +2000 and Security Attack +1.");
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
 
-                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    IEnumerator SelectPermanentCoroutine(Permanent permanent)
                     {
                         Permanent selectedPermanent = permanent;
 
                         if (selectedPermanent != null)
                         {
-                            await CardEffectCommons.ChangeDigimonDP(targetPermanent: permanent, changeValue: 2000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass);
+                            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonDP(targetPermanent: permanent, changeValue: 2000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass));
 
-                            await CardEffectCommons.ChangeDigimonSAttack(targetPermanent: permanent, changeValue: 1, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass);
+                            yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.ChangeDigimonSAttack(targetPermanent: permanent, changeValue: 1, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass));
                         }
                     }
                 }
@@ -101,15 +86,14 @@ public sealed class BT1_093 : CEntity_Effect
             {
                 return "[Security] Add this card to its owner's hand.";
             }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await CardEffectCommons.AddThisCardToHand(card, card);
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.AddThisCardToHand(card, activateClass));
             }
         }
 

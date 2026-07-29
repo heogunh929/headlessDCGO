@@ -1,15 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/CanNoReturnToDeck.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of AS-IS CanNoReturnToDeck.cs factory partial.
-// Returns the ported CannotReturnToLibraryClass kind-class (CardEffects/CannotReturnToLibraryClass.cs).
-// ADAPTATION: permanent.TopCard.CanNotBeAffected(ICardEffect) -> CanNotBeAffected(EffectSourceCard?.InstanceId).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CannotReturnToLibraryClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {

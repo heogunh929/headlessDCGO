@@ -1,28 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_110.cs — an Option.
-// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_110 (BT1/Green).
-//   [Main]     Suspend 1 of your opponent's Digimon.
-//   [Security] Suspend all of your opponent's Digimon without <Blocker>.
-// AS-IS structure kept verbatim: [Main] is inline ActivateClass + SelectPermanentEffect(Mode.Tap); [Security]
-// has NO SelectPermanentEffect at all — it computes `card.Owner.Enemy.GetBattleAreaDigimons().Filter(...)`
-// (AS-IS `Player.Enemy`, a live object) -> `new Player(card.Context, card.Owner).Enemy` (mirror `CardSource.
-// Owner` is a bare `HeadlessPlayerId`), then runs `new SuspendPermanentsClass(list, cause, isBlock:false).Tap()`
-// directly (bridged 1:1, HeadlessEntityId? cause instead of Hashtable). `!permanent.HasBlocker` -> the
-// (R1-c) the rehoused `permanent.HasBlocker` getter (permanent is a Permanent).
-// `!permanent.TopCard.CanNotBeAffected(activateClass)` -> `CanNotBeAffected(HeadlessEntityId?)` fed the
-// causing effect's source card id (the established `ICardEffect -> EffectSourceCard.InstanceId` idiom).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
-
-using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Services;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_110 : CEntity_Effect
+public class BT1_110 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -50,11 +34,11 @@ public sealed class BT1_110 : CEntity_Effect
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -71,7 +55,7 @@ public sealed class BT1_110 : CEntity_Effect
                         mode: SelectPermanentEffect.Mode.Tap,
                         cardEffect: activateClass);
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                 }
             }
         }
@@ -79,7 +63,7 @@ public sealed class BT1_110 : CEntity_Effect
         if (timing == EffectTiming.SecuritySkill)
         {
             ActivateClass activateClass = new ActivateClass();
-            activateClass.SetUpICardEffect("Suspend opponent's all Digimon without Blocker", CanUseCondition, card);
+            activateClass.SetUpICardEffect($"Suspend opponent's all Digimon without Blocker", CanUseCondition, card);
             activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
             activateClass.SetIsSecurityEffect(true);
             cardEffects.Add(activateClass);
@@ -110,15 +94,13 @@ public sealed class BT1_110 : CEntity_Effect
                 return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                List<Permanent> suspendTargetPermanents = new Player(card.Context, card.Owner).Enemy?.GetBattleAreaDigimons().Filter(PermanentCondition)
-                    ?? new List<Permanent>();
+                List<Permanent> suspendTargetPermanents = card.Owner.Enemy.GetBattleAreaDigimons().Filter(PermanentCondition);
 
-                await new SuspendPermanentsClass(
+                yield return ContinuousController.instance.StartCoroutine(new SuspendPermanentsClass(
                     suspendTargetPermanents,
-                    activateClass,
-                    isBlock: false).Tap();
+                    CardEffectCommons.CardEffectHashtable(activateClass)).Tap());
             }
         }
 

@@ -1,16 +1,12 @@
-// Source: Assets/Scripts/CardEffect/BT2/BT2_005.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect.
-//
-// 1:1 mirror of the original BT2_005: inherited [Your Turn] while this card has Reboot, DP +1000.
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Runtime;
-
-public sealed class BT2_005 : CEntity_Effect
+public class BT2_005 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -24,7 +20,7 @@ public sealed class BT2_005 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (new Permanent(card.Context, card.InstanceId).HasReboot)
+                        if (card.PermanentOfThisCard().HasReboot)
                         {
                             return true;
                         }

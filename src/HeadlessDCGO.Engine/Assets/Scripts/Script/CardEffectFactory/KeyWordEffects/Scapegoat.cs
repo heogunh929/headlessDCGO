@@ -1,25 +1,16 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Scapegoat.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Scapegoat.cs factory partial.
-// ADAPTATION: card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card); coroutine
-// `IEnumerator ActivateCoroutine` (pure delegation) -> non-async `Task ActivateCoroutine`; stripped
-// `using UnityEngine;` / `using System.Runtime.InteropServices.WindowsRuntime;`. Replaces the monolith's
-// invented ScapegoatSelfEffect + ScapegoatStaticEffect.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using UnityEngine;
+using System.Runtime.InteropServices.WindowsRuntime;
 
 public partial class CardEffectFactory
 {
     #region Trigger effect of [Scapegoat] on oneself
     public static ActivateClass ScapegoatSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition, string effectName, string effectDiscription, ICardEffect rootCardEffect = null, bool isLinkedEffect = false)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+        Permanent targetPermanent = card.PermanentOfThisCard();
 
         bool CanUseCondition()
         {
@@ -48,7 +39,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect(effectName, CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, effectDiscription);
-        activateClass.SetHashString($"Scapegoat_{card.CardNumber}" + (isInheritedEffect ? "_inherited" : ""));
+        activateClass.SetHashString($"Scapegoat_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
         activateClass.SetIsInheritedEffect(isInheritedEffect);
         activateClass.SetIsLinkedEffect(isLinkedEffect);
 
@@ -59,7 +50,7 @@ public partial class CardEffectFactory
             activateClass.SetRootCardEffect(rootCardEffect);
         }
 
-        bool CanSelectPermanentCondition(Permanent permanent) => CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card) && permanent != ICardEffect.ResolvePermanentOfThisCard(card);
+        bool CanSelectPermanentCondition(Permanent permanent) => CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card) && permanent != card.PermanentOfThisCard();
 
         bool PermanentCondition(Permanent permanent)
         {
@@ -72,7 +63,7 @@ public partial class CardEffectFactory
 
         bool CanUseCondition(Hashtable hashtable)
         {
-            bool CardEffectCondition(ICardEffect cardEffect) => CardEffectCommons.IsOwnerEffect(cardEffect.EffectSourceCard, card);
+            bool CardEffectCondition(ICardEffect cardEffect) => CardEffectCommons.IsOwnerEffect(cardEffect,card);
 
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(targetPermanent))
             {
@@ -104,7 +95,7 @@ public partial class CardEffectFactory
             return false;
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
             return CardEffectCommons.ScapegoatProcess(activateClass, targetPermanent, CanSelectPermanentCondition);
         }

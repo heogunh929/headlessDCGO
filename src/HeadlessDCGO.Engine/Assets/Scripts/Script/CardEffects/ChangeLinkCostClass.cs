@@ -1,12 +1,5 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffects/ChangeLinkCostClass.cs
-// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class ChangeLinkCostClass : ICardEffect, IChangeLinkCostEffect
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
 using System.Collections.Generic;
 using System;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 public class ChangeLinkCostClass : ICardEffect, IChangeLinkCostEffect
 {
     Func<CardSource, Permanent, int, SelectCardEffect.Root, int> _changeCostFunc { get; set; }

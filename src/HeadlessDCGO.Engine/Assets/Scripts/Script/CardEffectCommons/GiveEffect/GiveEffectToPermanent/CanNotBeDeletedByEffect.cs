@@ -1,75 +1,28 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/CanNotBeDeletedByEffect.cs
-// (J-4) 1:1 mirror of AS-IS CardEffectCommons.GainCanNotBeDeletedByEffect (…/GiveEffectToPermanent/
-// CanNotBeDeletedByEffect.cs:10-53): grant the TARGET permanent a timed "can't be deleted by effect (from matching
-// effects)" restriction. Builds the AS-IS kind-class via CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect
-// (PermanentCondition = permanent==target, the caller's `cardEffectCondition` gating WHICH causing effects are
-// refused, live CanUseCondition = on-battle-area && !TopCard.CanNotBeAffected(cause)) and stores it in the target's
-// duration bucket via AddEffectToPermanent(timing: EffectTiming.None). Read LIVE by Permanent.CanBeDestroyedBySkill
-// / NewModelContinuousScan.HasCanNotBeDestroyedBySkill over EffectList(None) — the registry joint arm goes silent.
-// The AS-IS coroutine only drove the CreateBuffEffect UI visual (dropped). The public AS-IS-signature `Task`
-// overload threads the LIVE `activateClass` as the CanNotBeAffected cause and the REAL Func<ICardEffect,bool>
-// cardEffectCondition (AS-IS 1:1); the CardSource-only substrate overload (CardEffectCommons.cs) collapses the
-// cause to BareCauseEffect.For(sourceCard) and lifts its CardSource predicate to the causing effect's source card.
-//
-// (J-4 cleanup) The RD-W2-1 `AdaptCardEffectCondition` down-adapter (ICardEffect->CardSource, formerly shared by
-// all 7 Group A bridge wrappers to feed the retired GainRestrictionToPermanent/GainToPlayerScope funnels) is
-// DELETED: every Group A `Task` overload now threads its REAL Func<ICardEffect,bool> straight into the AS-IS
-// kind-class factory (no lossy down-adaptation), so the AS-IS predicate is evaluated against the live causing
-// effect verbatim — this fully resolves the RD-W2-1 residual (BT19_089's dual-flag SkillCondition no longer
-// loses its Digimon/Tamer-effect refinement, since the real ICardEffect reaches the predicate).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using System.Collections;
+using System.Collections.Generic;
 using System;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>1:1 mirror of AS-IS <c>GainCanNotBeDeletedByEffect</c> (GiveEffect/GiveEffectToPermanent/
-    /// CanNotBeDeletedByEffect.cs:10) — the AS-IS-signature overload: threads the LIVE <paramref name="activateClass"/>
-    /// as the <c>CanNotBeAffected</c> cause and the REAL <paramref name="cardEffectCondition"/> into the kind-class.</summary>
-    public static async Task GainCanNotBeDeletedByEffect(Permanent targetPermanent, Func<ICardEffect, bool> cardEffectCondition, EffectDuration effectDuration, ICardEffect activateClass, string effectName)
+    #region Target 1 Digimon can't be deleted by effect
+    public static IEnumerator GainCanNotBeDeletedByEffect(Permanent targetPermanent, Func<ICardEffect, bool> cardEffectCondition, EffectDuration effectDuration, ICardEffect activateClass, string effectName)
     {
-        // AS-IS :12-15 guards.
-        if (targetPermanent is null || !IsPermanentExistsOnBattleArea(targetPermanent)
-            || activateClass is null || activateClass.EffectSourceCard is null)
-        {
-            await Task.CompletedTask;
-            return;
-        }
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
 
-        GainCanNotBeDeletedByEffectImpl(
-            targetPermanent, cardEffectCondition, effectDuration,
-            card: activateClass.EffectSourceCard, cause: activateClass, effectName);
-        await Task.CompletedTask;
-    }
+        CardSource card = activateClass.EffectSourceCard;
 
-    /// <summary>AS-IS 1:1 body shared by the <c>ICardEffect</c> overload (above) and the CardSource-only substrate
-    /// overload (CardEffectCommons.cs).</summary>
-    private static bool GainCanNotBeDeletedByEffectImpl(
-        Permanent? targetPermanent,
-        Func<ICardEffect, bool>? cardEffectCondition,
-        EffectDuration effectDuration,
-        CardSource? card,
-        ICardEffect? cause,
-        string effectName)
-    {
-        if (targetPermanent is null) return false;                          // AS-IS :12
-        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return false;  // AS-IS :13
-        if (card is null || cause is null) return false;                    // AS-IS :14-15
+        bool PermanentCondition(Permanent attacker) => attacker == targetPermanent;
 
-        // (RD-J-01) AS-IS grants UNCONDITIONALLY — there is NO grant-time immunity guard (the AS-IS CanNotBeAffected
-        // check is read-time inside CanUseCondition below, plus a dropped UI visual). The earlier invented grant-time
-        // refusal is removed so a temporarily-immune target still receives the inert grant, which activates once
-        // immunity lifts (the AS-IS re-application semantics the invented guard broke).
-
-        bool PermanentCondition(Permanent attacker) => attacker == targetPermanent;  // AS-IS :19
-
-        bool CanUseCondition()                                                        // AS-IS :21-32
+        bool CanUseCondition()
         {
             if (IsPermanentExistsOnBattleArea(targetPermanent))
             {
-                if (!targetPermanent.TopCard.CanNotBeAffected(cause))
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
                 {
                     return true;
                 }
@@ -78,22 +31,25 @@ public static partial class CardEffectCommons
             return false;
         }
 
-        CanNotBeDestroyedBySkillClass canNotBeDestroyedBySkillClass = CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(  // AS-IS :34-40
+        CanNotBeDestroyedBySkillClass canNotBeDestroyedBySkillClass = CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
             permanentCondition: PermanentCondition,
-            cardEffectCondition: cardEffectCondition!,
+            cardEffectCondition: cardEffectCondition,
             isInheritedEffect: false,
             card: card,
             condition: CanUseCondition,
             effectName: effectName);
 
-        AddEffectToPermanent(  // AS-IS :42-47
+        AddEffectToPermanent(
             targetPermanent: targetPermanent,
             effectDuration: effectDuration,
             card: card,
             cardEffect: canNotBeDestroyedBySkillClass,
             timing: EffectTiming.None);
 
-        // AS-IS :49-52 conditionally ran CreateBuffEffect (a UI icon), immunity-gated — pure visual; dropped.
-        return true;
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+        {
+            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(targetPermanent));
+        }
     }
+    #endregion
 }

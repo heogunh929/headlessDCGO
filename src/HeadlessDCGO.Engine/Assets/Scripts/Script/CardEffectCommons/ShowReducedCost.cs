@@ -1,21 +1,32 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/ShowReducedCost.cs
-// (EFFECT-MODEL REBUILD / bridge W1, rule 5) UI-ONLY classification (see
-// docs/audit/mutation_helper_bridge_map.md "UI-ONLY (1)"): the AS-IS body only calls
-// `GManager.instance.memoryObject.ShowMemoryPredictionLine(...)` (a cost-preview overlay) then
-// `WaitForSeconds(0.2f)` — no game-state mutation. AS-IS has no `activateClass`/`cardEffect` param at all
-// (only `Hashtable hashtable`, used purely to fetch UI context), so this is a genuine no-op mirror: the
-// symbol must exist because ported card verbatim bodies `await` it, but its behavior is correctly
-// "does nothing."
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
-using System.Threading.Tasks;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>(BRIDGE, UI-ONLY) AS-IS <c>CardEffectCommons.ShowReducedCost(Hashtable)</c> (ShowReducedCost.cs:9) — no-op mirror; the AS-IS body is pure presentation (cost-preview overlay), no game-state mutation.</summary>
-    public static async Task ShowReducedCost(Hashtable hashtable)
+    public static IEnumerator ShowReducedCost(Hashtable hashtable)
     {
-        await Task.CompletedTask;
+        PlayCardClass playCard = GetPlayCardClassFromHashtable(hashtable);
+
+        if (playCard != null)
+        {
+            if (playCard.PayCost)
+            {
+                CardSource Card = GetCardFromHashtable(hashtable);
+
+                if (Card != null)
+                {
+                    List<Permanent> Permanents = GetPermanentsFromHashtable(hashtable);
+                    {
+                        GManager.instance.memoryObject.ShowMemoryPredictionLine(
+                                                Card.Owner.ExpectedMemory(Card.PayingCost(playCard.Root, Permanents, checkAvailability: false)));
+
+                        yield return new WaitForSeconds(0.2f);
+                    }
+                }
+            }
+        }
     }
 }

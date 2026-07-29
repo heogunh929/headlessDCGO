@@ -1,26 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT2/Red/BT2_013.cs
-// TRUE AS-IS-verbatim re-port (batch 3). 1:1 mirror of the original BT2_013 (BT2/Red).
-//   [When Attacking][Inherited] Delete 1 of your opponent's Digimon with 2000 DP or less.
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndDestroyEffect(...)` call (an invented
-// helper — explicitly prohibited/retired) with the literal AS-IS inline `new ActivateClass()` structure +
-// `GManager.instance.GetComponent<SelectPermanentEffect>()` (Mode.Destroy) selection pattern (bridge W4).
-// AS-IS structure kept verbatim: SetIsInheritedEffect(true).
-// Substrate translations: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` (`permanent.DP <= card.Owner.
-// MaxDP_DeleteEffect(2000, activateClass)`) -> the established entity-id predicate idiom
-// (`CardEffectCommons.CurrentDp(card, id) <= CardEffectCommons.MaxDpDeleteThreshold(card, baseThreshold: 2000)`,
-// the mirror's raise-scope query for `MaxDP_DeleteEffect`).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Red;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT2_013 : CEntity_Effect
+public class BT2_013 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -41,9 +27,9 @@ public sealed class BT2_013 : CEntity_Effect
 
             bool CanSelectPermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, permanent.InstanceId))
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (CardEffectCommons.CurrentDp(card, permanent.InstanceId) <= new Player(card.Context, card.Owner).MaxDP_DeleteEffect(2000, activateClass))
+                    if (permanent.DP <= card.Owner.MaxDP_DeleteEffect(2000, activateClass))
                     {
                         return true;
                     }
@@ -61,7 +47,7 @@ public sealed class BT2_013 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                     {
                         return true;
                     }
@@ -70,11 +56,11 @@ public sealed class BT2_013 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                 {
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -91,7 +77,7 @@ public sealed class BT2_013 : CEntity_Effect
                         mode: SelectPermanentEffect.Mode.Destroy,
                         cardEffect: activateClass);
 
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                 }
             }
         }

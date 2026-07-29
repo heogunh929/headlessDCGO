@@ -1,12 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffects/CannotAddSecurityClass.cs
-// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class CannotAddSecurityClass : ICardEffect, ICannotAddSecurityEffect
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 using System;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
 
 public class CannotAddSecurityClass : ICardEffect, ICannotAddSecurityEffect
 {

@@ -1,28 +1,15 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Alliance.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Alliance.cs factory partial.
-// ADAPTATION (substrate only; logic verbatim):
-//   * card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card).
-//   * coroutine `IEnumerator ActivateCoroutine` (pure delegation `return CardEffectCommons.AllianceProcess(...)`)
-//     -> `Task ActivateCoroutine` (return-type swap; ActivateClass.SetUpActivateClass takes Func<Hashtable,Task>).
-//   * stripped `using UnityEngine;`.
-// Replaces the old mirror-invented `static class Alliance` (.Create; ZERO consumers) plus the monolith's
-// invented AllianceSelfEffect/AllianceStaticEffect.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
     #region Trigger effect of [Alliance] on oneself
     public static ICardEffect AllianceSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+        Permanent targetPermanent = card.PermanentOfThisCard();
 
         bool CanUseCondition()
         {
@@ -82,7 +69,7 @@ public partial class CardEffectFactory
             return CardEffectCommons.CanActivateAlliance(hashtable, card);
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
             return CardEffectCommons.AllianceProcess(_hashtable, activateClass, targetPermanent, card);
         }
@@ -128,7 +115,7 @@ public partial class CardEffectFactory
                 && (condition == null || condition());
         }
 
-        Task ActivateCoroutine(Hashtable hashtable)
+        IEnumerator ActivateCoroutine(Hashtable hashtable)
         {
             Permanent attackingPermanent = CardEffectCommons.GetAttackerFromHashtable(hashtable);
             return CardEffectCommons.AllianceProcess(hashtable, activateClass, attackingPermanent, card);

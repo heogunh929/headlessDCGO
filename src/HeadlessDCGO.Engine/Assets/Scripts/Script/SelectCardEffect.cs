@@ -1,211 +1,37 @@
-// Source: Assets/Scripts/Script/SelectCardEffect.cs
-// Decision: PORT
-// Category: AIUseful
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script
-//
-// AS-IS mirror of the original DCGO SelectCardEffect (the card-selection sibling of
-// SelectPermanentEffect, operating over a card ROOT zone — hand / library / trash / security / ...
-// rather than the battle area). Headless port keeps the authoring shape (Mode + Root enums, SetUp) but
-// is deterministic:
-//   (1) BuildRequest  — enumerate the select player's cards in the Root zone, filter by the predicate,
-//                       and build a Card ChoiceRequest honouring max/canNoSelect/canEndNotMax (F-2.2/F-2.4).
-//   (2) BuildMutations — map the Mode to MatchStateMutation(s) per selected card (B-5: Discard = trash,
-//                       AddHand = return to hand). PlayForFree/PlayForCost need the effect-Play mutation
-//                       (F-3.7) and are not yet mapped.
+﻿using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon.Pun;
+using System;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
-
-using System.Collections;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
-using HeadlessDCGO.Engine.Headless.State;
-// Inside namespace ...Script the identifier `CardEffectCommons` binds to the SIBLING NAMESPACE, not the
-// static class — alias per the AutoProcessing.cs precedent.
-using Commons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
-
-public sealed class SelectCardEffect
+public class SelectCardEffect : MonoBehaviourPunCallbacks
 {
-    // 1:1 with the original SelectCardEffect.Mode.
-    public enum Mode
-    {
-        AddHand,
-        Discard,
-        PlayForFree,
-        PlayForCost,
-        Custom,
-    }
-
-    // 1:1 with the original SelectCardEffect.Root (the source zone of the selectable cards).
-    public enum Root
-    {
-        Library,
-        Trash,
-        Clock,
-        Security,
-        Custom,
-        Hand,
-        Recollection,
-        Execution,
-        DigivolutionCards,
-        LinkedCards,
-        None,
-    }
-
-    private HeadlessPlayerId _selectPlayer;
-    private int _maxCount = 1;
-    private bool _canEndNotMax;
-    private Mode _mode = Mode.Custom;
-    private Root _root = Root.Hand;
-    private HeadlessEntityId _sourceEntityId = new("select");
-    private string _message = "Select card(s).";
-    private int _playCost;
-
-    /// <summary>(D-8) Memory cost paid per selected card in PlayForCost mode. The effect resolves the
-    /// (cost-pipeline-reduced) cost via <c>ContinuousModifierGate</c> and sets it here before Apply;
-    /// 0 = play for free.</summary>
-    public void SetPlayCost(int memoryCost) => _playCost = memoryCost < 0 ? 0 : memoryCost;
-
-    public void SetUpCustomMessage(string message)
-    {
-        if (!string.IsNullOrWhiteSpace(message))
-        {
-            _message = message;
-        }
-    }
-
-    /// <summary>The <see cref="ChoiceZone"/> the configured <see cref="Root"/> maps to.</summary>
-    public ChoiceZone RootZone => MapRoot(_root);
-
-    /// <summary>Enumerate the select player's cards in the Root zone, filter by the predicate, and build
-    /// the Card ChoiceRequest. Count rules mirror SelectPermanentEffect / the original.</summary>
-    public ChoiceRequest BuildRequest(IZoneStateReader zones)
-    {
-        ArgumentNullException.ThrowIfNull(zones);
-
-        ChoiceZone zone = MapRoot(_root);
-        var candidates = new List<ChoiceCandidate>();
-        if (zone != ChoiceZone.None)
-        {
-            foreach (HeadlessEntityId id in zones.GetCards(_selectPlayer, zone))
-            {
-                // (D9 id-flip batch 5) AS-IS Func<CardSource,bool> predicate — materialise the candidate to a
-                // CardSource view and evaluate, mirroring SelectPermanentEffect.BuildRequest's Permanent
-                // materialisation (AS-IS SelectCardEffect.cs:145 _canTargetcondition shape).
-                if (_canTargetCondition is null
-                    || _canTargetCondition(new CardSource(RequireContext(), id, _selectPlayer, _selectPlayer)))
-                {
-                    candidates.Add(EffectChoiceHelpers.Candidate(id, id.Value, zone, isSelectable: true, _selectPlayer));
-                }
-            }
-        }
-
-        bool canNoSelect = _canNoSelect_Func?.Invoke() ?? false;
-        int available = candidates.Count;
-        int maxCount = Math.Min(_maxCount, available);
-        int minCount = canNoSelect ? 0 : (_canEndNotMax ? Math.Min(1, maxCount) : maxCount);
-        bool canSkip = canNoSelect;
-
-        return EffectChoiceHelpers.CreateCardRequest(_selectPlayer, _message, minCount, maxCount, canSkip, zone, candidates);
-    }
-
-    private static ChoiceZone MapRoot(Root root)
-    {
-        return root switch
-        {
-            Root.Library => ChoiceZone.Library,
-            Root.Trash => ChoiceZone.Trash,
-            Root.Clock => ChoiceZone.Clock,
-            Root.Security => ChoiceZone.Security,
-            Root.Hand => ChoiceZone.Hand,
-            Root.Recollection => ChoiceZone.Recollection,
-            Root.Execution => ChoiceZone.Execution,
-            Root.DigivolutionCards => ChoiceZone.DigivolutionCards,
-            Root.LinkedCards => ChoiceZone.LinkedCards,
-            Root.Custom => ChoiceZone.Custom,
-            _ => ChoiceZone.None,
-        };
-    }
-
-    // ================================================================================================
-    // (bridge W4) AS-IS SetUp(...).Activate() surface — 1:1 with DCGO SelectCardEffect.cs, the
-    // `GManager.instance.GetComponent<SelectCardEffect>()` flow verbatim card ports use (BT1_011 pattern).
-    // Substrate translations only (IEnumerator→Task, Player→HeadlessPlayerId, ICardEffect KEPT — its
-    // CardSource-shape predicates are used verbatim); UI/Photon statements stripped with AS-IS anchors
-    // cited in Activate(). See docs/audit/rebuild_bridge_w4_notes.md.
-    // ================================================================================================
-
-    // AS-IS private fields (SelectCardEffect.cs:145-227). AS-IS names kept where free; where the name is
-    // taken by a legacy mirror member of a different shape, the W3 …Card suffix convention applies.
-    // (D9 id-flip batch 5) The invented id-form _canTargetCondition (HeadlessEntityId-predicate) was retired,
-    // so the AS-IS name is free — the CardSource-shape predicate reverts to the AS-IS name _canTargetCondition
-    // (one field, mirroring SelectPermanentEffect's consolidated _canTargetCondition).
-    private Func<CardSource, bool>? _canTargetCondition;                                  // AS-IS _canTargetCondition
-    private Func<List<CardSource>, CardSource, bool>? _canTargetCondition_ByPreSelecetedList;
-    private Func<List<CardSource>, bool>? _canEndSelectConditionCard;                     // AS-IS _canEndSelectCondition
-    private Func<bool>? _canNoSelect_Func;                                                // AS-IS _canNoSelect (Func<bool>)
-    private List<CardSource> _targetCards = new();
-    private Func<CardSource, Task>? _selectCardCoroutine;
-    private Func<List<CardSource>, Task>? _afterSelectCardCoroutine;
-    private bool _isShowOpponent;             // AS-IS reveal-to-opponent UI flag (log/show gating only).
-    private bool _canLookReverseCard;
-    private List<CardSource>? _customRootCardList;
-    private ICardEffect? _cardEffect;
-    private bool _isLocal;                    // Photon marker — single-process, state-only.
-    private bool _showReverseCard = true;     // UI-only (Show selected card overlay gating).
-    private bool _showCard = true;            // UI-only.
-    private bool _notAddLog;                  // UI-only (PlayLog gating).
-    private bool _isDigiXros;                 // UI banner flag.
-    private bool _isAssembly;                 // UI banner flag.
-    private bool _isSecurity;                 // AS-IS gates IsSecurityLooking (live since fidelity defect C).
-    private bool _allowFaceDown;
-    private (int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? _reduceCostTuple;
-    private (int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? _fixedCostTuple;
-    private bool _isDeckBottom;               // AS-IS auto-order convenience toggle — headless always asks.
-    private bool _isDeckTop;
-    private string? _customMessage;
-    private string? _customMessage_Enemy;     // opponent-side UI text.
-    private string? _customMessage_ShowCard;  // UI-only.
-    private string? _customCountText;         // UI-only.
-    private List<CardEffectCommons.SkillInfo> _skillInfos = new();      // panel decoration (UI-only).
-    private List<int> _slectedInexesInList = new();   // AS-IS spelling kept.
-    private Func<List<int>, Task>? _afterSelectIndexCoroutine;
-    private EngineContext? _context;
-
-    /// <summary>(bridge W4) The match context the AS-IS <c>GManager.instance.GetComponent&lt;…&gt;()</c> route
-    /// injects.</summary>
-    internal void AttachContext(EngineContext context) => _context = context;
-
-    /// <summary>(bridge W4) AS-IS <c>SetUp</c> (SelectCardEffect.cs:10-63) — the 16-param overload the card
-    /// corpus calls. Resets exactly the fields AS-IS resets (:45-62).</summary>
     public void SetUp(
         Func<CardSource, bool> canTargetCondition,
-        Func<List<CardSource>, CardSource, bool>? canTargetCondition_ByPreSelecetedList,
-        Func<List<CardSource>, bool>? canEndSelectCondition,
-        Func<bool>? canNoSelect,
-        Func<CardSource, Task>? selectCardCoroutine,
-        Func<List<CardSource>, Task>? afterSelectCardCoroutine,
+        Func<List<CardSource>, CardSource, bool> canTargetCondition_ByPreSelecetedList,
+        Func<List<CardSource>, bool> canEndSelectCondition,
+        Func<bool> canNoSelect,
+        Func<CardSource, IEnumerator> selectCardCoroutine,
+        Func<List<CardSource>, IEnumerator> afterSelectCardCoroutine,
         string message,
         int maxCount,
         bool canEndNotMax,
         bool isShowOpponent,
         Mode mode,
         Root root,
-        List<CardSource>? customRootCardList,
+        List<CardSource> customRootCardList,
         bool canLookReverseCard,
-        HeadlessPlayerId selectPlayer,
+        Player selectPlayer,
         ICardEffect cardEffect)
     {
         _canTargetCondition = canTargetCondition;
         _canTargetCondition_ByPreSelecetedList = canTargetCondition_ByPreSelecetedList;
-        _canEndSelectConditionCard = canEndSelectCondition;
-        _canNoSelect_Func = canNoSelect;
+        _canEndSelectCondition = canEndSelectCondition;
+        _canNoSelect = canNoSelect;
         _selectCardCoroutine = selectCardCoroutine;
         _afterSelectCardCoroutine = afterSelectCardCoroutine;
-        _message = message ?? string.Empty;
+        _message = message;
         _maxCount = maxCount;
         _canEndNotMax = canEndNotMax;
         _isShowOpponent = isShowOpponent;
@@ -215,9 +41,6 @@ public sealed class SelectCardEffect
         _canLookReverseCard = canLookReverseCard;
         _selectPlayer = selectPlayer;
         _cardEffect = cardEffect;
-        _sourceEntityId = cardEffect?.EffectSourceCard?.InstanceId is { IsEmpty: false } sourceId
-            ? sourceId
-            : new HeadlessEntityId("select");
 
         _isLocal = false;
         _customMessage = null;
@@ -234,130 +57,226 @@ public sealed class SelectCardEffect
         _isSecurity = false;
         _allowFaceDown = false;
 
-        _skillInfos = new List<CardEffectCommons.SkillInfo>();
+        _skillInfos = new List<SkillInfo>();
 
         _afterSelectIndexCoroutine = null;
     }
 
-    /// <summary>AS-IS <c>SetIsLocal</c> (:65-68) — Photon bypass marker (state-only).</summary>
-    public void SetIsLocal() => _isLocal = true;
+    public void SetIsLocal()
+    {
+        _isLocal = true;
+    }
 
-    /// <summary>AS-IS <c>SetIsDeckBottom</c> (:70-73) — the auto-deck-bottom-order UI convenience; the
-    /// headless flow always issues the real choice.</summary>
-    public void SetIsDeckBottom() => _isDeckBottom = true;
+    public void SetIsDeckBottom()
+    {
+        _isDeckBottom = true;
+    }
 
-    /// <summary>AS-IS <c>SetIsDeckTop</c> (:75-78).</summary>
-    public void SetIsDeckTop() => _isDeckTop = true;
+    public void SetIsDeckTop()
+    {
+        _isDeckTop = true;
+    }
 
-    /// <summary>AS-IS <c>SetNotShowCard</c> (:80-83) — UI-only.</summary>
-    public void SetNotShowCard() => _showCard = false;
+    public void SetNotShowCard()
+    {
+        _showCard = false;
+    }
 
-    /// <summary>AS-IS <c>SetNotAddLog</c> (:85-88) — UI-only.</summary>
-    public void SetNotAddLog() => _notAddLog = true;
+    public void SetNotAddLog()
+    {
+        _notAddLog = true;
+    }
 
-    /// <summary>AS-IS <c>SetDigiXros</c> (:90-93) — UI banner flag.</summary>
-    public void SetDigiXros() => _isDigiXros = true;
+    public void SetDigiXros()
+    {
+        _isDigiXros = true;
+    }
 
-    /// <summary>AS-IS <c>SetAssembly</c> (:95-98) — UI banner flag.</summary>
-    public void SetAssembly() => _isAssembly = true;
+    public void SetAssembly()
+    {
+        _isAssembly = true;
+    }
 
-    /// <summary>AS-IS <c>SetIsSecurity</c> (:100-103) — flags the security-looking window; <see cref="Activate"/>
-    /// raises <c>GameContext.IsSecurityLooking</c> from it at AS-IS :378-381 (fidelity defect C).</summary>
-    public void SetIsSecurity() => _isSecurity = true;
+    public void SetIsSecurity()
+    {
+        _isSecurity = true;
+    }
 
-    /// <summary>AS-IS <c>SetUseFaceDown</c> (:105-108) — face-down cards stay selectable.</summary>
-    public void SetUseFaceDown() => _allowFaceDown = true;
+    public void SetUseFaceDown()
+    {
+        _allowFaceDown = true;
+    }
+    public void SetUpSkillInfos(List<SkillInfo> skillInfos)
+    {
+        _skillInfos = skillInfos.Clone();
+    }
 
-    /// <summary>AS-IS <c>SetUpSkillInfos</c> (:109-112) — panel decoration (UI-only; stored for shape).</summary>
-    public void SetUpSkillInfos(List<CardEffectCommons.SkillInfo> skillInfos) => _skillInfos = new List<CardEffectCommons.SkillInfo>(skillInfos);
-
-    /// <summary>AS-IS <c>SetReducedCostTuple</c> (:114-117). A NON-null tuple reaching Mode.PlayForCost STOPs
-    /// (design item RD-W4-1 — the AS-IS ChangeCostClass registration on
-    /// <c>Player.UntilCalculateFixedCostEffect</c> has no mirror surface yet).</summary>
-    public void SetReducedCostTuple((int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? reduceCostTuple) =>
+    public void SetReducedCostTuple((int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? reduceCostTuple)
+    {
         _reduceCostTuple = reduceCostTuple;
+    }
 
-    /// <summary>AS-IS <c>SetFixedCostTuple</c> (:119-122) — same STOP rule as <see cref="SetReducedCostTuple"/>.</summary>
-    public void SetFixedCostTuple((int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? fixedCostTuple) =>
+    public void SetFixedCostTuple((int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? fixedCostTuple)
+    {
         _fixedCostTuple = fixedCostTuple;
+    }
 
-    /// <summary>AS-IS <c>SetUpCustomMessage</c> (:124-128) — the custom prompt texts.</summary>
     public void SetUpCustomMessage(string CustomMessage, string CustomMessage_Enemy)
     {
         _customMessage = CustomMessage;
         _customMessage_Enemy = CustomMessage_Enemy;
     }
 
-    /// <summary>AS-IS <c>SetUpCustomMessage_ShowCard</c> (:130-133) — UI-only.</summary>
-    public void SetUpCustomMessage_ShowCard(string CustomMessage_ShowCard) =>
-        _customMessage_ShowCard = CustomMessage_ShowCard;
-
-    /// <summary>AS-IS <c>SetUpCustomCountText</c> (:135-138) — UI-only.</summary>
-    public void SetUpCustomCountText(string CustomCountText) => _customCountText = CustomCountText;
-
-    /// <summary>AS-IS <c>SetShowReverseCard</c> (:140-143) — UI-only.</summary>
-    public void SetShowReverseCard() => _showReverseCard = false;
-
-    /// <summary>AS-IS <c>SetUpAfterSelectIndexCoroutine</c> (:224-227).</summary>
-    public void SetUpAfterSelectIndexCoroutine(Func<List<int>, Task> AfterSelectIndexCoroutine) =>
-        _afterSelectIndexCoroutine = AfterSelectIndexCoroutine;
-
-    /// <summary>AS-IS <c>RootCardList</c> (:229-275) — the selectable pool: the custom list when given, else
-    /// ONLY the four AS-IS-materialised zones (Library / Trash / Security / Recollection=Lost); every other
-    /// Root yields an empty pool from this method exactly as AS-IS does (callers of those roots always pass
-    /// customRootCardList).</summary>
-    public List<CardSource> RootCardList()
+    public void SetUpCustomMessage_ShowCard(string CustomMessage_ShowCard)
     {
-        var rootCardList = new List<CardSource>();
+        _customMessage_ShowCard = CustomMessage_ShowCard;
+    }
+
+    public void SetUpCustomCountText(string CustomCountText)
+    {
+        _customCountText = CustomCountText;
+    }
+
+    public void SetShowReverseCard()
+    {
+        _showReverseCard = false;
+    }
+
+    Func<CardSource, bool> _canTargetCondition = null;
+    Func<List<CardSource>, CardSource, bool> _canTargetCondition_ByPreSelecetedList = null;
+    Func<List<CardSource>, bool> _canEndSelectCondition = null;
+    Func<bool> _canNoSelect = null;
+
+    List<CardSource> _targetCards = new List<CardSource>();
+
+    Func<CardSource, IEnumerator> _selectCardCoroutine = null;
+
+    Func<List<CardSource>, IEnumerator> _afterSelectCardCoroutine = null;
+
+    string _message = "";
+
+    int _maxCount = 0;
+
+    bool _canEndNotMax = false;
+
+    bool _isShowOpponent = false;
+
+    bool _canLookReverseCard = false;
+
+    List<CardSource> _customRootCardList { get; set; } = new List<CardSource>();
+
+    Player _selectPlayer = null;
+    ICardEffect _cardEffect = null;
+
+    bool _isLocal = false;
+    bool _showReverseCard = true;
+    bool _showCard = true;
+    bool _notAddLog = false;
+    bool _isDigiXros = false;
+    bool _isAssembly = false;
+    bool _isSecurity = false;
+    bool _allowFaceDown = false;
+    (int reduceCost, Func<CardSource, bool> reduceCostCardCondition)? _reduceCostTuple = null;
+    (int fixedCost, Func<CardSource, bool> fixedCostCardCondition)? _fixedCostTuple = null;
+
+    public enum Mode
+    {
+        AddHand,
+        Discard,
+
+        // PutLibraryTop,
+        // PutLibraryBottom,
+        PlayForFree,
+        PlayForCost,
+        Custom,
+    }
+
+    Mode _mode;
+
+    public enum Root
+    {
+        Library,
+        Trash,
+        Clock,
+        Security,
+        Custom,
+        Hand,
+        Recollection,
+        Execution,
+        DigivolutionCards,
+        LinkedCards,
+        None,
+    }
+
+    Root _root;
+    bool _isDeckBottom = false;
+    bool _isDeckTop = false;
+
+    string _customMessage = null;
+    string _customMessage_Enemy = null;
+    string _customMessage_ShowCard = null;
+    string _customCountText = null;
+
+    List<SkillInfo> _skillInfos = new List<SkillInfo>();
+    List<int> _slectedInexesInList = new List<int>();
+    Func<List<int>, IEnumerator> _afterSelectIndexCoroutine = null;
+
+    public void SetUpAfterSelectIndexCoroutine(Func<List<int>, IEnumerator> AfterSelectIndexCoroutine)
+    {
+        _afterSelectIndexCoroutine = AfterSelectIndexCoroutine;
+    }
+
+    public virtual List<CardSource> RootCardList()
+    {
+        List<CardSource> RootCardList = new List<CardSource>();
 
         if (_customRootCardList == null)
         {
-            EngineContext? context = ResolveContext();
-            if (context?.ZoneMover is IZoneStateReader zones && !_selectPlayer.IsEmpty)
+            switch (_root)
             {
-                switch (_root)
-                {
-                    case Root.Library:
-                        AddZone(zones, context, ChoiceZone.Library, rootCardList);
-                        break;
+                case Root.Library:
+                    foreach (CardSource cardSource in _selectPlayer.LibraryCards)
+                    {
+                        RootCardList.Add(cardSource);
+                    }
+                    break;
 
-                    case Root.Trash:
-                        AddZone(zones, context, ChoiceZone.Trash, rootCardList);
-                        break;
+                case Root.Trash:
+                    foreach (CardSource cardSource in _selectPlayer.TrashCards)
+                    {
+                        RootCardList.Add(cardSource);
+                    }
+                    break;
 
-                    case Root.Security:
-                        AddZone(zones, context, ChoiceZone.Security, rootCardList);
-                        break;
+                case Root.Security:
+                    foreach (CardSource cardSource in _selectPlayer.SecurityCards)
+                    {
+                        RootCardList.Add(cardSource);
+                    }
+                    break;
 
-                    case Root.Recollection:
-                        AddZone(zones, context, ChoiceZone.Recollection, rootCardList);
-                        break;
-                }
+                case Root.Recollection:
+                    foreach (CardSource cardSource in _selectPlayer.LostCards)
+                    {
+                        RootCardList.Add(cardSource);
+                    }
+                    break;
             }
         }
         else
         {
             foreach (CardSource cardSource in _customRootCardList)
             {
-                rootCardList.Add(cardSource);
+                RootCardList.Add(cardSource);
             }
         }
 
-        return rootCardList;
-
-        void AddZone(IZoneStateReader zones, EngineContext context, ChoiceZone zone, List<CardSource> into)
-        {
-            foreach (HeadlessEntityId id in zones.GetCards(_selectPlayer, zone))
-            {
-                into.Add(new CardSource(context, id, _selectPlayer, _selectPlayer));
-            }
-        }
+        return RootCardList;
     }
 
-    /// <summary>AS-IS <c>CanSelectCard</c> (:277-301) — verbatim: hidden-zone flip pass-through, the card
-    /// predicate, then the face-down exclusion unless <see cref="SetUseFaceDown"/>.</summary>
-    private bool CanSelectCardAsIs(CardSource cardSource)
+    private bool CanSelectCard(CardSource cardSource)
     {
+        
         if (_root != Root.Library && _root != Root.Security && _root != Root.Custom)
         {
             if (cardSource.IsFlipped)
@@ -381,16 +300,13 @@ public sealed class SelectCardEffect
         return false;
     }
 
-    /// <summary>AS-IS <c>active()</c> (:303-330) — verbatim, INCLUDING the AS-IS side effects
-    /// (Library ⇒ SetUseFaceDown; Security + canLookReverseCard ⇒ SetUseFaceDown) and the AS-IS rule that a
-    /// non-empty Library/Security pool is always active regardless of matches.</summary>
     public bool active()
     {
         if (RootCardList().Count > 0)
         {
             if (_root != Root.Library && _root != Root.Security)
             {
-                if (RootCardList().Count(CanSelectCardAsIs) > 0)
+                if (RootCardList().Count(CanSelectCard) > 0)
                 {
                     return true;
                 }
@@ -400,7 +316,7 @@ public sealed class SelectCardEffect
                 if (_root == Root.Library)
                     SetUseFaceDown();
 
-                if (_root == Root.Security)
+                if(_root == Root.Security)
                 {
                     if (_canLookReverseCard)
                         SetUseFaceDown();
@@ -413,439 +329,698 @@ public sealed class SelectCardEffect
         return false;
     }
 
-    /// <summary>(bridge W4) AS-IS <c>Activate()</c> (SelectCardEffect.cs:332-1011) — the full flow: guards →
-    /// selection (ChoiceProvider; batch or per-pick incremental) → per-Mode routing on the verified substrate
-    /// carriers → the single AddHandCards batch → the always-run after-coroutines.
-    /// UI/Photon strips (AS-IS anchors): IsSelecting save/restore + attacking-permanent outline + Off*Target
-    /// (:334-364, :1010), command
-    /// text/messages (:396-435, :585-601, :688-689), the DeckData sort + matching-first panel ordering
-    /// (:444-478 — presentation order, RD-W4-7), skillInfos decoration (:480-544), the RPC/WaitUntil selection
-    /// transport (:561-686 — the ChoiceProvider request IS the transport; the AI AutoSelect branch collapses
-    /// into the same request), ShowCardEffect overlays (:691-734), PlayLog (:736-761, :980-995), the AS-IS
-    /// commented-out Library shuffle (:753-756).</summary>
-    public async Task Activate()
+    public virtual IEnumerator Activate()
     {
+        bool oldIsSelecting = GManager.instance.turnStateMachine.IsSelecting;
+
         List<CardSource> handCards = new List<CardSource>();
 
         _targetCards = new List<CardSource>();
 
         _slectedInexesInList = new List<int>();
 
+        bool oldIsActiveOutline_AttackingPermanent = false;
+
+        if (GManager.instance.attackProcess.AttackingPermanent != null)
+        {
+            if (GManager.instance.attackProcess.AttackingPermanent.ShowingPermanentCard != null)
+            {
+                oldIsActiveOutline_AttackingPermanent = GManager.instance.attackProcess.AttackingPermanent.ShowingPermanentCard.Outline_Select.gameObject.activeSelf;
+            }
+        }
+
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players)
+        {
+            GManager.instance.turnStateMachine.OffFieldCardTarget(player);
+            GManager.instance.turnStateMachine.OffHandCardTarget(player);
+        }
+
+        if (GManager.instance.attackProcess.AttackingPermanent != null)
+        {
+            if (GManager.instance.attackProcess.AttackingPermanent.ShowingPermanentCard != null)
+            {
+                GManager.instance.attackProcess.AttackingPermanent.ShowingPermanentCard.Outline_Select.gameObject.SetActive(oldIsActiveOutline_AttackingPermanent);
+            }
+        }
+
         if (_maxCount == 0)
         {
-            _canNoSelect_Func = () => true;   // AS-IS :366-369
+            _canNoSelect = () => true;
         }
 
         if (_root == Root.Security)
         {
-            SetIsSecurity();                  // AS-IS :371-374
+            SetIsSecurity();
         }
 
         if (active())
         {
-            EngineContext context = RequireContext();
-
-            // AS-IS :378-381 — a security-rooted look raises gameContext.IsSecurityLooking for the duration of the
-            // window (cleared unconditionally at :1008 below). Read by Player.CanAddSecurity / CanReduceSecurity.
             if (_isSecurity)
             {
-                new GameContext(context).IsSecurityLooking = true;
+                GManager.instance.turnStateMachine.gameContext.IsSecurityLooking = true;
             }
 
-            List<CardSource> rootCards = RootCardList();   // AS-IS :437-442 working copy
-
-            (List<CardSource> selected, List<int> selectedIndices) =
-                await RunAsIsSelectionAsync(context, rootCards).ConfigureAwait(false);
-            _targetCards = selected;
-            _slectedInexesInList = selectedIndices;
-
-            HeadlessEntityId? causeId = _cardEffect?.EffectSourceCard?.InstanceId;   // AS-IS :736 hashtable cause
-
-            switch (_mode)
+            if (_selectPlayer.isYou)
             {
-                case Mode.AddHand:   // AS-IS :765-784
-                    foreach (CardSource cardSource in _targetCards)
-                    {
-                        SetFaceMirror(context, cardSource);   // AS-IS cardSource.SetFace()
+                if ((_isDeckBottom && ContinuousController.instance.autoDeckBottomOrder)
+                || (_isDeckTop && ContinuousController.instance.autoDeckTopOrder))
+                {
+                    AutoSelect();
+                }
+                else
+                {
+                    List<int> targetCardIDs = new List<int>();
 
-                        if (cardSource.IsDigiEgg)
+                    GManager.instance.turnStateMachine.IsSelecting = true;
+
+                    #region Message Display
+
+                    if (!string.IsNullOrEmpty(_customMessage))
+                    {
+                        GManager.instance.commandText.OpenCommandText(_customMessage, _isDigiXros, _isAssembly);
+                    }
+                    else
+                    {
+                        string message = "";
+
+                        switch (_mode)
                         {
-                            // AS-IS :770 — a selected DigiEgg goes to the LIBRARY BOTTOM instead of the hand:
-                            // CardObjectController.AddLibraryBottomCards(new List<CardSource> { cardSource }).
-                            await CardObjectController.AddLibraryBottomCards(new List<CardSource> { cardSource }).ConfigureAwait(false);
+                            case Mode.AddHand:
+                                message = "Select cards to add to your hand.";
+                                break;
+
+                            case Mode.Discard:
+                                message = "Select cards to trash.";
+                                break;
+
+                            case Mode.PlayForFree:
+                                message = "Select cards to play without paying the cost.";
+                                break;
+
+                            case Mode.PlayForCost:
+                                message = "Select cards to play.";
+                                break;
+
+                            case Mode.Custom:
+                                message = "Select cards.";
+                                break;
+                        }
+
+                        if (!string.IsNullOrEmpty(message))
+                        {
+                            GManager.instance.commandText.OpenCommandText(message, _isDigiXros, _isAssembly);
+                        }
+                    }
+
+                    #endregion
+
+                    List<CardSource> RootCards = new List<CardSource>();
+
+                    foreach (CardSource cardSource in RootCardList())
+                    {
+                        RootCards.Add(cardSource);
+                    }
+
+                    #region Sort
+
+                    if (_root == Root.Library || _root == Root.Trash)
+                    {
+                        RootCards = DeckData.SortedCardsList(RootCards);
+
+                        List<CardSource> matchConditionCards = new List<CardSource>();
+                        List<CardSource> notMatchConditionCards = new List<CardSource>();
+
+                        foreach (CardSource cardSource in RootCards)
+                        {
+                            if (CanSelectCard(cardSource))
+                            {
+                                matchConditionCards.Add(cardSource);
+                            }
+                            else
+                            {
+                                notMatchConditionCards.Add(cardSource);
+                            }
+                        }
+
+                        RootCards = new List<CardSource>();
+
+                        foreach (CardSource cardSource in matchConditionCards)
+                        {
+                            RootCards.Add(cardSource);
+                        }
+
+                        foreach (CardSource cardSource in notMatchConditionCards)
+                        {
+                            RootCards.Add(cardSource);
+                        }
+                    }
+
+                    #endregion
+
+                    #region Effect in progress/waiting to be activated
+
+                    if (_cardEffect != null)
+                    {
+                        if (_cardEffect.EffectSourceCard != null)
+                        {
+                            if (_skillInfos.Count == 0)
+                            {
+                                if (_root == Root.Trash || _root == Root.DigivolutionCards || _root == Root.LinkedCards)
+                                {
+                                    SkillInfo[] skillInfoArray = new SkillInfo[RootCards.Count];
+
+                                    for (int i = 0; i < skillInfoArray.Length; i++)
+                                    {
+                                        if (0 <= i && i <= RootCards.Count - 1)
+                                        {
+                                            if (RootCards[i] == _cardEffect.EffectSourceCard)
+                                            {
+                                                ICardEffect cardEffect = new ChangeBaseDPClass();
+                                                cardEffect.SetUpICardEffect("Effect Processing", null, RootCards[i]);
+
+                                                skillInfoArray[i] = new SkillInfo(cardEffect, null, EffectTiming.None);
+                                            }
+                                            else
+                                            {
+                                                if (GManager.instance.autoProcessing.executingMultipleSkills != null)
+                                                {
+                                                    bool isEffectWaiting(SkillInfo skillInfo)
+                                                    {
+                                                        if (skillInfo != null)
+                                                        {
+                                                            if (skillInfo.CardEffect != null)
+                                                            {
+                                                                if (skillInfo.CardEffect.EffectSourceCard != null)
+                                                                {
+                                                                    if (skillInfo.CardEffect.EffectSourceCard == RootCards[i])
+                                                                    {
+                                                                        return true;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+
+                                                        return false;
+                                                    }
+
+                                                    if (GManager.instance.autoProcessing.executingMultipleSkills.StackedSkillInfos.Count(isEffectWaiting) >= 1)
+                                                    {
+                                                        ICardEffect cardEffect = new ChangeBaseDPClass();
+                                                        cardEffect.SetUpICardEffect("Effect Waiting", null, RootCards[i]);
+
+                                                        skillInfoArray[i] = new SkillInfo(cardEffect, null, EffectTiming.None);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    _skillInfos = skillInfoArray.ToList();
+                                }
+                            }
+                        }
+                    }
+
+                    #endregion
+
+                    GManager.instance.selectCardPanel._customCountText = _customCountText;
+
+                    yield return StartCoroutine(GManager.instance.selectCardPanel.OpenSelectCardPanel(
+                        Message: _message,
+                        RootCardSources: RootCards,
+                        _CanTargetCondition: CanSelectCard,
+                        _CanTargetCondition_ByPreSelecetedList: _canTargetCondition_ByPreSelecetedList,
+                        _CanEndSelectCondition: _canEndSelectCondition,
+                        _MaxCount: _maxCount,
+                        _CanEndNotMax: _canEndNotMax,
+                        _CanNoSelect: _canNoSelect,
+                        CanLookReverseCard: _canLookReverseCard,
+                        skillInfos: _skillInfos,
+                        root: _root));
+
+                    foreach (CardSource selectedCard in GManager.instance.selectCardPanel.SelectedList)
+                    {
+                        targetCardIDs.Add(selectedCard.CardIndex);
+                    }
+
+                    foreach (int selectedIndex in GManager.instance.selectCardPanel.SelectedIndex)
+                    {
+                        _slectedInexesInList.Add(selectedIndex);
+                    }
+
+                    if (_isLocal)
+                    {
+                        SetTargetCardAndIndicies(_selectPlayer.PlayerID, targetCardIDs.ToArray(), _slectedInexesInList.ToArray());
+                    }
+                    else
+                    {
+                        photonView.RPC("SetTargetCardAndIndicies", RpcTarget.All, _selectPlayer.PlayerID, targetCardIDs.ToArray(), _slectedInexesInList.ToArray());
+                    }
+
+                   
+                }
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(_customMessage_Enemy))
+                {
+                    GManager.instance.commandText.OpenCommandText(_customMessage_Enemy, _isDigiXros, _isAssembly);
+                }
+                else
+                {
+                    GManager.instance.commandText.OpenCommandText("The opponent is selecting cards.", _isDigiXros, _isAssembly);
+                }
+
+                #region AI
+
+                if (GManager.instance.IsAI)
+                {
+                    AutoSelect();
+                }
+
+                #endregion
+            }
+
+            void AutoSelect()
+            {
+                List<CardSource> ValidCards = new List<CardSource>();
+
+                foreach (CardSource cardSource in RootCardList())
+                {
+                    if (CanSelectCard(cardSource))
+                    {
+                        ValidCards.Add(cardSource);
+                    }
+                }
+
+                IList<int> indexList = Enumerable.Range(0, ValidCards.Count).ToList();
+
+                if (ValidCards.Count >= _maxCount)
+                {
+                    for (int i = 0; i < 1000; i++)
+                    {
+                        List<int> GetIndexes = indexList.GetRandom(_maxCount).ToList();
+
+                        List<CardSource> GetCards = new List<CardSource>();
+
+                        foreach (int index in GetIndexes)
+                        {
+                            GetCards.Add(ValidCards[index]);
+                        }
+
+                        if (_canEndSelectCondition != null)
+                        {
+                            if (!_canEndSelectCondition(GetCards))
+                            {
+                                continue;
+                            }
+                        }
+
+                        List<int> CardIDs = new List<int>();
+
+                        foreach (CardSource cardSource in GetCards)
+                        {
+                            CardIDs.Add(cardSource.CardIndex);
+                        }
+
+                        if (GManager.instance.IsAI || _isLocal)
+                        {
+                            SetTargetCardAndIndicies(_selectPlayer.PlayerID, CardIDs.ToArray(), null);
                         }
                         else
                         {
-                            PermanentView host = cardSource.PermanentOfThisCard();
-                            if (!host.IsEmpty && host.DigivolutionCards.Any(stacked => stacked.InstanceId == cardSource.InstanceId))
+                            photonView.RPC("SetTargetCardAndIndicies", RpcTarget.All, _selectPlayer.PlayerID, CardIDs.ToArray(), null);
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            yield return new WaitUntil(() => _selectPlayer.HasPlayerSelection());
+
+            CardSelection cardSelection = _selectPlayer.DequeuePlayerSelection<CardSelection>();
+
+            if (cardSelection != null && cardSelection.CardIDList != null)
+            {
+                _targetCards = new List<CardSource>();
+
+                foreach (int cardID in cardSelection.CardIDList)
+                {
+                    _targetCards.Add(GManager.instance.turnStateMachine.gameContext.ActiveCardList[cardID]);
+                }
+            }
+
+            yield return new WaitUntil(() => _selectPlayer.HasPlayerSelection());
+
+            CardSelection indiciesSelection = _selectPlayer.DequeuePlayerSelection<CardSelection>();
+
+            if (indiciesSelection != null && indiciesSelection.CardIDList != null)
+            {
+                _slectedInexesInList = new List<int>();
+
+                foreach (int index in indiciesSelection.CardIDList)
+                {
+                    _slectedInexesInList.Add(index);
+                }
+            }
+
+            GManager.instance.commandText.CloseCommandText();
+            yield return new WaitWhile(() => GManager.instance.commandText.gameObject.activeSelf);
+
+            #region Show selected card
+
+            if (_targetCards.Count > 0 && _showCard)
+            {
+                if (_targetCards.Count((cardSource) => cardSource.IsFlipped) > 0 && !_showReverseCard)
+                {
+                    //表示しない
+                }
+                else
+                {
+                    if (_isShowOpponent || (_selectPlayer.isYou && _targetCards.Count((cardSource) => cardSource.Owner == _selectPlayer) > 0))
+                    {
+                        if (!string.IsNullOrEmpty(_customMessage_ShowCard))
+                        {
+                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, _customMessage_ShowCard, true, true));
+                        }
+                        else
+                        {
+                            switch (_mode)
                             {
-                                // AS-IS RemoveDigivolveRootEffect(cardSource, PermanentOfThisCard()) — detach the
-                                // buried source from its stack before the hand add (mirror Permanent.RemoveCardSource,
-                                // the MIG4 AS-IS-anchored detach).
-                                Permanent hostPermanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
-                                if (hostPermanent != null)
+                                case Mode.AddHand:
+                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, "Cards added to hand", true, true));
+                                    break;
+
+                                case Mode.Discard:
+                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, "Cards put on the trash", true, true));
+                                    break;
+
+
+                                case Mode.PlayForFree:
+                                case Mode.PlayForCost:
+                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, "Played cards", true, true));
+                                    break;
+
+                                case Mode.Custom:
+                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(_targetCards, "Selected Cards", true, true));
+                                    break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            #endregion
+
+            Hashtable hashtable = CardEffectCommons.CardEffectHashtable(_cardEffect);
+
+            string log = "";
+
+            if (_mode == Mode.AddHand)
+            {
+                log += $"\nCard{Utils.PluralFormSuffix(_targetCards.Count)} added to hand:";
+            }
+            else if (_mode == Mode.AddHand)
+            {
+                log += $"\nTrash Card{Utils.PluralFormSuffix(_targetCards.Count)}:";
+            }
+            else
+            {
+                log += $"\nSelected Card{Utils.PluralFormSuffix(_targetCards.Count)}:";
+            }
+
+            if (_root == Root.Library)
+            {
+                //yield return ContinuousController.instance.StartCoroutine(CardObjectController.Shuffle(_selectPlayer));
+            }
+
+            foreach (CardSource cardSource in _targetCards)
+            {
+                log += $"\n{cardSource.BaseENGCardNameFromEntity}({cardSource.CardID})";
+            }
+
+            switch (_mode)
+            {
+                case Mode.AddHand:
+                    foreach (CardSource cardSource in _targetCards)
+                    {
+                        cardSource.SetFace();
+
+                        if (cardSource.IsDigiEgg) yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryBottomCards(new List<CardSource> { cardSource }));
+                        else
+                        {
+                            if (cardSource.PermanentOfThisCard() != null)
+                            {
+                                if (cardSource.PermanentOfThisCard().DigivolutionCards.Contains(cardSource))
                                 {
-                                    await hostPermanent.RemoveCardSource(cardSource).ConfigureAwait(false);
+                                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().RemoveDigivolveRootEffect(cardSource, cardSource.PermanentOfThisCard()));
                                 }
                             }
 
                             handCards.Add(cardSource);
                         }
                     }
-
                     break;
 
-                case Mode.Discard:   // AS-IS :786-813 — the AS-IS whole-list quirk KEPT (the hand branch
-                                     // discards ALL _targetCards whenever the scanned card is on hand; later
-                                     // iterations fall through to the no-op trash move, exactly as AS-IS).
+                case Mode.Discard:
                     foreach (CardSource cardSource in _targetCards)
                     {
-                        if (Commons.IsExistOnHand(cardSource))
+                        if (CardEffectCommons.IsExistOnHand(cardSource))
                         {
-                            List<IDiscardHand> discardHands = _targetCards
-                                .Select(targetCard => new IDiscardHand(targetCard))
-                                .ToList();
-                            await new IDiscardHands(discardHands, causeId, _cardEffect).DiscardHands().ConfigureAwait(false);
+                            List<IDiscardHand> discardHands = _targetCards.Map(cardSource => new IDiscardHand(cardSource, hashtable));
+                            yield return ContinuousController.instance.StartCoroutine(new IDiscardHands(discardHands, _cardEffect).DiscardHands());
                         }
-                        else if (Commons.IsExistLinked(cardSource))
+                        else if (CardEffectCommons.IsExistLinked(cardSource))
                         {
-                            await new ITrashLinkCards(
-                                ICardEffect.ResolvePermanentOfThisCard(cardSource),
+                            yield return ContinuousController.instance.StartCoroutine(new ITrashLinkCards(
+                                cardSource.PermanentOfThisCard(),
                                 new List<CardSource> { cardSource },
-                                causeId, _cardEffect).TrashLinkCards().ConfigureAwait(false);
+                                _cardEffect).TrashLinkCards());
                         }
-                        // After IsExistLinked, this would be digivolution cards, or topcard which should have
-                        // been disbarred by selection condition. (AS-IS comment kept.)
-                        else if (Commons.IsExistOnBattleArea(cardSource))
+                        //After IsExistLinked, this would be digivolution cards, or topcard which should have been disbarred by selection condition. 
+                        //ITrashDigiviolutionCards also refuses to do anything with a TopCard
+                        else if (CardEffectCommons.IsExistOnBattleArea(cardSource))
                         {
-                            await new ITrashDigivolutionCards(
-                                ICardEffect.ResolvePermanentOfThisCard(cardSource),
-                                new List<CardSource> { cardSource },
-                                causeId, _cardEffect).TrashDigivolutionCards().ConfigureAwait(false);
+                            yield return ContinuousController.instance.StartCoroutine(new ITrashDigivolutionCards(
+                                cardSource.PermanentOfThisCard(), 
+                                new List<CardSource> { cardSource }, 
+                                _cardEffect).TrashDigivolutionCards());
                         }
                         else
-                        {
-                            // AS-IS :811 CardObjectController.AddTrashCard(cardSource).
-                            await CardObjectController.AddTrashCard(cardSource).ConfigureAwait(false);
-                        }
+                            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddTrashCard(cardSource));
                     }
-
                     break;
 
-                case Mode.PlayForFree:   // AS-IS :815-823 — the W3 AS-IS-signature PlayPermanentCards bridge.
-                    await Commons.PlayPermanentCards(
-                        cardSources: _targetCards,
-                        activateClass: _cardEffect!,
-                        payCost: false,
-                        isTapped: false,
-                        root: _root,
-                        activateETB: true).ConfigureAwait(false);
+                case Mode.PlayForFree:
+                    yield return ContinuousController.instance.StartCoroutine(
+                            CardEffectCommons.PlayPermanentCards(
+                                cardSources: _targetCards, 
+                                activateClass: _cardEffect, 
+                                payCost: false, 
+                                isTapped: false, 
+                                root: _root, 
+                                activateETB: true));
                     break;
 
-                case Mode.PlayForCost:   // AS-IS :826-962.
-                {
-                    // AS-IS :828-847 local predicates.
-                    bool PermanentsCondition(List<Permanent> targetPermanents)
+                case Mode.PlayForCost:
                     {
-                        if (targetPermanents == null)
+                        bool PermanentsCondition(List<Permanent> targetPermanents)
                         {
-                            return true;
-                        }
-                        else
-                        {
-                            if (targetPermanents.Count(targetPermanent => targetPermanent != null) == 0)
+                            if (targetPermanents == null)
                             {
                                 return true;
                             }
-                        }
 
-                        return false;
-                    }
-
-                    bool SharedCardCondition(CardSource cardSource) => _targetCards.Contains(cardSource);
-                    bool RootCondition(Root root) => true;
-                    bool CanUseCondition(Hashtable hashtable) => true;
-
-                    // RD-W4-1: the reduce/fixed-cost halves register a transient ChangeCostClass on the select
-                    // player's UntilCalculateFixedCostEffect bucket (LIVE in the mirror Player since W3c) for the
-                    // DURATION of the play, then release it — SelectHandEffect.ActivatePlayForCostAsync idiom.
-                    var selectPlayer = new Player(context, _selectPlayer);
-
-                    // AS-IS :850-895 reduce cost.
-                    Func<EffectTiming, ICardEffect>? getChangeCostEffect = null;
-                    if (_reduceCostTuple != null)
-                    {
-                        bool CardCondition(CardSource cardSource) =>
-                            SharedCardCondition(cardSource)
-                            && (_reduceCostTuple.Value.reduceCostCardCondition == null || _reduceCostTuple.Value.reduceCostCardCondition(cardSource));
-
-                        int ChangeCost(CardSource cardSource, int Cost, Root root, List<Permanent> targetPermanents)
-                        {
-                            if (PermanentsCondition(targetPermanents))
+                            else
                             {
-                                Cost -= _reduceCostTuple.Value.reduceCost;
+                                if (targetPermanents.Count((targetPermanent) => targetPermanent != null) == 0)
+                                {
+                                    return true;
+                                }
                             }
 
-                            return Cost;
+                            return false;
                         }
 
-                        bool isUpDown() => true;
+                        bool SharedCardCondition(CardSource cardSource) => _targetCards.Contains(cardSource);
+                        bool RootCondition(SelectCardEffect.Root root) => true;
+                        bool CanUseCondition(Hashtable hashtable) => true;
 
-                        ChangeCostClass changeCostClass = new ChangeCostClass();
-                        changeCostClass.SetUpICardEffect($"Play Cost -{_reduceCostTuple.Value.reduceCost}", CanUseCondition, _cardEffect!.EffectSourceCard);
-                        changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
-                        getChangeCostEffect = GetCardEffect;
+                        #region reduce cost
 
-                        ICardEffect? GetCardEffect(EffectTiming _timing) => _timing == EffectTiming.None ? changeCostClass : null;
+                        Func<EffectTiming, ICardEffect> getChangeCostEffect = null;
 
-                        selectPlayer.UntilCalculateFixedCostEffect.Add(getChangeCostEffect);
-                    }
-
-                    // AS-IS :899-943 set fixed cost.
-                    Func<EffectTiming, ICardEffect>? getFixedCostEffect = null;
-                    if (_fixedCostTuple != null)
-                    {
-                        bool CardCondition(CardSource cardSource) =>
-                            SharedCardCondition(cardSource)
-                            && (_fixedCostTuple.Value.fixedCostCardCondition == null || _fixedCostTuple.Value.fixedCostCardCondition(cardSource));
-
-                        int ChangeCost(CardSource cardSource, int Cost, Root root, List<Permanent> targetPermanents)
+                        if (_reduceCostTuple != null)
                         {
-                            if (PermanentsCondition(targetPermanents))
+                            bool CardCondition(CardSource cardSource)
                             {
-                                Cost = _fixedCostTuple.Value.fixedCost;
+                                return SharedCardCondition(cardSource)
+                                    && (_reduceCostTuple.Value.reduceCostCardCondition == null || _reduceCostTuple.Value.reduceCostCardCondition(cardSource));
                             }
 
-                            return Cost;
+                            int ChangeCost(CardSource cardSource, int Cost, Root root, List<Permanent> targetPermanents)
+                            {
+                                if (PermanentsCondition(targetPermanents))
+                                {
+                                    Cost -= _reduceCostTuple.Value.reduceCost;
+                                }
+
+                                return Cost;
+                            }
+
+                            bool isUpDown() => true;
+
+                            ChangeCostClass changeCostClass = new ChangeCostClass();
+                            changeCostClass.SetUpICardEffect($"Play Cost -{_reduceCostTuple.Value.reduceCost}", CanUseCondition, _cardEffect.EffectSourceCard);
+                            changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
+                            getChangeCostEffect = GetCardEffect;
+
+                            ICardEffect GetCardEffect(EffectTiming _timing)
+                            {
+                                if (_timing == EffectTiming.None)
+                                {
+                                    return changeCostClass;
+                                }
+
+                                return null;
+                            }
+
+                            if (getChangeCostEffect != null)
+                            {
+                                _selectPlayer.UntilCalculateFixedCostEffect.Add(getChangeCostEffect);
+                            }
                         }
 
-                        bool isUpDown() => false;
+                        #endregion
 
-                        ChangeCostClass changeCostClass = new ChangeCostClass();
-                        changeCostClass.SetUpICardEffect($"Play Cost {_fixedCostTuple.Value.fixedCost}", CanUseCondition, _cardEffect!.EffectSourceCard);
-                        changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
-                        getFixedCostEffect = GetCardEffect;
+                        #region set fixed cost
 
-                        ICardEffect? GetCardEffect(EffectTiming _timing) => _timing == EffectTiming.None ? changeCostClass : null;
+                        Func<EffectTiming, ICardEffect> getFixedCostEffect = null;
 
-                        selectPlayer.UntilCalculateFixedCostEffect.Add(getFixedCostEffect);
+                        if (_fixedCostTuple != null)
+                        {
+                            bool CardCondition(CardSource cardSource)
+                            {
+                                return SharedCardCondition(cardSource)
+                                    && (_fixedCostTuple.Value.fixedCostCardCondition == null || _fixedCostTuple.Value.fixedCostCardCondition(cardSource));
+                            }
+
+                            int ChangeCost(CardSource cardSource, int Cost, SelectCardEffect.Root root, List<Permanent> targetPermanents)
+                            {
+                                if (PermanentsCondition(targetPermanents))
+                                {
+                                    Cost = _fixedCostTuple.Value.fixedCost;
+                                }
+
+                                return Cost;
+                            }
+
+                            bool isUpDown() => false;
+
+                            ChangeCostClass changeCostClass = new ChangeCostClass();
+                            changeCostClass.SetUpICardEffect($"Play Cost {_fixedCostTuple.Value.fixedCost}", CanUseCondition, _cardEffect.EffectSourceCard);
+                            changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
+                            getFixedCostEffect = GetCardEffect;
+
+                            ICardEffect GetCardEffect(EffectTiming _timing)
+                            {
+                                if (_timing == EffectTiming.None)
+                                {
+                                    return changeCostClass;
+                                }
+
+                                return null;
+                            }
+
+                            if (getFixedCostEffect != null)
+                            {
+                                _selectPlayer.UntilCalculateFixedCostEffect.Add(getFixedCostEffect);
+                            }
+                        }
+
+                        #endregion
+
+                        yield return ContinuousController.instance.StartCoroutine(
+                            CardEffectCommons.PlayPermanentCards(
+                                cardSources: _targetCards, 
+                                activateClass: _cardEffect, 
+                                payCost: true, 
+                                isTapped: false, 
+                                root: SelectCardEffect.Root.Hand, 
+                                activateETB: true));
+                        
+                        #region release effect
+                        if (getChangeCostEffect != null) _selectPlayer.UntilCalculateFixedCostEffect.Remove(getChangeCostEffect);
+                        #endregion
+
+                        #region release effect
+                        if (getFixedCostEffect != null) _selectPlayer.UntilCalculateFixedCostEffect.Remove(getFixedCostEffect);
+                        #endregion
+
+                        break;
                     }
 
-                    // AS-IS :944-951 — NOTE the AS-IS quirk: the play routes with root: Root.Hand here.
-                    await Commons.PlayPermanentCards(
-                        cardSources: _targetCards,
-                        activateClass: _cardEffect!,
-                        payCost: true,
-                        isTapped: false,
-                        root: Root.Hand,
-                        activateETB: true).ConfigureAwait(false);
-
-                    // AS-IS :953-960 release effect.
-                    if (getChangeCostEffect != null)
-                    {
-                        selectPlayer.UntilCalculateFixedCostEffect.Remove(getChangeCostEffect);
-                    }
-
-                    if (getFixedCostEffect != null)
-                    {
-                        selectPlayer.UntilCalculateFixedCostEffect.Remove(getFixedCostEffect);
-                    }
-
-                    break;
-                }
-
-                case Mode.Custom:        // AS-IS :964-972.
+                case Mode.Custom:
                     if (_selectCardCoroutine != null)
                     {
                         foreach (CardSource cardSource in _targetCards)
                         {
-                            await _selectCardCoroutine(cardSource).ConfigureAwait(false);
+                            yield return StartCoroutine(_selectCardCoroutine(cardSource));
                         }
                     }
-
                     break;
             }
 
             if (handCards.Count >= 1)
             {
-                // AS-IS :977 CardObjectController.AddHandCards(handCards, false, _cardEffect) — ONE call =
-                // ONE add-hand batch over the whole handCards list.
-                await CardObjectController.AddHandCards(handCards, false, _cardEffect).ConfigureAwait(false);
-            }
-        }
-
-        if (_afterSelectCardCoroutine != null)
-        {
-            await _afterSelectCardCoroutine(_targetCards).ConfigureAwait(false);
-        }
-
-        if (_afterSelectIndexCoroutine != null)
-        {
-            await _afterSelectIndexCoroutine(_slectedInexesInList).ConfigureAwait(false);
-        }
-
-        // AS-IS :1008 gameContext.IsSecurityLooking = false — UNCONDITIONAL (outside the active() branch), so a
-        // window opened at :380 is closed on every exit path. (AS-IS reaches gameContext through the always-present
-        // GManager singleton; the mirror closes only when a context is resolvable — the same set of live calls.)
-        if (ResolveContext() is EngineContext closingContext)
-        {
-            new GameContext(closingContext).IsSecurityLooking = false;
-        }
-    }
-
-    /// <summary>The player selection (AS-IS SelectCardPanel semantics — the verified W3 formula,
-    /// SelectCardPanel.cs:451/527/568): batch ChoiceRequest when no path-dependent per-pick filter (with
-    /// <c>canEndSelectCondition</c> as the SelectionValidator), incremental one-pick loop when
-    /// <c>canTargetCondition_ByPreSelecetedList</c> is present. Candidates include the whole pool with the
-    /// unselectable cards flagged (the AS-IS panel shows them greyed). Count rule: CanEndSelection =
-    /// (cond ∧) (canEndNotMax ∨ count==max) — so the minimum is 0 when canNoSelect()/canEndNotMax, else the
-    /// max, CLAMPED to the selectable count (the established substrate clamp — AS-IS callers pre-clamp with
-    /// Math.Min at every real call site, e.g. BT1_011). Returns the picks plus their indices in the pool
-    /// list (AS-IS SelectedIndex; panel ordering differs — RD-W4-7).</summary>
-    private async Task<(List<CardSource> Selected, List<int> SelectedIndices)> RunAsIsSelectionAsync(
-        EngineContext context, List<CardSource> rootCards)
-    {
-        var selected = new List<CardSource>();
-        var selectedIndices = new List<int>();
-        bool canNoSelect = _canNoSelect_Func?.Invoke() ?? false;
-        int selectableCount = rootCards.Count(CanSelectCardAsIs);
-        int maxCount = Math.Min(_maxCount, selectableCount);
-        string message = BuildAsIsMessage();
-        ChoiceZone zone = MapRoot(_root);
-
-        if (maxCount < 1)
-        {
-            return (selected, selectedIndices);
-        }
-
-        if (_canTargetCondition_ByPreSelecetedList == null)
-        {
-            ChoiceCandidate[] candidates = rootCards
-                .Select(cardSource => new ChoiceCandidate(
-                    cardSource.InstanceId, cardSource.InstanceId.Value, zone,
-                    IsSelectable: CanSelectCardAsIs(cardSource), ownerId: cardSource.Owner))
-                .ToArray();
-            int minCount = (canNoSelect || _canEndNotMax) ? 0 : maxCount;
-            var request = new ChoiceRequest(
-                ChoiceType.Card, _selectPlayer, message, minCount, maxCount, canSkip: canNoSelect,
-                zone, candidates);
-            if (_canEndSelectConditionCard != null)
-            {
-                request = request with
-                {
-                    SelectionValidator = ids => _canEndSelectConditionCard(
-                        ids.Select(id => rootCards.First(cardSource => cardSource.InstanceId == id)).ToList()),
-                };
+                yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCards(handCards, false, _cardEffect));
             }
 
-            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
-            if (!result.IsSkipped)
+            #region ログ追加
+
+            if (!_notAddLog)
             {
-                foreach (HeadlessEntityId id in result.SelectedIds)
+                if (_isShowOpponent || _selectPlayer.isYou)
                 {
-                    int index = rootCards.FindIndex(cardSource => cardSource.InstanceId == id);
-                    if (index >= 0 && !selectedIndices.Contains(index))
+                    if (_targetCards.Count >= 1)
                     {
-                        selected.Add(rootCards[index]);
-                        selectedIndices.Add(index);
+                        log += "\n";
+
+                        PlayLog.OnAddLog?.Invoke(log);
                     }
                 }
             }
 
-            return (selected, selectedIndices);
+            #endregion
         }
 
-        // Incremental path — the AS-IS panel's per-pick byPreSelectedList re-filter (SelectCardPanel.cs:451/527).
-        // The un-pick-at-max corner is unreachable for prefix-monotone AS-IS conditions — RD-W4-2 (== RD-W3-1).
-        while (selected.Count < maxCount)
+        if (_afterSelectCardCoroutine != null)
         {
-            List<CardSource> legal = rootCards
-                .Where(cardSource => !selected.Contains(cardSource)
-                    && CanSelectCardAsIs(cardSource)
-                    && _canTargetCondition_ByPreSelecetedList(selected, cardSource))
-                .ToList();
-            if (legal.Count == 0)
-            {
-                break;
-            }
-
-            bool canEndNow = (canNoSelect && selected.Count == 0)
-                || (_canEndNotMax && (_canEndSelectConditionCard == null || _canEndSelectConditionCard(selected)));
-            var request = new ChoiceRequest(
-                ChoiceType.Card, _selectPlayer, message,
-                minCount: canEndNow ? 0 : 1, maxCount: 1, canSkip: canEndNow, zone,
-                legal.Select(cardSource => new ChoiceCandidate(
-                    cardSource.InstanceId, cardSource.InstanceId.Value, zone,
-                    IsSelectable: true, ownerId: cardSource.Owner)).ToArray());
-            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request).ConfigureAwait(false);
-            if (result.IsSkipped || result.SelectedIds.Count == 0)
-            {
-                break;
-            }
-
-            int index = rootCards.FindIndex(cardSource => cardSource.InstanceId == result.SelectedIds[0]);
-            if (index < 0)
-            {
-                break;
-            }
-
-            selected.Add(rootCards[index]);
-            selectedIndices.Add(index);
+            yield return StartCoroutine(_afterSelectCardCoroutine(_targetCards));
         }
 
-        return (selected, selectedIndices);
+        if (_afterSelectIndexCoroutine != null)
+        {
+            yield return StartCoroutine(_afterSelectIndexCoroutine(_slectedInexesInList));
+        }
+
+        GManager.instance.turnStateMachine.gameContext.IsSecurityLooking = false;
+
+        GManager.instance.turnStateMachine.IsSelecting = oldIsSelecting;
     }
 
-    /// <summary>The AS-IS player-facing prompt: the panel message when given (AS-IS OpenSelectCardPanel
-    /// <c>Message: _message</c>), else the custom command text (:398-401), else the per-Mode default
-    /// (:404-427, verbatim strings).</summary>
-    private string BuildAsIsMessage()
+    [PunRPC]
+    public void SetTargetCardAndIndicies(int playerID, int[] CardIDs, int[] Indicies)
     {
-        if (!string.IsNullOrEmpty(_message) && _message != "Select card(s).")
-        {
-            return _message;
-        }
+        Player player = GManager.instance.GetPlayerFromID(playerID);
 
-        if (!string.IsNullOrEmpty(_customMessage))
-        {
-            return _customMessage!;
-        }
-
-        return _mode switch
-        {
-            Mode.AddHand => "Select cards to add to your hand.",
-            Mode.Discard => "Select cards to trash.",
-            Mode.PlayForFree => "Select cards to play without paying the cost.",
-            Mode.PlayForCost => "Select cards to play.",
-            Mode.Custom => "Select cards.",
-            _ => "Select cards.",
-        };
-    }
-
-    /// <summary>AS-IS <c>cardSource.SetFace()</c> — turn the card face up (clear the shared
-    /// <c>isFlipped</c> instance flag; the established metadata round-trip pattern).</summary>
-    private static void SetFaceMirror(EngineContext context, CardSource cardSource)
-    {
-        if (!context.CardInstanceRepository.TryGetInstance(cardSource.InstanceId, out CardInstanceRecord? record) || record is null)
+        if (!player)
         {
             return;
         }
 
-        if (!record.Metadata.ContainsKey("isFlipped"))
-        {
-            return;
-        }
-
-        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
-        metadata.Remove("isFlipped");
-        context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+        player.QueuePlayerSelection(new CardSelection(CardIDs));
+        player.QueuePlayerSelection(new CardSelection(Indicies));
     }
-
-    private EngineContext? ResolveContext() => _context ?? _cardEffect?.EffectSourceCard?.Context;
-
-    private EngineContext RequireContext() =>
-        ResolveContext()
-        ?? throw new InvalidOperationException(
-            "SelectCardEffect has no EngineContext — obtain the instance via " +
-            "GManager.instance.GetComponent<SelectCardEffect>() (bridge W4).");
 }

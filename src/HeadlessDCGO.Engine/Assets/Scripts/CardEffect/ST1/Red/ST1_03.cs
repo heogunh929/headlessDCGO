@@ -1,15 +1,12 @@
-// Source: Assets/Scripts/CardEffect/ST1/Red/ST1_03.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect (Phase 1, ST1 wave 1).
-//
-// 1:1 mirror of the original ST1_03: inherited [Your Turn] DP +1000.
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST1.Red;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class ST1_03 : CEntity_Effect
+public class ST1_03 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {

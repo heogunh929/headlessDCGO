@@ -1,24 +1,11 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_079.cs
-// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the original
-// BT1_079 (BT1/Green).
-//   [When Attacking] Suspend 1 of your opponent's Digimon without <Blocker>.
-// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
-// functions, SetIsInheritedEffect(true) (AS-IS BT1_079.cs:19). Substrate translations only: IEnumerator->Task,
-// StartCoroutine->await; the AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` is expressed verbatim
-// on the canonical Func<Permanent,bool> shape (id-flip 3b); AS-IS `permanent.HasBlocker` -> (R1-c) the rehoused
-// getter, negated for "without <Blocker>"; `GManager.instance.GetComponent<SelectPermanentEffect>()` -> bridge W4.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
-
-using System;
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class BT1_079 : CEntity_Effect
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT1_079 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -59,7 +46,7 @@ public sealed class BT1_079 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
                     {
                         return true;
                     }
@@ -68,9 +55,9 @@ public sealed class BT1_079 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                 SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -87,7 +74,7 @@ public sealed class BT1_079 : CEntity_Effect
                     mode: SelectPermanentEffect.Mode.Tap,
                     cardEffect: activateClass);
 
-                await selectPermanentEffect.Activate();
+                yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
             }
         }
 

@@ -1,26 +1,11 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_053.cs
-// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS
-// BT1_053 (BT1/Yellow) — inline `new ActivateClass()` + local functions.
-//   [Your Turn] When you play a level 3 yellow Digimon, if this Digimon is suspended, trigger <Draw 1> (Draw 1
-//   card from your deck).
-// AS-IS: ActivateClass on OnEnterFieldAnyone. PermanentCondition = IsPermanentExistsOnOwnerBattleAreaDigimon &&
-//   TopCard.CardColors.Contains(Yellow) && TopCard.HasLevel && TopCard.Level == 3. CanUseCondition =
-//   IsExistOnBattleArea && IsOwnerTurn && CanTriggerOnPermanentPlay(hashtable, PermanentCondition).
-//   CanActivateCondition = IsExistOnBattleArea && card.PermanentOfThisCard().IsSuspended &&
-//   card.Owner.LibraryCards.Count >= 1. ORDER=-1, ISOPTIONAL=false. ActivateCoroutine =
-//   new DrawClass(card.Owner, 1, activateClass).Draw().
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `TopCard.CardColors.Contains(
-//   CardColor.Yellow)` -> `TopCard.HasCardColor("Yellow")` (mirror string colors); `card.PermanentOfThisCard()`
-//   -> `ICardEffect.ResolvePermanentOfThisCard(card)`; `card.Owner.LibraryCards` -> `new Player(...).LibraryCards`.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-
-public sealed class BT1_053 : CEntity_Effect
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT1_053 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -42,7 +27,7 @@ public sealed class BT1_053 : CEntity_Effect
             {
                 if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))
                 {
-                    if (permanent.TopCard.HasCardColor("Yellow"))
+                    if (permanent.TopCard.CardColors.Contains(CardColor.Yellow))
                     {
                         if (permanent.TopCard.HasLevel)
                         {
@@ -66,6 +51,7 @@ public sealed class BT1_053 : CEntity_Effect
                         if (CardEffectCommons.CanTriggerOnPermanentPlay(hashtable, PermanentCondition))
                         {
                             return true;
+
                         }
                     }
                 }
@@ -77,9 +63,9 @@ public sealed class BT1_053 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (ICardEffect.ResolvePermanentOfThisCard(card).IsSuspended)
+                    if (card.PermanentOfThisCard().IsSuspended)
                     {
-                        if (new Player(card.Context, card.Owner).LibraryCards.Count >= 1)
+                        if (card.Owner.LibraryCards.Count >= 1)
                         {
                             return true;
                         }
@@ -89,9 +75,9 @@ public sealed class BT1_053 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await new DrawClass(card.Context, card.Owner, 1, activateClass).Draw();
+                yield return ContinuousController.instance.StartCoroutine(new DrawClass(card.Owner, 1, activateClass).Draw());
             }
         }
 

@@ -281,6 +281,28 @@
 | O-161 | PermanentEffectFactory.cs | AS-IS에 없는 `ArgumentNullException.ThrowIfNull` 4곳 추가(:24/54/87/123)하고 `DeleteSelfEffect`/`AddDetailClass`엔 미추가 — 같은 파일 안에서도 불일치. AS-IS는 클로저 실행 시점의 지연 `NullReferenceException` | 경로없음 | 리뷰어 |
 | O-162 | PermanentEffectFactory.cs:120 | `CollisionEffect` 반환형 `CollisionClass` → `ICardEffect`로 확대(kind-class 전용 멤버 접근 불가) | 경로없음 | 리뷰어 |
 
+### B-12. 전수 diff census (2026-07-29, 기계 측정)
+
+출처: `fulltree_diff_census.md`. 주석 삭제(`tools/CommentStripper`)가 노출시킨 것.
+
+| ID | 영역 | 결함 | 도달성 | 검증 |
+|---|---|---|---|---|
+| O-195 | CutInProcess | **파일 전체 미포팅** — AS-IS 110줄인데 TO-BE엔 코드가 전무하고 전부 TO-BE 작성 STOP 사유 주석뿐이었음. 주석 삭제 후 0바이트. **주석이 미포팅을 은폐하고 있었음**(W-07 계통의 새 실증) | 미확인 | 직접 |
+| O-196 | SelectCardPanel | **파일 전체 미포팅** — AS-IS 688줄, 동일 패턴으로 0바이트. 위와 같음 | 미확인 | 직접 |
+| O-197 | 전역(650파일) | **네임스페이스 체계가 AS-IS와 전면 불일치 — 단일 뿌리, diff 10,805행(11%)** [실측]. AS-IS는 650파일 중 **128개만** namespace를 갖고(`DCGO.CardEffects.<세트>`) 나머지 522개는 전역 namespace다. TO-BE는 **648개**가 namespace를 갖고, 이름을 **디렉터리 경로에서 기계 생성**한다(`HeadlessDCGO.Engine.Assets.Scripts.<경로>`). ① AS-IS에 namespace가 없는데 TO-BE엔 있는 파일 **520개** ② 나머지도 이름이 다름(`DCGO.CardEffects.BT25` vs `...Assets.Scripts.CardEffect.BT25.*`). 파생: TO-BE 전용 `using` 다수가 이 체계 때문에만 존재. **수리 시 전역 namespace 이동에 따른 substrate/BCL 이름 충돌 검토 필요** | **구조** | 직접 |
+
+| O-198 | ICardEffect / 카드층 61파일 | **`EffectTiming.WhenDigivolving` 발명 — AS-IS enum에 없는 멤버, 두 방언 공존** [실측]. AS-IS `EffectTiming` enum은 **61멤버**이고 TO-BE는 **62멤버**, 차이는 이것 하나뿐(누락 멤버 0). AS-IS는 `EffectTiming.WhenDigivolving`을 **0회** 쓰고, "디지볼브 중" 판정을 런타임 술어 `CanTriggerWhenDigivolving`(**1,326회**) + `ICardEffect.IsWhenDigivolving`(:772)로만 한다. TO-BE는 타이밍 enum에 멤버를 신설해 **트리거 디스패치 자체를 분리**했다(`EffectTiming.WhenDigivolving` 66회 / 61파일). 게다가 AS-IS 방식(`CanTriggerWhenDigivolving` 83회 / 77파일)이 함께 살아 있고 **55파일이 두 방식을 동시에 사용** = 두 방언 공존. [[asis-uniform-activateclass]]에 기록된 "AS-IS의 uniform 메커니즘을 (액션×타이밍)별로 파편화" 병리의 실례 | **구조**(카드층 61파일 파급) | 직접 |
+
+| O-199 | AutoProcessing / Player | **턴종료 메모리 리셋이 좌석 분기를 잃음 — 뿌리는 `Player.PlayerID` 부재** [실측]. AS-IS `AutoProcessing.cs:683-690`은 Main 페이즈 패스 종료 시 `TurnPlayer.PlayerID == 0 ? Memory = 3 : Memory = -3`으로 **좌석에 따라 부호를 갈라** 리셋한다(메모리는 부호로 소유 좌석을 표현). TO-BE `AutoProcessing.cs:1222`는 분기 없이 **항상 `Set(-3)`** — 한쪽 좌석의 리셋이 반대 부호가 된다. 원인: AS-IS `Player.cs:738 public int PlayerID { get; set; }`가 **TO-BE `Player.cs`에 아예 없다**(TO-BE 트리 전체 `PlayerID` 출현 1회, `PlayerID == 0` **0회**). [[substrate-repair-tracks]] 미결③이 예고한 "PlayerID를 int 좌석 인덱스로 복원" 선행조건의 실제 발현 | **LIVE** | 직접 |
+| O-200 | AutoProcessing / TurnStateMachine | **AS-IS 메서드 2종이 트리 어디에도 미포팅** [실측]. `ShrinkSecurityDigimonDisplay()` AS-IS 10회 / TO-BE **0회**(호출부 2곳 모두 소실), `TurnStateMachine.SetMainPhase()` AS-IS 15회 / TO-BE **1회**(이 파일 호출부 소실). 부수: TO-BE `AutoProcessing.cs:1251-1253`에 본문이 빈 `if (TurnPhase == Main) { }` 잔해가 남아 있음 | **구조** | 직접 |
+
+전수 diff가 함께 드러낸 것(개별 ID 미부여, census 문서 참조):
+- **AS-IS에만 존재하는 파일 88개** = 미포팅 파일 (`fulltree_asis_only.list`)
+- **TO-BE에만 존재하는 파일 95개** = 발명/오배치 (`fulltree_tobe_only.list`)
+- **완전 동일한 페어 0개** (4,266 페어 전체)
+- 실질 모집단 650파일의 차이 98,094행(자명한 줄 제외) 중 **61%가 기존 substrate 15뿌리로 설명되지 않음**.
+  잔여는 상위 50파일에 52% 집중 — 전부 코어(`CardController`·`CardSource`·`Permanent`·`CardEffectCommons`·`TurnStateMachine`)
+
 ---
 
 ## C. 구조적 부채 (WATCH)

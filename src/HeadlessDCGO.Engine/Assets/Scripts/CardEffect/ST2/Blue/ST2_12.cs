@@ -1,26 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/ST2/Blue/ST2_12.cs
-// TRUE AS-IS-verbatim re-port (batch: ST2 Blue). 1:1 mirror of the original ST2_12 (a Tamer).
-//   [Start of Your Turn] If your opponent has a Digimon with no digivolution cards, gain 1 memory.
-//   [Security] Play this Tamer.
-// Replaces the PREVIOUS pass's old-model `CardEffectFactory.AddMemoryTriggerEffect(...)` call (an invented
-// helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` structure. The
-// [Security] block already used the REAL AS-IS `CardEffectFactory.PlaySelfTamerSecurityEffect(card)` factory
-// call (verified against AS-IS CardEffectFactory) — kept unchanged.
-// AS-IS structure kept verbatim: inline ActivateClass, no SetIsInheritedEffect, no SetHashString; note AS-IS
-// uses `isExistOnField(card)` (the CEntity_Effect base-class helper — NOT `IsExistOnBattleArea`) inside
-// CanActivateCondition/ActivateCoroutine, distinct from the `IsExistOnBattleArea` used inside CanUseCondition.
-// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
-// AS-IS `card.Owner.CanAddMemory(activateClass)` / `card.Owner.AddMemory(1, activateClass)` -> the
-// `HeadlessPlayerId` extensions (`PlayerIdAsIsExtensions`, Player.cs) established in BT2_010.cs.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class ST2_12 : CEntity_Effect
+public class ST2_12 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -55,7 +41,7 @@ public sealed class ST2_12 : CEntity_Effect
             {
                 if (isExistOnField(card))
                 {
-                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => permanent.IsDigimon && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)))
+                    if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon && permanent.HasNoDigivolutionCards))
                     {
                         if (card.Owner.CanAddMemory(activateClass))
                         {
@@ -67,13 +53,13 @@ public sealed class ST2_12 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
                 if (isExistOnField(card))
                 {
                     if (card.Owner.CanAddMemory(activateClass))
                     {
-                        await card.Owner.AddMemory(1, activateClass);
+                        yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
                     }
                 }
             }

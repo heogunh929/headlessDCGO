@@ -1,0 +1,639 @@
+// ============================================================================
+// ⛔ DELETION-TARGET · DO-NOT-REFERENCE
+// 원장(docs/audit/filelist/merged_files_no_cards.csv): 삭제대상여부=Y · 결함여부=Y
+// 분류: substrate 오배치(other)
+// 미러 원가(재이관 대상): Script/Permanent.cs::Permanent.CanAttack / Permanent.CanAttackTargetDigimon@2090
+// 이 파일은 AS-IS 원본에 동일-경로 대응이 없는 오배치/발명 코드다.
+// 규칙 로직은 위 미러 원가로 재이관 후 이 파일은 삭제 예정.
+// 서브에이전트/포팅 작업 시: 이 파일의 심볼을 참조·모방·확장하지 말 것.
+// ============================================================================
+namespace HeadlessDCGO.Engine.Headless.Runtime;
+
+using System.Diagnostics.CodeAnalysis;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Services;
+
+public sealed class AttackPermanentAction
+{
+    private const string CanAttackKey = "canAttack";
+    private const string CannotAttackKey = "cannotAttack";
+    private const string CanSuspendKey = "canSuspend";
+    private const string IsSuspendedKey = "isSuspended";
+    private const string EnteredThisTurnKey = "enteredThisTurn";
+    private const string HasRushKey = "hasRush";
+    private const string CanAttackUnsuspendedDigimonKey = "canAttackUnsuspendedDigimon";
+
+    public IReadOnlyList<LegalAction> GetLegalActions(
+        EngineContext context,
+        HeadlessPlayerId playerId)
+    {
+        return GetAttackDeclarations(context, playerId)
+            .SelectMany(declaration => declaration.TargetCandidates)
+            .Select(candidate => candidate.ToLegalAction())
+            .OrderBy(action => action.Id.Value, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    public IReadOnlyList<AttackDeclaration> GetAttackDeclarations(
+        EngineContext context,
+        HeadlessPlayerId playerId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (playerId.IsEmpty || context.ZoneMover is not IZoneStateReader zoneReader)
+        {
+            return Array.Empty<AttackDeclaration>();
+        }
+
+        HeadlessPlayerId? defendingPlayerId = context.TurnController.Current.NonTurnPlayerId;
+        if (!defendingPlayerId.HasValue)
+        {
+            return Array.Empty<AttackDeclaration>();
+        }
+
+        List<AttackDeclaration> declarations = new();
+        foreach (HeadlessEntityId attackerId in zoneReader.GetCards(playerId, ChoiceZone.BattleArea))
+        {
+            var candidates = new List<AttackTargetCandidate>();
+            AttackPermanentValidation directValidation = Validate(
+                context,
+                playerId,
+                attackerId,
+                defendingPlayerId.Value,
+                targetId: null,
+                isDirectAttack: true);
+
+            if (directValidation.IsLegal)
+            {
+                candidates.Add(AttackTargetCandidate.DirectPlayer(
+                    playerId,
+                    attackerId,
+                    directValidation.AttackerDefinitionId!.Value,
+                    defendingPlayerId.Value));
+            }
+
+            foreach (HeadlessEntityId targetId in zoneReader.GetCards(defendingPlayerId.Value, ChoiceZone.BattleArea))
+            {
+                AttackPermanentValidation validation = Validate(
+                    context,
+                    playerId,
+                    attackerId,
+                    defendingPlayerId.Value,
+                    targetId,
+                    isDirectAttack: false);
+                if (!validation.IsLegal)
+                {
+                    continue;
+                }
+
+                candidates.Add(AttackTargetCandidate.Digimon(
+                    playerId,
+                    attackerId,
+                    validation.AttackerDefinitionId!.Value,
+                    defendingPlayerId.Value,
+                    targetId,
+                    validation.TargetDefinitionId!.Value));
+            }
+
+            if (candidates.Count == 0)
+            {
+                continue;
+            }
+
+            declarations.Add(new AttackDeclaration(
+                playerId,
+                attackerId,
+                candidates[0].AttackerDefinitionId,
+                candidates
+                    .OrderBy(candidate => candidate.Kind)
+                    .ThenBy(candidate => candidate.TargetId?.Value ?? string.Empty, StringComparer.Ordinal)
+                    .ToArray()));
+        }
+
+        return declarations
+            .OrderBy(declaration => declaration.AttackerId.Value, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    public ActionProcessResult Process(
+        LegalAction action,
+        EngineContext context)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (!AttackActionPayload.TryRead(action, out AttackActionPayload? payload, out string? error))
+        {
+            return ActionProcessResult.Failure(error ?? "Invalid DeclareAttack payload.", BaseMetadata(action));
+        }
+
+        AttackPermanentValidation validation = Validate(
+            context,
+            action.PlayerId,
+            payload.AttackerId,
+            payload.DefendingPlayerId,
+            payload.TargetId,
+            payload.IsDirectAttack);
+        if (!validation.IsLegal)
+        {
+            return ActionProcessResult.Illegal(action, validation.Reason, Metadata(action, payload, validation, context.AttackController.Current));
+        }
+
+        // (RD-9 / MIG1) declare via the shared chokepoint — the AS-IS Attack() sequence (suspend, snapshot,
+        // OnAttack + OnAllyAttack windows, gates) lives in the mirror AttackProcess; the attacker suspend happens
+        // there (a player attack never passes withoutTap).
+        HeadlessAttackState attack = AttackDeclarationCommons.Declare(
+            context,
+            action.PlayerId,
+            payload.AttackerId,
+            payload.DefendingPlayerId,
+            payload.TargetId,
+            payload.IsDirectAttack);
+
+        // (B-2 / P1-5) The attack-declaration proxy for OnDeclaration effects has been REMOVED. It was a stopgap
+        // (design item RD9-90) that fired a permanent's [Main] declared skill at ATTACK because no main-phase
+        // "[Main] skill declaration" action existed; AS-IS attack (OnUseAttack) never emits OnDeclaration
+        // (TurnStateMachine.cs:3061 vs the attack path). That action now exists — MainSkillActivateAction resolves
+        // OnDeclaration directly in the Main phase — so emitting it here as well would DOUBLE-fire a [Main] skill
+        // (e.g. ST4_13's Digi-Burst usable at both attack and declaration). OnDeclaration stays a subject-scoped
+        // bridge timing (ActivatedBridgeTimings) so a direct emit still resolves; only this attack-time emit is gone.
+
+        Dictionary<string, object?> metadata = Metadata(action, payload, validation, attack);
+        metadata["attackIntent"] = "AttackPermanentAction";
+        metadata["attackerSuspended"] = true;
+        return ActionProcessResult.Success("Attack declared.", metadata);
+    }
+
+    private static AttackPermanentValidation Validate(
+        EngineContext context,
+        HeadlessPlayerId playerId,
+        HeadlessEntityId attackerId,
+        HeadlessPlayerId defendingPlayerId,
+        HeadlessEntityId? targetId,
+        bool isDirectAttack)
+    {
+        if (playerId.IsEmpty)
+        {
+            return AttackPermanentValidation.Illegal("Player id must not be empty.");
+        }
+
+        if (context.AttackController.Current.IsPending)
+        {
+            return AttackPermanentValidation.Illegal("Another attack is already pending.");
+        }
+
+        HeadlessTurnState turn = context.TurnController.Current;
+        if (turn.TurnPlayerId is null || turn.TurnPlayerId.Value != playerId)
+        {
+            return AttackPermanentValidation.Illegal("Only the current turn player can declare an attack.");
+        }
+
+        if (!turn.NonTurnPlayerId.HasValue || defendingPlayerId != turn.NonTurnPlayerId.Value)
+        {
+            return AttackPermanentValidation.Illegal("Defending player must be the current non-turn player.");
+        }
+
+        if (context.ZoneMover is not IZoneStateReader zoneReader)
+        {
+            return AttackPermanentValidation.Illegal("Zone mover does not expose readable zone state.");
+        }
+
+        if (!TryReadInstanceAndCard(context, attackerId, out CardInstanceRecord? attacker, out CardRecord? attackerCard, out string? attackerError))
+        {
+            return AttackPermanentValidation.Illegal(attackerError ?? $"Attacker '{attackerId}' was not found.");
+        }
+
+        if (attacker.OwnerId != playerId)
+        {
+            return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' is not owned by player '{playerId}'.");
+        }
+
+        if (!zoneReader.GetCards(playerId, ChoiceZone.BattleArea).Contains(attackerId))
+        {
+            return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' is not in the battle area.");
+        }
+
+        // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
+        if (!IsDigimon(attackerCard) && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).IsDigimon)
+        {
+            return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' is not a Digimon.");
+        }
+
+        // Attacking is a Main-phase action; no other phase permits a manual attack declaration.
+        //
+        // (C-Atk RD-CATK-BLITZ re-judgment, 2026-07-15) The former "<Blitz> may attack during the memory-pass
+        // window" exception here was an INVENTED phase gate — AS-IS Blitz is NOT a phase permission. AS-IS Blitz
+        // is an [On Play] / [When Digivolving] ActivateClass (BlitzSelfEffect) collected by the
+        // OnEnterFieldAnyone / OnPlay window (GetSkillInfos → MultipleSkills); on accept its BlitzProcess opens an
+        // IMMEDIATE effect-driven attack. The wave2 STOP claimed the nested EffectDrivenAttack.RequestChoice was
+        // rejected by the ChoiceController IsPending guard inside the window; the re-judgment DISPROVED that — the
+        // probe drove the REAL BlitzSelfEffect through the OnEnterFieldAnyone window end-to-end (optional prompt
+        // fires, then the nested effect-attack OPENS and resolves into a declared attack via the DEFERRED
+        // EffectDrivenAttack substrate — the SAME trailing-choice flow Vortex/Overclock use). So Blitz is now
+        // rehoused onto that window (printed BlitzSelfEffect + granted GainBlitz OnEnterFieldAnyone bucket) and
+        // this invented memory-pass firing-half is RETIRED (single-fire: window XOR gate). No card exercises
+        // either path today. (Latent, general to the deferred effect-attack substrate, NOT Blitz-specific:
+        // multiple effect-attacks co-resident in ONE window can collide with a later in-window ChooseAsync —
+        // design item RD-CATK-EATTACK-MULTI; unreachable for Blitz, whose window collects one per single-card play.)
+        // (R4 S2) A manual attack is permitted only during the interactive main-play step (former Main). The
+        // memory-pass end-of-main step (former MemoryPass = (Main, AwaitingMemoryPassEnd)) also has Phase == Main,
+        // so gate on IsMainPlayPhase, not raw Phase — preserving the former "no memory-pass declarations" behaviour.
+        if (!turn.IsMainPlayPhase)
+        {
+            return AttackPermanentValidation.Illegal(
+                $"Attacker '{attackerId}' can only attack during the main phase.");
+        }
+
+        if (ReadBool(attacker.Metadata, IsSuspendedKey))
+        {
+            return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' is suspended.");
+        }
+
+        if (!ReadBool(attacker.Metadata, CanSuspendKey, defaultValue: true)
+            // (EXEMPLAR-T1) + the LIVE mirror scan — AS-IS attack declaration suspends the attacker, and the
+            // mirror Permanent.CanAttack gates it on Permanent.CanSuspend (Permanent.cs:3096 → :1736, the
+            // ICanNotSuspendEffect field/player scan, 1:1 of AS-IS Permanent.cs:3698-3742). The metadata flag
+            // alone missed a kind-class "can't suspend" grant (e.g. BT17_026 [When Digivolving]); the metadata
+            // key stays as the fixture/test seam.
+            || !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).CanSuspend)
+        {
+            return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot suspend.");
+        }
+
+        if (!ReadBool(attacker.Metadata, CanAttackKey, defaultValue: true) ||
+            ReadBool(attacker.Metadata, CannotAttackKey) ||
+            ReadBool(attackerCard.Metadata, CannotAttackKey))
+        {
+            return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot attack.");
+        }
+
+        // (X-04 / D-A6) Continuous effects from other cards can forbid this attacker from attacking —
+        // either globally or against a SPECIFIC defender. Passing targetId (null for a direct attack)
+        // makes the check target-aware: a restriction scoped to a defender only fires for that target,
+        // mirroring the original ICanNotAttackTargetDefendingPermanentEffect(this, Defender).
+        CannotRestrictionResult attackRestriction = ContinuousRestrictionGate.EvaluateAttack(context, attackerId, targetId);
+        if (attackRestriction.IsRestricted)
+        {
+            return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot attack ({attackRestriction.Reason}).");
+        }
+
+        // (PRIM-W4 CanNotBeAttackedSelfStaticEffect) the defending permanent may be untargetable by attacks.
+        if (targetId is { } defenderId)
+        {
+            CannotRestrictionResult beAttacked = ContinuousRestrictionGate.EvaluateBeAttacked(context, defenderId, attackerId);
+            if (beAttacked.IsRestricted)
+            {
+                return AttackPermanentValidation.Illegal($"Target '{defenderId}' cannot be attacked ({beAttacked.Reason}).");
+            }
+        }
+
+        if (ReadBool(attacker.Metadata, EnteredThisTurnKey)
+            && !ReadBool(attacker.Metadata, HasRushKey) && !ReadBool(attackerCard.Metadata, HasRushKey)
+            && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).HasRush)
+        {
+            return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' entered this turn and has no rush.");
+        }
+
+        if (!targetId.HasValue)
+        {
+            if (!isDirectAttack)
+            {
+                return AttackPermanentValidation.Illegal("Targetless attack must be marked as direct.");
+            }
+
+            // (structure-1:1) AS-IS expresses "cannot attack the player" via the SAME ICanNotAttackTargetDefendingPermanent
+            // scan evaluated with Defender==null (Permanent.CanAttackTargetDigimon(null)) — already run above as
+            // EvaluateAttack(attackerId, targetId:null). There is no separate can/cannot-attack-player flag layer in AS-IS,
+            // so the direct attack is legal here iff that unified restriction scan permitted it.
+            return AttackPermanentValidation.Legal(attacker.DefinitionId, null);
+        }
+
+        if (!TryReadInstanceAndCard(context, targetId.Value, out CardInstanceRecord? target, out CardRecord? targetCard, out string? targetError))
+        {
+            return AttackPermanentValidation.Illegal(targetError ?? $"Attack target '{targetId}' was not found.");
+        }
+
+        if (target.OwnerId != defendingPlayerId)
+        {
+            return AttackPermanentValidation.Illegal($"Attack target '{targetId}' is not owned by defending player '{defendingPlayerId}'.");
+        }
+
+        if (!zoneReader.GetCards(defendingPlayerId, ChoiceZone.BattleArea).Contains(targetId.Value))
+        {
+            return AttackPermanentValidation.Illegal($"Attack target '{targetId}' is not in the defending battle area.");
+        }
+
+        // (K4) a Tamer "also treated as a Digimon" is attackable (AS-IS Permanent.IsDigimon).
+        if (!IsDigimon(targetCard) && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, targetId.Value).IsDigimon)
+        {
+            return AttackPermanentValidation.Illegal($"Attack target '{targetId}' is not a Digimon.");
+        }
+
+        if (!ReadBool(target.Metadata, IsSuspendedKey) &&
+            !ReadBool(attacker.Metadata, CanAttackUnsuspendedDigimonKey) &&
+            !ReadBool(attackerCard.Metadata, CanAttackUnsuspendedDigimonKey) &&
+            // (S5) Execute: "your opponent's unsuspended Digimon can also be attacked with this effect" — granted
+            // as the live Execute keyword (CanAttackUnsuspendedDigimon metadata is only set by the grant mutation).
+            !ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Execute))
+        {
+            return AttackPermanentValidation.Illegal($"Attack target '{targetId}' is not suspended.");
+        }
+
+        return AttackPermanentValidation.Legal(attacker.DefinitionId, target.DefinitionId);
+    }
+
+    private static bool TryReadInstanceAndCard(
+        EngineContext context,
+        HeadlessEntityId instanceId,
+        [NotNullWhen(true)] out CardInstanceRecord? instance,
+        [NotNullWhen(true)] out CardRecord? card,
+        out string? error)
+    {
+        card = null;
+        if (!context.CardInstanceRepository.TryGetInstance(instanceId, out instance) || instance is null)
+        {
+            error = $"Card instance '{instanceId}' was not found.";
+            return false;
+        }
+
+        if (!context.CardRepository.TryGetCard(instance.DefinitionId, out card) || card is null)
+        {
+            error = $"Card definition '{instance.DefinitionId}' was not found.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
+    private static bool IsDigimon(CardRecord card)
+    {
+        return card.IsCardType("Digimon");
+    }
+
+    private static bool ReadBool(
+        IReadOnlyDictionary<string, object?> metadata,
+        string key,
+        bool defaultValue = false)
+    {
+        if (!metadata.TryGetValue(key, out object? rawValue) || rawValue is null)
+        {
+            return defaultValue;
+        }
+
+        return rawValue switch
+        {
+            bool value => value,
+            string value => bool.TryParse(value, out bool parsed) ? parsed : defaultValue,
+            _ => defaultValue
+        };
+    }
+
+    private static Dictionary<string, object?> Metadata(
+        LegalAction action,
+        AttackActionPayload payload,
+        AttackPermanentValidation validation,
+        HeadlessAttackState attack)
+    {
+        Dictionary<string, object?> metadata = BaseMetadata(action);
+        metadata[HeadlessActionParameterKeys.AttackerId] = payload.AttackerId.Value;
+        metadata[HeadlessActionParameterKeys.DefendingPlayerId] = payload.DefendingPlayerId.Value;
+        metadata[HeadlessActionParameterKeys.AttackTargetId] = payload.TargetId?.Value;
+        metadata[HeadlessActionParameterKeys.IsDirectAttack] = payload.IsDirectAttack;
+        metadata["attackerDefinitionId"] = validation.AttackerDefinitionId?.Value;
+        metadata["targetDefinitionId"] = validation.TargetDefinitionId?.Value;
+        AddAttackState(metadata, attack);
+        return metadata;
+    }
+
+    private static Dictionary<string, object?> BaseMetadata(LegalAction action)
+    {
+        return new Dictionary<string, object?>
+        {
+            [HeadlessActionParameterKeys.ActionId] = action.Id.Value,
+            [HeadlessActionParameterKeys.PlayerId] = action.PlayerId.Value,
+            [HeadlessActionParameterKeys.ActionType] = action.ActionType
+        };
+    }
+
+    private static void AddAttackState(
+        Dictionary<string, object?> metadata,
+        HeadlessAttackState state)
+    {
+        metadata[HeadlessActionParameterKeys.AttackCount] = state.AttackCount;
+        metadata[HeadlessActionParameterKeys.BlockerId] = state.BlockerId?.Value;
+        metadata[HeadlessActionParameterKeys.AttackBlocked] = state.IsBlocked;
+        metadata[HeadlessActionParameterKeys.AttackPending] = state.IsPending;
+        metadata[HeadlessActionParameterKeys.AttackResolved] = state.IsResolved;
+    }
+}
+
+public sealed record AttackPermanentValidation(
+    bool IsLegal,
+    string Reason,
+    HeadlessEntityId? AttackerDefinitionId,
+    HeadlessEntityId? TargetDefinitionId)
+{
+    public static AttackPermanentValidation Legal(
+        HeadlessEntityId attackerDefinitionId,
+        HeadlessEntityId? targetDefinitionId)
+    {
+        return new AttackPermanentValidation(true, string.Empty, attackerDefinitionId, targetDefinitionId);
+    }
+
+    public static AttackPermanentValidation Illegal(
+        string reason,
+        HeadlessEntityId? attackerDefinitionId = null,
+        HeadlessEntityId? targetDefinitionId = null)
+    {
+        return new AttackPermanentValidation(false, reason ?? string.Empty, attackerDefinitionId, targetDefinitionId);
+    }
+}
+
+public sealed record AttackDeclaration
+{
+    public AttackDeclaration(
+        HeadlessPlayerId playerId,
+        HeadlessEntityId attackerId,
+        HeadlessEntityId attackerDefinitionId,
+        IReadOnlyList<AttackTargetCandidate> targetCandidates)
+    {
+        if (playerId.IsEmpty)
+        {
+            throw new ArgumentException("Attack declaration player id must not be empty.", nameof(playerId));
+        }
+
+        if (attackerId.IsEmpty)
+        {
+            throw new ArgumentException("Attack declaration attacker id must not be empty.", nameof(attackerId));
+        }
+
+        if (attackerDefinitionId.IsEmpty)
+        {
+            throw new ArgumentException("Attack declaration attacker definition id must not be empty.", nameof(attackerDefinitionId));
+        }
+
+        ArgumentNullException.ThrowIfNull(targetCandidates);
+        AttackTargetCandidate[] candidates = targetCandidates.ToArray();
+        if (candidates.Length == 0)
+        {
+            throw new ArgumentException("Attack declaration requires at least one target candidate.", nameof(targetCandidates));
+        }
+
+        if (candidates.Any(candidate => candidate.PlayerId != playerId || candidate.AttackerId != attackerId))
+        {
+            throw new ArgumentException("Attack target candidates must match the declaration player and attacker.", nameof(targetCandidates));
+        }
+
+        PlayerId = playerId;
+        AttackerId = attackerId;
+        AttackerDefinitionId = attackerDefinitionId;
+        TargetCandidates = Array.AsReadOnly(candidates);
+    }
+
+    public HeadlessPlayerId PlayerId { get; }
+
+    public HeadlessEntityId AttackerId { get; }
+
+    public HeadlessEntityId AttackerDefinitionId { get; }
+
+    public IReadOnlyList<AttackTargetCandidate> TargetCandidates { get; }
+}
+
+public sealed record AttackTargetCandidate
+{
+    public AttackTargetCandidate(
+        AttackTargetKind kind,
+        HeadlessPlayerId playerId,
+        HeadlessEntityId attackerId,
+        HeadlessEntityId attackerDefinitionId,
+        HeadlessPlayerId defendingPlayerId,
+        HeadlessEntityId? targetId,
+        HeadlessEntityId? targetDefinitionId,
+        bool isDirectAttack)
+    {
+        if (!Enum.IsDefined(kind))
+        {
+            throw new ArgumentOutOfRangeException(nameof(kind), "Attack target kind must be a known value.");
+        }
+
+        if (playerId.IsEmpty)
+        {
+            throw new ArgumentException("Attack target candidate player id must not be empty.", nameof(playerId));
+        }
+
+        if (attackerId.IsEmpty)
+        {
+            throw new ArgumentException("Attack target candidate attacker id must not be empty.", nameof(attackerId));
+        }
+
+        if (attackerDefinitionId.IsEmpty)
+        {
+            throw new ArgumentException("Attack target candidate attacker definition id must not be empty.", nameof(attackerDefinitionId));
+        }
+
+        if (defendingPlayerId.IsEmpty)
+        {
+            throw new ArgumentException("Attack target candidate defending player id must not be empty.", nameof(defendingPlayerId));
+        }
+
+        if (targetId is { IsEmpty: true })
+        {
+            throw new ArgumentException("Attack target candidate target id must not be empty.", nameof(targetId));
+        }
+
+        if (targetDefinitionId is { IsEmpty: true })
+        {
+            throw new ArgumentException("Attack target candidate target definition id must not be empty.", nameof(targetDefinitionId));
+        }
+
+        if (kind == AttackTargetKind.Player && (targetId.HasValue || targetDefinitionId.HasValue || !isDirectAttack))
+        {
+            throw new ArgumentException("Player attack candidates must be direct and targetless.", nameof(kind));
+        }
+
+        if (kind == AttackTargetKind.Digimon && (!targetId.HasValue || !targetDefinitionId.HasValue || isDirectAttack))
+        {
+            throw new ArgumentException("Digimon attack candidates must have a target and must not be direct.", nameof(kind));
+        }
+
+        Kind = kind;
+        PlayerId = playerId;
+        AttackerId = attackerId;
+        AttackerDefinitionId = attackerDefinitionId;
+        DefendingPlayerId = defendingPlayerId;
+        TargetId = targetId;
+        TargetDefinitionId = targetDefinitionId;
+        IsDirectAttack = isDirectAttack;
+    }
+
+    public AttackTargetKind Kind { get; }
+
+    public HeadlessPlayerId PlayerId { get; }
+
+    public HeadlessEntityId AttackerId { get; }
+
+    public HeadlessEntityId AttackerDefinitionId { get; }
+
+    public HeadlessPlayerId DefendingPlayerId { get; }
+
+    public HeadlessEntityId? TargetId { get; }
+
+    public HeadlessEntityId? TargetDefinitionId { get; }
+
+    public bool IsDirectAttack { get; }
+
+    public static AttackTargetCandidate DirectPlayer(
+        HeadlessPlayerId playerId,
+        HeadlessEntityId attackerId,
+        HeadlessEntityId attackerDefinitionId,
+        HeadlessPlayerId defendingPlayerId)
+    {
+        return new AttackTargetCandidate(
+            AttackTargetKind.Player,
+            playerId,
+            attackerId,
+            attackerDefinitionId,
+            defendingPlayerId,
+            targetId: null,
+            targetDefinitionId: null,
+            isDirectAttack: true);
+    }
+
+    public static AttackTargetCandidate Digimon(
+        HeadlessPlayerId playerId,
+        HeadlessEntityId attackerId,
+        HeadlessEntityId attackerDefinitionId,
+        HeadlessPlayerId defendingPlayerId,
+        HeadlessEntityId targetId,
+        HeadlessEntityId targetDefinitionId)
+    {
+        return new AttackTargetCandidate(
+            AttackTargetKind.Digimon,
+            playerId,
+            attackerId,
+            attackerDefinitionId,
+            defendingPlayerId,
+            targetId,
+            targetDefinitionId,
+            isDirectAttack: false);
+    }
+
+    public LegalAction ToLegalAction()
+    {
+        return HeadlessActionFactory.DeclareAttack(
+            PlayerId,
+            AttackerId,
+            DefendingPlayerId,
+            TargetId,
+            IsDirectAttack);
+    }
+}
+
+public enum AttackTargetKind
+{
+    Player = 0,
+    Digimon = 1,
+}

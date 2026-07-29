@@ -1,16 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/MaterialSave.cs
-// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS MaterialSave.cs factory partial.
-// ADAPTATION: coroutine `IEnumerator ActivateCoroutine` (pure delegation) -> non-async `Task ActivateCoroutine`;
-// stripped `using UnityEngine;`. Replaces the monolith's invented MaterialSaveEffect.
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -20,7 +12,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect($"Material Save {materialSaveCount}", CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
-        activateClass.SetHashString($"MaterialSave_{card.CardNumber}");
+        activateClass.SetHashString($"MaterialSave_{card.CardID}");
 
         string EffectDiscription()
         {
@@ -29,9 +21,6 @@ public partial class CardEffectFactory
 
         bool CanSelectCardCondition(CardSource cardSource)
         {
-            // (RD-P6C2-4 RESOLVED, C-Del 3b) AS-IS `card.IsContainDigiXrosCondition(cardSource)`
-            // (CardSource.cs:3422) — now mirrored on CardSource (digiXrosCondition property +
-            // IAddDigiXrosConditionEffect scan + HasDigiXros).
             return card.IsContainDigiXrosCondition(cardSource);
         }
 
@@ -69,7 +58,7 @@ public partial class CardEffectFactory
             return CardEffectCommons.CanActivateMaterialSave(card, CanSelectCardCondition, CanSelectPermanentCondition);
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        IEnumerator ActivateCoroutine(Hashtable _hashtable)
         {
             return CardEffectCommons.MaterialSaveProcess(_hashtable, activateClass, card, CanSelectCardCondition, CanSelectPermanentCondition, materialSaveCount);
         }

@@ -1,78 +1,17 @@
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// Sonnet 트랜치 S4 카드 — P_048 (Digimon / Blue)
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// ① AS-IS 앵커: DCGO/Assets/Scripts/CardEffect/P/Blue/P_048.cs (186 lines, 2 timing 블록)
-//    * [When Digivolving]                :14-136 (OnEnterFieldAnyone, CanTriggerWhenDigivolving — 트래시
-//      비-디지에그 카드 3장을 순서 지정해 덱 밑으로 되돌려 자기+자기 태머 1체 언서스펜드)
-//    * [Your Turn][Once Per Turn]        :138-181 (OnReturnCardsToLibraryFromTrash — 트래시→덱 카드 반환
-//      시 +1메모리; 위 arm 자신의 덱-밑-복귀가 이 트리거의 발화원)
-//
-// ② 프리미티브 매핑:
-//    * P:IUnsuspendPermanents — [When Digivolving] 몸통 후반(AS-IS :114; ctor 불변, CardController.cs:1931).
-//    * T:OnReturnCardsToLibraryFromTrash — 신규 창 타이밍 소비자. 표면 실존 확인: EffectTiming 키 실존
-//      (EffectTiming.cs:114), CanTriggerWhenOwnerCardsReturnToLibraryFromTrash(Hashtable, Func<CardSource,bool>,
-//      CardSource) 실장(CanUseEffects/OnCardsReturnToLibraryFromTrash.cs:13) — 이 오버로드는 (AS-IS와 동형)
-//      "CardSources" 해시테이블 키를 읽는 GetCardSourcesFromHashtable(Hashtable) 경유(GetFromHashtable.cs:600),
-//      **존이동 자동파생(TriggerTimingMap) 경유가 아님** — witness 실측으로 확인(아래 치환 노트 참조). AS-IS
-//      AddLibraryBottomCards(:867-874)가 `isFromTrash`일 때 `StackSkillInfos(hashtable, ...)`를 명시 호출하는
-//      것과 동일하게, 이 카드 자신도 명시 호출로 창을 연다.
-//
-// ③ 배선 관례 근거: [When Digivolving] → AS-IS는 OnEnterFieldAnyone에 CanTriggerWhenDigivolving 게이트를
-//    달아 등록(:24, 단일 arm) — trigger-wiring rule 3 적용: WhenDigivolving 전용 키로 재배선(BT17_026 idiom).
-//    [Your Turn] → AS-IS 자체가 EffectTiming.OnReturnCardsToLibraryFromTrash 키를 씀(방언 변환 대상 아님).
-//
-// 치환(substrate translations only):
-//    * IEnumerator→async Task, StartCoroutine→await (BT8_092 idiom).
-//    * `card.Owner.TrashCards` → `new Player(card.Context, card.Owner).TrashCards`(§2.2).
-//    * AS-IS :99 `CardObjectController.AddLibraryBottomCards(cardSources)` — 명명 헬퍼 미이관(mirror
-//      CardObjectController에 대응 없음). 유일 공개 대체재 `CardEffectCommons.ReturnRevealedCardsToLibraryBottom`
-//      은 리빌-전용(카드 수≥2면 자체 재정렬 프롬프트를 다시 열어 SelectCardEffect가 이미 확정한 순서 위에
-//      원치 않는 2차 프롬프트를 만듦 — AS-IS엔 그런 2차 프롬프트가 없음). 대신 그 헬퍼의 내부 몸통이 쓰는
-//      바로 그 프리미티브(MatchStateMutationSink + EffectMutation(ReturnToDeckBottomKind, ...) 루프,
-//      CardEffectCommons.cs:2811-2819)를 카드-파일 스코프에서 직접 재사용 — `MatchStateMutationSink`의
-//      public ctor를 카드 파일에서 직접 구성하는 선례는 AD1_025.cs:146-150(DeckBottomBounceEffect 스테이징)에
-//      이미 실존. 이 물리 이동은 선택-순서를 그대로 보존한다(2차 프롬프트 없음).
-//      **witness 실측(RD-S4-P048-note)**: `ReturnToDeckBottomKind`(→`IZoneMover.MoveToDeckBottomAsync`)는
-//      `MoveCardToSingleZone`을 경유하며 `FromZone`을 `ChoiceZone.None`으로 하드코딩(InMemoryZoneMover.cs:414-425
-//      `MoveCardToSingleZone`) — 즉 기록되는 CardMoved 이벤트가 "출처=트래시"를 보존하지 못해
-//      TriggerTimingMap의 존-derive 경로로는 OnReturnCardsToLibraryFromTrash가 파생되지 않는다(원래 헤더의
-//      "자동 파생" 서술은 틀렸음 — 정정). 그러나 AS-IS 자체도 이 창을 존-이동 파생이 아니라 **명시
-//      StackSkillInfos 호출**로 여는 설계(AddLibraryBottomCards :867-874, `isFromTrash` 분기)이므로, 미러도
-//      동일하게 물리 이동 직전에 `GManager.instance.autoProcessing.StackSkillInfos({"CardSources":
-//      cardSources}, EffectTiming.OnReturnCardsToLibraryFromTrash)`를 명시 호출한다(AS-IS 순서: 창이
-//      물리 제거보다 먼저 열림 — IDigiBurst.DigiBurst()의 OnUseDigiburst 명시-호출과 동형 idiom).
-//    * AS-IS :101 `Effects.ShowCardEffect(...)` — UI 연출, 스트립.
-//    * `new IUnsuspendPermanents(list, activateClass).Unsuspend()` — ctor 불변(§2.5 명시 예외), `.Unsuspend()`
-//      Task 반환 그대로.
-//    * `CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition)`(AS-IS 1-인자) →
-//      mirror는 leading card 필수(§2.3): `MatchConditionPermanentCount(card, CanSelectPermanentCondition)`
-//      (Permanent landing overload, AS-IS 1:1). SelectPermanentEffect.SetUp의 canTargetCondition도 동일
-//      Permanent-형 predicate를 직접 받는다(id-어댑터 3b 이관 완료).
-//    * `card.Owner.AddMemory(1, activateClass)` — HeadlessPlayerId 확장 그대로(§2.2 예외절).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.P.Blue;
-
-using System;
 using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
 using System.Linq;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Bridge;
-using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class P_048 : CEntity_Effect
+using Photon;
+using System;
+using Photon.Pun;
+public class P_048 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        #region When Digivolving
-
-        // ③ 배선: AS-IS는 OnEnterFieldAnyone(:14)에 등록하지만, 미러 방언은 WhenDigivolving 전용 키
-        //   (trigger-wiring rule 3 — 이중-키 등록 금지).
-        if (timing == EffectTiming.WhenDigivolving)
+        if (timing == EffectTiming.OnEnterFieldAnyone)
         {
             ActivateClass activateClass = new ActivateClass();
             activateClass.SetUpICardEffect("Return cards from trash to unsuspend this Digimon and your 1 Tamer", CanUseCondition, card);
@@ -111,7 +50,7 @@ public sealed class P_048 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (new Player(card.Context, card.Owner).TrashCards.Count(CanSelectCardCondition) >= 3)
+                    if (card.Owner.TrashCards.Count(CanSelectCardCondition) >= 3)
                     {
                         return true;
                     }
@@ -120,11 +59,11 @@ public sealed class P_048 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
                 bool returned = false;
 
-                if (new Player(card.Context, card.Owner).TrashCards.Count(CanSelectCardCondition) >= 3)
+                if (card.Owner.TrashCards.Count(CanSelectCardCondition) >= 3)
                 {
                     int maxCount = 3;
 
@@ -151,41 +90,15 @@ public sealed class P_048 : CEntity_Effect
                     selectCardEffect.SetNotShowCard();
                     selectCardEffect.SetNotAddLog();
 
-                    await selectCardEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectCardEffect.Activate());
 
-                    async Task AfterSelectCardCoroutine(List<CardSource> cardSources)
+                    IEnumerator AfterSelectCardCoroutine(List<CardSource> cardSources)
                     {
                         if (cardSources.Count == 3)
                         {
-                            // (RD-BT13028-AceOverflow) AS-IS AddLibraryBottomCards(:871)는 창보다 먼저
-                            // `new AceOverflowClass(cardSources).Overflow()`를 실행한다. AceOverflowClass.Overflow는
-                            // 필드에 남은 미-플립 ACE 카드만(IsExistOnBattleArea || IsExistOnBreedingAreaDigimon)
-                            // 유지 — 이 카드들은 트래시(Root.Trash)에서 뽑혔으므로 필드-필터가 전부 제거(구조적 no-op),
-                            // 그래도 1:1로 배선(반환 목록에 필드 카드가 있으면 페널티 부과).
-                            await new AceOverflowClass(cardSources).Overflow();
+                            yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddLibraryBottomCards(cardSources));
 
-                            // AS-IS :99 CardObjectController.AddLibraryBottomCards(cardSources) — 명명 헬퍼
-                            // 미이관(위 헤더 참조). AS-IS AddLibraryBottomCards(:867-874)는 물리 이동보다
-                            // 먼저 "isFromTrash" 창을 명시 연다 — 이 카드는 root:Root.Trash로 방금 뽑은
-                            // 카드들이므로 항상 트래시발(발화 무조건). 순서 그대로 재현.
-                            await GManager.instance.autoProcessing.StackSkillInfos(
-                                new Hashtable { { "CardSources", cardSources } },
-                                EffectTiming.OnReturnCardsToLibraryFromTrash);
-
-                            // 물리 이동: 선택-순서 그대로 deck-bottom 이동. (RDW re-migration off the retired
-                            // MatchStateMutationSink) the sink's ReturnToDeckBottomKind reduced, for these trash-drawn
-                            // (never-on-field) cards, to a bare MoveToDeckBottomAsync per card — its field-only leave-
-                            // window / ACE-on-leave / return-to-deck restriction bits are structural no-ops off the
-                            // field. The ACE overflow + OnReturnCardsToLibraryFromTrash window staged above are this
-                            // card's own AS-IS AddLibraryBottomCards reconstruction; only the physical move was on the
-                            // sink, so only it is re-pointed at the zone mover it wrapped.
-                            EngineContext context = card.Context;
-                            foreach (CardSource cs in cardSources)
-                            {
-                                await context.ZoneMover.MoveToDeckBottomAsync(cs.Owner, cs.InstanceId);
-                            }
-
-                            // AS-IS :101 Effects.ShowCardEffect(...) — UI 연출, 스트립.
+                            yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().ShowCardEffect(cardSources, "Deck Bottom Cards", true, true));
 
                             returned = true;
                         }
@@ -196,12 +109,12 @@ public sealed class P_048 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsExistOnBattleArea(card))
                     {
-                        Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+                        Permanent selectedPermanent = card.PermanentOfThisCard();
 
-                        await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend();
+                        yield return ContinuousController.instance.StartCoroutine(new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend());
                     }
 
-                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
 
                     SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
 
@@ -217,14 +130,10 @@ public sealed class P_048 : CEntity_Effect
                         afterSelectPermanentCoroutine: null,
                         mode: SelectPermanentEffect.Mode.UnTap,
                         cardEffect: activateClass);
-                    await selectPermanentEffect.Activate();
+                    yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
                 }
             }
         }
-
-        #endregion
-
-        #region Your Turn - Once Per Turn
 
         if (timing == EffectTiming.OnReturnCardsToLibraryFromTrash)
         {
@@ -265,13 +174,11 @@ public sealed class P_048 : CEntity_Effect
                 return false;
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await card.Owner.AddMemory(1, activateClass);
+                yield return ContinuousController.instance.StartCoroutine(card.Owner.AddMemory(1, activateClass));
             }
         }
-
-        #endregion
 
         return cardEffects;
     }

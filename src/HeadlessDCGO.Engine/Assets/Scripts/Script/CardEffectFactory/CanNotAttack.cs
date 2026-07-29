@@ -1,16 +1,8 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/CanNotAttack.cs
-// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of AS-IS CanNotAttack.cs factory partial.
-// Returns the ported CanNotAttackTargetDefendingPermanentClass kind-class.
-// ADAPTATIONS: (1) card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card).
-//   (2) permanent.TopCard.CanNotBeAffected(ICardEffect) -> CanNotBeAffected(EffectSourceCard?.InstanceId).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
 using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // CanNotAttackTargetDefendingPermanentClass (kind-class layer)
+using UnityEngine;
 
 public partial class CardEffectFactory
 {
@@ -39,7 +31,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(attacker))
             {
-                if (attacker == ICardEffect.ResolvePermanentOfThisCard(card))  // ADAPTATION (1)
+                if (attacker == card.PermanentOfThisCard())
                 {
                     return true;
                 }
@@ -85,7 +77,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(attacker))
             {
-                if (!attacker.TopCard.CanNotBeAffected(canNotAttackClass))  // ADAPTATION (2)
+                if (!attacker.TopCard.CanNotBeAffected(canNotAttackClass))
                 {
                     if (attackerCondition == null || attackerCondition(attacker))
                     {

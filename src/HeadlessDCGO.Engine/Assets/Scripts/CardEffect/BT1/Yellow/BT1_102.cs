@@ -1,21 +1,12 @@
-// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_102.cs — an Option.
-// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [Main] branch; the
-// [Security] branch already reuses [Main] via AddActivateMainOptionSecurityEffect (unchanged).
-//   [Main] Trigger <Draw 1> (Draw 1 card from your deck) for every 2 security cards you have.
-// AS-IS: ActivateClass on OptionSkill, CanUseCondition = CanTriggerOptionMainEffect, CanActivateCondition = null,
-//   ORDER=-1, ISOPTIONAL=false. ActivateCoroutine = new DrawClass(card.Owner, card.Owner.SecurityCards.Count / 2,
-//   activateClass).Draw() — the draw count is read at activation time.
-// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `card.Owner.SecurityCards` ->
-//   `new Player(card.Context, card.Owner).SecurityCards`; DrawClass ctor -> mirror shape.
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
-
 using System.Collections;
-using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-public sealed class BT1_102 : CEntity_Effect
+public class BT1_102 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -32,17 +23,17 @@ public sealed class BT1_102 : CEntity_Effect
             {
                 return "[Main] Trigger <Draw 1> (Draw 1 card from your deck) for every 2 security cards you have.";
             }
-
             bool CanUseCondition(Hashtable hashtable)
             {
                 return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
             }
 
-            async Task ActivateCoroutine(Hashtable _hashtable)
+            IEnumerator ActivateCoroutine(Hashtable _hashtable)
             {
-                await new DrawClass(card.Context, card.Owner, new Player(card.Context, card.Owner).SecurityCards.Count / 2, activateClass).Draw();
+                yield return ContinuousController.instance.StartCoroutine(new DrawClass(card.Owner, card.Owner.SecurityCards.Count / 2, activateClass).Draw());
             }
         }
+
 
         if (timing == EffectTiming.SecuritySkill)
         {

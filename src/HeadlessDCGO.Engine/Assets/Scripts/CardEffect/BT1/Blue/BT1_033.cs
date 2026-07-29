@@ -1,13 +1,11 @@
-// Source: Assets/Scripts/CardEffect/BT1/BT1_033.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect (Phase 1, BT1 wave 1).
-
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
-public sealed class BT1_033 : CEntity_Effect
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
+public class BT1_033 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -21,7 +19,7 @@ public sealed class BT1_033 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => CardEffectCommons.IsBattleAreaDigimon(card, permanent.InstanceId) && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId)))
+                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon && permanent.HasNoDigivolutionCards))
                         {
                             return true;
                         }
@@ -31,7 +29,11 @@ public sealed class BT1_033 : CEntity_Effect
                 return false;
             }
 
-            cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(changeValue: 1000, isInheritedEffect: true, card: card, condition: Condition));
+            cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(
+                changeValue: 1000,
+                isInheritedEffect: true,
+                card: card,
+                condition: Condition));
         }
 
         return cardEffects;

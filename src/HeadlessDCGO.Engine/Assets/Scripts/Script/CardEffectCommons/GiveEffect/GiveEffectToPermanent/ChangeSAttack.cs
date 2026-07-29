@@ -1,24 +1,231 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/ChangeSAttack.cs
-// (EFFECT-MODEL REBUILD / bridge W1) AS-IS-signature `Task` overloads (the AS-IS file defines two
-// `ChangeDigimonSAttack` overloads at lines 10 and 62; the substrate already collapsed both into one method
-// with `activateAnimation`/`hashstring` optional — CardEffectCommons.cs:1812).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using UnityEngine;
 
-using System.Threading.Tasks;
-
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.ChangeDigimonSAttack(...)</c> (GiveEffect/GiveEffectToPermanent/ChangeSAttack.cs:10) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
-    public static async Task ChangeDigimonSAttack(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass)
+    #region Change target 1 Digimon's SAttack
+    public static IEnumerator ChangeDigimonSAttack(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass)
     {
-        ChangeDigimonSAttack(targetPermanent, changeValue, effectDuration, activateClass?.EffectSourceCard, activateClass: activateClass);
-        await Task.CompletedTask;
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (changeValue == 0) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+
+        CardSource card = activateClass.EffectSourceCard;
+        bool isUpValue = changeValue > 0;
+
+        bool CanUseCondition()
+        {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        ChangeSAttackClass changeSAttackClass = CardEffectFactory.ChangeTargetSAttackStaticEffect(
+                    targetPermanent: targetPermanent,
+                    changeValue: changeValue,
+                    isInheritedEffect: false,
+                    card: card,
+                    condition: CanUseCondition);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent,
+            effectDuration: effectDuration,
+            card: card,
+            cardEffect: changeSAttackClass,
+            timing: EffectTiming.None);
+
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+        {
+            if (isUpValue)
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(targetPermanent));
+            }
+
+            else
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(targetPermanent));
+            }
+        }
     }
 
-    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.ChangeDigimonSAttack(...)</c> (GiveEffect/GiveEffectToPermanent/ChangeSAttack.cs:62, the <c>activateAnimation</c>/<c>hashstring</c> overload) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
-    public static async Task ChangeDigimonSAttack(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass, bool activateAnimation, string hashstring = null)
+    public static IEnumerator ChangeDigimonSAttack(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass, bool activateAnimation, string hashstring = null)
     {
-        ChangeDigimonSAttack(targetPermanent, changeValue, effectDuration, activateClass?.EffectSourceCard, activateAnimation, hashstring, activateClass);
-        await Task.CompletedTask;
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (changeValue == 0) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+
+        CardSource card = activateClass.EffectSourceCard;
+        bool isUpValue = changeValue > 0;
+
+        bool CanUseCondition()
+        {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        ChangeSAttackClass changeSAttackClass = CardEffectFactory.ChangeTargetSAttackStaticEffect(
+                    targetPermanent: targetPermanent,
+                    changeValue: changeValue,
+                    isInheritedEffect: false,
+                    card: card,
+                    condition: CanUseCondition,
+                    hashstring: hashstring);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent,
+            effectDuration: effectDuration,
+            card: card,
+            cardEffect: changeSAttackClass,
+            timing: EffectTiming.None);
+
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+        {
+            if (isUpValue)
+            {
+                if (activateAnimation)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(targetPermanent));
+                }
+            }
+
+            else
+            {
+                if (activateAnimation)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(targetPermanent));
+                }
+            }
+        }
     }
+    #endregion
+
+
+    #region Invert target 1 Digimon's SAttack
+    public static IEnumerator InverteDigimonSAttack(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass)
+    {
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (changeValue == 0) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+
+        CardSource card = activateClass.EffectSourceCard;
+        bool isUpValue = changeValue > 0;
+
+        bool CanUseCondition()
+        {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        InvertSAttackClass invertSAttackClass = CardEffectFactory.InvertTargetSAttackStaticEffect(
+                    targetPermanent: targetPermanent,
+                    changeValue: changeValue,
+                    isInheritedEffect: false,
+                    card: card,
+                    condition: CanUseCondition);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent,
+            effectDuration: effectDuration,
+            card: card,
+            cardEffect: invertSAttackClass,
+            timing: EffectTiming.None);
+
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+        {
+            if (!isUpValue)
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(targetPermanent));
+            }
+
+            else
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(targetPermanent));
+            }
+        }
+    }
+
+    public static IEnumerator InvertDigimonSAttack(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass, bool activateAnimation)
+    {
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (changeValue == 0) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+
+        CardSource card = activateClass.EffectSourceCard;
+        bool isUpValue = changeValue > 0;
+
+        bool CanUseCondition()
+        {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        InvertSAttackClass invertSAttackClass = CardEffectFactory.InvertTargetSAttackStaticEffect(
+                    targetPermanent: targetPermanent,
+                    changeValue: changeValue,
+                    isInheritedEffect: false,
+                    card: card,
+                    condition: CanUseCondition);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent,
+            effectDuration: effectDuration,
+            card: card,
+            cardEffect: invertSAttackClass,
+            timing: EffectTiming.None);
+
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+        {
+            if (activateAnimation)
+            {
+                if (!isUpValue)
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(targetPermanent));
+                }
+
+                else
+                {
+                    yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(targetPermanent));
+                }
+            }
+        }
+    }
+    #endregion
 }

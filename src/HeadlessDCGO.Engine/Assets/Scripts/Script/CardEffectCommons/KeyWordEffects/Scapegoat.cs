@@ -1,57 +1,72 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/KeyWordEffects/Scapegoat.cs
-// (P6 cluster2) 1:1 port; the AS-IS single-arg `HasMatchConditionPermanent(predicate)`/
-// `MatchConditionPermanentCount(predicate)` (global scan) map onto the mirror's (card, predicate) scoped
-// overload — `permanent.TopCard` supplies the scope context (any live card works: the scan itself iterates
-// both players' battle areas off the engine context, not off the card's ownership).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-
+using System.Collections;
+using System.Collections.Generic;
 using System;
-using System.Threading.Tasks;
+using System.Linq;
+using UnityEngine;
 
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>AS-IS <c>CanActivateScapegoat</c> (KeyWordEffects/Scapegoat.cs:10, verbatim).</summary>
-    public static bool CanActivateScapegoat(Permanent permanent, Func<Permanent, bool> permanentCondition) =>
-        IsPermanentExistsOnBattleArea(permanent) && permanent.TopCard is not null &&
-        HasMatchConditionPermanent(permanent.TopCard, permanentCondition);
-
-    /// <summary>AS-IS <c>ScapegoatProcess</c> (KeyWordEffects/Scapegoat.cs:25): owner selects 1 matching
-    /// Digimon to delete instead of this one; when that substitute is ACTUALLY deleted, cancel THIS Digimon's
-    /// pending deletion (AS-IS <c>SelectPermanentCoroutine</c>'s <c>SuccessProcess</c>:
-    /// <c>permanent.willBeRemoveField = false; HideDeleteEffect();</c>). (C-Del 3c-2a) restructured 1:1 with
-    /// AS-IS — the substitute's delete runs INSIDE the per-selected coroutine (awaited by Activate in selection
-    /// order), and the AS-IS trailing <c>willBeRemoveField = false</c> is RESTORED — survival is owned by the
-    /// AS-IS PRE cut-in window (the sink opens it, 3b), not the retired
-    /// <see cref="Headless.Runtime.DeletionReplacementGate"/>: the sweep's survivor-fix reads this Digimon's
-    /// cleared flag to spare it. <c>HideDeleteEffect()</c> = UI (stripped, established convention).</summary>
-    public static async Task ScapegoatProcess(ICardEffect activateClass, Permanent permanent, Func<Permanent, bool> canSelectPermanentCondition)
+    #region Can activate [Scapegoat]
+    public static bool CanActivateScapegoat(Permanent permanent, Func<Permanent, bool> permanentCondition)
     {
-        if (permanent?.TopCard is null || !HasMatchConditionPermanent(permanent.TopCard, canSelectPermanentCondition))
+        if (IsPermanentExistsOnBattleArea(permanent))
         {
-            return;
+            if (HasMatchConditionPermanent(permanentCondition))
+            {
+                return true;
+            }
         }
 
-        var selectPermanentEffect = GManager.instance!.GetComponent<SelectPermanentEffect>();
-        selectPermanentEffect.SetUp(
-            selectPlayer: permanent.TopCard.Owner,
-            canTargetCondition: canSelectPermanentCondition,
-            canTargetCondition_ByPreSelecetedList: null,
-            canEndSelectCondition: null,
-            maxCount: 1,
-            canNoSelect: false,
-            canEndNotMax: false,
-            selectPermanentCoroutine: async (Permanent selectedSubstitute) =>
-            {
-                await DeletePeremanentAndProcessAccordingToResult(
-                    targetPermanents: new System.Collections.Generic.List<Permanent> { selectedSubstitute },
-                    activateClass: activateClass,
-                    successProcess: _ => { permanent.willBeRemoveField = false; return Task.CompletedTask; },
-                    failureProcess: null).ConfigureAwait(false);
-            },
-            afterSelectPermanentCoroutine: null,
-            mode: SelectPermanentEffect.Mode.Custom,
-            cardEffect: activateClass);
-        selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to delete.", "The opponent is selecting 1 Digimon to delete.");
-        await selectPermanentEffect.Activate().ConfigureAwait(false);
+        return false;
     }
+    #endregion
+
+    #region Effect process of [Scapegoat]
+    public static IEnumerator ScapegoatProcess(ICardEffect activateClass, Permanent permanent, Func<Permanent, bool> CanSelectPermanentCondition)
+    {
+        if (permanent == null) yield break;
+        if (permanent.TopCard == null) yield break;
+
+        Player owner = permanent.TopCard.Owner;
+
+        if (HasMatchConditionPermanent(CanSelectPermanentCondition))
+        {
+            int maxCount = 1;
+
+            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+            selectPermanentEffect.SetUp(
+                selectPlayer: owner,
+                canTargetCondition: CanSelectPermanentCondition,
+                canTargetCondition_ByPreSelecetedList: null,
+                canEndSelectCondition: null,
+                maxCount: maxCount,
+                canNoSelect: false,
+                canEndNotMax: false,
+                selectPermanentCoroutine: SelectPermanentCoroutine,
+                afterSelectPermanentCoroutine: null,
+                mode: SelectPermanentEffect.Mode.Custom,
+                cardEffect: activateClass);
+
+            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to delete.", "The opponent is selecting 1 Digimon to delete.");
+
+            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
+
+            IEnumerator SelectPermanentCoroutine(Permanent _permanent)
+            {
+                yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.DeletePeremanentAndProcessAccordingToResult(targetPermanents: new List<Permanent>() { _permanent }, activateClass: activateClass, successProcess: permanents => SuccessProcess(), failureProcess: null));
+
+                IEnumerator SuccessProcess()
+                {
+                    permanent.willBeRemoveField = false;
+
+                    permanent.HideDeleteEffect();
+
+                    yield return null;
+                }
+            }
+        }
+        
+    }
+    #endregion
 }

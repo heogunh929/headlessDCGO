@@ -1,16 +1,55 @@
-// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/ChangeOriginDP.cs
-// (EFFECT-MODEL REBUILD / bridge W1) AS-IS-signature `Task` overload; delegates to the verified substrate
-// `ChangeBaseDigimonDP` (CardEffectCommons.cs:3392).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using UnityEngine;
 
-using System.Threading.Tasks;
-
-public static partial class CardEffectCommons
+public partial class CardEffectCommons
 {
-    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.ChangeBaseDigimonDP(...)</c> (GiveEffect/GiveEffectToPermanent/ChangeOriginDP.cs:10) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
-    public static async Task ChangeBaseDigimonDP(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass)
+    #region Change target 1 Digimon's origin DP
+    public static IEnumerator ChangeBaseDigimonDP(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass)
     {
-        ChangeBaseDigimonDP(targetPermanent, changeValue, effectDuration, activateClass?.EffectSourceCard, activateClass);
-        await Task.CompletedTask;
+        if (targetPermanent == null) yield break;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) yield break;
+        if (changeValue == 0) yield break;
+        if (activateClass == null) yield break;
+        if (activateClass.EffectSourceCard == null) yield break;
+
+        CardSource card = activateClass.EffectSourceCard;
+        bool isUpValue = changeValue - targetPermanent.DP > 0;
+
+        bool CanUseCondition()
+        {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        ChangeBaseDPClass changeBaseDPClass = CardEffectFactory.ChangeBaseDPStaticEffect(targetPermanent: targetPermanent, changeValue: changeValue, isInheritedEffect: false, card: card, condition: CanUseCondition);
+
+        changeBaseDPClass.SetActivatedTime(DateTime.Now);
+
+        AddEffectToPermanent(targetPermanent: targetPermanent, effectDuration: effectDuration, card: card, cardEffect: changeBaseDPClass, timing: EffectTiming.None);
+
+        if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+        {
+            if (isUpValue)
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateBuffEffect(targetPermanent));
+            }
+
+            else
+            {
+                yield return ContinuousController.instance.StartCoroutine(GManager.instance.GetComponent<Effects>().CreateDebuffEffect(targetPermanent));
+            }
+        }
     }
+    #endregion
 }
+

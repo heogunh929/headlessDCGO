@@ -1,7 +1,45 @@
-// Source: Assets/Scripts/CardEffect/EX1/Green/EX1_038.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX1.Green
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+using System.Collections.Generic;
+
+namespace DCGO.CardEffects.EX1
+{
+    public class EX1_038 : CEntity_Effect
+    {
+        public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+        {
+            List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+            if (timing == EffectTiming.OnDetermineDoSecurityCheck)
+            {
+                cardEffects.Add(CardEffectFactory.PierceSelfEffect(isInheritedEffect: false, card: card, condition: null));
+            }
+
+            if (timing == EffectTiming.OnDetermineDoSecurityCheck)
+            {
+                bool Condition()
+                {
+                    if (CardEffectCommons.IsExistOnBattleArea(card))
+                    {
+                        if (CardEffectCommons.IsOwnerTurn(card))
+                        {
+                            if (card.PermanentOfThisCard().TopCard.ContainsCardName("Imperialdramon"))
+                            {
+                                return true;
+                            }
+
+                            if (card.PermanentOfThisCard().TopCard.CardTraits.Contains("Free"))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+
+                    return false;
+                }
+
+                cardEffects.Add(CardEffectFactory.PierceSelfEffect(isInheritedEffect: true, card: card, condition: Condition));
+            }
+
+            return cardEffects;
+        }
+    }
+}

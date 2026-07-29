@@ -1,13 +1,12 @@
-// 1:1 mirror of the original ST2_08 (ST2/Blue).
-//   [Inherited][Your Turn] While your opponent has a Digimon with no digivolution cards, this Digimon gets
-//   +1 to its security-stack check (Security Attack +1).  -> ChangeSelfSAttackStaticEffect (inherited, conditional)
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+using Photon;
+using System;
+using Photon.Pun;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
-
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Services;
-
-public sealed class ST2_08 : CEntity_Effect
+public class ST2_08 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -17,9 +16,18 @@ public sealed class ST2_08 : CEntity_Effect
         {
             bool Condition()
             {
-                return CardEffectCommons.IsExistOnBattleArea(card)
-                    && CardEffectCommons.IsOwnerTurn(card)
-                    && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, permanent => permanent.IsDigimon && CardEffectCommons.HasNoDigivolutionCards(card, permanent.InstanceId));
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, (permanent) => permanent.IsDigimon && permanent.HasNoDigivolutionCards))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
             }
 
             cardEffects.Add(CardEffectFactory.ChangeSelfSAttackStaticEffect(changeValue: 1, isInheritedEffect: true, card: card, condition: Condition));
