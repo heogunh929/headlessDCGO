@@ -149,14 +149,22 @@ namespace UnityEngine
         };
     }
 
-    /// <summary>Unity <c>Time</c>. There is no frame clock.</summary>
+    /// <summary>Unity <c>Time</c>. There is no wall clock; the driver tick IS the frame, so
+    /// <see cref="deltaTime"/> reports one 60fps frame per tick.
+    ///
+    /// It must NOT be 0: Unity's deltaTime never is, and the AS-IS auto-close idiom
+    /// `timer += Time.deltaTime` (Effects.HideShowCard :1015 / HideShowCard2 :1139, the main-phase-end
+    /// backstop TurnStateMachine.cs:1267) then never advances — measured 2026-07-29: the show-card panel
+    /// never auto-closed and every DigiXros match stalled in `AddDigivolutiuonCards` waiting on it
+    /// (8/10 매치). With one frame per tick the 2.5s auto-close arrives after 150 ticks, which is the wait
+    /// the AS-IS shows a human. No rule reads deltaTime — the in-scope users are these timers.</summary>
     public static class Time
     {
         public static float time => 0f;
-        public static float deltaTime => 0f;
+        public static float deltaTime => 1f / 60f;
         public static float unscaledTime => 0f;
-        public static float unscaledDeltaTime => 0f;
-        public static float fixedDeltaTime => 0f;
+        public static float unscaledDeltaTime => deltaTime;
+        public static float fixedDeltaTime => deltaTime;
         public static float realtimeSinceStartup => 0f;
         public static float timeScale { get; set; } = 1f;
         public static int frameCount => 0;
