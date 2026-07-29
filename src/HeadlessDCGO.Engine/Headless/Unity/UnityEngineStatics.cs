@@ -342,10 +342,15 @@ namespace UnityEngine
         public static string systemCopyBuffer { get; set; } = string.Empty;
     }
 
-    /// <summary>Unity <c>Random</c>. NOT SEEDED — reproducibility is roadmap step 3.1; see the file header.</summary>
+    /// <summary>Unity <c>Random</c>. Seedable via the real Unity API <see cref="InitState"/> — the
+    /// determinism harness calls it alongside <c>GameRandom.Seed</c> (roadmap step 3.1, see
+    /// Headless/Determinism/MatchSeed.cs). Census 2026-07-29: every in-scope gameplay caller of this class is
+    /// dead under self-play wiring (the `IsAI && !isYou` branches) or deterministic by construction
+    /// (`Range(0,1)` on a one-deck collection); the live remainder is presentation (SecurityBreakGlass debris,
+    /// BGM pick behind an empty-list guard). Seeding is therefore a safety net, not a load-bearing fix.</summary>
     public static class Random
     {
-        private static readonly System.Random Source = new();
+        private static System.Random Source = new();
 
         public static int Range(int minInclusive, int maxExclusive) => Source.Next(minInclusive, maxExclusive);
 
@@ -354,9 +359,8 @@ namespace UnityEngine
 
         public static float value => (float)Source.NextDouble();
 
-        public static void InitState(int seed)
-        {
-        }
+        /// <summary>Unity <c>Random.InitState(int)</c> — restarts the sequence from a seed, as Unity does.</summary>
+        public static void InitState(int seed) => Source = new System.Random(seed);
     }
 
     /// <summary>Unity <c>Color32</c>. Display only; the game's card colour is the AS-IS <c>CardColor</c>.</summary>

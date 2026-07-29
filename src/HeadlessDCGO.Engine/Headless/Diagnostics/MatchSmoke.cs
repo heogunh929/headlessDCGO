@@ -18,7 +18,7 @@ internal sealed class SilentContext : SynchronizationContext
 
 public static class MatchSmoke
 {
-    public static int Run(int matches, string deckCode = "ST1")
+    public static int Run(int matches, string deckCode = "ST1", bool printDigest = false)
     {
         SynchronizationContext.SetSynchronizationContext(new SilentContext());
         TextWriter real = Console.Out;
@@ -32,8 +32,13 @@ public static class MatchSmoke
         for (int i = 0; i < matches; i++)
         {
             Console.SetOut(TextWriter.Null);          // AS-IS 로그 억제
-            (bool ok, string where, int tick) = RunOne(cards, seed: i + 1, deckCode);
+            (bool ok, string where, int tick, ulong digest) = RunOne(cards, seed: i + 1, deckCode);
             Console.SetOut(real);
+
+            if (printDigest)
+            {
+                real.WriteLine($"판 {i + 1,3}  시드 {i + 1,3}  다이제스트 {digest:x16}  {(ok ? "완주" : "실패")} 틱 {tick}");
+            }
 
             if (ok) { completed++; ticks.Add(tick); }
             else
@@ -52,7 +57,7 @@ public static class MatchSmoke
         return completed == matches ? 0 : 1;
     }
 
-    private static (bool, string, int) RunOne(CEntity_Base[] cards, int seed, string deckCode)
+    private static (bool, string, int, ulong) RunOne(CEntity_Base[] cards, int seed, string deckCode)
     {
         HeadlessScene scene = new();
 
@@ -66,7 +71,7 @@ public static class MatchSmoke
         }
     }
 
-    private static (bool, string, int) RunToCompletion(HeadlessScene scene, CEntity_Base[] cards, int seed, string deckCode)
+    private static (bool, string, int, ulong) RunToCompletion(HeadlessScene scene, CEntity_Base[] cards, int seed, string deckCode)
     {
         scene.Build();
 
@@ -87,6 +92,21 @@ public static class MatchSmoke
         RandomVirtualPlayer opponent = new(seed * 2 + 1) { Seat = GManager.instance?.Opponent };
         RandomVirtualPlayer[] seats = { you, opponent };
         string last = ""; int stableFrom = 0;
+        bool pinned = false;
+        ulong digest = 14695981039346656037UL;   // FNV-1a 64 오프셋
+
+        // 상태 서명이 바뀐 틱마다 (틱, 상세 서명)을 러닝 해시에 접는다. CardIndex는 생성 서수라
+        // 룰이 결정하는 값(프로세스-로컬 아님) — GetInstanceID·DateTime류는 설계상 금지.
+        void Fold(string s)
+        {
+            foreach (char c in s) { digest ^= c; digest *= 1099511628211UL; }
+        }
+
+        static string Sig(Player? p) => p is null ? "-" :
+            $"{string.Join(",", p.HandCards.Select(c => c.CardIndex))}" +
+            $"/{p.LibraryCards.Count}/{string.Join(",", p.SecurityCards.Select(c => c.CardIndex))}" +
+            $"/{p.TrashCards.Count}" +
+            $"/{string.Join(",", p.GetFieldPermanents().Select(x => $"{x.TopCard?.CardIndex}~{(x.IsSuspended ? 1 : 0)}~{x.DigivolutionCards.Count}"))}";
 
         for (int tick = 1; tick <= 100_000; tick++)
         {
@@ -95,7 +115,13 @@ public static class MatchSmoke
             {
                 Exception r = ex; while (r is TargetInvocationException && r.InnerException is not null) r = r.InnerException;
                 string frame = (r.StackTrace ?? "").Split('\n').FirstOrDefault(l => l.Contains("Assets/Scripts")) ?? "";
-                return (false, $"예외 {r.GetType().Name} @ {Trim(frame)}", tick);
+                return (false, $"예외 {r.GetType().Name} @ {Trim(frame)}", tick, digest);
+            }
+
+            // AS-IS의 공유-시드 악수(SetRandom)가 끝난 첫 틱에 매치 시드로 재고정 — 이 뒤가 첫 셔플이다.
+            if (!pinned)
+            {
+                pinned = Determinism.MatchSeed.TryPin(seed);
             }
 
             foreach (RandomVirtualPlayer seat in seats)
@@ -104,11 +130,17 @@ public static class MatchSmoke
                 seat.Answer();
             }
 
-            if (GManager.instance?.turnStateMachine?.endGame == true) return (true, "", tick);
+            if (GManager.instance?.turnStateMachine?.endGame == true)
+            {
+                Fold($"끝:{tick}:{last}");
+
+                return (true, "", tick, digest);
+            }
 
             Player? y = GManager.instance?.You; Player? o = GManager.instance?.Opponent;
-            string now = $"{y?.LibraryCards.Count}/{y?.HandCards.Count}/{y?.SecurityCards.Count}|{o?.LibraryCards.Count}/{o?.HandCards.Count}/{o?.SecurityCards.Count}";
-            if (now != last) { last = now; stableFrom = tick; }
+            string now = $"{Sig(y)}|{Sig(o)}|{GManager.instance?.turnStateMachine?.gameContext?.Memory}" +
+                $"|{GManager.instance?.turnStateMachine?.gameContext?.TurnPhase}";
+            if (now != last) { last = now; stableFrom = tick; Fold($"{tick}:{now}"); }
 
             if (tick - stableFrom > 1500)
             {
@@ -126,14 +158,14 @@ public static class MatchSmoke
 
                     string deact = string.Join(", ", UnityEngine.GameObject.Deactivations.Distinct().TakeLast(6));
 
-                    return (false, $"게임루틴 소멸 — 비활성화:[{deact}]", tick);
+                    return (false, $"게임루틴 소멸 — 비활성화:[{deact}]", tick, digest);
                 }
 
-                return (false, $"정체 {frames}{un}", tick);
+                return (false, $"정체 {frames}{un}", tick, digest);
             }
         }
 
-        return (false, "틱 예산 소진", 100_000);
+        return (false, "틱 예산 소진", 100_000, digest);
     }
 
     private static string Trim(string frame) =>
