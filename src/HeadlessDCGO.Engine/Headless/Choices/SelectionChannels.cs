@@ -22,6 +22,20 @@
 //     TurnStateMachine.SetStartPlayer(change)
 //     DNADigivolveEffects — SetJogressEvoRootsFrameIDs(playerID, frameIds[])   (on TurnStateMachine)
 //
+// PLUS ONE THAT HAS NO SetXxx: `UserSelectionManager` (asked through it by SelectDNACondition and card
+// effects). Its legal values exist ONLY inside the command-button callbacks it builds
+// (`() => SendSelection(selectionElement.Value)`, UserSelectionManager.cs:117/:171) — nothing stores the
+// element list. So this one is answered the way a human answers it: click a SelectCommand button, which sends
+// a value that is legal BY CONSTRUCTION. Census 2026-07-29 note: the DNADigivolveEffects wait itself
+// (DNADigivolveEffects.cs:589) needs no channel — its RPC fires when the INNER selectors
+// (SelectDNACondition → UserSelectionManager, then SelectPermanentEffect) finish, both of which are covered.
+//
+// DELIBERATELY NOT CHANNELLED — the click-driven UI front-ends. `endSelect_doAttack`
+// (TurnStateMachine.cs:1586/:1681), the `AddClickTarget` wirings (:1434/:1642/:1709) and CheckCardPanel are
+// the HUMAN route to `QueueMainPhaseAction`; a virtual player queues the action directly, so those flows
+// never run headless. `Effects.cs:932/:947` are Destroy/Instantiate completion waits, not input — they
+// self-release under the substrate's immediate-detach Destroy.
+//
 // FINDING OUT WHICH ONE IS PENDING. The waits are indistinguishable from outside — all of them are
 // `WaitUntil(() => x.HasPlayerSelection())`. What differs is the CLOSURE the lambda was compiled into: its
 // declaring type is the selector's own nested `<>c__DisplayClass`, so `SelectPermanentEffect` waits carry a
@@ -136,7 +150,12 @@ public static class SelectionChannels
                 return true;
 
             case nameof(SelectDigiXrosClass):
-                manager.GetComponent<SelectDigiXrosClass>()!.SetTargetDigiXrossIndex(seat, 0);
+                // The index picks an AREA to take digixros material from, not a card: 0=Hand, 1=Field,
+                // 2=Trash, 3=Tamer digivolution cards, 4=End Selection (SelectDigiXrosClass.cs:493-515).
+                // The minimal answer must be End — answering 0 enters the hand picker, whose empty selection
+                // loops back to this same question forever (measured 2026-07-29: every DigiXros play
+                // livelocked the match through MainPhase re-asking).
+                manager.GetComponent<SelectDigiXrosClass>()!.SetTargetDigiXrossIndex(seat, 4);
 
                 return true;
 
@@ -156,9 +175,42 @@ public static class SelectionChannels
 
                 return true;
 
+            case nameof(UserSelectionManager):
+                return ClickCommandButton(manager);
+
             default:
                 return false;
         }
+    }
+
+    /// <summary>Answers a UserSelectionManager ask by clicking the first command button, exactly as a player
+    /// would — `SelectCommand.OnClick()` runs the button's own `SendSelection(value)` plus the panel's close
+    /// listeners, so the value is legal by construction and the cleanup is the AS-IS cleanup.
+    ///
+    /// The buttons are built by a coroutine (`SetUpCommandButtonCoroutine`), so on the tick the wait first
+    /// appears they may not exist yet: an ACTIVE panel with no buttons returns true without clicking — the
+    /// selection is still pending, so the next tick retries. An INACTIVE panel is a real miss (the asking flow
+    /// did not open one) and reports false so the stall gets a name.</summary>
+    private static bool ClickCommandButton(GManager manager)
+    {
+        SelectCommandPanel? panel = manager.selectCommandPanel;
+
+        if (panel is null || !panel.gameObject.activeSelf)
+        {
+            return false;
+        }
+
+        foreach (Transform child in panel.transform)
+        {
+            if (child.gameObject.activeSelf && child.gameObject.GetComponent<SelectCommand>() is { } button)
+            {
+                button.OnClick();
+
+                return true;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>The smallest count the selector said is legal, or 0 when it published none.</summary>

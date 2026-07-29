@@ -55,11 +55,14 @@
 //                 RPC a button press uses (TurnStateMachine.cs:3027). This is the seam an RL policy acts
 //                 through; the prompts above are the seam it ANSWERS through.
 //
-// SCOPE TODAY. Only `SelectCardPanel` (the mulligan prompt and the card-selection prompts built on it). The
-// other panels — SelectPermanentEffect, SelectHandEffect, SelectAttackEffect, SelectCountEffect,
-// SelectDigiXrosClass — have their own OnClick surfaces and are not handled yet; `Answer` reports that it
-// could not act rather than guessing, so an unhandled prompt shows up as a stall with a named reason instead
-// of a silent hang.
+// SCOPE (census 2026-07-29 — every AS-IS park on player input was enumerated; the wait sites are the
+// authority, not the panel list). Three shapes are answered here: the SelectCardPanel click, the hatch click,
+// and every `HasPlayerSelection()` park via SelectionChannels — 12 ask sites across 11 classes
+// (SelectCard/Hand/Permanent/Attack/Count/DigiXros effects, OptionalSkill, MultipleSkills,
+// UserSelectionManager, TurnStateMachine ×2, DNADigivolveEffects), see that file's header for how each is
+// answered and which click-driven UI front-ends are deliberately NOT channelled because a virtual player
+// queues the main-phase action directly. A selector without a channel still surfaces as a NAMED stall via
+// `Unhandled`, never a silent hang.
 // ============================================================================================================
 
 namespace HeadlessDCGO.Engine.Headless.Choices;

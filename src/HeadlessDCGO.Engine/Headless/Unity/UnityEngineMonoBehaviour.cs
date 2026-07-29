@@ -81,9 +81,6 @@ public class MonoBehaviour : Behaviour
 
     private readonly List<Coroutine> _running = new();
 
-    /// <summary>[계측 2026-07-29] 판당 메모리 조사용. 이 컴포넌트가 지금까지 시작한 코루틴 핸들 수.
-    /// 조사 종료 후 제거 대상.</summary>
-
     /// <summary>Unity STOPS every coroutine a component started when its GameObject is deactivated, and the
     /// AS-IS code relies on that: `LoadingObject` starts `SetLoadingText`, a `while (true)` loop, and never
     /// keeps its handle — only `moveAgumonCoroutine` is stored and stopped explicitly (LoadingObject.cs:44,96).
