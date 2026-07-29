@@ -54,10 +54,14 @@
 //                                           docs/audit/sanctioned_exceptions.md.
 //
 // NOT DECLARED, ON PURPOSE
-//     Awake / Start / Update / OnDestroy    AddComponent does NOT invoke Unity's message hooks. Deciding how
-//                                           the lifecycle is driven headless is roadmap step 2.1; inventing it
-//                                           here would bury that decision in a shim. A component created today
-//                                           is constructed and bound, nothing more.
+//     Awake / Start / Update / OnDestroy    AddComponent does NOT invoke Unity's message hooks. The lifecycle
+//                                           is driven in ONE place, Headless/Bootstrap/HeadlessScene.cs: Awake
+//                                           and Start when the scene runs, OnDestroy when it tears down. What
+//                                           this file contributes is only the census that teardown walks —
+//                                           GameObject.Registry (every object constructed since the last
+//                                           teardown, the list Unity's scene keeps) and
+//                                           Object.DestroyedByTeardown (read by the scene's static-field purge;
+//                                           NOT by the `==`/truthiness operators, see below).
 //     Object's `==` / `!=` overloads        Unity makes a destroyed object compare equal to null. Reproducing
 //                                           that requires a destruction model that does not exist. Equality
 //                                           here is plain reference identity — see the note in
@@ -92,6 +96,12 @@ public partial class Object
     /// <summary>Unity <c>Object.GetInstanceID()</c>. A per-instance identity number; here it is the managed
     /// hash code, which is stable for the object's lifetime as Unity's is.</summary>
     public int GetInstanceID() => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
+
+    /// <summary>Set by HeadlessScene.Teardown after the object's OnDestroy ran. Read ONLY by the scene's
+    /// static-field purge; the <c>==</c>/truthiness operators deliberately do not consult it (their fake-null
+    /// behaviour is still not modelled — see the file header). Named to dodge the AS-IS member
+    /// <c>TargetArrow.Destroyed</c>, which a plain "Destroyed" would collide with.</summary>
+    internal bool DestroyedByTeardown { get; set; }
 
     public override string ToString() => string.IsNullOrEmpty(name) ? GetType().Name : name;
 }
@@ -269,7 +279,14 @@ public sealed class GameObject : Object
         name = objectName;
         transform = new Transform(this);
         _components.Add(transform);
+        Registry.Add(this);
     }
+
+    /// <summary>Every GameObject constructed since the last teardown — the census Unity's scene keeps and a
+    /// headless process otherwise lacks. HeadlessScene.Teardown walks it to deliver OnDestroy and then clears
+    /// it; holding the objects here adds nothing, since the scene graph already keeps them alive for exactly
+    /// as long.</summary>
+    internal static readonly List<GameObject> Registry = new();
 
     /// <summary>Unity <c>GameObject.transform</c>. Created with the GameObject; never null.</summary>
     public Transform transform { get; }

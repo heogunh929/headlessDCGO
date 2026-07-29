@@ -55,6 +55,19 @@ public static class MatchSmoke
     private static (bool, string, int) RunOne(CEntity_Base[] cards)
     {
         HeadlessScene scene = new();
+
+        try
+        {
+            return RunToCompletion(scene, cards);
+        }
+        finally
+        {
+            scene.Teardown();
+        }
+    }
+
+    private static (bool, string, int) RunToCompletion(HeadlessScene scene, CEntity_Base[] cards)
+    {
         scene.Build();
         scene.SupplyGameData(cards, "ST1");
         scene.RunLifecycle();

@@ -38,6 +38,10 @@
 // Headless/Unity/UnityEngineObjectModel.cs); this file is the only thing that does, so the order stays visible
 // in one place instead of being buried in the object model.
 //
+// TEARDOWN is the other half of that lifecycle: Unity unloads the scene when the match ends, and a process
+// that hosts many matches must do the same or every match's object graph survives the next one. See
+// `Teardown` for what the AS-IS relies on scene unload for — and what it leaks even in Unity.
+//
 // NOT DONE HERE, ON PURPOSE
 //   * No prefab DATA. `GManager.CardPrefab` and friends are Unity assets whose fields were set in the editor;
 //     the scene can attach a bare instance but cannot invent its contents. Card definitions come from
@@ -395,6 +399,103 @@ public sealed class HeadlessScene
     {
         Invoke("Awake");
         Invoke("Start");
+    }
+
+    /// <summary>Unity's scene unload, which a process hosting more than one match must supply itself. Two
+    /// duties, in Unity's order:
+    ///
+    /// First every component's <c>OnDestroy</c> — the AS-IS puts real cleanup there: SecurityObject.cs:176 and
+    /// PlayLog.cs:21 unsubscribe their static events, GManager.cs:297 nulls <c>instance</c>.
+    ///
+    /// Then the purge of static anchors, for what the AS-IS NEVER cleans up: FieldPermanentCard.cs:175-176
+    /// subscribes two GManager statics and no <c>-=</c> exists anywhere in the tree. Unity tolerates that
+    /// because the destroyed subscriber is inert scenery until the process exits; here the same delegate would
+    /// keep every match's whole graph reachable AND handling events. Measured 2026-07-29 before this method
+    /// existed: ~450MB retained per match, and the dead subscribers made each match allocate more than the
+    /// last (1.2GB for match 1, 5.7GB by match 10).</summary>
+    public void Teardown()
+    {
+        GameObject[] scene = GameObject.Registry.ToArray();
+        GameObject.Registry.Clear();
+
+        foreach (GameObject host in scene)
+        {
+            foreach (Component component in host.Components.ToArray())
+            {
+                InvokeOn(component, "OnDestroy");
+            }
+        }
+
+        // Marked only after EVERY OnDestroy ran: Unity's own order, and an OnDestroy body may still touch a
+        // sibling the purge would otherwise already consider dead.
+        foreach (GameObject host in scene)
+        {
+            host.DestroyedByTeardown = true;
+
+            foreach (Component component in host.Components)
+            {
+                component.DestroyedByTeardown = true;
+            }
+        }
+
+        PurgeStaticAnchors();
+
+        // A tween scheduled by the dying match must not Complete() into the next one.
+        DG.Tweening.Tween.Pending.Clear();
+        GameObject.Deactivations.Clear();
+        Animator.UnhandledCloses.Clear();
+
+        if (ReferenceEquals(Current, this))
+        {
+            Current = null;
+        }
+    }
+
+    /// <summary>Every mutable static field in this assembly that can pin a scene object: delegate-typed
+    /// (event subscriptions) or UnityEngine.Object-typed (`GManager.instance` and kin). The FIELD set is fixed
+    /// at compile time, so it is enumerated once; the VALUES are read fresh each purge.</summary>
+    private static readonly Lazy<FieldInfo[]> StaticAnchors = new(() =>
+        typeof(GManager).Assembly.GetTypes()
+            .Where(type => !type.ContainsGenericParameters)
+            .SelectMany(type => type.GetFields(
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            .Where(field => !field.IsInitOnly && !field.IsLiteral)
+            .Where(field => typeof(Delegate).IsAssignableFrom(field.FieldType)
+                || typeof(Object).IsAssignableFrom(field.FieldType))
+            .ToArray());
+
+    /// <summary>Does for the statics what process exit does for the AS-IS client. Delegate fields lose the
+    /// invocation-list entries whose target is a torn-down object (a static or non-scene subscriber is kept);
+    /// object fields still pointing at a torn-down object are nulled, as the next scene's Awake would have
+    /// found them after a real restart.</summary>
+    private static void PurgeStaticAnchors()
+    {
+        foreach (FieldInfo anchor in StaticAnchors.Value)
+        {
+            object? value = anchor.GetValue(null);
+
+            if (value is Delegate handlers)
+            {
+                Delegate? kept = null;
+
+                foreach (Delegate entry in handlers.GetInvocationList())
+                {
+                    if (entry.Target is not Object { DestroyedByTeardown: true })
+                    {
+                        kept = Delegate.Combine(kept, entry);
+                    }
+                }
+
+                if (!ReferenceEquals(kept, handlers))
+                {
+                    anchor.SetValue(null, kept);
+                }
+            }
+            else if (value is Object { DestroyedByTeardown: true })
+            {
+                anchor.SetValue(null, null);
+            }
+        }
     }
 
     private GameObject BuildPlayer(string name, bool isYou)
@@ -757,25 +858,30 @@ public sealed class HeadlessScene
     {
         foreach (Component component in _components.ToArray())
         {
-            MethodInfo? method = component.GetType().GetMethod(message, AnyInstance, null, Type.EmptyTypes, null);
+            InvokeOn(component, message);
+        }
+    }
 
-            if (method is null)
-            {
-                continue;
-            }
+    private void InvokeOn(Component component, string message)
+    {
+        MethodInfo? method = component.GetType().GetMethod(message, AnyInstance, null, Type.EmptyTypes, null);
 
-            try
-            {
-                method.Invoke(component, null);
-            }
-            catch (TargetInvocationException ex) when (ex.InnerException is not null)
-            {
-                LifecycleErrors.Add(ex.InnerException);
-            }
-            catch (Exception ex)
-            {
-                LifecycleErrors.Add(ex);
-            }
+        if (method is null)
+        {
+            return;
+        }
+
+        try
+        {
+            method.Invoke(component, null);
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is not null)
+        {
+            LifecycleErrors.Add(ex.InnerException);
+        }
+        catch (Exception ex)
+        {
+            LifecycleErrors.Add(ex);
         }
     }
 
