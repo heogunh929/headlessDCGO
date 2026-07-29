@@ -82,11 +82,54 @@ namespace UnityEngine
         public static T Instantiate<T>(T original, Vector3 position, Quaternion rotation, Transform? parent)
             where T : Object => Instantiate(original, parent);
 
-        /// <summary>Unity <c>Object.Destroy</c>. Detaches from the hierarchy; nothing more. The game's own
-        /// destruction is the AS-IS <c>DestroyPermanentsClass</c> coroutine and is untouched by this.</summary>
+        /// <summary>Unity <c>Object.Destroy</c>. Detach + REAL release, as Unity frees a destroyed object at
+        /// end of frame: the whole subtree is marked destroyed, unregistered from the teardown census
+        /// (GameObject.Registry — holding destroyed objects there until teardown was the in-match accumulator
+        /// behind the 22:36-22:40 OOMs), and its components' coroutines stop (Unity stops a destroyed
+        /// object's coroutines). Static-anchor purge runs so a destroyed subscriber (FieldPermanentCard's
+        /// never-unsubscribed GManager events) cannot pin the freed graph until teardown. A Component target
+        /// removes just that component, as Unity does. The game's own destruction flow
+        /// (<c>DestroyPermanentsClass</c>) is AS-IS logic and untouched.</summary>
         public static void Destroy(Object? target)
         {
-            HostOf(target)?.transform.SetParent(null);
+            if (target is Component component && target is not GameObject)
+            {
+                component.gameObject.Remove(component);
+                component.DestroyedByTeardown = true;
+                (component as MonoBehaviour)?.StopRunningCoroutines();
+                HeadlessDCGO.Engine.Headless.Bootstrap.HeadlessScene.PurgeStaticAnchors();
+
+                return;
+            }
+
+            GameObject? host = HostOf(target);
+
+            if (host is null)
+            {
+                return;
+            }
+
+            host.transform.SetParent(null);
+            DestroySubtree(host);
+            HeadlessDCGO.Engine.Headless.Bootstrap.HeadlessScene.PurgeStaticAnchors();
+        }
+
+        private static void DestroySubtree(GameObject host)
+        {
+            for (int i = host.transform.childCount - 1; i >= 0; i--)
+            {
+                DestroySubtree(host.transform.GetChild(i).gameObject);
+            }
+
+            host.DestroyedByTeardown = true;
+
+            foreach (Component component in host.Components)
+            {
+                component.DestroyedByTeardown = true;
+                (component as MonoBehaviour)?.StopRunningCoroutines();
+            }
+
+            GameObject.Unregister(host);
         }
 
         public static void Destroy(Object? target, float delay) => Destroy(target);
@@ -478,9 +521,8 @@ namespace Photon.Pun
 
         public static GameObject? Instantiate(string prefabName, Vector3 position, Quaternion rotation) => null;
 
-        public static void Destroy(GameObject? targetGo)
-        {
-        }
+        /// <summary>PUN destroys a networked object — locally that is exactly <c>Object.Destroy</c>.</summary>
+        public static void Destroy(GameObject? targetGo) => Object.Destroy(targetGo);
 
         public static void SetMasterClient(Realtime.Player masterClientPlayer)
         {

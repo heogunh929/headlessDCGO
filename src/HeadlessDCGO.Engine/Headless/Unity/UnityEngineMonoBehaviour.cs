@@ -72,7 +72,7 @@ public class MonoBehaviour : Behaviour
     {
         ArgumentNullException.ThrowIfNull(routine);
 
-        Coroutine handle = new(routine);
+        Coroutine handle = new(routine) { Owner = this };
         _running.Add(handle);
         Started?.Invoke(handle);
 
@@ -80,6 +80,11 @@ public class MonoBehaviour : Behaviour
     }
 
     private readonly List<Coroutine> _running = new();
+
+    /// <summary>Called by the driver when this component's coroutine FINISHES — Unity frees the handle at
+    /// that moment. Without this, `_running` accumulated every handle a component ever started (with the
+    /// completed enumerator's captured state behind it) until deactivation or teardown.</summary>
+    internal void ReleaseFinished(Coroutine handle) => _running.Remove(handle);
 
     /// <summary>Unity STOPS every coroutine a component started when its GameObject is deactivated, and the
     /// AS-IS code relies on that: `LoadingObject` starts `SetLoadingText`, a `while (true)` loop, and never

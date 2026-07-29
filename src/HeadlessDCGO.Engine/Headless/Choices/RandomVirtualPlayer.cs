@@ -152,7 +152,11 @@ public sealed class RandomVirtualPlayer : VirtualPlayer
             }
 
             FieldCardFrame chosen = frames[_rng.Next(frames.Count)];
-            targetFrame = chosen.IsEmptyFrame() ? card.PreferredFrame().FrameID : chosen.FrameID;
+
+            // 빈 프레임 픽은 -1 위임: 큐잉 시점에 프레임을 박제하면 소비 시점까지의 비동기 이동이 그
+            // 프레임을 점유해 검증 없는 진화로 둔갑한다(TOCTOU, 실측 2026-07-30 00:1x). -1이면
+            // PlayCardClass가 소비 시점에 PreferredFrame을 재계산한다(CardController.cs:1310).
+            targetFrame = chosen.IsEmptyFrame() ? -1 : chosen.FrameID;
         }
 
         int cardIndex = context.ActiveCardList.IndexOf(card);

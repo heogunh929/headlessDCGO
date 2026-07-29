@@ -491,7 +491,7 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
 
         if (!emptyLegal && evolveSlots.Count == 0)
         {
-            // 술어상 플레이 가능이나 대상 프레임이 없는 극단 — 패스로 강등(로그는 호스트가).
+            // 술어상 플레이 가능이나 대상 프레임이 없는 극단 — 패스로 강등.
             GManager.instance.turnStateMachine.QueueMainPhaseAction(point.Seat, new PassAction());
 
             return;
@@ -499,7 +499,12 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
 
         if (evolveSlots.Count == 0)
         {
-            QueuePlay(point.Seat, card, card.PreferredFrame().FrameID);
+            // 빈-프레임 플레이는 frame을 여기서 정하지 않는다(-1 위임). 큐잉 시점에 빈 프레임을 박제하면
+            // 소비 시점까지의 틱 사이에 비동기 이동(브리딩 이동 등)이 그 프레임을 점유해 플레이가 검증
+            // 없는 진화로 둔갑한다 — 실측 2026-07-30 00:1x(TOCTOU). TargetFrameID=-1이면 TSM:1206이
+            // targetPermanent=null로 넘기고 PlayCardClass가 소비 시점에 PreferredFrame을 재계산한다
+            // (CardController.cs:1310) — 사람 드롭과 같은 동기성.
+            QueuePlay(point.Seat, card, targetFrame: -1);
 
             return;
         }
@@ -519,8 +524,9 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
         CardSource card = _pendingPlay ?? throw new InvalidOperationException("no pending play");
         _pendingPlay = null;
 
+        // NULL(빈 프레임) 선택도 -1 위임 — ApplyMainPhase의 TOCTOU 주석 참조.
         int frame = lane == RlSchema.LaneNull
-            ? card.PreferredFrame().FrameID
+            ? -1
             : point.Seat.GetFieldPermanents()[lane - RlSchema.LaneMyField].PermanentFrame.FrameID;
 
         QueuePlay(point.Seat, card, frame);

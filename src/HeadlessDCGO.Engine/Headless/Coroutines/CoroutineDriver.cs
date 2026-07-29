@@ -127,6 +127,20 @@ public sealed class CoroutineDriver
         if (_adopted.Add(handle))
         {
             _pending.Add(handle.Routine);
+            _handles[handle.Routine] = handle;
+        }
+    }
+
+    /// <summary>enumerator → 핸들. 루틴이 세상을 떠나는 모든 지점(완료 pop·Kill)에서 소유 컴포넌트의
+    /// `_running`으로 핸들을 반납하기 위한 지도 — Unity는 완료 시점에 핸들을 풀어준다. 이게 없어서
+    /// 완료된 코루틴 수천 개(캡처 상태 포함)가 판 내내 잔류했다(22:36-22:40 OOM의 축적기 2).</summary>
+    private readonly Dictionary<object, Coroutine> _handles = new(ReferenceEqualityComparer.Instance);
+
+    private void ReleaseHandleFor(IEnumerator finished)
+    {
+        if (_handles.Remove(finished, out Coroutine? handle))
+        {
+            handle.Owner?.ReleaseFinished(handle);
         }
     }
 
@@ -166,6 +180,11 @@ public sealed class CoroutineDriver
                 scheduled.Stack.Push(frames[i]);
             }
 
+            for (int i = 0; i <= index; i++)
+            {
+                ReleaseHandleFor(frames[i]);    // 버려진 프레임들의 핸들 반납
+            }
+
             scheduled.Waiting = null;
             Removals.Add($"프레임정지:{routine.GetType().Name} (부모 {scheduled.Root} 유지)");
         }
@@ -191,6 +210,11 @@ public sealed class CoroutineDriver
             }
 
             Removals.Add($"정지:{scheduled.Root} @ {string.Join(" < ", scheduled.Stack.Select(f => f.GetType().Name))}");
+
+            foreach (IEnumerator frame in scheduled.Stack)
+            {
+                ReleaseHandleFor(frame);
+            }
         }
 
         Killed += _routines.RemoveAll(
@@ -379,6 +403,7 @@ public sealed class CoroutineDriver
             if (!advanced)
             {
                 routine.Stack.Pop();
+                ReleaseHandleFor(top);    // 완료 — Unity가 핸들을 풀어주는 시점
 
                 continue;   // the parent gets this tick's step, as Unity resumes it the same frame
             }

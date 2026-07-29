@@ -50,6 +50,11 @@ public sealed class Coroutine : YieldInstruction
 
     /// <summary>The routine this handle stands for. Consumed by the driver; not part of Unity's surface.</summary>
     internal IEnumerator Routine { get; }
+
+    /// <summary>The component that started this coroutine — so the driver can hand the handle back
+    /// (`_running` 해제) when the routine finishes. Unity frees handles on completion; keeping them for the
+    /// component's whole lifetime was the in-match accumulator behind the 22:36-22:40 OOMs.</summary>
+    internal MonoBehaviour? Owner { get; set; }
 }
 
 /// <summary>Unity <c>UnityEngine.WaitForSeconds</c> — suspends for <paramref name="seconds"/> of scaled game

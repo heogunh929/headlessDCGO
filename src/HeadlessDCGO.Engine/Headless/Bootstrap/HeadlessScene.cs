@@ -489,7 +489,7 @@ public sealed class HeadlessScene
     /// invocation-list entries whose target is a torn-down object (a static or non-scene subscriber is kept);
     /// object fields still pointing at a torn-down object are nulled, as the next scene's Awake would have
     /// found them after a real restart.</summary>
-    private static void PurgeStaticAnchors()
+    internal static void PurgeStaticAnchors()
     {
         foreach (FieldInfo anchor in StaticAnchors.Value)
         {

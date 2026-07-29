@@ -97,10 +97,11 @@ public partial class Object
     /// hash code, which is stable for the object's lifetime as Unity's is.</summary>
     public int GetInstanceID() => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
 
-    /// <summary>Set by HeadlessScene.Teardown after the object's OnDestroy ran. Read ONLY by the scene's
-    /// static-field purge; the <c>==</c>/truthiness operators deliberately do not consult it (their fake-null
-    /// behaviour is still not modelled — see the file header). Named to dodge the AS-IS member
-    /// <c>TargetArrow.Destroyed</c>, which a plain "Destroyed" would collide with.</summary>
+    /// <summary>True once the object is dead — set by <c>Object.Destroy</c> (frame-level release) or by
+    /// HeadlessScene.Teardown (scene unload). Read ONLY by the static-anchor purge; the <c>==</c>/truthiness
+    /// operators deliberately do not consult it (their fake-null behaviour is still not modelled — see the
+    /// file header). Named to dodge the AS-IS member <c>TargetArrow.Destroyed</c>, which a plain "Destroyed"
+    /// would collide with.</summary>
     internal bool DestroyedByTeardown { get; set; }
 
     public override string ToString() => string.IsNullOrEmpty(name) ? GetType().Name : name;
@@ -279,14 +280,35 @@ public sealed class GameObject : Object
         name = objectName;
         transform = new Transform(this);
         _components.Add(transform);
+        RegistrySlot = Registry.Count;
         Registry.Add(this);
     }
 
-    /// <summary>Every GameObject constructed since the last teardown — the census Unity's scene keeps and a
-    /// headless process otherwise lacks. HeadlessScene.Teardown walks it to deliver OnDestroy and then clears
-    /// it; holding the objects here adds nothing, since the scene graph already keeps them alive for exactly
-    /// as long.</summary>
+    /// <summary>Every LIVE GameObject since the last teardown — the census Unity's scene keeps and a headless
+    /// process otherwise lacks. HeadlessScene.Teardown walks it to deliver OnDestroy and then clears it.
+    /// `Object.Destroy` UNREGISTERS (Unity frees a destroyed object at end of frame — keeping it here until
+    /// teardown was the in-match accumulator behind the 22:36-22:40 OOMs). Removal is O(1) swap-remove so a
+    /// churn-heavy match cannot go quadratic; iteration order stays deterministic (same operations → same
+    /// order).</summary>
     internal static readonly List<GameObject> Registry = new();
+
+    private int RegistrySlot = -1;
+
+    internal static void Unregister(GameObject target)
+    {
+        int slot = target.RegistrySlot;
+
+        if (slot < 0 || slot >= Registry.Count || !ReferenceEquals(Registry[slot], target))
+        {
+            return;   // 이미 제거됐거나 teardown이 Clear한 뒤의 낡은 슬롯
+        }
+
+        GameObject last = Registry[^1];
+        Registry[slot] = last;
+        last.RegistrySlot = slot;
+        Registry.RemoveAt(Registry.Count - 1);
+        target.RegistrySlot = -1;
+    }
 
     /// <summary>Unity <c>GameObject.transform</c>. Created with the GameObject; never null.</summary>
     public Transform transform { get; }
@@ -428,4 +450,7 @@ public sealed class GameObject : Object
             _components.Add(component);
         }
     }
+
+    /// <summary>Unity <c>Destroy(component)</c>의 실체 — 이 오브젝트에서 그 컴포넌트만 뗀다.</summary>
+    internal void Remove(Component component) => _components.Remove(component);
 }
