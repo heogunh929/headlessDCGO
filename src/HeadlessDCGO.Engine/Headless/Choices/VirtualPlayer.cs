@@ -149,7 +149,7 @@ public abstract class VirtualPlayer
                 continue;   // already answered; the engine just has not resumed yet
             }
 
-            if (SelectionChannels.Answer(pending))
+            if (AnswerSelection(pending))
             {
                 Record(new ChoicePrompt(pending.Selector, $"seat {pending.Seat.PlayerID}"));
 
@@ -218,6 +218,10 @@ public abstract class VirtualPlayer
     protected virtual void Record(ChoicePrompt prompt)
     {
     }
+
+    /// <summary>Answers one identified selection wait. The default sends the minimal legal answer
+    /// (SelectionChannels); a policy-driven player overrides this to route the question out instead.</summary>
+    protected virtual bool AnswerSelection(PendingSelection pending) => SelectionChannels.Answer(pending);
 
     /// <summary>Chooses and clicks. Implementations call the panel's own <c>OnClickXxx()</c> methods.</summary>
     protected abstract bool Decide(SelectCardPanel panel, ChoicePrompt prompt);
