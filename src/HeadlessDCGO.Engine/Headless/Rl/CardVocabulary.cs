@@ -80,6 +80,7 @@ public sealed class CardVocabulary
             .Select(card => new
             {
                 cardNumber = card.CardID,
+                name = string.IsNullOrEmpty(card.CardName_ENG) ? card.CardName_JPN : card.CardName_ENG,
                 cardType = card.cardKind.Contains(CardKind.DigiEgg)
                     ? "DigiEgg"
                     : card.cardKind.Count > 0 ? card.cardKind[0].ToString() : "Unknown",

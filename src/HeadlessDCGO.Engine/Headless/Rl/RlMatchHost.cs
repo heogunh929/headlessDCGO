@@ -39,8 +39,14 @@ public sealed class RlMatchHost
     private int _tick;
     private int _stableFrom;
     private string _lastState = "";
+    private string _lastBoard = "";
     private string _lastServedNote = "";
     private bool _pinned;
+    private MatchRecorder? _recorder;
+    private Action<string>? _playLogHook;
+    private string? _recordDir;
+    private string _recordMode = "off";
+    private string _engineSha = "";
 
     public RlMatchHost(CEntity_Base[] cards, CardVocabulary vocab)
     {
@@ -62,6 +68,17 @@ public sealed class RlMatchHost
     /// <summary>Selector asks auto-answered by the minimal fallback this match.</summary>
     public IEnumerable<string> AutoAnswered =>
         (_seat1?.AutoAnswered ?? Enumerable.Empty<string>()).Concat(_seat2?.AutoAnswered ?? Enumerable.Empty<string>());
+
+    /// <summary>판 기록 설정(설계 §2). Program.cs가 CLI 인자에서 넘긴다. mode: off|all|accident|sample:N.</summary>
+    public void ConfigureRecording(string? dir, string mode, string engineSha)
+    {
+        _recordDir = dir;
+        _recordMode = mode;
+        _engineSha = engineSha;
+    }
+
+    /// <summary>reset 직전 Program.cs가 매치ID를 알려준다(파일명·이력의 키).</summary>
+    public string MatchId { get; set; } = "";
 
     public object Reset(int seed, JsonElement decks, int maxSteps)
     {
@@ -96,6 +113,18 @@ public sealed class RlMatchHost
         _seat1 = new PolicyVirtualPlayer { Seat = GManager.instance!.You, Host = this };
         _seat2 = new PolicyVirtualPlayer { Seat = GManager.instance.Opponent, Host = this };
 
+        if (_recordDir is not null && _recordMode != "off")
+        {
+            _recorder = new MatchRecorder(_recordDir, _recordMode, MatchId, seed, _engineSha,
+                players: new[]
+                {
+                    new { seat = 1, kind = "policy", deck = decks.GetProperty("1").ToString() },
+                    new { seat = 2, kind = "policy", deck = decks.GetProperty("2").ToString() },
+                });
+            _playLogHook = text => _recorder?.RecordEvent(text);
+            PlayLog.OnAddLog += _playLogHook;
+        }
+
         return Advance();
     }
 
@@ -106,6 +135,15 @@ public sealed class RlMatchHost
         if (player.Pending is null)
         {
             throw new InvalidOperationException($"seat {seat}에 대기 중인 결정이 없음");
+        }
+
+        if (_recorder is not null && player.Pending is { } pendingPoint)
+        {
+            int[] stepMask = RlSchema.Mask(pendingPoint);
+            _recorder.RecordStep(_tick, seat,
+                pendingPoint.Kind.ToString(),
+                Enumerable.Range(0, stepMask.Length).Where(i => stepMask[i] == 1).ToArray(),
+                lane);
         }
 
         player.Apply(lane);
@@ -166,10 +204,22 @@ public sealed class RlMatchHost
                 _pinned = Determinism.MatchSeed.TryPin(_seed);
             }
 
-            foreach (PolicyVirtualPlayer seat in new[] { _seat1!, _seat2! })
+            // 정착(settled) 게이트: 보드가 직전 틱과 동일할 때만 좌석이 답한다 — 사람이 연출이 끝난
+            // 보드를 보고 클릭하는 것과 같은 의미론. AS-IS 선택 응답은 "필드 몇 번째" 순번으로 직렬화
+            // 되는데(SetTargetFrames→:711 소비), 다른 코루틴이 필드를 바꾸는 중에 답하면 소비 시점에
+            // 순번이 어긋난다(실측 2026-07-30: SelectPermanentEffect.Activate ArgumentOutOfRange,
+            // 653판 중 1건 — 플레이 프레임 TOCTOU와 동계열). 발화 조건 자체를 제거한다.
+            string board = BoardDigest();
+            bool settled = board == _lastBoard;
+            _lastBoard = board;
+
+            if (settled)
             {
-                seat.Waits = _driver.PendingWaits.ToArray();
-                seat.Answer();
+                foreach (PolicyVirtualPlayer seat in new[] { _seat1!, _seat2! })
+                {
+                    seat.Waits = _driver.PendingWaits.ToArray();
+                    seat.Answer();
+                }
             }
 
             if (GManager.instance?.turnStateMachine?.endGame == true)
@@ -253,6 +303,14 @@ public sealed class RlMatchHost
         }
 
         int turns = TurnNumber();
+
+        if (_recorder is not null)
+        {
+            string? logPath = _recorder.Finish(reason, winner, turns, _driver?.Swallowed ?? new List<string>());
+            if (logPath is not null) Console.Error.WriteLine($"[match-log] {logPath}");
+            _recorder = null;
+        }
+
         TearDown();
 
         return new ResultMessage(
@@ -263,6 +321,21 @@ public sealed class RlMatchHost
             Reason: reason,
             Steps: (int)_stepIndex,
             Turns: turns);
+    }
+
+    /// <summary>좌석 응답 게이트용 보드 서명 — 존 규모 + 필드/육성 구성(순번 어긋남의 원인 축).
+    /// TrackStall 서명과 달리 스텝 카운트를 넣지 않는다(정착 여부는 순수 보드 기준).</summary>
+    private static string BoardDigest()
+    {
+        Player? you = GManager.instance?.You;
+        Player? foe = GManager.instance?.Opponent;
+
+        static string Side(Player? p) => p is null ? "-"
+            : $"{p.LibraryCards.Count}/{p.HandCards.Count}/{p.SecurityCards.Count}/{p.TrashCards.Count}" +
+              $"/{string.Join(",", p.GetFieldPermanents().Select(x => x.TopCard?.CardID ?? "_"))}" +
+              $"/{p.GetBreedingAreaPermanents().Count}";
+
+        return $"{Side(you)}|{Side(foe)}|{GManager.instance?.turnStateMachine?.gameContext?.Memory}";
     }
 
     private void TrackStall()
@@ -338,6 +411,13 @@ public sealed class RlMatchHost
 
     private void TearDown()
     {
+        if (_playLogHook is not null)
+        {
+            PlayLog.OnAddLog -= _playLogHook;   // 정적 이벤트 — 구독 잔존은 씬 보유 누수 계보
+            _playLogHook = null;
+        }
+        _recorder = null;
+
         _hook?.Dispose();
         _hook = null;
         _scene?.Teardown();

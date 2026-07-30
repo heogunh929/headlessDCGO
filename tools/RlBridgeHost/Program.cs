@@ -40,17 +40,21 @@ if (!File.Exists(CardsJsonRelative))
 }
 
 string? resultLog = null;
+string? matchLogDir = null;
+string recordMode = "off";
+string engineSha = "";
 
 for (int i = 0; i < args.Length - 1; i++)
 {
-    if (args[i] == "--result-log")
-    {
-        resultLog = args[i + 1];
-    }
+    if (args[i] == "--result-log") resultLog = args[i + 1];
+    if (args[i] == "--match-log-dir") matchLogDir = args[i + 1];
+    if (args[i] == "--record-mode") recordMode = args[i + 1];
+    if (args[i] == "--engine-sha") engineSha = args[i + 1];
 }
 
 CardVocabulary vocab = CardVocabulary.FromCardsJson(CardsJsonRelative);
 RlMatchHost host = new(cards, vocab);
+host.ConfigureRecording(matchLogDir, recordMode, engineSha);
 
 string obsSchemaHash = Convert.ToHexString(
     SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", RlSchema.FeatureNames)))).ToLowerInvariant();
@@ -120,6 +124,7 @@ for (string? line = Console.In.ReadLine(); line is not null; line = Console.In.R
                 int maxSteps = request.RootElement.TryGetProperty("maxSteps", out JsonElement cap) ? cap.GetInt32() : 2000;
                 resetCount++;
                 matchId = $"m-{seed}-{resetCount}";
+                host.MatchId = matchId;
 
                 EmitOutcome(host.Reset(seed, request.RootElement.GetProperty("decks"), maxSteps));
                 break;
