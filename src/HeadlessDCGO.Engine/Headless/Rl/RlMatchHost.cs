@@ -110,8 +110,8 @@ public sealed class RlMatchHost
             _driver.Start(routine);
         }
 
-        _seat1 = new PolicyVirtualPlayer { Seat = GManager.instance!.You, Host = this };
-        _seat2 = new PolicyVirtualPlayer { Seat = GManager.instance.Opponent, Host = this };
+        _seat1 = new PolicyVirtualPlayer { Seat = GManager.instance!.You, Host = this, RoutineInFlight = _driver.InFlight };
+        _seat2 = new PolicyVirtualPlayer { Seat = GManager.instance.Opponent, Host = this, RoutineInFlight = _driver.InFlight };
 
         if (_recordDir is not null && _recordMode != "off")
         {

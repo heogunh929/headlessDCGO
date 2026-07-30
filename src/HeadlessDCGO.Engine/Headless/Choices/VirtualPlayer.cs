@@ -82,6 +82,10 @@ public abstract class VirtualPlayer
     /// <summary>The waits the scheduler is currently parked on. Set by the caller each tick.</summary>
     public IReadOnlyCollection<CustomYieldInstruction> Waits { get; set; } = Array.Empty<CustomYieldInstruction>();
 
+    /// <summary>드라이버 내성 훅: 지정 메서드의 코루틴이 지금 비행 중인지(CoroutineDriver.InFlight).
+    /// 호스트가 좌석 생성 시 배선한다.</summary>
+    public Func<string, bool>? RoutineInFlight { get; set; }
+
     /// <summary>The seat this player answers for, or null to answer for every seat. With both scene seats
     /// wired isYou=true (self-play — see Headless/Bootstrap/HeadlessScene.cs), one instance per seat keeps
     /// each policy's random stream its own. The SelectCardPanel path stays unfiltered: the panel carries no
@@ -231,7 +235,7 @@ public abstract class VirtualPlayer
     }
 
     /// <summary>The player the main phase is waiting on, or null when it is not waiting.</summary>
-    private static Player? PendingMainPhase()
+    private Player? PendingMainPhase()
     {
         TurnStateMachine? machine = GManager.instance?.turnStateMachine;
 
@@ -254,6 +258,16 @@ public abstract class VirtualPlayer
         // 위에서 무검증 진화로 실행된다(실측 2026-07-30: 같은 tfid 이중 소비 → 동명 자기진화 66건).
         // AS-IS 신호 = TSM의 처리 중 필드 잔존(다음 루프 초입 ResetMainPhaseParameter까지).
         if (TsmBusy(machine))
+        {
+            return null;
+        }
+
+        // 턴 종료 처리 비행 중에도 메인 질문이 아니다 — 패스 소비 시 PassTurn(:3369)이 EndTurnProcess를
+        // fire-and-forget으로 띄우고 TurnPhase는 위상 전환(:716)까지 Main인 채 남는데, TSM 대기 루프(:985)는
+        // 그 창에도 큐에 온 액션을 계속 소비한다. AS-IS는 이 창을 ResetUI()의 사람 입력 잠금으로 막는다.
+        // 게이트 없이는 패스 위에 플레이가 실행된다(실측 2026-07-30 m-2558-1: 패스 -3 뒤 ST2-07 비용 5
+        // → 메모리 -8, 턴 종료 확정 후 등장).
+        if (RoutineInFlight?.Invoke("EndTurnProcess") == true)
         {
             return null;
         }

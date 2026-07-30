@@ -88,8 +88,8 @@ public static class MatchSmoke
 
         // 좌석별 정책 인스턴스 — 양석 isYou=true 자기대전 배선(HeadlessScene 참조). 시드 분리로 두 좌석의
         // 무작위 스트림이 서로 독립.
-        RandomVirtualPlayer you = new(seed * 2) { Seat = GManager.instance?.You };
-        RandomVirtualPlayer opponent = new(seed * 2 + 1) { Seat = GManager.instance?.Opponent };
+        RandomVirtualPlayer you = new(seed * 2) { Seat = GManager.instance?.You, RoutineInFlight = driver.InFlight };
+        RandomVirtualPlayer opponent = new(seed * 2 + 1) { Seat = GManager.instance?.Opponent, RoutineInFlight = driver.InFlight };
         RandomVirtualPlayer[] seats = { you, opponent };
         string last = ""; int stableFrom = 0;
         bool pinned = false;

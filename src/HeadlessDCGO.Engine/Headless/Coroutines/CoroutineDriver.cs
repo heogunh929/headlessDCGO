@@ -276,6 +276,17 @@ public sealed class CoroutineDriver
     public IEnumerable<CustomYieldInstruction> PendingWaits =>
         _routines.Select(routine => routine.Waiting).Where(wait => wait is not null)!;
 
+    /// <summary>Whether a coroutine of the named method is live right now — running, parked anywhere on a
+    /// stack, or started this frame and not yet scheduled. Compiler-generated iterator type names embed the
+    /// method (`&lt;EndTurnProcess&gt;d__33`), which is the only handle the substrate has on WHAT a routine
+    /// is doing: the AS-IS fires processes like `AutoProcessing.EndTurnProcess` fire-and-forget
+    /// (`TurnStateMachine.PassTurn`) with no observable state flag for the duration.</summary>
+    public bool InFlight(string method)
+    {
+        return _pending.Any(frame => frame.GetType().Name.Contains(method))
+            || _routines.Any(routine => routine.Stack.Any(frame => frame.GetType().Name.Contains(method)));
+    }
+
     /// <summary>What each live routine is doing right now: the innermost frame it is executing, and the
     /// predicate it is suspended on if any. For diagnosing a scheduler that ticks without progressing.</summary>
     public IEnumerable<string> Describe()

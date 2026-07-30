@@ -43,7 +43,7 @@ public static class DriverSmokeTest
 
 
         // 엔진이 멈추면(= 외부 결정을 기다리면) 가상 플레이어가 답한다.
-        AlwaysDeclineVirtualPlayer player = new();
+        AlwaysDeclineVirtualPlayer player = new() { RoutineInFlight = driver.InFlight };
         string last = ""; string lastFrames = ""; int stableFrom = 0; int answered = 0;
 
         for (int tick = 1; tick <= 300_000; tick++)
