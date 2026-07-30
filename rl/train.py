@@ -187,9 +187,8 @@ def main() -> None:
             except json.JSONDecodeError:
                 pass
     swallowed = 0
-    stderr_log = out_dir / "host-stderr.log"
-    if stderr_log.exists():
-        swallowed = stderr_log.read_text(encoding="utf-8", errors="replace").count("[coroutine-exception]")
+    for stderr_log in out_dir.glob("host-stderr.log*"):
+        swallowed += stderr_log.read_text(encoding="utf-8", errors="replace").count("[coroutine-exception]")
 
     if interrupted:
         meta.update(status="interrupted", ended=time.strftime("%Y-%m-%dT%H:%M:%S%z"),

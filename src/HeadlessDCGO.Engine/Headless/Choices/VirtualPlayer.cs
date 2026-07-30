@@ -118,6 +118,18 @@ public abstract class VirtualPlayer
                 continue;
             }
 
+            // 육성 응답도 상태머신을 통과 — 미소비 답이 있는 동안의 재질문·재응답이 중복 큐잉의
+            // 씨앗이었다(실측 2026-07-30: SetBreedingPhase 중복 3건 → FIFO 어긋남 → 자기전투).
+            if (_answerOutstanding || seat.HasPlayerSelection())
+            {
+                if (_answerOutstanding && !seat.HasPlayerSelection())
+                {
+                    _answerOutstanding = false;
+                }
+
+                continue;
+            }
+
             return DecideHatch(seat, new ChoicePrompt(nameof(Player), $"{seat.name}: hatch?"));
         }
 
@@ -134,7 +146,17 @@ public abstract class VirtualPlayer
             && breeder.GetBreedingAreaPermanents() is { Count: > 0 } raised
             && raised[0].ShowingPermanentCard is { OnClickAction: not null } moveTarget)
         {
-            return DecideMove(breeder, moveTarget, new ChoicePrompt(nameof(FieldPermanentCard), $"{breeder.name}: move?"));
+            if (_answerOutstanding || breeder.HasPlayerSelection())
+            {
+                if (_answerOutstanding && !breeder.HasPlayerSelection())
+                {
+                    _answerOutstanding = false;
+                }
+            }
+            else
+            {
+                return DecideMove(breeder, moveTarget, new ChoicePrompt(nameof(FieldPermanentCard), $"{breeder.name}: move?"));
+            }
         }
 
         // A parked selection wait: identify it from the predicate closure and answer through its channel.
@@ -150,6 +172,20 @@ public abstract class VirtualPlayer
                 continue;
             }
 
+            // 응답 상태머신(2026-07-30): "보낸 답이 소비 관찰되기 전 재응답 금지". 큐 상태만으로
+            // 판정하면 첫 답 소비 직후 같은 선택기가 즉시 다음 대기를 파킹했을 때 같은 질문으로
+            // 오인해 두 번째 답을 넣는다 — 그 고아가 FIFO를 어긋내 이후 모든 질문이 남의 답을
+            // 먹는다(실측 시드 1055: 진화원 답이 블로커 답으로 소비 → 자기전투 → 중복 파괴).
+            if (_answerOutstanding)
+            {
+                if (!pending.Seat.HasPlayerSelection())
+                {
+                    _answerOutstanding = false;   // 소비 관찰 — 다음 틱부터 새 질문 응답 가능
+                }
+
+                continue;
+            }
+
             if (pending.Seat.HasPlayerSelection())
             {
                 continue;   // already answered; the engine just has not resumed yet
@@ -158,6 +194,7 @@ public abstract class VirtualPlayer
             if (AnswerSelection(pending))
             {
                 Record(new ChoicePrompt(pending.Selector, $"seat {pending.Seat.PlayerID}"));
+                MarkIfSent(pending.Seat);
 
                 return true;
             }
@@ -181,6 +218,15 @@ public abstract class VirtualPlayer
         TurnStateMachine? machine = GManager.instance?.turnStateMachine;
 
         if (machine?.gameContext is not { } context || context.TurnPhase != GameContext.phase.Main)
+        {
+            return null;
+        }
+
+        // 공격 처리·선택 진행 중엔 메인 행동 질문이 아니다 — AS-IS는 사람 입력을 UI 잠금(IsSelecting)과
+        // 공격 상태로 막는다. 이 게이트가 없으면 공격 도중 정책이 카드를 플레이/진화해(사람 UI로는
+        // 불가능한 입력) 공격 흐름이 붕괴한다(실측 2026-07-30 시드 1055: 공격 중 어태커 위 진화 →
+        // 자기전투 → 중복 파괴 — 사용자 룰 지적 "첫 장 패배 시 둘째 체크 불가"로 발견된 사슬).
+        if (machine.IsSelecting || GManager.instance?.attackProcess?.IsAttacking == true)
         {
             return null;
         }
@@ -218,6 +264,18 @@ public abstract class VirtualPlayer
         card.OnClickAction!.Invoke(card);
 
         return true;
+    }
+
+    private bool _answerOutstanding;
+
+    /// <summary>답이 실제로 큐에 실렸으면(부분 클릭은 제외) 미소비 상태로 표시 — Apply 경로 포함
+    /// 모든 전송 지점이 호출한다.</summary>
+    public void MarkIfSent(Player seat)
+    {
+        if (seat.HasPlayerSelection())
+        {
+            _answerOutstanding = true;
+        }
     }
 
     /// <summary>Notes a prompt that was answered.</summary>

@@ -334,8 +334,13 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
         GameContext context = GManager.instance!.turnStateMachine.gameContext;
         Player foe = pending.Seat == context.You ? context.Opponent : context.You;
 
-        List<int> mine = WiredFieldSlots(pending.Seat);
-        List<int> theirs = WiredFieldSlots(foe);
+        // 후보의 정본은 현재 질문의 AS-IS 술어다 — 클릭 배선은 과거 질문(같은 선택기)의 잔존이 섞여
+        // 공격자가 블로커 후보로 오인됐다(실측 2026-07-30 시드 1055 자기전투). 술어를 직접 실행해
+        // 거르고, 클릭 배선은 적용 수단으로만 쓴다.
+        SelectPermanentEffect? spe = GManager.instance.GetComponent<SelectPermanentEffect>();
+        var canTarget = Field(spe, "_canTargetCondition") as Func<Permanent, bool>;
+        List<int> mine = WiredFieldSlots(pending.Seat, typeof(SelectPermanentEffect), canTarget);
+        List<int> theirs = WiredFieldSlots(foe, typeof(SelectPermanentEffect), canTarget);
 
         if (mine.Count == 0 && theirs.Count == 0)
         {
@@ -366,7 +371,7 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
         Player foe = pending.Seat == context.You ? context.Opponent : context.You;
 
         bool security = Field(foe.securityObject, "OnClickAction") is not null;
-        List<int> defenders = WiredFieldSlots(foe);
+        List<int> defenders = WiredFieldSlots(foe, typeof(SelectAttackEffect));
 
         if (!security && defenders.Count == 0)
         {
@@ -382,16 +387,40 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
         };
     }
 
-    private static List<int> WiredFieldSlots(Player side)
+    /// <summary>클릭 배선의 소유자 판정 — 델리게이트의 선언 타입 사슬이 <paramref name="owner"/>인
+    /// 것만 후보로 인정한다. "배선 존재=후보"는 낡은 배선(예: 공격 선언 UI가 어태커에 걸어둔 클릭)을
+    /// 후보로 오인해, 블로커 선택에서 공격자를 클릭 → SwitchDefender(공격자) → 자기전투가 됐다
+    /// (실측 2026-07-30 시드 1055: Birdramon 자기전투 → 중복 파괴 NRE — 사용자 룰 지적으로 발견).</summary>
+    private static bool WiredBy(Delegate? action, Type owner)
+    {
+        for (Type? t = action?.Method.DeclaringType; t is not null; t = t.DeclaringType)
+        {
+            if (t == owner)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static List<int> WiredFieldSlots(Player side, Type owner, Func<Permanent, bool>? canTarget = null)
     {
         List<Permanent> field = side.GetFieldPermanents();
         List<int> slots = new();
 
         for (int j = 0; j < field.Count && j < RlSchema.MaxField; j++)
         {
-            if (field[j].ShowingPermanentCard is { OnClickAction: not null })
+            if (field[j].ShowingPermanentCard is { OnClickAction: not null } card && WiredBy(card.OnClickAction, owner))
             {
-                slots.Add(j);
+                bool eligible;
+                try { eligible = canTarget?.Invoke(field[j]) ?? true; }   // AS-IS 술어 직접 실행(현재 질문 기준)
+                catch (Exception) { eligible = false; }                   // 과도 상태 NRE는 후보 제외
+
+                if (eligible)
+                {
+                    slots.Add(j);
+                }
             }
         }
 
@@ -683,6 +712,7 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
                 : point.Seat == context.You ? context.Opponent : context.You;
             int slot = lane < RlSchema.LaneFoeField ? lane - RlSchema.LaneMyField : lane - RlSchema.LaneFoeField;
             FieldPermanentCard card = side.GetFieldPermanents()[slot].ShowingPermanentCard!;
+            Console.Error.WriteLine($"[CLICK] lane={lane} seat={point.Seat.PlayerName} side={side.PlayerName} card={card.ThisPermanent?.TopCard?.CardID} handler={card.OnClickAction?.Method.DeclaringType?.FullName}"); // TEMP-PROBE-SELF
             card.OnClickAction!.Invoke(card);
         }
 

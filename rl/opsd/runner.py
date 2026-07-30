@@ -168,10 +168,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, f.read_bytes(), content_type="application/gzip")
             if m := re.fullmatch(r"/runs/([\w.-]+)/defects", path):
                 # 결함 요약: stderr에서 삼킴/abort의 발생 지점(첫 AS-IS 프레임)별 집계 (결함 탭용).
-                f = RUNS / m.group(1) / "host-stderr.log"
                 kinds: dict[str, int] = {}
-                if f.exists():
-                    lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+                KNOWN = {"CardObjectController.AddTrashCard": "기지·무해(원본 중복파괴, R7 확증 2026-07-30)"}
+                lines: list[str] = []
+                for f in sorted((RUNS / m.group(1)).glob("host-stderr.log*")):
+                    lines += f.read_text(encoding="utf-8", errors="replace").splitlines()
+                if lines:
                     for i, ln in enumerate(lines):
                         if "[coroutine-exception]" in ln or "[abort]" in ln:
                             exc = ln.split("root=")[-1].split(":")[-1].strip() if "root=" in ln else ln.split("]")[-1].strip()[:40]
@@ -182,11 +184,13 @@ class Handler(BaseHTTPRequestHandler):
                                     origin = nxt[3:].split("(")[0]
                                     break
                             kind = ("[abort] " if "[abort]" in ln else "") + (origin or "?")
+                            if origin in KNOWN:
+                                kind += f" — {KNOWN[origin]}"
                             kinds[kind] = kinds.get(kind, 0) + 1
                 return self._send(200, {"kinds": kinds})
             if m := re.fullmatch(r"/runs/([\w.-]+)/stderr", path):
-                f = RUNS / m.group(1) / "host-stderr.log"
-                return self._send(200, f.read_bytes() if f.exists() else b"", content_type="text/plain; charset=utf-8")
+                blob = b"".join(f.read_bytes() for f in sorted((RUNS / m.group(1)).glob("host-stderr.log*")))
+                return self._send(200, blob, content_type="text/plain; charset=utf-8")
             return self._send(404, {"error": "not found"})
         except OSError as ex:
             return self._send(500, {"error": str(ex)})

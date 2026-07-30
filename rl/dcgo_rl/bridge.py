@@ -78,6 +78,8 @@ class BridgeClient:
         import os
 
         stderr_path = os.environ.get("DCGO_HOST_STDERR")
+        if stderr_path:
+            stderr_path = f"{stderr_path}.w{os.getpid()}"   # 워커별 분리 — 동시 기록 섞임 방지
         stderr_target = open(stderr_path, "a") if stderr_path else subprocess.DEVNULL
 
         self._proc = subprocess.Popen(
