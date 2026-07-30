@@ -179,6 +179,115 @@ public sealed class RlMatchHost
         _ => throw new ArgumentOutOfRangeException(nameof(seat)),
     };
 
+    /// <summary>아레나 좌석용 서술 페이로드: 결정 종류 + 전지적 상태 스냅샷(기록기와 동일 구조) +
+    /// 서술형 합법 수 {index, desc}. 관측 필터(상대 손패·시큐리티 가리기)는 서버(opsd) 책임.
+    /// 서술 생성 실패가 판을 죽여선 안 된다 — 실패는 null + Overflows 집계.</summary>
+    public object? DescribeTurn(int seat)
+    {
+        try
+        {
+            if (SeatPlayer(seat).Pending is not { } point)
+            {
+                return null;
+            }
+
+            return new
+            {
+                kind = point.Kind.ToString(),
+                state = MatchRecorder.Snapshot(),
+                legal = DescribeLegal(point),
+            };
+        }
+        catch (Exception ex)
+        {
+            Overflows.Add($"describe-failed:{ex.GetType().Name}");
+
+            return null;
+        }
+    }
+
+    private List<object> DescribeLegal(DecisionPoint point)
+    {
+        List<object> actions = new();
+        void Add(int lane, string desc) => actions.Add(new { index = lane, desc });
+
+        string Card(CardSource? card) => card?.CardID ?? "?";
+        string Top(IReadOnlyList<Permanent> permanents, int j) =>
+            j < permanents.Count ? Card(permanents[j].TopCard) : "?";
+
+        List<Permanent> mine = point.Seat.GetFieldPermanents();
+        GameContext context = GManager.instance!.turnStateMachine.gameContext;
+        Player foe = point.Seat == context.You ? context.Opponent : context.You;
+        List<Permanent> theirs = foe.GetFieldPermanents();
+
+        if (point.NullLegal)
+        {
+            Add(RlSchema.LaneNull, point.Kind switch
+            {
+                DecisionKind.MainPhase => "턴 종료(패스)",
+                DecisionKind.PlayTarget => "빈 프레임에 등장",
+                DecisionKind.Breeding => "육성 행동 안 함",
+                DecisionKind.Mulligan => "손패 유지",
+                DecisionKind.Optional => "효과 사용 안 함",
+                _ => "선택 안 함",
+            });
+        }
+
+        if (point.YesLegal)
+        {
+            Add(RlSchema.LaneYes, point.Kind switch
+            {
+                DecisionKind.Breeding => "부화/육성에서 이동",
+                DecisionKind.Mulligan => "멀리건(다시 뽑기)",
+                DecisionKind.Optional => "효과 사용",
+                _ => "선택 종료",
+            });
+        }
+
+        foreach (int i in point.HandSlots)
+        {
+            string card = i < point.Seat.HandCards.Count ? Card(point.Seat.HandCards[i]) : "?";
+            Add(RlSchema.LaneHand + i, point.Kind == DecisionKind.MainPhase
+                ? $"손패[{i}] {card} 플레이"
+                : $"손패[{i}] {card} 선택");
+        }
+
+        foreach (int j in point.MyFieldSlots)
+        {
+            Add(RlSchema.LaneMyField + j, point.Kind switch
+            {
+                DecisionKind.MainPhase => $"내 필드[{j}] {Top(mine, j)}(으)로 어택 선언",
+                DecisionKind.PlayTarget => $"내 필드[{j}] {Top(mine, j)} 위에 진화",
+                _ => $"내 필드[{j}] {Top(mine, j)} 선택",
+            });
+        }
+
+        foreach (int j in point.FoeFieldSlots)
+        {
+            Add(RlSchema.LaneFoeField + j, point.Kind == DecisionKind.AttackTarget
+                ? $"상대 필드[{j}] {Top(theirs, j)} 공격"
+                : $"상대 필드[{j}] {Top(theirs, j)} 선택");
+        }
+
+        if (point.FoePlayerLegal)
+        {
+            Add(RlSchema.LaneFoePlayer, "시큐리티 어택");
+        }
+
+        for (int i = 0; i < point.ChoiceCount; i++)
+        {
+            string? number = i < point.ChoiceCardIds.Count ? Vocab.NumberOf(point.ChoiceCardIds[i]) : null;
+            Add(RlSchema.LaneChoice + i, point.Kind switch
+            {
+                DecisionKind.Count => $"수량 {(i < point.ChoiceCardIds.Count ? point.ChoiceCardIds[i] : i)} 선택",
+                DecisionKind.Command => $"커맨드 버튼 {i} 클릭",
+                _ => number is null ? $"후보 {i} 선택" : $"후보 {i} {number} 선택",
+            });
+        }
+
+        return actions;
+    }
+
     /// <summary>Ticks until a seat owes a decision or the match ends.</summary>
     private object Advance()
     {

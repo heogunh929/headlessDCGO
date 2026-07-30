@@ -1,0 +1,368 @@
+"""아레나 매치 브로커 — ws 좌석 라우팅 (설계 v1 §3.2·§3.2.5).
+
+판 1개 = runner가 세운 RlBridgeHost 1프로세스. 브로커는 turn을 좌석의 참가자 ws로 밀고
+(관측 필터 적용), 착수를 릴레이하며, 타임아웃·끊김 유예·투항을 판정한다. 실시간 관전 없음.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import random
+import time
+
+from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
+
+from . import arena, db
+
+
+class Seat:
+    def __init__(self, participant, deck: dict):
+        self.participant = participant          # sqlite Row
+        self.deck = deck
+        self.actions: asyncio.Queue = asyncio.Queue()
+
+
+class Match:
+    def __init__(self, match_id: str, seats: dict[int, Seat]):
+        self.id = match_id
+        self.seats = seats                      # 1|2 -> Seat
+        self.log_run = ""
+        self.log_path = ""
+
+
+class Broker:
+    def __init__(self, runner_url: str, token: str):
+        self.runner_url = runner_url
+        self.token = token
+        self.connections: dict[int, web.WebSocketResponse] = {}   # participant id -> ws
+        self.queue: list[int] = []                                # 래더 큐 (participant id)
+        self.rooms: dict[str, dict] = {}                          # 방 코드 -> {pid, deck} (룸 매치)
+        self.matches: dict[str, Match] = {}                       # matchId -> Match
+        self.by_participant: dict[int, str] = {}                  # participant id -> matchId
+        self._seq = 0
+
+    # ---------- ws 수명 ----------
+
+    async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
+        participant = arena.auth(request.query.get("key") or request.headers.get("X-Arena-Key"))
+        ws = web.WebSocketResponse(heartbeat=30)
+        await ws.prepare(request)
+        if participant is None:
+            await ws.send_json({"type": "error", "code": "auth", "message": "유효한 API 키가 아님"})
+            await ws.close()
+            return ws
+
+        pid = participant["id"]
+        old = self.connections.get(pid)
+        self.connections[pid] = ws
+        if old is not None and not old.closed:
+            await old.close()   # 재접속 = 기존 연결 대체(끊김 유예 재접속 경로)
+
+        await ws.send_json({"type": "hello", "handle": participant["handle"],
+                            "season": db.active_season(),
+                            "inMatch": self.by_participant.get(pid)})
+        try:
+            async for msg in ws:
+                if msg.type != WSMsgType.TEXT:
+                    continue
+                try:
+                    data = json.loads(msg.data)
+                except json.JSONDecodeError:
+                    await ws.send_json({"type": "error", "code": "protocol", "message": "JSON 아님"})
+                    continue
+                await self._on_message(participant, ws, data)
+        finally:
+            # 재접속이 이 연결을 대체했으면(connections[pid]가 남) 큐·방은 새 연결의 것 — 건드리지
+            # 않는다. 안 그러면 구 연결의 청소가 새 연결이 방금 만든 방을 지운다(실측 2026-07-30).
+            if self.connections.get(pid) is ws:
+                del self.connections[pid]
+                if pid in self.queue:
+                    self.queue.remove(pid)
+                for code, room in list(self.rooms.items()):
+                    if room["pid"] == pid:
+                        del self.rooms[code]    # 방 주인 이탈 = 방 소멸
+        return ws
+
+    async def _on_message(self, participant, ws, data: dict) -> None:
+        pid = participant["id"]
+        kind = data.get("type")
+
+        if kind == "enqueue":
+            if pid in self.by_participant:
+                return await ws.send_json({"type": "error", "code": "busy", "message": "이미 대전 중"})
+            deck = self._deck_for(pid, data.get("deckId"))
+            if deck is None:
+                return await ws.send_json({"type": "error", "code": "no_deck", "message": "활성 덱 없음 — 먼저 덱을 등록/지정"})
+            if pid not in self.queue:
+                self.queue.append(pid)
+            await ws.send_json({"type": "queued", "position": self.queue.index(pid) + 1})
+            await self._matchmake()
+
+        elif kind == "create_room":
+            # 룸 매치(사용자 확정 2026-07-30 — 지정 도전 대체): 코드를 만들어 대외 채널로 공유,
+            # 상대가 join_room으로 들어오면 즉시 성립.
+            if pid in self.by_participant:
+                return await ws.send_json({"type": "error", "code": "busy", "message": "이미 대전 중"})
+            deck = self._deck_for(pid, data.get("deckId"))
+            if deck is None:
+                return await ws.send_json({"type": "error", "code": "no_deck", "message": "활성 덱 없음"})
+            for code, room in list(self.rooms.items()):
+                if room["pid"] == pid:
+                    del self.rooms[code]        # 참가자당 방 1개
+            code = "".join(random.choices("ABCDEFGHJKMNPQRSTUVWXYZ23456789", k=6))
+            self.rooms[code] = {"pid": pid, "deck": deck}
+            await ws.send_json({"type": "room_created", "code": code})
+
+        elif kind == "join_room":
+            code = str(data.get("code", "")).strip().upper()
+            room = self.rooms.get(code)
+            if room is None:
+                return await ws.send_json({"type": "error", "code": "no_room", "message": "없는 방 코드"})
+            host_pid = room["pid"]
+            if host_pid == pid:
+                return await ws.send_json({"type": "error", "code": "self", "message": "자기 방에는 참가 불가"})
+            if host_pid not in self.connections or host_pid in self.by_participant:
+                del self.rooms[code]
+                return await ws.send_json({"type": "error", "code": "host_unavailable", "message": "방 주인이 접속 중이 아님"})
+            deck2 = self._deck_for(pid, data.get("deckId"))
+            if deck2 is None:
+                return await ws.send_json({"type": "error", "code": "no_deck", "message": "활성 덱 없음"})
+            del self.rooms[code]
+            for waiting in (host_pid, pid):
+                if waiting in self.queue:
+                    self.queue.remove(waiting)
+            host_row = db.conn().execute("SELECT * FROM participants WHERE id=?", (host_pid,)).fetchone()
+            await self._start_match(host_row, participant, room["deck"], deck2)
+
+        elif kind == "action":
+            match_id = self.by_participant.get(pid)
+            match = self.matches.get(match_id or "")
+            if match is None:
+                return await ws.send_json({"type": "error", "code": "no_match", "message": "진행 중 대전 없음"})
+            for seat_no, seat in match.seats.items():
+                if seat.participant["id"] == pid:
+                    await seat.actions.put(("action", int(data.get("index", -1))))
+
+        elif kind == "resign":
+            match_id = self.by_participant.get(pid)
+            match = self.matches.get(match_id or "")
+            if match is not None:
+                for seat_no, seat in match.seats.items():
+                    if seat.participant["id"] == pid:
+                        await seat.actions.put(("resign", 0))
+
+        else:
+            await ws.send_json({"type": "error", "code": "protocol", "message": f"unknown type '{kind}'"})
+
+    def _deck_for(self, pid: int, deck_id) -> dict | None:
+        if deck_id is not None:
+            row = db.conn().execute("SELECT * FROM decks WHERE id=? AND owner=? AND enabled=1",
+                                    (int(deck_id), pid)).fetchone()
+            return json.loads(row["cards_json"]) if row else None
+        return arena.active_deck(pid)
+
+    # ---------- 매치 성립·진행 ----------
+
+    async def _matchmake(self) -> None:
+        while len(self.queue) >= 2:
+            pid1, pid2 = self.queue[0], self.queue[1]
+            row = lambda pid: db.conn().execute("SELECT * FROM participants WHERE id=?", (pid,)).fetchone()
+            deck1, deck2 = self._deck_for(pid1, None), self._deck_for(pid2, None)
+            self.queue = self.queue[2:]
+            if deck1 is None or deck2 is None:
+                continue
+            await self._start_match(row(pid1), row(pid2), deck1, deck2)
+
+    async def _start_match(self, p1, p2, deck1: dict, deck2: dict) -> None:
+        self._seq += 1
+        match_id = f"am-{time.strftime('%Y%m%d%H%M%S')}-{self._seq}"
+        seed = random.randrange(1, 2 ** 30)
+        match = Match(match_id, {1: Seat(p1, deck1), 2: Seat(p2, deck2)})
+
+        async with ClientSession() as session:
+            async with session.post(f"{self.runner_url}/arena/match",
+                                    headers={"X-Ops-Token": self.token},
+                                    json={"matchId": match_id, "seed": seed,
+                                          "decks": {"1": deck1, "2": deck2}, "maxSteps": 2000}) as response:
+                body = await response.json()
+                if response.status != 201:
+                    for pid in (p1["id"], p2["id"]):
+                        if ws := self.connections.get(pid):
+                            await ws.send_json({"type": "error", "code": "engine", "message": str(body)})
+                    return
+        match.log_run, match.log_path = body.get("run", ""), body.get("log", "")
+
+        self.matches[match_id] = match
+        for pid in (p1["id"], p2["id"]):
+            self.by_participant[pid] = match_id
+        for seat_no, seat in match.seats.items():
+            if ws := self.connections.get(seat.participant["id"]):
+                opponent = match.seats[3 - seat_no].participant
+                elo = arena.rating_row(opponent["id"], db.active_season())["elo"]
+                await ws.send_json({"type": "match_start", "matchId": match_id, "seat": seat_no,
+                                    "seed": seed, "yourDeck": seat.deck,
+                                    "opponent": {"handle": opponent["handle"], "rating": round(elo, 1)}})
+        asyncio.create_task(self._drive(match))
+
+    async def _drive(self, match: Match) -> None:
+        """판 하나의 라우팅 루프: runner 롱폴 → 좌석 ws로 push → 착수 회수 → 릴레이."""
+        move_timeout = float(db.setting("move_timeout_sec"))
+        grace = float(db.setting("disconnect_grace_sec"))
+        headers = {"X-Ops-Token": self.token}
+        result: dict | None = None
+        forced: tuple[int, str] | None = None     # (패배 좌석, 사유)
+
+        try:
+            async with ClientSession() as session:
+                while result is None and forced is None:
+                    async with session.get(f"{self.runner_url}/arena/match/{match.id}/turn?wait=25",
+                                           headers=headers, timeout=ClientTimeout(total=60)) as response:
+                        msg = await response.json()
+                    kind = msg.get("type")
+
+                    if kind == "none":
+                        continue
+
+                    if kind == "result":
+                        result = msg
+                        break
+
+                    if kind == "host_exit":
+                        forced = (0, "engine_abort")
+                        break
+
+                    if kind == "error":
+                        # illegal_action 등 — 해당 좌석에 전달만, 다음 turn 재발행이 따라온다
+                        continue
+
+                    if kind != "turn":
+                        continue
+
+                    seat_no = int(msg["seat"])
+                    seat = match.seats[seat_no]
+                    describe = msg.get("describe") or {}
+                    payload = {
+                        "type": "your_turn", "matchId": match.id, "seat": seat_no,
+                        "stepIndex": msg.get("stepIndex"), "kind": describe.get("kind"),
+                        "state": filter_state(describe.get("state"), seat_no),
+                        "legalActions": describe.get("legal") or
+                            [{"index": i, "desc": f"lane {i}"} for i, v in enumerate(msg.get("actionMask") or []) if v],
+                        "deadline": time.time() + move_timeout,
+                    }
+                    ws = self.connections.get(seat.participant["id"])
+                    if ws is not None and not ws.closed:
+                        await ws.send_json(payload)
+                        wait = move_timeout
+                    else:
+                        wait = move_timeout + grace   # 끊김 유예 — 재접속하면 남은 시간 내 착수 가능
+
+                    try:
+                        verb, index = await asyncio.wait_for(seat.actions.get(), timeout=wait)
+                    except asyncio.TimeoutError:
+                        forced = (seat_no, "timeout")
+                        break
+
+                    if verb == "resign":
+                        forced = (seat_no, "resign")
+                        break
+
+                    mask = msg.get("actionMask") or []
+                    if not (0 <= index < len(mask) and mask[index] == 1):
+                        # 불법 수 = 즉시 반칙패가 아니라 재요청 1회성 — 호스트에 보내면 error+재발행이 오므로
+                        # 브로커가 직접 거절하고 같은 turn을 다시 기다린다.
+                        if ws is not None and not ws.closed:
+                            await ws.send_json({"type": "error", "code": "illegal_action",
+                                                "message": f"index {index}", "retry": True})
+                        retry_deadline = time.time() + move_timeout
+                        legal_index = None
+                        while time.time() < retry_deadline:
+                            try:
+                                verb2, index2 = await asyncio.wait_for(seat.actions.get(),
+                                                                      timeout=max(0.1, retry_deadline - time.time()))
+                            except asyncio.TimeoutError:
+                                break
+                            if verb2 == "resign":
+                                forced = (seat_no, "resign")
+                                break
+                            if verb2 == "action" and 0 <= index2 < len(mask) and mask[index2] == 1:
+                                legal_index = index2
+                                break
+                        if forced is not None:
+                            break
+                        if legal_index is None:
+                            forced = (seat_no, "timeout")
+                            break
+                        index = legal_index
+
+                    async with session.post(f"{self.runner_url}/arena/match/{match.id}/act",
+                                            headers=headers, json={"seat": seat_no, "index": index}) as response:
+                        await response.json()
+
+                # 정리: 호스트 종료
+                async with session.post(f"{self.runner_url}/arena/match/{match.id}/end", headers=headers) as response:
+                    await response.json()
+        except Exception as ex:                                   # 브로커 사고 = 무효판(양측 통지, 기록 없음)
+            for seat in match.seats.values():
+                if ws := self.connections.get(seat.participant["id"]):
+                    try:
+                        await ws.send_json({"type": "error", "code": "broker", "message": str(ex)})
+                    except ConnectionError:
+                        pass
+            self._cleanup(match)
+            return
+
+        if forced is not None and forced[0] == 0:
+            for seat in match.seats.values():
+                if ws := self.connections.get(seat.participant["id"]):
+                    await ws.send_json({"type": "match_end", "matchId": match.id, "result": "aborted"})
+            self._cleanup(match)
+            return
+
+        if forced is not None:
+            loser, reason = forced
+            winner = 3 - loser
+        else:
+            winner = result.get("winnerSeat")
+            reason = result.get("reason", "game_end")
+
+        deltas = arena.record_match(
+            match.id, match.seats[1].participant["id"], match.seats[2].participant["id"],
+            match.seats[1].deck, match.seats[2].deck,
+            winner if winner in (1, 2) else None, reason, match.log_run, match.log_path)
+
+        for seat_no, seat in match.seats.items():
+            if ws := self.connections.get(seat.participant["id"]):
+                try:
+                    await ws.send_json({"type": "match_end", "matchId": match.id,
+                                        "winnerSeat": winner, "reason": reason,
+                                        "ratingDelta": deltas.get(str(seat_no))})
+                except ConnectionError:
+                    pass
+        self._cleanup(match)
+
+    def _cleanup(self, match: Match) -> None:
+        self.matches.pop(match.id, None)
+        for seat in match.seats.values():
+            if self.by_participant.get(seat.participant["id"]) == match.id:
+                del self.by_participant[seat.participant["id"]]
+
+
+def filter_state(state, viewer_seat: int):
+    """관측 필터(설계 §2): 자기 손패만 보이고, 양측 시큐리티 내용과 상대 손패는 장수로 대체.
+    실게임 비공개 정보 기준 — 판 로그(전지적)와 달리 ws로는 가리고 내보낸다."""
+    if not isinstance(state, dict):
+        return state
+    import copy
+    s = copy.deepcopy(state)
+    me, foe = ("p1", "p2") if viewer_seat == 1 else ("p2", "p1")
+    for side, hide_hand in ((me, False), (foe, True)):
+        if side not in s:
+            continue
+        block = s[side]
+        block["securityCount"] = len(block.get("security") or [])
+        block.pop("security", None)
+        if hide_hand:
+            block["handCount"] = len(block.get("hand") or [])
+            block.pop("hand", None)
+    return s

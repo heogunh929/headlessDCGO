@@ -43,6 +43,7 @@ string? resultLog = null;
 string? matchLogDir = null;
 string recordMode = "off";
 string engineSha = "";
+bool describeTurns = args.Contains("--describe");   // 아레나 좌석용: turn에 상태 스냅샷+서술형 합법 수 동봉
 
 for (int i = 0; i < args.Length - 1; i++)
 {
@@ -123,7 +124,10 @@ for (string? line = Console.In.ReadLine(); line is not null; line = Console.In.R
                 int seed = request.RootElement.GetProperty("seed").GetInt32();
                 int maxSteps = request.RootElement.TryGetProperty("maxSteps", out JsonElement cap) ? cap.GetInt32() : 2000;
                 resetCount++;
-                matchId = $"m-{seed}-{resetCount}";
+                // 아레나는 서버 발급 매치ID를 그대로 쓴다(판 로그 파일명·이력 연결) — 미지정 시 종전 규칙.
+                matchId = request.RootElement.TryGetProperty("matchId", out JsonElement mid)
+                    ? mid.GetString() ?? $"m-{seed}-{resetCount}"
+                    : $"m-{seed}-{resetCount}";
                 host.MatchId = matchId;
 
                 EmitOutcome(host.Reset(seed, request.RootElement.GetProperty("decks"), maxSteps));
@@ -197,6 +201,7 @@ void EmitTurn(TurnMessage turn)
         observation = turn.Observation,
         actionMask = turn.Mask,
         legalCount = turn.LegalCount,
+        describe = describeTurns ? host.DescribeTurn(turn.Seat) : null,
     });
 }
 

@@ -157,6 +157,18 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
             return true;    // seatless instances never serve panels in policy mode
         }
 
+        // 패널 ask의 주인 귀속: 후보 카드의 소유자가 단일이면 그 좌석의 질문이다(멀리건=그 손패,
+        // MultipleSkills 순서=그 스킬 소유 카드). 내 좌석 것이 아니면 서빙하지 않는다 — 아레나에서
+        // 결정이 그 좌석의 소비자(참가자)로 라우팅되기 위한 근거. 혼성/무소유 후보는 종전대로
+        // 선착 서빙(PanelServedElsewhere가 이중 서빙만 차단).
+        List<Player> owners = wired.Select(card => card.cardSource?.Owner)
+            .Where(owner => owner is not null).Distinct().ToList()!;
+
+        if (owners.Count == 1 && !ReferenceEquals(owners[0], Seat))
+        {
+            return true;
+        }
+
         NoteOverflow("panel", wired.Count);
 
         // NULL/YES 합법성은 패널 자신의 버튼 게이트에서 읽는다 — AS-IS가 이미 SetActive로 판정해 뒀다

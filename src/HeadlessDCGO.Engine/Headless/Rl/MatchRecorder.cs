@@ -115,7 +115,7 @@ public sealed class MatchRecorder
 
     // --- 전지적 스냅샷: AS-IS 공개 표면 직독 -----------------------------------------------------------
 
-    private static object Snapshot()
+    internal static object Snapshot()
     {
         GameContext context = GManager.instance!.turnStateMachine.gameContext;
 

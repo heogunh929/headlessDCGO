@@ -61,7 +61,8 @@
 **3.2 아레나 ws** (에이전트↔opsd, `wss /arena?key=...`):
 서버→ `queued | match_start{matchId, seat, yourDeck:[전문], opponent:{name,rating}} |
 your_turn{state, legalActions, deadline} | match_end{result, ratingDelta} | error` ·
-클라→ `enqueue{deckId?} | challenge{target, deckId?} | action{index} | resign`.
+클라→ `enqueue{deckId?} | create_room{deckId?} | join_room{code, deckId?} | action{index} | resign`
+(서버→ `room_created{code}` 추가 — 룸 매치, 2026-07-30 개정으로 challenge 대체).
 착수당 타임아웃·끊김 유예(N초 재접속)는 opsd가 판정, 초과=타임아웃 패.
 legalActions는 마스크가 아닌 **서술형 목록**(예: `{index, desc:"hand[3] ST1-07 플레이"}`) —
 LLM 가독이 1차 요건.
@@ -115,7 +116,7 @@ DB 쓰기는 판 종료 1건+가입·덱 등록뿐이고 동시 판은 엔진 �
 | M1 ✅ | MatchRecorder(호스트) + train.py 결선(체크포인트·메타·census) | **통과 2026-07-30 [실측]**: 판로그 gz(sample:5+사고판)·메타 2단계(done/interrupted)·체크포인트 5개 보존·SIGTERM graceful(1525스텝 중단→정책+메타 확보)·stderr census. 구현 노트: 카드는 id만 기록(이름은 뷰어가 cards.json), 센티널 값 원기록, graceful은 명시적 signal 핸들러+저장 후 os._exit(close 블록 실측 회피) |
 | M2 ✅ | runner 데몬 + opsd 골격 | **통과 2026-07-30 [실측]**: opsd 프록시 경유 기동(상한 거부 포함)→감시(RSS·진행)→graceful 정지(interrupted+정책 확보). runner=stdlib 전용(uv 래퍼 우회로 SIGTERM 직행), opsd=aiohttp+임계 평가 루프(배지·SMTP), 대시보드 3탭 |
 | M3 ✅ | 판 뷰어(와이어프레임 구현) | **데이터 경로 통과 2026-07-30 [실측]**(gz 서빙·파싱·97스텝 판), UI는 브라우저 육안 검증 대기. 요약/Diff/JSON 탭·이벤트 검색/칩·타임라인 턴마커·배속 재생·숨김/디버그 토글 구현. 카드명 사전 부재(cards.json엔 번호·타입만) → ID 표시 1차, 이름 추출 후속. 상대 시트 180° 회전은 가독성 사유로 상하 대면 배치로 대체(원 와이어프레임과 차이 — 확인 필요) |
-| M4 | 아레나 골격: DB·가입/승인·키·덱(빌더+검증기)·ws 대전·Elo/시즌·순위 공개 페이지 | 러너 CLI 2개가 래더 매칭으로 **한 판 완주**, 이력→뷰어 열람 |
+| M4 ✅ | 아레나 골격: DB·가입/승인·키·덱(빌더+검증기)·ws 대전·Elo/시즌·순위 공개 페이지 | **통과 2026-07-30 [실측]**: 러너 CLI 2개 래더 한 판 완주(Elo ±16)·지정 도전 완주(비대칭 Elo ±17.5)·타임아웃 몰수패·덱 검증 4종(50장·MaxCount·풀·실존) 거부·본인 판 로그 열람+타키 401·공개 순위/가입 무인증. 구현 노트: ① 호스트 `--describe`(턴에 상태 스냅샷+서술형 합법 수, 관측 필터는 opsd) + reset에 서버 matchId ② 패널 ask 좌석 귀속=후보 카드 소유자(멀리건이 P1로 쏠리던 것 교정) ③ runner 릴레이=stdlib 롱폴(/arena/match·turn·act·end, arena_cap 기본 2) ④ 검증기 데이터원=runner /cards-meta(cards.json+자산 MaxCountInDeck) ⑤ 대전 성립=래더+룸 매치(코드 발급·참가 — challenge 대체 개정) ⑥ UI 육안 검증 대기(rankings/arena/관리 탭/뷰어 arena 모드) |
 | M5 | SDK 정리 + 참조 러너 공개품질 + OpenClaw 스킬 · TCP 브리지(`--listen`) | DGX 없는 상태로 TCP 루프백 학습 1런 완주 |
 
 순서 근거: M1은 본학습 안전망이라 최우선(서버 없이도 가치). M4까지가 정의서 1차 범위,

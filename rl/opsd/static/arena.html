@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DCGO 아레나 — 참가자</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+main.page { max-width:880px }
+#builder-pool { max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px; font-size:13px }
+.poolrow { cursor:pointer; padding:3px 6px; border-radius:6px } .poolrow:hover { background:var(--accent-soft) }
+textarea { width:100%; font-family:monospace; font-size:12px }
+</style>
+</head>
+<body>
+<header class="appbar"><h1>DCGO 아레나 — 참가자 페이지</h1><span id="who" style="color:var(--muted)"></span>
+  <button class="btn" style="margin-left:auto" onclick="logout()">키 변경</button></header>
+<main class="page">
+  <div class="card" id="login-card">
+    <b>API 키 로그인</b><br><br>
+    <input id="key-in" placeholder="API 키" style="width:min(320px,70vw)"> <button class="btn primary" onclick="login()">확인</button>
+    <div id="login-msg" class="bad"></div>
+    <div style="margin-top:8px;font-size:13px;color:#555">키가 없다면 <a href="/static/rankings.html">순위표 페이지</a>에서 참가 신청하세요.</div>
+  </div>
+
+  <div id="portal" style="display:none">
+    <div class="card"><b>내 덱</b> <small>(래더는 활성 덱으로 참가합니다)</small>
+      <div id="decks">불러오는 중…</div>
+    </div>
+    <div class="card"><b>덱 등록</b>
+      <div style="font-size:13px;color:#555;margin:4px 0">규칙: 메인 정확히 50장 · 디지타마 최대 5장 · 카드별 최대 매수 제한 · 허용 카드 풀 내</div>
+      <label>덱 이름 <input id="deck-name" placeholder="내 덱"></label>
+      <div style="display:flex; gap:12px; margin-top:8px; flex-wrap:wrap">
+        <div style="flex:1; min-width:260px">
+          <b style="font-size:13px">허용 카드 풀</b> <input id="pool-q" placeholder="검색" style="width:120px" oninput="renderPool()">
+          <div id="builder-pool">키 확인 후 표시</div>
+        </div>
+        <div style="flex:1; min-width:260px">
+          <b style="font-size:13px">구성 (카드 클릭으로 추가/우클릭 제거)</b>
+          <div id="build-list" style="font-size:13px"></div>
+          <div id="build-count" style="margin-top:4px;font-size:13px"></div>
+        </div>
+      </div>
+      <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">JSON으로 직접 입력</summary>
+        <textarea id="deck-json" rows="6" placeholder='{"name":"...","main":[{"card":"ST1-02","count":4},...],"digitama":[{"card":"ST1-01","count":4}]}'></textarea>
+        <button onclick="registerJson()">JSON 등록</button>
+      </details>
+      <div style="margin-top:8px"><button onclick="registerBuilt()">이 구성으로 등록</button> <span id="deck-msg"></span></div>
+    </div>
+    <div class="card"><b>대전 이력</b> <small>(클릭하면 판 뷰어로)</small><div id="history">불러오는 중…</div></div>
+    <div class="card"><b>접속 정보</b>
+      <div style="font-size:13px">
+        웹소켓: <code id="ws-url"></code><br>
+        참조 러너: <code>python rl/arena_runner.py --server <span id="srv"></span> --key &lt;API키&gt;</code>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let KEY = localStorage.getItem('arenaKey') || '';
+let CARDS = {}, POOL = {sets: [], cards: []};
+const BUILD = {main: {}, digitama: {}};
+const H = () => ({'X-Arena-Key': KEY, 'Content-Type': 'application/json'});
+const api = (p, opt = {}) => fetch(p, {...opt, headers: H()}).then(r => r.json());
+
+function logout() { localStorage.removeItem('arenaKey'); location.reload(); }
+async function login() {
+  KEY = $('key-in').value.trim() || KEY;
+  const me = await api('/api/arena/me');
+  if (me.error) { $('login-msg').textContent = '키가 유효하지 않습니다'; return; }
+  localStorage.setItem('arenaKey', KEY);
+  $('login-card').style.display = 'none'; $('portal').style.display = '';
+  $('who').textContent = `${me.handle} · Elo ${me.elo} · ${me.games}판`;
+  $('ws-url').textContent = location.origin.replace('http', 'ws') + '/arena?key=…';
+  $('srv').textContent = location.origin;
+  const cardData = await api('/api/arena/cards');
+  CARDS = cardData.cards || {}; POOL = cardData.pool || POOL;
+  renderPool(); renderBuild(); loadDecks(); loadHistory();
+}
+
+function inPool(id) { return POOL.sets.includes(id.split('-')[0]) || POOL.cards.includes(id); }
+function renderPool() {
+  const q = ($('pool-q').value || '').toLowerCase();
+  const rows = Object.entries(CARDS).filter(([id]) => inPool(id))
+    .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q))
+    .slice(0, 400)
+    .map(([id, c]) => `<div class="poolrow" onclick="add('${id}')" oncontextmenu="event.preventDefault();sub('${id}')">` +
+      `${id} <b>${c.name}</b> <small>${c.type} · 최대 ${c.maxCount ?? 4}</small></div>`);
+  $('builder-pool').innerHTML = rows.join('') || '풀이 비어 있음';
+}
+function section(id) { return (CARDS[id] || {}).type === 'DigiEgg' ? 'digitama' : 'main'; }
+function add(id) {
+  const s = BUILD[section(id)];
+  s[id] = (s[id] || 0) + 1;
+  renderBuild();
+}
+function sub(id) {
+  const s = BUILD[section(id)];
+  if (s[id]) { s[id]--; if (!s[id]) delete s[id]; }
+  renderBuild();
+}
+function renderBuild() {
+  const line = (s, label) => Object.entries(BUILD[s]).map(([id, n]) =>
+    `<div class="poolrow" onclick="add('${id}')" oncontextmenu="event.preventDefault();sub('${id}')">${label} ${id} ${(CARDS[id]||{}).name||''} ×${n}</div>`).join('');
+  $('build-list').innerHTML = line('main', '') + line('digitama', '🥚') || '<span style="color:#999">비어 있음</span>';
+  const mainN = Object.values(BUILD.main).reduce((a, b) => a + b, 0);
+  const eggN = Object.values(BUILD.digitama).reduce((a, b) => a + b, 0);
+  $('build-count').innerHTML = `메인 <b class="${mainN === 50 ? 'ok' : 'bad'}">${mainN}/50</b> · 디지타마 <b class="${eggN <= 5 ? 'ok' : 'bad'}">${eggN}/5</b>`;
+}
+function builtDeck() {
+  return {name: $('deck-name').value || '무제 덱',
+    main: Object.entries(BUILD.main).map(([card, count]) => ({card, count})),
+    digitama: Object.entries(BUILD.digitama).map(([card, count]) => ({card, count}))};
+}
+async function registerBuilt() { await register(builtDeck()); }
+async function registerJson() {
+  try { await register(JSON.parse($('deck-json').value)); }
+  catch (e) { $('deck-msg').innerHTML = `<span class="bad">JSON 파싱 실패: ${e.message}</span>`; }
+}
+async function register(deck) {
+  const r = await api('/api/arena/decks', {method: 'POST', body: JSON.stringify(deck)});
+  $('deck-msg').innerHTML = r.error
+    ? `<span class="bad">${r.error}${(r.reasons || []).map(x => '<br>· ' + x).join('')}</span>`
+    : `<span class="ok">등록됨: ${r.deck}${r.active ? ' (활성)' : ''}</span>`;
+  loadDecks();
+}
+async function loadDecks() {
+  const decks = await api('/api/arena/decks');
+  $('decks').innerHTML = decks.length ? '<table><tr><th>이름</th><th>메인/디지타마</th><th>상태</th><th></th></tr>' +
+    decks.map(d => {
+      const m = d.cards.main.reduce((a, e) => a + e.count, 0), g = (d.cards.digitama || []).reduce((a, e) => a + e.count, 0);
+      return `<tr><td>${d.name}</td><td>${m}/${g}</td><td>${d.active ? '<b>활성</b>' : ''}${d.enabled ? '' : `<span class="bad">비활성: ${d.disabledReason}</span>`}</td>` +
+        `<td>${d.active || !d.enabled ? '' : `<button onclick="activate(${d.id})">활성화</button>`}</td></tr>`;
+    }).join('') + '</table>' : '등록된 덱 없음';
+}
+async function activate(id) { await api(`/api/arena/decks/${id}/activate`, {method: 'POST'}); loadDecks(); }
+async function loadHistory() {
+  const rows = await api('/api/arena/history');
+  $('history').innerHTML = rows.length ? '<table><tr><th>시각</th><th>상대</th><th>결과</th><th>Δ</th><th>사유</th></tr>' +
+    rows.map(h => {
+      const won = h.winner === h.mySeat;
+      const draw = h.winner == null;
+      return `<tr style="cursor:pointer" onclick="location='/static/viewer.html?arena=${h.matchId}'">` +
+        `<td>${h.ts}</td><td>${h.opponent}</td><td class="${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</td>` +
+        `<td>${h.ratingDelta > 0 ? '+' : ''}${h.ratingDelta}</td><td>${h.reason}</td></tr>`;
+    }).join('') + '</table>' : '대전 기록 없음';
+}
+if (KEY) login();
+</script>
+</body>
+</html>

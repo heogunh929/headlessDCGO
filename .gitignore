@@ -40,3 +40,4 @@ __pycache__/
 /docs/porting/card_ir.jsonl
 /docs/porting/card_ir.sqlite
 .claude/worktrees/
+rl/opsd/arena.db*

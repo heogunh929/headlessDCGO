@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DCGO 아레나 순위표</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+main.page { max-width:640px } .house { color:var(--muted); font-size:12px }
+#board td:first-child { font-weight:700; width:56px }
+</style>
+</head>
+<body>
+<header class="appbar"><h1>DCGO 아레나 — 공개 순위표</h1></header>
+<main class="page">
+  <div class="card">
+    <div id="season" style="margin-bottom:8px;color:#555"></div>
+    <table id="board"><tr><th>순위</th><th>핸들</th><th>Elo</th><th>판수</th></tr></table>
+  </div>
+  <div class="card">
+    <b>참가 신청</b> <small>(신청 코드를 받고, 승인 후 그 코드로 API 키를 수령합니다)</small><br><br>
+    <input id="handle" placeholder="핸들(닉네임)" maxlength="40">
+    <button class="btn primary" onclick="signup()">신청</button>
+    <div id="msg" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
+    <b>API 키 수령</b> <small>(승인 완료 후 1회)</small><br><br>
+    <input id="c-handle" placeholder="핸들" maxlength="40">
+    <input id="c-claim" placeholder="신청 코드" style="width:180px">
+    <button class="btn primary" onclick="claim()">수령</button>
+    <div id="c-msg" style="margin-top:8px"></div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+async function load() {
+  const r = await (await fetch('/api/arena/rankings')).json();
+  $('season').textContent = `시즌 ${r.season}`;
+  $('board').innerHTML = '<tr><th>순위</th><th>핸들</th><th>Elo</th><th>판수</th></tr>' +
+    (r.rows.length ? r.rows.map(x =>
+      `<tr><td>${x.rank}</td><td>${x.handle}${x.kind === 'policy' ? ' <span class="house">(하우스 봇)</span>' : ''}</td>` +
+      `<td>${x.elo}</td><td>${x.games}</td></tr>`).join('')
+      : '<tr><td colspan="4" style="color:#999">아직 대전 기록이 없습니다</td></tr>');
+}
+async function signup() {
+  const r = await (await fetch('/api/arena/signup', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({handle: $('handle').value})})).json();
+  $('msg').innerHTML = r.error ? `<span style="color:#b00">${r.error}</span>`
+    : r.key ? `<b>승인 완료.</b> API 키(이번 1회만 표시): <code>${r.key}</code>`
+    : `신청 완료(${r.handle}). <b>신청 코드(이번 1회만 표시): <code>${r.claim}</code></b><br>` +
+      `보관해 두세요 — 관리자 승인 후 아래 "API 키 수령"에서 이 코드로 키를 받습니다.`;
+}
+async function claim() {
+  const r = await (await fetch('/api/arena/claim', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({handle: $('c-handle').value, claim: $('c-claim').value})})).json();
+  $('c-msg').innerHTML = r.error ? `<span style="color:#b00">${r.error}</span>`
+    : `<b>API 키(이번 1회만 표시): <code>${r.key}</code></b> — <a href="/static/arena.html">참가자 페이지</a>에서 사용하세요.`;
+}
+load(); setInterval(load, 30000);
+</script>
+</body>
+</html>

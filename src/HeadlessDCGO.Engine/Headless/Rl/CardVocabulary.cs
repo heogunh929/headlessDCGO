@@ -45,6 +45,16 @@ public sealed class CardVocabulary
             ? id
             : throw new KeyNotFoundException($"vocab에 없는 카드번호: {cardNumber} (조용한 fallback 금지)");
 
+    private Dictionary<int, string>? _numbers;
+
+    /// <summary>id → 정규 카드번호 역인덱스 — 아레나 서술 페이로드용. PadId·미지 id는 null.</summary>
+    public string? NumberOf(int id)
+    {
+        _numbers ??= _ids.ToDictionary(pair => pair.Value, pair => pair.Key);
+
+        return _numbers.TryGetValue(id, out string? number) ? number : null;
+    }
+
     public static CardVocabulary FromCardsJson(string path)
     {
         using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(path));
