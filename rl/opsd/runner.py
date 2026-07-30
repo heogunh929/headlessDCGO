@@ -23,6 +23,7 @@ RL_DIR = Path(__file__).resolve().parents[1]
 REPO = RL_DIR.parent
 RUNS = REPO / "runs"
 CONFIG_PATH = RL_DIR / "opsd" / "runner-config.json"
+ALIASES_PATH = RL_DIR / "opsd" / "model-aliases.json"   # 정책 별칭 {상대경로: 별칭} — 정책 관리 탭
 PYTHON = str(RL_DIR / ".venv" / "bin" / "python")   # uv 래퍼 우회 — SIGTERM이 python에 직행 [M1 실측]
 
 # 화이트리스트(요구 §8): 스크립트와 허용 인자·형만 통과. 임의 셸 불가.
@@ -158,6 +159,86 @@ def parse_deck_text(text: str, name: str) -> dict:
         return {"error": "미지원 카드", "reasons": [recipe_display(c) for c in ex.unknown_cards]}
     data = recipe.to_json()
     return {"name": data["name"], "main": data["main"], "digitama": data["digitama"]}
+
+
+def model_aliases() -> dict:
+    if ALIASES_PATH.exists():
+        try:
+            return json.loads(ALIASES_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def engine_head() -> str:
+    """엔진에 영향 주는 마지막 커밋(src/·tools/) — stale 판정 기준. HEAD 비교는 UI 커밋에도
+    구엔진 오판을 낸다."""
+    try:
+        return subprocess.run(["git", "log", "-1", "--format=%H", "--", "src", "tools"],
+                              cwd=REPO, capture_output=True, text=True, timeout=10).stdout.strip()
+    except OSError:
+        return ""
+
+
+_stale_cache: dict[str, bool] = {}
+
+
+def sha_is_stale(recorded: str, head: str) -> bool:
+    """recorded가 엔진 헤드를 포함하면 신선(False). 포함 안 하면 그 뒤 엔진이 바뀐 것 — stale."""
+    if not recorded or not head:
+        return False
+    key = f"{recorded}:{head[:12]}"
+    if key not in _stale_cache:
+        try:
+            ok = subprocess.run(["git", "merge-base", "--is-ancestor", head, recorded],
+                                cwd=REPO, capture_output=True, timeout=10).returncode == 0
+        except OSError:
+            ok = True
+        _stale_cache[key] = not ok
+    return _stale_cache[key]
+
+
+def models_detail() -> dict:
+    """정책 전수 열거 + 메타 조인(정책 관리 탭). 경로는 runs/ 상대. kind = single|league|checkpoint.
+    메타는 그 정책이 태어난 런 폴더의 meta.json(리그 라운드 포함 — train.py가 라운드 폴더에 씀)."""
+    aliases = model_aliases()
+    current_sha = engine_head()[:12]
+    models = []
+
+    def meta_of(directory: Path) -> dict:
+        f = directory / "meta.json"
+        if f.exists():
+            try:
+                m = json.loads(f.read_text(encoding="utf-8"))
+                return {"engine_sha": m.get("engine_sha", ""), "deck_context": m.get("deck_context"),
+                        "steps_done": m.get("steps_done"), "eval_winrate": m.get("eval_winrate_vs_random"),
+                        "seed": (m.get("config") or {}).get("seed"), "status": m.get("status")}
+            except json.JSONDecodeError:
+                pass
+        return {}
+
+    def add(path: Path, kind: str, meta_dir: Path):
+        rel = str(path.relative_to(RUNS))
+        info = meta_of(meta_dir)
+        models.append({"path": rel, "kind": kind, "alias": aliases.get(rel, ""),
+                       "created": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(path.stat().st_mtime)),
+                       "stale": sha_is_stale(info.get("engine_sha", ""), engine_head()),
+                       **info})
+
+    for run_dir in sorted(RUNS.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        if run_dir.name.startswith("league-"):
+            for combo_dir in sorted(p for p in run_dir.iterdir() if p.is_dir() and p.name not in ("eval-matches",)):
+                for round_dir in sorted(combo_dir.glob("round-*")):
+                    if (round_dir / "policy.zip").exists():
+                        add(round_dir / "policy.zip", "league", round_dir)
+            continue
+        if (run_dir / "policy.zip").exists():
+            add(run_dir / "policy.zip", "single", run_dir)
+        for ck in sorted((run_dir / "checkpoints").glob("step-*.zip")):
+            add(ck, "checkpoint", run_dir)
+    return {"currentSha": current_sha, "models": models}
 
 
 def engine_sha() -> str:
@@ -437,6 +518,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/recipes/detail":
                 details = [recipe_summary(p) for p in sorted((RL_DIR / "decks").glob("*.json"))]
                 return self._send(200, details)
+            if path == "/models/detail":
+                return self._send(200, models_detail())
             if path == "/models":
                 # 기존 정책 열거(이어 학습·평가 전용의 시작점) — runs/ 하위 policy.zip + 체크포인트
                 models = []
@@ -565,13 +648,40 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "조합이 최소 2개 필요"})
             out_dir = RUNS / f"league-{name}"
             out_dir.mkdir(parents=True, exist_ok=True)
-            config = {k: data[k] for k in ("rounds", "games", "seed", "n_envs", "eval_pairs", "record_mode")
-                      if k in data}
-            config.update(name=name, combos=data["combos"])
-            (out_dir / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2),
+            # 주의: 이름을 config로 지으면 모듈 함수 config()를 함수 전체에서 가린다
+            # (실측 2026-07-31: /arena/match 분기 UnboundLocalError) — league_config로.
+            league_config = {k: data[k] for k in ("rounds", "games", "seed", "n_envs", "eval_pairs", "record_mode")
+                             if k in data}
+            league_config.update(name=name, combos=data["combos"])
+            (out_dir / "config.json").write_text(json.dumps(league_config, ensure_ascii=False, indent=2),
                                                  encoding="utf-8")
             code, payload = launch_job({"script": "league", "args": {"config": f"league-{name}/config.json"}})
             return self._send(code, {**payload, "league": f"league-{name}"})
+        if path == "/models/alias":
+            rel = str(data.get("path", ""))
+            target = (RUNS / rel).resolve()
+            if not str(target).startswith(str(RUNS.resolve())) or not target.exists():
+                return self._send(404, {"error": "없는 정책"})
+            aliases = model_aliases()
+            alias = str(data.get("alias", "")).strip()[:40]
+            if alias:
+                aliases[rel] = alias
+            else:
+                aliases.pop(rel, None)
+            ALIASES_PATH.write_text(json.dumps(aliases, ensure_ascii=False, indent=2), encoding="utf-8")
+            return self._send(200, {"path": rel, "alias": alias})
+        if path == "/models/delete":
+            # 정책 파일(zip)만 삭제 — 런 기록(meta·판 로그)은 보존(이력 메타 영구 원칙, 요구 §8.5).
+            rel = str(data.get("path", ""))
+            target = (RUNS / rel).resolve()
+            if (not str(target).startswith(str(RUNS.resolve())) or target.suffix != ".zip"
+                    or not target.exists()):
+                return self._send(404, {"error": "없는 정책(zip 경로만 허용)"})
+            target.unlink()
+            aliases = model_aliases()
+            if aliases.pop(rel, None) is not None:
+                ALIASES_PATH.write_text(json.dumps(aliases, ensure_ascii=False, indent=2), encoding="utf-8")
+            return self._send(200, {"deleted": rel})
         if path == "/recipes":
             # 레시피 저장 — 항목은 canonical/표시형 어느 쪽도 허용, 검증 결과를 함께 반환(위반이어도 저장).
             from dcgo_rl.cards import canonical_card_number

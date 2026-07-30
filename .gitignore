@@ -41,3 +41,4 @@ __pycache__/
 /docs/porting/card_ir.sqlite
 .claude/worktrees/
 rl/opsd/arena.db*
+rl/opsd/model-aliases.json

@@ -253,7 +253,8 @@ async def arena_admin(request: web.Request) -> web.Response:
                                    "cards": json.loads(r["cards_json"])} for r in rows])
 
     if request.method == "GET" and action == "overview":
-        rows = db.conn().execute("SELECT id, handle, kind, status, created FROM participants ORDER BY id").fetchall()
+        rows = db.conn().execute(
+            "SELECT id, handle, kind, status, created, policy_path FROM participants ORDER BY id").fetchall()
         return web.json_response({
             "participants": [dict(r) for r in rows],
             "settings": {k: db.setting(k) for k in
@@ -274,7 +275,13 @@ async def arena_admin(request: web.Request) -> web.Response:
             changed = arena.reaudit_pool(await cards_meta(request.app))
         return web.json_response({"ok": True, **changed})
     if action == "register-policy":
-        return web.json_response(arena.register_policy_participant(str(data["handle"])))
+        return web.json_response(arena.register_policy_participant(str(data["handle"]),
+                                                                   str(data.get("policyPath", ""))))
+    if action == "bind-policy":
+        db.conn().execute("UPDATE participants SET policy_path=? WHERE id=? AND kind='policy'",
+                          (str(data.get("policyPath", "")), int(data["id"])))
+        db.conn().commit()
+        return web.json_response({"ok": True})
     return web.json_response({"error": "unknown action"}, status=404)
 
 

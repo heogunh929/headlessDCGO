@@ -88,16 +88,16 @@ def auth(key: str | None):
         "SELECT * FROM participants WHERE key_hash=? AND status='active'", (key_hash(key),)).fetchone()
 
 
-def register_policy_participant(handle: str) -> dict:
-    """RL 스냅샷 참가자 등록 게이트(요구 §6.6.5) — kind=policy, 키 발급."""
+def register_policy_participant(handle: str, policy_path: str = "") -> dict:
+    """RL 스냅샷 참가자 등록 게이트(요구 §6.6.5) — kind=policy, 키 발급, 정책 경로 결속."""
     c = db.conn()
     if c.execute("SELECT 1 FROM participants WHERE handle=?", (handle,)).fetchone():
         return {"error": "이미 존재하는 handle"}
     key = secrets.token_urlsafe(24)
-    c.execute("INSERT INTO participants(handle, key_hash, kind, status, created) VALUES(?,?,?,?,?)",
-              (handle, key_hash(key), "policy", "active", db.now()))
+    c.execute("INSERT INTO participants(handle, key_hash, kind, status, created, policy_path) VALUES(?,?,?,?,?,?)",
+              (handle, key_hash(key), "policy", "active", db.now(), policy_path))
     c.commit()
-    return {"handle": handle, "key": key, "kind": "policy"}
+    return {"handle": handle, "key": key, "kind": "policy", "policyPath": policy_path}
 
 
 # ---------- 덱 (검증 = AS-IS 규칙 전사 + 풀 필터) ----------

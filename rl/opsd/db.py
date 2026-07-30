@@ -81,8 +81,13 @@ def conn() -> sqlite3.Connection:
         c.executescript(SCHEMA)
         # 마이그레이션: 신청 코드(claim) — 승인 후 신청자 본인이 키를 수령하는 인증 수단
         # (2026-07-30 사용자 지적: 키가 관리자에게만 보이고 신청자는 못 받는 구조 교정).
-        if "claim_hash" not in [r["name"] for r in c.execute("PRAGMA table_info(participants)")]:
+        cols = [r["name"] for r in c.execute("PRAGMA table_info(participants)")]
+        if "claim_hash" not in cols:
             c.execute("ALTER TABLE participants ADD COLUMN claim_hash TEXT")
+        # 정책 결속(정책 관리 탭 2026-07-30): policy 참가자 ↔ 정책 zip 경로(runs/ 상대) —
+        # 하우스 봇 러너(M5)의 전제. 지금은 결속 저장·표시까지.
+        if "policy_path" not in cols:
+            c.execute("ALTER TABLE participants ADD COLUMN policy_path TEXT NOT NULL DEFAULT ''")
         # 마이그레이션: Elo 기준 1000(사용자 확정 2026-07-30) — 구 DB(기준 1200)는 일괄 -200 이동.
         if c.execute("SELECT 1 FROM settings WHERE key='elo_base'").fetchone() is None:
             c.execute("UPDATE ratings SET elo = elo - 200")
