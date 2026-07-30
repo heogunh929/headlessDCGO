@@ -198,6 +198,9 @@ function renderLog() {
   const q = ($('q').value || '').toLowerCase();
   const rows = [];
   let lastGap = null;
+  // 타임라인 추종: 현재 프레임 이하의 마지막(필터 통과) 이벤트가 "지금" 항목 — 하이라이트+스크롤 앵커
+  const shown = events.filter(e => (chip === '전체' || e.cat === chip) && (!q || e.text.toLowerCase().includes(q)));
+  const now = shown.filter(e => e._f <= cur).at(-1);
   for (const e of events) {
     if (!(chip === '전체' || e.cat === chip) || (q && !e.text.toLowerCase().includes(q))) continue;
     if (e.afterStep !== lastGap) {   // 결정 경계 구분선 — "이 묶음은 s{N} 행동의 결과"임을 표시
@@ -215,12 +218,21 @@ function renderLog() {
       const seatName = /\bBot\b/.test(e.text) ? 'P2' : 'P1';
       rows.push(`<div style="padding:4px 8px;background:#ddd;font-weight:bold;font-size:12px;border-top:2px solid #999">━━ ${seatName} 턴 시작 ━━</div>`);
     }
-    rows.push(`<div class="logitem${e._f === cur ? ' cur' : ''}" onclick="go(${e._f})">
+    rows.push(`<div class="logitem${e === now ? ' cur' : ''}"${e === now ? ' id="logcur"' : ''} onclick="go(${e._f})">
       <small>s${e.afterStep}→${e.afterStep + 1} · ${e.cat}</small>${who}${e.text.trim()}</div>`);
   }
       // 스냅샷 앵커=결정 직전 상태 — afterStep=N 이벤트의 결과는 s(N+1) 보드에 보인다
       // (사용자 발견 2026-07-30: Evolution 이벤트와 보드 불일치). 클릭=결과 시점으로 이동.
   $('loglist').innerHTML = rows.join('') || '<div style="padding:8px;color:#999">없음</div>';
+  // 로그 패널 내부 스크롤만 움직인다 — scrollIntoView는 조상 스크롤(페이지)까지 끌고 가므로 금지
+  // (사용자 요구 2026-07-30: 포커스가 넘어가 화면 위치를 바꾸지는 않아야 함).
+  const el = document.getElementById('logcur');
+  const box = $('loglist');
+  if (el) {
+    const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    box.scrollTop = top - box.clientHeight / 2 + el.offsetHeight / 2;
+  }
+  else box.scrollTop = 0;   // 첫 이벤트 이전 프레임 — 로그 맨 위로
 }
 function summarize(st) {
   const z = s => `덱${s.deckCount} 손${s.hand.length} 시큐${s.security.length} 트래시${s.trash.length} 필드${s.field.length}`;
