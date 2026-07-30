@@ -169,7 +169,7 @@ class Handler(BaseHTTPRequestHandler):
             if m := re.fullmatch(r"/runs/([\w.-]+)/defects", path):
                 # 결함 요약: stderr에서 삼킴/abort의 발생 지점(첫 AS-IS 프레임)별 집계 (결함 탭용).
                 kinds: dict[str, int] = {}
-                KNOWN = {"CardObjectController.AddTrashCard": "기지·무해(원본 중복파괴, R7 확증 2026-07-30)"}
+                KNOWN = {"CardObjectController.AddTrashCard": "구(舊) 고아응답 사슬 유래 — 1a8bded6에서 근절, 재등장 시 신규 조사"}
                 lines: list[str] = []
                 for f in sorted((RUNS / m.group(1)).glob("host-stderr.log*")):
                     lines += f.read_text(encoding="utf-8", errors="replace").splitlines()
