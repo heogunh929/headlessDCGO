@@ -70,7 +70,9 @@ public sealed class MatchRecorder
             : text.Contains("Select") ? "select"
             : "effect";
 
-        Add(new { type = "event", afterStep = _steps - 1, cat, text });
+        // 이벤트에도 발생 순간의 스냅샷 동봉(로그 v2) — "등장 따로, 드로우 따로" 화면 변화를
+        // 뷰어가 이벤트 단위로 재생할 수 있게(사용자 요구 2026-07-30). gz가 반복 구조를 흡수한다.
+        Add(new { type = "event", afterStep = _steps - 1, cat, text, state = Snapshot() });
     }
 
     /// <summary>판 종료: 모드 판정 후 기록 또는 폐기. accident는 모드 무관 항상 기록.</summary>

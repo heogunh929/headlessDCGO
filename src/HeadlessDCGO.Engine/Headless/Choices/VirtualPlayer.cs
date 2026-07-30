@@ -94,14 +94,20 @@ public abstract class VirtualPlayer
     /// <summary>Selectors seen parked that this seam has no channel for. A named gap, not a silent hang.</summary>
     public HashSet<string> Unhandled { get; } = new(StringComparer.Ordinal);
 
-    /// <summary>Answers whatever prompt is currently waiting. Returns false when none is.</summary>
-    public bool Answer()
+    /// <summary>Answers whatever prompt is currently waiting. Returns false when none is.
+    ///
+    /// <paramref name="settled"/> 게이트는 **차단형 질문(패널·선택 대기)에만** 적용한다: 그쪽은 룰
+    /// 코루틴이 답을 기다리며 파킹돼 있어 지연이 안전하고, 순번 직렬화 레이스를 막는다. 비차단형
+    /// (메인 페이즈 행동·육성)은 TSM이 답을 기다리지 않고 소비 창을 닫고 지나가므로, 지연하면
+    /// 큐 액션이 다음 창으로 이월돼 낡은 액션이 실행된다(실측 2026-07-30 m-44-1: 턴4 플레이가
+    /// 턴6에, 턴6 공격이 턴8에 실행 — 게이트 전면 적용의 부작용).</summary>
+    public bool Answer(bool settled = true)
     {
         SelectCardPanel? panel = GManager.instance?.selectCardPanel;
 
         if (panel is not null && panel.gameObject.activeSelf && IsAwaitingClick(panel))
         {
-            return Decide(panel, new ChoicePrompt(nameof(SelectCardPanel), Describe(panel)));
+            return settled && Decide(panel, new ChoicePrompt(nameof(SelectCardPanel), Describe(panel)));
         }
 
         // A pending click target: the engine parked after storing the action on the object.
@@ -132,7 +138,7 @@ public abstract class VirtualPlayer
         }
 
         // A parked selection wait: identify it from the predicate closure and answer through its channel.
-        foreach (CustomYieldInstruction wait in Waits)
+        foreach (CustomYieldInstruction wait in settled ? Waits : Array.Empty<CustomYieldInstruction>())
         {
             if (SelectionChannels.Identify(wait) is not { } pending)
             {

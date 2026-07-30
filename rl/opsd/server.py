@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import smtplib
 import time
 from email.mime.text import MIMEText
@@ -132,7 +133,19 @@ async def watch(app: web.Application) -> None:
 
 
 async def index(request: web.Request) -> web.Response:
-    return web.FileResponse(STATIC / "index.html")
+    return static_page("index.html")
+
+
+def static_page(name: str) -> web.FileResponse:
+    # 모바일 브라우저 캐시로 구버전 UI가 남는 문제 방지 — 정적 페이지는 항상 재검증.
+    return web.FileResponse(STATIC / name, headers={"Cache-Control": "no-cache"})
+
+
+async def static_html(request: web.Request) -> web.Response:
+    name = request.match_info["name"]
+    if not re.fullmatch(r"[\w.-]+\.html", name):
+        raise web.HTTPNotFound
+    return static_page(name)
 
 
 async def on_start(app: web.Application) -> None:
@@ -155,6 +168,7 @@ def main() -> None:
     app.router.add_put("/api/thresholds", put_thresholds)
     app.router.add_get("/api/alerts", get_alerts)
     app.router.add_route("*", "/api/runner/{path:.*}", proxy)
+    app.router.add_get(r"/static/{name:[^/]+\.html}", static_html)
     app.router.add_static("/static", STATIC)
     app.on_startup.append(on_start)
     web.run_app(app, host=args.bind, port=args.port)

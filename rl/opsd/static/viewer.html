@@ -96,7 +96,7 @@ const $ = id => document.getElementById(id);
 let TOKEN = localStorage.getItem('opsToken') || prompt('운영자 토큰');
 localStorage.setItem('opsToken', TOKEN || '');
 const qs = new URLSearchParams(location.search);
-let header = null, steps = [], events = [], result = null, cur = 0, playing = null, tab = 'sum', chip = '전체';
+let header = null, steps = [], events = [], frames = [], result = null, cur = 0, playing = null, tab = 'sum', chip = '전체';
 let TYPES = {}, NAMES = {};   // cardNumber → cardType / 카드명 (cards.json)
 const CHIPS = ['전체','phase','effect','battle','select'];
 
@@ -113,16 +113,20 @@ async function load() {
     if (!line.trim()) continue;
     const o = JSON.parse(line);
     if (o.type === 'header') header = o;
-    else if (o.type === 'step') steps.push(o);
-    else if (o.type === 'event') events.push(o);
+    else if (o.type === 'step') { steps.push(o); o._f = frames.length; frames.push(o); }
+    else if (o.type === 'event') {
+      events.push(o);
+      if (o.state) { o._f = frames.length; frames.push(o); }          // 로그 v2: 이벤트 프레임
+      else o._f = frames.length ? frames.length - 1 : 0;              // 구버전 폴백
+    }
     else if (o.type === 'result') result = o;
   }
   $('mid').textContent = header.matchId + ' · ' + header.engineSha;
   $('deckinfo').textContent = header.players.map(p => `P${p.seat}:${p.deck}`).join('  ');
-  $('slider').max = steps.length - 1;
+  $('slider').max = frames.length - 1;
   $('slider').oninput = () => go(+$('slider').value);
   const marks = [], seen = new Set();
-  steps.forEach((s, i) => { const t = s.state.turn; if (!seen.has(t)) { seen.add(t); marks.push([i, t]); } });
+  frames.forEach((f, i) => { const t = f.state.turn; if (!seen.has(t)) { seen.add(t); marks.push([i, t]); } });
   $('marks').innerHTML = marks.filter((_, i) => i % Math.ceil(marks.length / 10 || 1) === 0)
     .map(([i, t]) => `<span style="cursor:pointer" onclick="go(${i})">T${t}</span>`).join('') + (result ? `<span>END(${result.reason})</span>` : '');
   $('chips').innerHTML = CHIPS.map(c => `<span class="chip${c === '전체' ? ' on' : ''}" onclick="setChip('${c}',this)">${c}</span>`).join('');
@@ -138,9 +142,9 @@ $('opt-hidden').onchange = () => render(); $('opt-debug').onchange = () => rende
 function toggle() {
   if (playing) { clearInterval(playing); playing = null; $('play').textContent = '▶'; return; }
   $('play').textContent = '⏸';
-  playing = setInterval(() => { if (cur >= steps.length - 1) toggle(); else go(cur + 1); }, 800 / +$('speed').value);
+  playing = setInterval(() => { if (cur >= frames.length - 1) toggle(); else go(cur + 1); }, 500 / +$('speed').value);
 }
-function go(i) { cur = Math.max(0, Math.min(steps.length - 1, i)); $('slider').value = cur; render(); }
+function go(i) { cur = Math.max(0, Math.min(frames.length - 1, i)); $('slider').value = cur; render(); }
 
 const nm = c => NAMES[c] ? `${c} ${NAMES[c]}` : c;   // 카드번호+카드명 (사용자 요구 2026-07-30)
 function chips(cards, hide) {
@@ -170,8 +174,10 @@ function sheet(el, side, name, mySeat) {
     <div class="zone zone-raise"><h4>육성 (${side.breeding.length})</h4><div class="battle-grid">${side.breeding.map(permBox).join('')}</div></div>`;
 }
 function render() {
-  const s = steps[cur]; if (!s) return;
-  const st = s.state;
+  const f = frames[cur]; if (!f) return;
+  const st = f.state;
+  const isStep = f.type === 'step';
+  const s = isStep ? f : steps.filter(x => x._f <= cur).at(-1);   // 게임 정보 박스용 최근 결정
   $('tinfo').textContent = `턴 ${st.turn} · ${st.phase} · 수번 P${st.activeSeat}`;
   sheet($('sheet1'), st.p1, 'PLAYER 1', 1); sheet($('sheet2'), st.p2, 'PLAYER 2', 2);
   let cells = '';
@@ -179,18 +185,39 @@ function render() {
   cells += `<div class="mem${st.memory === 0 ? ' cur' : ''}" style="width:30px;height:30px">0</div>`;
   for (let v = 1; v <= 10; v++) cells += `<div class="mem${st.memory === v ? ' cur' : ''}">${v}</div>`;
   $('membar').innerHTML = cells + `<span style="margin-left:12px;font-size:12px">메모리 ${st.memory >= 0 ? 'P1 +' + st.memory : 'P2 +' + (-st.memory)}</span>`;
-  const dbg = $('opt-debug').checked ? ` · tick ${s.tick} · 합법 ${s.decision.legal.length}레인 · 선택 ${s.decision.chosen}` : '';
-  const g = `<b>${s.decision.kind}</b> — P${s.seat} 결정${dbg}`;
-  const gi = $('ginfo-' + s.seat); if (gi) gi.innerHTML = g;
-  $('tpos').textContent = `스텝 ${cur + 1}/${steps.length}`;
+  if (s) {
+    const dbg = $('opt-debug').checked ? ` · tick ${s.tick} · 합법 ${s.decision.legal.length}레인 · 선택 ${s.decision.chosen}` : '';
+    const gi = $('ginfo-' + s.seat); if (gi) gi.innerHTML = `<b>${s.decision.kind}</b> — P${s.seat} 결정${dbg}`;
+  }
+  $('tpos').textContent = isStep ? `s${f.i} 결정 (${cur + 1}/${frames.length})`
+    : `${f.text.trim().split('\n')[0]} (${cur + 1}/${frames.length})`;
   renderLog(); renderState();
 }
+const KINDK = {MainPhase:'메인', PlayTarget:'대상', AttackTarget:'공격대상', Breeding:'육성', Selection:'선택', Optional:'선택', Command:'커맨드', Count:'수량'};
 function renderLog() {
   const q = ($('q').value || '').toLowerCase();
-  const rows = events
-    .filter(e => (chip === '전체' || e.cat === chip) && (!q || e.text.toLowerCase().includes(q)))
-    .map(e => `<div class="logitem${e.afterStep === cur - 1 ? ' cur' : ''}" onclick="go(${Math.max(0, e.afterStep + 1)})">
-      <small>s${e.afterStep}→${e.afterStep + 1} · ${e.cat}</small>${e.text.trim()}</div>`);
+  const rows = [];
+  let lastGap = null;
+  for (const e of events) {
+    if (!(chip === '전체' || e.cat === chip) || (q && !e.text.toLowerCase().includes(q))) continue;
+    if (e.afterStep !== lastGap) {   // 결정 경계 구분선 — "이 묶음은 s{N} 행동의 결과"임을 표시
+      lastGap = e.afterStep;
+      const d = steps[e.afterStep];
+      const label = d ? `s${e.afterStep} · P${d.seat} ${KINDK[d.decision.kind] ?? d.decision.kind} 결정의 결과` : '판 시작';
+      rows.push(`<div style="padding:3px 8px;background:#f0f0f0;font-size:11px;color:#555">── ${label} ──</div>`);
+    }
+    // 행위 주체 배지: AS-IS PlayLog는 본문에 좌석 이름(Player=P1 / Bot=P2)을 싣는다.
+    const who = /\bPlayer\b/.test(e.text) ? '<b style="color:#06c">[P1]</b> '
+             : /\bBot\b/.test(e.text) ? '<b style="color:#c60">[P2]</b> ' : '';
+    // 턴 전환 구분선: 턴은 결정 없이 강제 진행되므로 결정-경계 구분선이 안 생긴다(사용자 지적
+    // 2026-07-30) — AS-IS의 턴 시작 배너(Active Phase)를 경계로 삼아 굵은 줄을 끼운다.
+    if (/Active Phase/.test(e.text)) {
+      const seatName = /\bBot\b/.test(e.text) ? 'P2' : 'P1';
+      rows.push(`<div style="padding:4px 8px;background:#ddd;font-weight:bold;font-size:12px;border-top:2px solid #999">━━ ${seatName} 턴 시작 ━━</div>`);
+    }
+    rows.push(`<div class="logitem${e._f === cur ? ' cur' : ''}" onclick="go(${e._f})">
+      <small>s${e.afterStep}→${e.afterStep + 1} · ${e.cat}</small>${who}${e.text.trim()}</div>`);
+  }
       // 스냅샷 앵커=결정 직전 상태 — afterStep=N 이벤트의 결과는 s(N+1) 보드에 보인다
       // (사용자 발견 2026-07-30: Evolution 이벤트와 보드 불일치). 클릭=결과 시점으로 이동.
   $('loglist').innerHTML = rows.join('') || '<div style="padding:8px;color:#999">없음</div>';
@@ -217,10 +244,10 @@ function diff(a, b) {
   return lines.join('') || '<div class="diffline">변화 없음</div>';
 }
 function renderState() {
-  const s = steps[cur];
-  if (tab === 'json') $('statepane').textContent = JSON.stringify(s, null, 2);
-  else if (tab === 'sum') $('statepane').textContent = summarize(s.state);
-  else $('statepane').innerHTML = cur === 0 ? '첫 스텝' : diff(steps[cur - 1].state, s.state);
+  const f = frames[cur];
+  if (tab === 'json') $('statepane').textContent = JSON.stringify(f, null, 2);
+  else if (tab === 'sum') $('statepane').textContent = summarize(f.state);
+  else $('statepane').innerHTML = cur === 0 ? '첫 프레임' : diff(frames[cur - 1].state, f.state);
 }
 load();
 </script>

@@ -166,6 +166,24 @@ class Handler(BaseHTTPRequestHandler):
                 if not str(f).startswith(str(RUNS.resolve())) or not f.exists():
                     return self._send(404, {"error": "no match log"})
                 return self._send(200, f.read_bytes(), content_type="application/gzip")
+            if m := re.fullmatch(r"/runs/([\w.-]+)/defects", path):
+                # 결함 요약: stderr에서 삼킴/abort의 발생 지점(첫 AS-IS 프레임)별 집계 (결함 탭용).
+                f = RUNS / m.group(1) / "host-stderr.log"
+                kinds: dict[str, int] = {}
+                if f.exists():
+                    lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+                    for i, ln in enumerate(lines):
+                        if "[coroutine-exception]" in ln or "[abort]" in ln:
+                            exc = ln.split("root=")[-1].split(":")[-1].strip() if "root=" in ln else ln.split("]")[-1].strip()[:40]
+                            origin = ""
+                            for nxt in lines[i + 1:i + 8]:
+                                nxt = nxt.strip()
+                                if nxt.startswith("at ") and "Headless" not in nxt and not nxt.startswith("at System."):
+                                    origin = nxt[3:].split("(")[0]
+                                    break
+                            kind = ("[abort] " if "[abort]" in ln else "") + (origin or "?")
+                            kinds[kind] = kinds.get(kind, 0) + 1
+                return self._send(200, {"kinds": kinds})
             if m := re.fullmatch(r"/runs/([\w.-]+)/stderr", path):
                 f = RUNS / m.group(1) / "host-stderr.log"
                 return self._send(200, f.read_bytes() if f.exists() else b"", content_type="text/plain; charset=utf-8")

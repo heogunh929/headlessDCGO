@@ -213,13 +213,10 @@ public sealed class RlMatchHost
             bool settled = board == _lastBoard;
             _lastBoard = board;
 
-            if (settled)
+            foreach (PolicyVirtualPlayer seat in new[] { _seat1!, _seat2! })
             {
-                foreach (PolicyVirtualPlayer seat in new[] { _seat1!, _seat2! })
-                {
-                    seat.Waits = _driver.PendingWaits.ToArray();
-                    seat.Answer();
-                }
+                seat.Waits = _driver.PendingWaits.ToArray();
+                seat.Answer(settled);   // 게이트는 차단형 질문에만 — VirtualPlayer.Answer 참조
             }
 
             if (GManager.instance?.turnStateMachine?.endGame == true)

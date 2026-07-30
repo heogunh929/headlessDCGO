@@ -205,6 +205,10 @@ def main() -> None:
     print(f"\ntraining: {args.steps} steps in {elapsed:.0f}s -> {steps_per_sec:.1f} steps/sec "
           f"({args.n_envs} envs, {vec_cls.__name__}, json+stdio)")
 
+    # 평가 단계 표시 — 학습 종료 후 eval이 도는 동안 "안 멈춤"으로 오인되는 문제(2026-07-30).
+    meta.update(status="evaluating")
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
     eval_report = evaluate_winrate(
         model,
         n_matches=args.eval_matches,

@@ -77,7 +77,10 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
 
 async function startJob() {
   const rate = +$('f-lograte').value;
-  const args = {games: +$('f-games').value, steps: +$('f-steps').value, seed: +$('f-seed').value,
+  const games = +$('f-games').value;
+  // eval 자동 배율: 고급에서 손대지 않았으면(기본 120) 게임 수에 맞춰 축소 — 1판 테스트에 120판 평가 방지.
+  if (+$('f-eval').value === 120) $('f-eval').value = Math.min(120, Math.max(4, Math.round(games / 4)));
+  const args = {games, steps: +$('f-steps').value, seed: +$('f-seed').value,
     n_envs: +$('f-envs').value, vec: 'subproc',
     record_mode: rate > 0 ? 'sample:' + rate : 'accident',
     checkpoint_every: +$('f-ck').value, checkpoint_keep: +$('f-keep').value, eval_matches: +$('f-eval').value};
@@ -97,8 +100,9 @@ async function pollJobs() {
       const progress = cfg.games
         ? `판 ${Math.min(s.matches_played ?? 0, cfg.games)}/${cfg.games}회`
         : `판 ${s.matches_played ?? 0}회 · ${s.progress_steps == null ? '-' : Math.min(s.progress_steps, cfg.steps ?? 1e9)}/${cfg.steps ?? '?'} 스텝`;
-      return `<tr><td>${id}</td><td class="ok">실행 중</td>
-        <td>${progress}</td><td>${s.rss_mb} MB</td><td>${meta.engine_sha || ''}</td>
+      const phase = meta.status === 'evaluating' ? '평가 중' : '학습 중';
+      return `<tr><td>${id}</td><td class="ok">${phase}</td>
+        <td>${progress}${meta.status === 'evaluating' ? ` · eval ${cfg.eval_matches ?? ''}판` : ''}</td><td>${s.rss_mb} MB</td><td>${meta.engine_sha || ''}</td>
         <td>${s.alive ? `<button class="act" onclick="sig('${id}','stop')">정지(graceful)</button>
         <button class="act" onclick="sig('${id}','kill')">강제</button>` : ''}</td></tr>`;
     });
@@ -127,7 +131,20 @@ async function pollRuns() {
   });
   $('runs').innerHTML = `<table><tr><th>런</th><th>상태</th><th>스텝</th><th>eval 승률 CI</th>
     <th>판 사유</th><th>swallowed</th><th>steps/s</th><th>엔진 sha</th><th>시드</th><th>판로그</th></tr>${rows.join('')}</table>`;
-  $('census').innerHTML = $('runs').innerHTML;
+  // 결함 탭: 결함 있는 런만, 발생 지점별 분해 + 사고판 바로가기 (요구 ④ 가독화 2026-07-30).
+  const bad = runs.filter(r => (r.meta.census || {}).swallowed > 0 ||
+    Object.keys((r.meta.census || {}).reasons || {}).some(k => k.startsWith('aborted')));
+  const cards = await Promise.all(bad.map(async r => {
+    const d = await api(`/api/runner/runs/${r.name}/defects`).catch(() => ({kinds: {}}));
+    const kinds = Object.entries(d.kinds || {}).map(([k, v]) =>
+      `<tr><td style="font-family:monospace">${k}</td><td>${v}건</td></tr>`).join('');
+    const links = r.matches.map(x =>
+      `<a href="/static/viewer.html?run=${r.name}&match=${x}" target="_blank">${x.replace('.jsonl.gz','')}</a>`).join(' · ');
+    return `<div class="card"><b>${r.name}</b> — swallowed ${(r.meta.census||{}).swallowed ?? 0}건
+      <table style="margin:6px 0">${kinds || '<tr><td>stderr 없음</td></tr>'}</table>
+      <div style="font-size:12px">기록된 판: ${links || '없음'}</div></div>`;
+  }));
+  $('census').innerHTML = cards.join('') || '결함 있는 런 없음';
 }
 
 let RULES = [];
