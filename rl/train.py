@@ -68,6 +68,14 @@ def main() -> None:
                         help="판 기록 모드: off|all|accident|sample:N (설계 v1 §2, 기본=사고판만)")
     parser.add_argument("--checkpoint-every", type=int, default=2000, help="체크포인트 주기(스텝)")
     parser.add_argument("--checkpoint-keep", type=int, default=5, help="체크포인트 보존 개수")
+    parser.add_argument("--init-model", type=str, default=None,
+                        help="기존 정책(zip)에서 시작 — 이어 학습. --steps는 이 런에서 추가로 도는 스텝")
+    parser.add_argument("--eval-only", action="store_true",
+                        help="학습 없이 --init-model 정책을 평가만 (eval_matches 판)")
+    parser.add_argument("--my-recipe", type=str, default=None,
+                        help="조합 리그 모드: 내 덱(레시피 파일) 고정 — --opponents-json과 함께")
+    parser.add_argument("--opponents-json", type=str, default=None,
+                        help='조합 리그 상대 명세 파일: [{"id","recipe","model"|null}, ...] — 상대 좌석을 그 정책이 플레이')
     args = parser.parse_args()
 
     # 스키마/vocab 프로브(cardId 채널 인덱스는 호스트 describe가 진실 — 이중 구현 금지).
@@ -107,17 +115,59 @@ def main() -> None:
 
     recipe_paths = [str(Path(p).resolve()) for p in (args.recipes or [])]
 
+    # 평가 전용: 학습 루프 없이 기존 정책만 평가(설계 §6 보완 2026-07-30 — "기존 모델 활용").
+    if args.eval_only:
+        if not args.init_model:
+            raise SystemExit("--eval-only에는 --init-model <policy.zip>이 필요합니다")
+        model = MaskablePPO.load(str(Path(args.init_model).resolve()))
+        meta.update(status="evaluating")
+        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        eval_report = evaluate_winrate(
+            model, n_matches=args.eval_matches, experiment_seed=args.seed + 777,
+            deck_provider=(load_recipe_pool(recipe_paths) if recipe_paths else None),
+            n_jobs=args.eval_jobs)
+        lo, hi = eval_report["ci95"]
+        meta.update(status="done", ended=time.strftime("%Y-%m-%dT%H:%M:%S%z"), steps_done=0,
+                    eval_winrate_vs_random=eval_report["winrate"], eval_ci95=eval_report["ci95"],
+                    eval_matches=args.eval_matches,
+                    eval_record={k: eval_report[k] for k in ("wins", "losses", "completed", "truncated")})
+        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        print(f"eval-only: winrate {eval_report['winrate']:.3f} (CI95 {lo:.3f}~{hi:.3f}, {args.eval_matches}판)")
+        return
+
+    # 조합 리그 모드(2026-07-30 와이어프레임 확정): 내 덱 고정 + 상대 좌석 = 다른 조합의 동결
+    # 정책·그 덱. 공급자 상태가 env 인스턴스 내부에 있어야 하므로 in-process(dummy) 강제.
+    league_mode = bool(args.my_recipe)
+    if league_mode and args.vec == "subproc":
+        print("league 모드: --vec dummy 강제(공급자 상태는 in-process 전제)")
+        args.vec = "dummy"
+
+    def combo_provider(rank: int):
+        import random as _random
+
+        from dcgo_rl.cards import CardIndex
+        from dcgo_rl.decks.recipe import load_recipe_file
+        from dcgo_rl.league.combos import Combo, ComboOpponents
+        index = CardIndex.load()
+        mine = Combo("me", load_recipe_file(Path(args.my_recipe), index), None)
+        spec = json.loads(Path(args.opponents_json).read_text(encoding="utf-8")) if args.opponents_json else []
+        others = [Combo(o["id"], load_recipe_file(Path(o["recipe"]), index), o.get("model"))
+                  for o in spec] or [Combo("random", mine.recipe, None)]   # 상대 없음 = 내 덱 랜덤 상대
+        return ComboOpponents(mine, others, _random.Random(args.seed * 77 + rank))
+
     def make_env(rank: int):
         def _thunk():
+            combo = combo_provider(rank) if league_mode else None
             env = DcgoSeatEnv(
                 experiment_seed=args.seed * 1000 + rank,
                 result_log=str(out_dir / f"results-env{rank}.jsonl"),
                 log_level=args.log_level,
                 event_log=(str(out_dir / f"event-env{rank}.jsonl") if args.log_level != "OFF" else None),
-                deck_provider=(load_recipe_pool(recipe_paths) if recipe_paths else None),
+                deck_provider=combo if league_mode else (load_recipe_pool(recipe_paths) if recipe_paths else None),
                 match_log_dir=str(out_dir / "matches"),
                 record_mode=args.record_mode,
                 engine_sha=engine_sha,
+                **({"opponent": combo} if league_mode else {}),
             )
             return ActionMasker(env, lambda e: e.action_masks())
 
@@ -126,21 +176,27 @@ def main() -> None:
     vec_cls = SubprocVecEnv if args.vec == "subproc" else DummyVecEnv
     vec_env = vec_cls([make_env(rank) for rank in range(args.n_envs)])
 
-    model = MaskablePPO(
-        "MlpPolicy",
-        vec_env,
-        seed=args.seed,
-        n_steps=256,
-        batch_size=256,
-        verbose=1,
-        policy_kwargs={
-            "features_extractor_class": CardEmbeddingExtractor,
-            "features_extractor_kwargs": {
-                "card_indices": card_indices,
-                "vocab_size": vocab_size,
+    if args.init_model:
+        # 이어 학습: 기존 정책의 가중치·하이퍼파라미터를 그대로 싣고 새 vec_env에 연결.
+        # 스텝 카운트는 이 런 기준(reset) — --steps = "이 런에서 추가로 도는 스텝".
+        model = MaskablePPO.load(str(Path(args.init_model).resolve()), env=vec_env)
+        print(f"init-model: {args.init_model} 에서 이어 학습")
+    else:
+        model = MaskablePPO(
+            "MlpPolicy",
+            vec_env,
+            seed=args.seed,
+            n_steps=256,
+            batch_size=256,
+            verbose=1,
+            policy_kwargs={
+                "features_extractor_class": CardEmbeddingExtractor,
+                "features_extractor_kwargs": {
+                    "card_indices": card_indices,
+                    "vocab_size": vocab_size,
+                },
             },
-        },
-    )
+        )
 
     # 안전망 3 — 체크포인트 + SIGINT graceful(설계 v1 §6). SB3의 KeyboardInterrupt 전파를 이용:
     # SIGINT 수신 → learn 탈출 → 최종 저장 경로로 합류. 체크포인트는 주기 저장·최근 K개 보존.
@@ -213,7 +269,9 @@ def main() -> None:
         model,
         n_matches=args.eval_matches,
         experiment_seed=args.seed + 777,
-        deck_provider=(load_recipe_pool(recipe_paths) if recipe_paths else None),
+        # 리그 모드의 자체 eval은 내 덱 미러 vs 랜덤(참고 지표) — 조합 간 교차 평가는 league.py 소관.
+        deck_provider=(load_recipe_pool([args.my_recipe]) if league_mode
+                       else load_recipe_pool(recipe_paths) if recipe_paths else None),
         n_jobs=args.eval_jobs,
     )
     lo, hi = eval_report["ci95"]

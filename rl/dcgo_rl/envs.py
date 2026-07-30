@@ -83,7 +83,12 @@ class DcgoSeatEnv(gym.Env):
 
         if self._deck_provider is not None:
             # 덱 샘플링도 match_seed 파생 rng — 같은 (experiment_seed, episode)면 같은 매치업 (NFR-3).
-            deck_a, deck_b = self._deck_provider.next_matchup(self._match_rng)
+            # 좌석 인지 공급자(조합 리그): 내 덱이 에이전트 좌석을 따라가야 한다(좌석 교대와 무관하게
+            # "내 정책=내 덱, 상대 정책=상대 덱" 불변) — next_matchup_seated가 있으면 그 경로.
+            if hasattr(self._deck_provider, "next_matchup_seated"):
+                deck_a, deck_b = self._deck_provider.next_matchup_seated(self._match_rng, self._agent_seat)
+            else:
+                deck_a, deck_b = self._deck_provider.next_matchup(self._match_rng)
             self._decks = {"1": deck_a.to_json(), "2": deck_b.to_json()}
 
         msg = self._client.reset(match_seed, self._decks, self._max_steps)

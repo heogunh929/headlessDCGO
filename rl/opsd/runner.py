@@ -17,7 +17,7 @@ import subprocess
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 RL_DIR = Path(__file__).resolve().parents[1]
 REPO = RL_DIR.parent
@@ -26,23 +26,215 @@ CONFIG_PATH = RL_DIR / "opsd" / "runner-config.json"
 PYTHON = str(RL_DIR / ".venv" / "bin" / "python")   # uv 래퍼 우회 — SIGTERM이 python에 직행 [M1 실측]
 
 # 화이트리스트(요구 §8): 스크립트와 허용 인자·형만 통과. 임의 셸 불가.
+# recipes/init_model은 경로 인자 — 각각 rl/decks/·runs/ 밑으로 잠근다(_start_job의 전용 검증).
 SCRIPTS = {
     "train": {
         "file": "train.py",
         "args": {"steps": int, "games": int, "n_envs": int, "seed": int, "eval_matches": int, "vec": str,
-                 "record_mode": str, "checkpoint_every": int, "checkpoint_keep": int, "out": str},
+                 "record_mode": str, "checkpoint_every": int, "checkpoint_keep": int, "out": str,
+                 "recipes": list, "init_model": str, "eval_only": int},
+    },
+    "league": {
+        "file": "league.py",
+        "args": {"config": str},   # config 경로는 runs/ 하위로 잠금(launch_job 전용 검증)
     },
 }
 
-DEFAULT_CONFIG = {"worker_cap": 6, "notes": "worker_cap: rl-workers-six 규약 + OOM 이력(2026-07-29) 기준값"}
+DEFAULT_CONFIG = {"worker_cap": 6, "arena_cap": 2,
+                  "notes": "worker_cap: rl-workers-six 규약 + OOM 이력(2026-07-29) 기준값 / arena_cap: 동시 아레나 판 상한(설계 R-b)"}
 
 _jobs: dict[str, dict] = {}   # job_id -> {proc, script, args, out, log, started}
+_arena: dict[str, "ArenaMatch"] = {}   # matchId -> 진행 중 아레나 판 (릴레이 §3.1 /arena/match)
+_queue: list[dict] = []       # 순차 잡 큐(덱별 정책 배치 등) — 슬롯이 비면 스케줄러가 하나씩 기동
+_queue_done: list[dict] = []  # 큐에서 소화된 항목의 기록 {job|error, script, args}
 
 
 def config() -> dict:
     if CONFIG_PATH.exists():
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     return dict(DEFAULT_CONFIG)
+
+
+_cards_meta: dict | None = None
+
+
+def cards_meta() -> dict:
+    """카드번호 → {name, type, maxCount} — 덱 검증기(opsd)의 데이터원. cards.json(엔진 export)에
+    자산의 MaxCountInDeck만 보강해 합친다. 규칙 자체는 AS-IS DeckData.IsValidDeckData가 정본."""
+    global _cards_meta
+    if _cards_meta is None:
+        base: dict[str, dict] = {}
+        cards_path = REPO / "src/HeadlessDCGO.Engine/Assets/CardBaseEntity/cards.json"
+        for entry in json.loads(cards_path.read_text(encoding="utf-8")):
+            base.setdefault(entry["cardNumber"], {"name": entry["name"], "type": entry["cardType"]})
+        for asset in (REPO / "DCGO/Assets/CardBaseEntity").rglob("*.asset"):
+            cid, maxc = None, None
+            try:
+                for line in asset.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if line.startswith("  CardID:"):
+                        cid = line.split(":", 1)[1].strip()
+                    elif line.startswith("  MaxCountInDeck:"):
+                        maxc = int(line.split(":", 1)[1])
+            except (OSError, ValueError):
+                continue
+            if cid in base and maxc is not None and "maxCount" not in base[cid]:
+                base[cid]["maxCount"] = maxc
+        _cards_meta = base
+    return _cards_meta
+
+
+def recipe_display(canonical: str) -> str:
+    return canonical.replace("_", "-", 1)
+
+
+def validate_recipe(main: list, digitama: list) -> list[str]:
+    """학습 덱 검증 — AS-IS 규칙(실존·메인 50·디지타마 ≤5·MaxCountInDeck·타입 분리)만.
+    카드 풀 필터 없음(요구 §6.6.5: RL 덱은 파이프라인 소유·풀 제약 없음)."""
+    meta = cards_meta()
+    errors: list[str] = []
+    counts: dict[str, int] = {}
+    for section, entries, egg in (("main", main, False), ("digitama", digitama, True)):
+        for entry in entries:
+            display = recipe_display(str(entry.get("card", "")))
+            count = int(entry.get("count", 0))
+            info = meta.get(display)
+            if info is None:
+                errors.append(f"{section}: 존재하지 않는 카드 {display}")
+                continue
+            if count < 1:
+                errors.append(f"{section}: {display} 매수 {count} 무효")
+            is_egg = info.get("type") == "DigiEgg"
+            if egg != is_egg:
+                errors.append(f"{section}: {display}는 {'디지타마' if is_egg else '일반 카드'} — 구역이 틀림")
+            counts[display] = counts.get(display, 0) + count
+    main_total = sum(int(e.get("count", 0)) for e in main)
+    egg_total = sum(int(e.get("count", 0)) for e in digitama)
+    if main_total != 50:
+        errors.append(f"메인 덱은 정확히 50장(현재 {main_total})")
+    if egg_total > 5:
+        errors.append(f"디지타마 덱은 최대 5장(현재 {egg_total})")
+    for display, total in counts.items():
+        cap_count = meta.get(display, {}).get("maxCount", 4)
+        if total > cap_count:
+            errors.append(f"{display}: {total}장 > 최대 {cap_count}장")
+    return errors
+
+
+def recipe_summary(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as ex:
+        return {"file": path.name, "name": path.stem, "error": str(ex)}
+    meta = cards_meta()
+    def section(key):
+        return [{"card": e["card"], "display": recipe_display(e["card"]),
+                 "name": meta.get(recipe_display(e["card"]), {}).get("name", "?"),
+                 "count": int(e["count"])} for e in data.get(key, [])]
+    main, digitama = section("main"), section("digitama")
+    reasons = validate_recipe(main, digitama)
+    return {"file": path.name, "name": data.get("name", path.stem),
+            "main": main, "digitama": digitama,
+            "mainCount": sum(e["count"] for e in main), "eggCount": sum(e["count"] for e in digitama),
+            "valid": not reasons, "reasons": reasons}
+
+
+def parse_deck_text(text: str, name: str) -> dict:
+    """클립보드 덱리스트 → 레시피. digimonmeta JSON 배열(카드 반복=매수)과 줄 단위 표기 모두 —
+    정본 파서(dcgo_rl.decks.recipe.parse_external) 재사용."""
+    from dcgo_rl.cards import CardIndex
+    from dcgo_rl.decks.recipe import RecipeError, parse_external
+    text = text.strip()
+    lines: list[str]
+    if text.startswith("["):
+        try:
+            lines = [str(x) for x in json.loads(text)]
+        except json.JSONDecodeError:
+            lines = text.splitlines()
+    else:
+        lines = text.splitlines()
+    try:
+        recipe = parse_external(lines, CardIndex.load(), name=name or "가져온 덱")
+    except RecipeError as ex:
+        return {"error": "미지원 카드", "reasons": [recipe_display(c) for c in ex.unknown_cards]}
+    data = recipe.to_json()
+    return {"name": data["name"], "main": data["main"], "digitama": data["digitama"]}
+
+
+def engine_sha() -> str:
+    try:
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True,
+                              text=True, timeout=10).stdout.strip()[:12]
+    except OSError:
+        return ""
+
+
+class ArenaMatch:
+    """아레나 판 1개 = RlBridgeHost 1프로세스. runner는 stdio를 큐로 릴레이만 한다 —
+    좌석 라우팅·타임아웃·Elo는 opsd(브로커) 소관(설계 §3.2.5)."""
+
+    def __init__(self, match_id: str, seed: int, decks: dict, max_steps: int, out_dir: Path):
+        import queue as _queue
+        import threading
+        self.id = match_id
+        self.out_dir = out_dir
+        self.queue: _queue.Queue = _queue.Queue()
+        self.done = False
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dll = REPO / "tools/RlBridgeHost/bin/Release/net8.0/RlBridgeHost.dll"
+        self.proc = subprocess.Popen(
+            ["dotnet", str(dll), "--describe",
+             "--match-log-dir", str(out_dir), "--record-mode", "all", "--engine-sha", engine_sha()],
+            cwd=REPO, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=open(out_dir.parent / "host-stderr.log", "ab"), text=True, start_new_session=True)
+        threading.Thread(target=self._reader, daemon=True).start()
+        self._send({"type": "hello"})
+        self._await("welcome")
+        self._send({"type": "claim", "seats": [1, 2]})
+        self._await("claimed")
+        self._send({"type": "reset", "seed": seed, "decks": decks, "maxSteps": max_steps, "matchId": match_id})
+
+    def _send(self, obj: dict) -> None:
+        self.proc.stdin.write(json.dumps(obj) + "\n")
+        self.proc.stdin.flush()
+
+    def _reader(self) -> None:
+        for line in self.proc.stdout:
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("type") == "result":
+                self.done = True
+            self.queue.put(msg)
+        self.done = True
+        self.queue.put({"type": "host_exit", "returncode": self.proc.poll()})
+
+    def _await(self, type_: str, timeout: float = 60.0) -> dict:
+        import queue as _queue
+        try:
+            while True:
+                msg = self.queue.get(timeout=timeout)
+                if msg.get("type") == type_:
+                    return msg
+        except _queue.Empty:
+            raise RuntimeError(f"host {type_} 응답 없음")
+
+    def next_message(self, wait: float) -> dict | None:
+        import queue as _queue
+        try:
+            return self.queue.get(timeout=wait)
+        except _queue.Empty:
+            return None
+
+    def act(self, seat: int, index: int) -> None:
+        self._send({"type": "action", "seat": seat, "index": index})
+
+    def close(self) -> None:
+        try:
+            os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, OSError):
+            pass
+        self.done = True
 
 
 def rss_mb(root_pid: int) -> float:
@@ -119,6 +311,92 @@ def run_summary(run_dir: Path) -> dict:
     return {"name": run_dir.name, "meta": meta, "matches": matches}
 
 
+def launch_job(data: dict) -> tuple[int, dict]:
+    """잡 기동 코어 — HTTP 핸들러와 큐 스케줄러가 공용."""
+    script = data.get("script")
+    spec = SCRIPTS.get(script)
+    if spec is None:
+        return 400, {"error": f"script whitelist: {list(SCRIPTS)}"}
+    # 동시 1개 강제(요구 §4) — 학습 잡이 살아 있으면 거부.
+    for job in _jobs.values():
+        if job["proc"].poll() is None:
+            return 409, {"error": "job already running", "job": job["script"]}
+
+    args: list[str] = []
+    n_envs = None
+    for key, value in (data.get("args") or {}).items():
+        caster = spec["args"].get(key)
+        if caster is None:
+            return 400, {"error": f"arg whitelist: {list(spec['args'])}"}
+        if key == "recipes":
+            paths = []
+            for name in (value or []):
+                p = (RL_DIR / "decks" / str(name)).resolve()
+                if not str(p).startswith(str((RL_DIR / "decks").resolve())) or not p.exists():
+                    return 400, {"error": f"레시피는 rl/decks/ 하위만: {name}"}
+                paths.append(str(p))
+            if paths:
+                args += ["--recipes", *paths]
+            continue
+        if key == "init_model":
+            p = (RUNS / str(value)).resolve()
+            if not str(p).startswith(str(RUNS.resolve())) or not p.exists():
+                return 400, {"error": f"시작 정책은 runs/ 하위만: {value}"}
+            args += ["--init-model", str(p)]
+            continue
+        if key == "config":
+            p = (RUNS / str(value)).resolve()
+            if not str(p).startswith(str(RUNS.resolve())) or not p.exists():
+                return 400, {"error": f"config는 runs/ 하위만: {value}"}
+            args += ["--config", str(p)]
+            continue
+        if key == "eval_only":
+            if int(value):
+                args += ["--eval-only"]
+            continue
+        value = caster(value)
+        if key == "n_envs":
+            n_envs = value
+        args += [f"--{key.replace('_', '-')}", str(value)]
+
+    cap = int(config().get("worker_cap", 6))
+    if n_envs is not None and n_envs > cap:
+        return 400, {"error": f"worker_cap {cap} 초과 (n_envs={n_envs}) — 러너 설정이 강제"}
+
+    job_id = time.strftime("job-%Y%m%d-%H%M%S")
+    if "config" in (data.get("args") or {}):
+        out_abs = (RUNS / str(data["args"]["config"])).resolve().parent   # league: 산출 = config 폴더
+    else:
+        out = data.get("args", {}).get("out") or f"../runs/{job_id}"
+        out_abs = (RL_DIR / out).resolve()
+        if "out" not in (data.get("args") or {}):
+            args += ["--out", out]
+    log_path = out_abs / "job.log"
+    out_abs.mkdir(parents=True, exist_ok=True)
+
+    with open(log_path, "ab") as log:
+        proc = subprocess.Popen(
+            [PYTHON, spec["file"], *args], cwd=RL_DIR,
+            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    _jobs[job_id] = {"proc": proc, "script": script, "args": data.get("args") or {},
+                     "out": str(out_abs), "log": str(log_path), "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+    return 201, {"job": job_id, "out": str(out_abs), "pid": proc.pid}
+
+
+def queue_scheduler() -> None:
+    """순차 잡 큐(덱별 정책 배치): 잡 슬롯이 비면 큐 머리부터 하나씩 기동. 실패는 기록하고 다음으로."""
+    while True:
+        time.sleep(4)
+        if not _queue:
+            continue
+        if any(job["proc"].poll() is None for job in _jobs.values()):
+            continue
+        entry = _queue.pop(0)
+        code, payload = launch_job(entry)
+        _queue_done.append({"script": entry.get("script"), "args": entry.get("args"),
+                            **({"job": payload.get("job")} if code == 201 else {"error": payload.get("error")})})
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "dcgo-runner/1"
 
@@ -142,7 +420,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._authed():
             return self._send(401, {"error": "token"})
-        path = urlparse(self.path).path
+        path = unquote(urlparse(self.path).path)
         try:
             if path == "/health":
                 return self._send(200, {"ok": True, "worker_cap": config().get("worker_cap")})
@@ -151,16 +429,61 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/cards":
                 f = REPO / "src/HeadlessDCGO.Engine/Assets/CardBaseEntity/cards.json"
                 return self._send(200, f.read_bytes())
+            if path == "/cards-meta":
+                return self._send(200, cards_meta())
+            if path == "/recipes":
+                # 학습 덱 레시피 라이브러리(런처 드롭다운용) — RL 덱은 파이프라인 소유(요구 §6.6.5)
+                return self._send(200, sorted(p.name for p in (RL_DIR / "decks").glob("*.json")))
+            if path == "/recipes/detail":
+                details = [recipe_summary(p) for p in sorted((RL_DIR / "decks").glob("*.json"))]
+                return self._send(200, details)
+            if path == "/models":
+                # 기존 정책 열거(이어 학습·평가 전용의 시작점) — runs/ 하위 policy.zip + 체크포인트
+                models = []
+                for run_dir in sorted(RUNS.iterdir()):
+                    if not run_dir.is_dir():
+                        continue
+                    if (run_dir / "policy.zip").exists():
+                        models.append(f"{run_dir.name}/policy.zip")
+                    for ck in sorted((run_dir / "checkpoints").glob("step-*.zip")):
+                        models.append(f"{run_dir.name}/checkpoints/{ck.name}")
+                return self._send(200, models)
             if path == "/jobs":
                 return self._send(200, {jid: job_status(j) for jid, j in _jobs.items()})
+            if path == "/jobs/queue":
+                return self._send(200, {"pending": _queue, "done": _queue_done[-20:]})
             if m := re.fullmatch(r"/jobs/([\w.-]+)/status", path):
                 job = _jobs.get(m.group(1))
                 return self._send(200, job_status(job)) if job else self._send(404, {"error": "no job"})
             if path == "/runs":
                 runs = [run_summary(d) for d in sorted(RUNS.iterdir()) if d.is_dir()]
                 return self._send(200, runs)
+            if m := re.fullmatch(r"/arena/match/([\w.-]+)/turn", path):
+                match = _arena.get(m.group(1))
+                if match is None:
+                    return self._send(404, {"error": "no match"})
+                query = urlparse(self.path).query
+                wait = float(re.search(r"wait=([\d.]+)", query).group(1)) if "wait=" in query else 25.0
+                msg = match.next_message(min(wait, 55.0))
+                return self._send(200, msg if msg is not None else {"type": "none"})
             if m := re.fullmatch(r"/runs/([\w.-]+)/meta", path):
                 return self._send(200, run_summary(RUNS / m.group(1)))
+            if m := re.fullmatch(r"/runs/([\w가-힣.-]+)/league", path):
+                f = RUNS / m.group(1) / "league.json"
+                if not f.exists():
+                    return self._send(404, {"error": "league.json 없음"})
+                return self._send(200, f.read_bytes())
+            if path == "/leagues":
+                out = []
+                for d in sorted(RUNS.glob("league-*")):
+                    if (d / "league.json").exists():
+                        try:
+                            s = json.loads((d / "league.json").read_text(encoding="utf-8"))
+                            out.append({"run": d.name, "status": s.get("status"), "round": s.get("round"),
+                                        "rounds": (s.get("config") or {}).get("rounds")})
+                        except json.JSONDecodeError:
+                            pass
+                return self._send(200, out)
             if m := re.fullmatch(r"/runs/([\w.-]+)/matches/([\w.-]+\.jsonl\.gz)", path):
                 f = (RUNS / m.group(1) / "matches" / m.group(2)).resolve()
                 if not str(f).startswith(str(RUNS.resolve())) or not f.exists():
@@ -208,12 +531,95 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authed():
             return self._send(401, {"error": "token"})
-        path = urlparse(self.path).path
+        path = unquote(urlparse(self.path).path)
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0)
         data = json.loads(body) if body else {}
 
         if path == "/jobs":
             return self._start_job(data)
+        if path == "/jobs/batch":
+            # 덱별 정책 배치(사용자 요구 2026-07-30): 잡 목록을 순차 큐에 적재 — 스케줄러가 하나씩.
+            jobs = data.get("jobs") or []
+            for entry in jobs:
+                if entry.get("script") not in SCRIPTS:
+                    return self._send(400, {"error": f"script whitelist: {list(SCRIPTS)}"})
+            _queue.extend(jobs)
+            return self._send(201, {"queued": len(jobs), "queue_len": len(_queue)})
+        if path == "/jobs/queue/clear":
+            cleared = len(_queue)
+            _queue.clear()
+            return self._send(200, {"cleared": cleared})
+        if path == "/league":
+            # 리그 기동(와이어프레임 확정): config를 runs/league-<name>/에 쓰고 league.py 잡으로 기동.
+            name = re.sub(r"[^\w가-힣-]", "_", str(data.get("name") or time.strftime("league-%m%d-%H%M")))
+            for combo in data.get("combos") or []:
+                deck = (RL_DIR / "decks" / str(combo.get("deck", ""))).resolve()
+                if not str(deck).startswith(str((RL_DIR / "decks").resolve())) or not deck.exists():
+                    return self._send(400, {"error": f"없는 덱: {combo.get('deck')}"})
+                if combo.get("init"):
+                    model = (RUNS / str(combo["init"])).resolve()
+                    if not str(model).startswith(str(RUNS.resolve())) or not model.exists():
+                        return self._send(400, {"error": f"없는 시작 정책: {combo['init']}"})
+                    combo["init"] = str(model)
+            if len(data.get("combos") or []) < 2:
+                return self._send(400, {"error": "조합이 최소 2개 필요"})
+            out_dir = RUNS / f"league-{name}"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            config = {k: data[k] for k in ("rounds", "games", "seed", "n_envs", "eval_pairs", "record_mode")
+                      if k in data}
+            config.update(name=name, combos=data["combos"])
+            (out_dir / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2),
+                                                 encoding="utf-8")
+            code, payload = launch_job({"script": "league", "args": {"config": f"league-{name}/config.json"}})
+            return self._send(code, {**payload, "league": f"league-{name}"})
+        if path == "/recipes":
+            # 레시피 저장 — 항목은 canonical/표시형 어느 쪽도 허용, 검증 결과를 함께 반환(위반이어도 저장).
+            from dcgo_rl.cards import canonical_card_number
+            name = str(data.get("name") or "무제 덱").strip()[:60]
+            fname = re.sub(r"[^\w가-힣-]", "_", data.get("file") or name) + ".json"
+            target = (RL_DIR / "decks" / fname).resolve()
+            if not str(target).startswith(str((RL_DIR / "decks").resolve())):
+                return self._send(400, {"error": "잘못된 파일명"})
+            def norm(entries):
+                return [{"card": canonical_card_number(str(e["card"])), "count": int(e["count"])}
+                        for e in (entries or []) if int(e.get("count", 0)) > 0]
+            main, digitama = norm(data.get("main")), norm(data.get("digitama"))
+            target.write_text(json.dumps({"name": name, "source": "operator", "main": main, "digitama": digitama},
+                                         ensure_ascii=False, indent=2), encoding="utf-8")
+            return self._send(200, recipe_summary(target))
+        if path == "/recipes/parse":
+            return self._send(200, parse_deck_text(str(data.get("text", "")), str(data.get("name", ""))))
+        if m := re.fullmatch(r"/recipes/([\w가-힣.-]+\.json)/delete", path):
+            target = (RL_DIR / "decks" / m.group(1)).resolve()
+            if not str(target).startswith(str((RL_DIR / "decks").resolve())) or not target.exists():
+                return self._send(404, {"error": "없는 레시피"})
+            target.unlink()
+            return self._send(200, {"deleted": m.group(1)})
+        if path == "/arena/match":
+            live = [a for a in _arena.values() if not a.done]
+            cap = int(config().get("arena_cap", 2))
+            if len(live) >= cap:
+                return self._send(429, {"error": f"arena_cap {cap} — 진행 중 {len(live)}판"})
+            match_id = data["matchId"]
+            day_dir = RUNS / time.strftime("arena-%Y%m%d") / "matches"
+            try:
+                _arena[match_id] = ArenaMatch(match_id, int(data.get("seed", 0)), data["decks"],
+                                              int(data.get("maxSteps", 2000)), day_dir)
+            except (OSError, RuntimeError, KeyError) as ex:
+                return self._send(500, {"error": str(ex)})
+            return self._send(201, {"match": match_id, "run": day_dir.parent.name,
+                                    "log": f"{day_dir.parent.name}/matches/{match_id}.jsonl.gz"})
+        if m := re.fullmatch(r"/arena/match/([\w.-]+)/act", path):
+            match = _arena.get(m.group(1))
+            if match is None:
+                return self._send(404, {"error": "no match"})
+            match.act(int(data["seat"]), int(data["index"]))
+            return self._send(200, {"ok": True})
+        if m := re.fullmatch(r"/arena/match/([\w.-]+)/end", path):
+            match = _arena.pop(m.group(1), None)
+            if match is not None:
+                match.close()
+            return self._send(200, {"ok": True})
         if m := re.fullmatch(r"/jobs/([\w.-]+)/(stop|kill)", path):
             job = _jobs.get(m.group(1))
             if not job:
@@ -230,45 +636,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
     def _start_job(self, data: dict):
-        script = data.get("script")
-        spec = SCRIPTS.get(script)
-        if spec is None:
-            return self._send(400, {"error": f"script whitelist: {list(SCRIPTS)}"})
-        # 동시 1개 강제(요구 §4) — 학습 잡이 살아 있으면 거부.
-        for job in _jobs.values():
-            if job["proc"].poll() is None:
-                return self._send(409, {"error": "job already running", "job": job["script"]})
-
-        args: list[str] = []
-        n_envs = None
-        for key, value in (data.get("args") or {}).items():
-            caster = spec["args"].get(key)
-            if caster is None:
-                return self._send(400, {"error": f"arg whitelist: {list(spec['args'])}"})
-            value = caster(value)
-            if key == "n_envs":
-                n_envs = value
-            args += [f"--{key.replace('_', '-')}", str(value)]
-
-        cap = int(config().get("worker_cap", 6))
-        if n_envs is not None and n_envs > cap:
-            return self._send(400, {"error": f"worker_cap {cap} 초과 (n_envs={n_envs}) — 러너 설정이 강제"})
-
-        job_id = time.strftime("job-%Y%m%d-%H%M%S")
-        out = data.get("args", {}).get("out") or f"../runs/{job_id}"
-        out_abs = (RL_DIR / out).resolve()
-        if "out" not in (data.get("args") or {}):
-            args += ["--out", out]
-        log_path = out_abs / "job.log"
-        out_abs.mkdir(parents=True, exist_ok=True)
-
-        with open(log_path, "ab") as log:
-            proc = subprocess.Popen(
-                [PYTHON, spec["file"], *args], cwd=RL_DIR,
-                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-        _jobs[job_id] = {"proc": proc, "script": script, "args": data.get("args") or {},
-                         "out": str(out_abs), "log": str(log_path), "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
-        return self._send(201, {"job": job_id, "out": str(out_abs), "pid": proc.pid})
+        code, payload = launch_job(data)
+        return self._send(code, payload)
 
     def log_message(self, fmt, *args):   # 조용히 — 접근 로그는 필요 시 확장
         pass
@@ -281,6 +650,8 @@ def main() -> None:
     args = parser.parse_args()
     if not os.environ.get("DCGO_OPS_TOKEN"):
         raise SystemExit("DCGO_OPS_TOKEN 미설정 — 운영자 표면은 무인증 금지(요구 §7)")
+    import threading
+    threading.Thread(target=queue_scheduler, daemon=True).start()
     ThreadingHTTPServer((args.bind, args.port), Handler).serve_forever()
 
 
