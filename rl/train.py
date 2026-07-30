@@ -12,11 +12,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import signal
+import subprocess
 import time
+from collections import Counter
 from pathlib import Path
 
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.wrappers import ActionMasker
+from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from dcgo_rl.bridge import BridgeClient
@@ -34,8 +39,18 @@ def load_recipe_pool(paths: list[str]) -> FixedPoolProvider:
 
 
 def main() -> None:
+    # graceful 정지: 명시적 핸들러 설치 — 비대화형 셸 배경 프로세스는 SIGINT가 SIG_IGN으로
+    # 상속돼 기본 KeyboardInterrupt가 영영 안 온다(실측 2026-07-30). runner의 정지는 SIGTERM.
+    def _graceful(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, _graceful)
+    signal.signal(signal.SIGTERM, _graceful)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps", type=int, default=30_000)
+    parser.add_argument("--games", type=int, default=0,
+                        help="완주할 판 수 — 지정 시 이 수의 판을 채우면 학습 종료(스텝은 상한으로만 동작)")
     parser.add_argument("--n-envs", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--eval-matches", type=int, default=120)
@@ -49,6 +64,10 @@ def main() -> None:
                         help="이벤트 로그 파일 경로 접두(비면 out/event-env<rank>.jsonl)")
     parser.add_argument("--vec", choices=["dummy", "subproc"], default="dummy",
                         help="subproc = env 스테핑을 워커 프로세스로 병렬화(env 수만큼 스루풋 확장)")
+    parser.add_argument("--record-mode", default="accident",
+                        help="판 기록 모드: off|all|accident|sample:N (설계 v1 §2, 기본=사고판만)")
+    parser.add_argument("--checkpoint-every", type=int, default=2000, help="체크포인트 주기(스텝)")
+    parser.add_argument("--checkpoint-keep", type=int, default=5, help="체크포인트 보존 개수")
     args = parser.parse_args()
 
     # 스키마/vocab 프로브(cardId 채널 인덱스는 호스트 describe가 진실 — 이중 구현 금지).
@@ -66,6 +85,26 @@ def main() -> None:
     out_dir = Path(args.out).resolve()  # 호스트는 자기 cwd 기준으로 로그 경로를 해석 — 절대경로로 넘긴다.
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # 안전망 1 — 메타 2단계(설계 v1 §6): 시작 시 config·엔진 sha·상태를 먼저 박는다.
+    try:
+        engine_sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"],
+                                    capture_output=True, text=True, cwd=Path(__file__).parent).stdout.strip()
+    except OSError:
+        engine_sha = ""
+    meta_path = out_dir / "meta.json"
+    meta = {
+        "status": "running",
+        "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "engine_sha": engine_sha,
+        "config": {k: v for k, v in vars(args).items()},
+        "obs_schema_hash": obs_schema_hash,
+        "vocab_version": vocab_version,
+    }
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    # 안전망 2 — 호스트 stderr 상시 수집(abort 스택·swallowed census의 유일 회수 경로).
+    os.environ.setdefault("DCGO_HOST_STDERR", str(out_dir / "host-stderr.log"))
+
     recipe_paths = [str(Path(p).resolve()) for p in (args.recipes or [])]
 
     def make_env(rank: int):
@@ -76,6 +115,9 @@ def main() -> None:
                 log_level=args.log_level,
                 event_log=(str(out_dir / f"event-env{rank}.jsonl") if args.log_level != "OFF" else None),
                 deck_provider=(load_recipe_pool(recipe_paths) if recipe_paths else None),
+                match_log_dir=str(out_dir / "matches"),
+                record_mode=args.record_mode,
+                engine_sha=engine_sha,
             )
             return ActionMasker(env, lambda e: e.action_masks())
 
@@ -100,14 +142,65 @@ def main() -> None:
         },
     )
 
+    # 안전망 3 — 체크포인트 + SIGINT graceful(설계 v1 §6). SB3의 KeyboardInterrupt 전파를 이용:
+    # SIGINT 수신 → learn 탈출 → 최종 저장 경로로 합류. 체크포인트는 주기 저장·최근 K개 보존.
+    class Checkpoint(BaseCallback):
+        games_done = 0
+
+        def _on_step(self) -> bool:
+            if self.num_timesteps % args.checkpoint_every < vec_env.num_envs:
+                ckdir = out_dir / "checkpoints"
+                ckdir.mkdir(exist_ok=True)
+                self.model.save(ckdir / f"step-{self.num_timesteps:08d}.zip")
+                kept = sorted(ckdir.glob("step-*.zip"))
+                for old in kept[:-args.checkpoint_keep]:
+                    old.unlink()
+            # 게임 단위 종료(사용자 요구 2026-07-30): done 신호로 완주 판수를 세어 N판에서 멈춘다.
+            if args.games:
+                self.games_done += int(sum(self.locals.get("dones", ())))
+                if self.games_done >= args.games:
+                    return False
+            return True
+
     started = time.time()
-    model.learn(total_timesteps=args.steps)
+    interrupted = False
+    try:
+        model.learn(total_timesteps=args.steps if not args.games else max(args.steps, args.games * 400),
+                    callback=Checkpoint())
+    except KeyboardInterrupt:
+        interrupted = True
+        print("SIGINT — graceful 정지: 현재 정책 저장 후 종료")
     elapsed = time.time() - started
     steps_per_sec = args.steps / elapsed
-    vec_env.close()
 
+    # 저장이 close보다 먼저 — vec_env.close()는 워커 상태에 따라 remote.recv()에서 무기한 블록할 수
+    # 있다(실측 2026-07-30, graceful 정지 중 행). 정책부터 확보하고 close는 방어적으로.
     model_path = out_dir / "policy.zip"
     model.save(model_path)
+
+    # 안전망 4 — 결과 census(사유 분포)를 메타에 병합할 준비.
+    reasons = Counter()
+    for rl in out_dir.glob("results-env*.jsonl"):
+        for line in rl.read_text(encoding="utf-8").splitlines():
+            try:
+                reasons[json.loads(line).get("reason", "?")] += 1
+            except json.JSONDecodeError:
+                pass
+    swallowed = 0
+    stderr_log = out_dir / "host-stderr.log"
+    if stderr_log.exists():
+        swallowed = stderr_log.read_text(encoding="utf-8", errors="replace").count("[coroutine-exception]")
+
+    if interrupted:
+        meta.update(status="interrupted", ended=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    steps_done=int(model.num_timesteps), census={"reasons": dict(reasons), "swallowed": swallowed})
+        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        print(f"saved: {model_path} (interrupted at {model.num_timesteps} steps) + meta.json", flush=True)
+        # vec_env.close()는 중단 상태의 워커에서 remote.recv() 무한 블록 [실측 2026-07-30].
+        # 산출물은 전부 기록됐으므로 즉시 종료 — 데몬 워커는 본체와 함께 소멸한다.
+        os._exit(0)
+
+    vec_env.close()
 
     print(f"\ntraining: {args.steps} steps in {elapsed:.0f}s -> {steps_per_sec:.1f} steps/sec "
           f"({args.n_envs} envs, {vec_cls.__name__}, json+stdio)")
@@ -125,7 +218,9 @@ def main() -> None:
           f"CI95=[{lo:.1%}, {hi:.1%}] over {args.eval_matches} matches")
 
     # 스냅샷 메타 최소형(dev design §5.1 선반영) — L1 SnapshotStore가 이 포맷을 승계한다.
-    meta = {
+    meta.update(status="done", ended=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                census={"reasons": dict(reasons), "swallowed": swallowed})
+    meta_legacy = {
         "snapshot_id": "l0-pump",
         "global_step": args.steps,
         "obs_schema_hash": obs_schema_hash,
@@ -143,6 +238,7 @@ def main() -> None:
         "eval_record": {k: eval_report[k] for k in ("wins", "losses", "completed", "truncated")},
         "eval_matches": args.eval_matches,
     }
+    meta.update(meta_legacy)
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print(f"saved: {model_path} + meta.json")
 

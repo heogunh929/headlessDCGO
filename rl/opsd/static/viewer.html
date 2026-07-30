@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DCGO 판 뷰어</title>
+<style>
+* { box-sizing:border-box; } body { margin:0; font-family:'Noto Sans KR',Arial,sans-serif; background:#f2f2f2; color:#111; }
+.app { display:grid; grid-template-rows:48px 1fr 96px; height:100vh; gap:8px; padding:8px; }
+.topbar,.panel,.footer-panel,.sheet { background:#fff; border:1px solid #cfcfcf; }
+.topbar { display:flex; align-items:center; gap:14px; padding:0 12px; font-size:13px; }
+.topbar b { font-size:15px; }
+.main { display:grid; grid-template-columns:minmax(0,1fr) clamp(260px,26vw,340px); gap:8px; min-height:0; }
+.board { min-width:0; display:grid; grid-template-rows:1fr 44px 1fr; gap:8px; overflow:auto; }
+.sheet { padding:8px; display:grid; grid-template-columns:clamp(150px,20%,220px) minmax(240px,1fr) clamp(130px,16%,170px); grid-template-rows:30px minmax(0,1fr) 96px; gap:8px;
+  grid-template-areas:"pname pname pname" "sec battle side" "raise battle side"; min-height:0; }
+.pname { grid-area:pname; font-weight:bold; font-size:16px; display:flex; gap:14px; align-items:center; }
+.zone { border:1px solid #999; min-height:0; overflow:auto; }
+.zone h4 { margin:0; padding:3px 6px; border-bottom:1px solid #ddd; font-size:12px; background:#fafafa; position:sticky; top:0; }
+.zone-sec { grid-area:sec; } .zone-battle { grid-area:battle; } .zone-side { grid-area:side; border:none; display:grid; grid-template-rows:1fr 1fr 1fr; gap:8px; }
+.zone-raise { grid-area:raise; }
+.cardlist { padding:5px; display:flex; flex-wrap:wrap; gap:4px; }
+.cardchip { border:1px solid #aaa; background:#fff; font-size:11px; padding:2px 5px; }
+.battle-grid { padding:6px; display:grid; grid-template-columns:repeat(auto-fill,minmax(88px,1fr)); gap:6px; }
+.perm { border:1px dashed #999; background:#fcfcfc; font-size:11px; padding:4px; line-height:1.3; }
+.perm.susp { background:#ffe9d9; } .perm b { font-size:12px; }
+.stack { color:#777; }
+.memwrap { display:flex; align-items:center; gap:3px; padding:0 10px; background:#fff; border:1px solid #cfcfcf; overflow:auto; }
+.mem { width:24px; height:24px; border:1px solid #888; border-radius:50%; font-size:10px; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+.mem.cur { background:#111; color:#fff; font-weight:bold; }
+.sidebar { display:grid; grid-template-rows:minmax(0,1fr) 240px; gap:8px; min-height:0; }
+.panel { display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; min-height:0; }
+.panel-head { padding:6px 10px; border-bottom:1px solid #ddd; font-weight:bold; font-size:13px; display:flex; justify-content:space-between; }
+.search { padding:6px; border-bottom:1px solid #ddd; } .search input { width:100%; padding:4px 6px; border:1px solid #bbb; font:inherit; }
+.loglist { overflow:auto; font-size:12px; }
+.logitem { padding:5px 8px; border-bottom:1px solid #eee; cursor:pointer; white-space:pre-line; }
+.logitem:hover { background:#f5f5f5; } .logitem.cur { background:#eef; }
+.logitem small { color:#888; }
+.chips { padding:6px; border-top:1px solid #ddd; display:flex; gap:5px; flex-wrap:wrap; }
+.chip { border:1px solid #bbb; padding:2px 7px; font-size:11px; cursor:pointer; background:#fff; } .chip.on { background:#111; color:#fff; }
+.jsonpanel { display:grid; grid-template-rows:auto auto minmax(0,1fr); min-height:0; }
+.tabs { display:flex; gap:10px; padding:4px 10px; border-bottom:1px solid #ddd; font-size:12px; }
+.tabs span { cursor:pointer; } .tabs .on { font-weight:bold; text-decoration:underline; }
+pre { margin:0; padding:8px; overflow:auto; font-size:11px; background:#fcfcfc; height:100%; }
+.bottom { display:grid; grid-template-columns:270px minmax(0,1fr) 230px; gap:8px; }
+.footer-panel { padding:8px 10px; font-size:12px; }
+.footer-panel b { display:block; margin-bottom:5px; }
+.ctl button { border:1px solid #999; background:#fff; padding:5px 9px; font:inherit; cursor:pointer; }
+input[type=range] { width:100%; }
+.diffline { font-size:11px; padding:1px 8px; } .diffline.add { color:#070 } .diffline.del { color:#b00 }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <b>판 뷰어</b><span id="mid"></span><span id="tinfo"></span><span id="deckinfo" style="color:#777"></span>
+    <span id="loadmsg" style="margin-left:auto;color:#b00"></span>
+  </header>
+  <div class="main">
+    <div class="board">
+      <div class="sheet" id="sheet2"></div>
+      <div class="memwrap" id="membar"></div>
+      <div class="sheet" id="sheet1"></div>
+    </div>
+    <aside class="sidebar">
+      <div class="panel">
+        <div class="panel-head"><span>이벤트 로그</span><span>클릭 이동</span></div>
+        <div class="search"><input id="q" placeholder="이벤트 검색"></div>
+        <div class="loglist" id="loglist"></div>
+        <div class="chips" id="chips"></div>
+      </div>
+      <div class="panel jsonpanel">
+        <div class="panel-head"><span>상태 스냅샷</span></div>
+        <div class="tabs"><span data-t="sum" class="on">요약</span><span data-t="diff">Diff</span><span data-t="json">JSON</span></div>
+        <pre id="statepane"></pre>
+      </div>
+    </aside>
+  </div>
+  <footer class="bottom">
+    <div class="footer-panel ctl"><b>재생</b>
+      <button onclick="go(0)">|◀</button><button onclick="go(cur-1)">◀</button>
+      <button id="play" onclick="toggle()">▶</button><button onclick="go(cur+1)">▶▶</button><button onclick="go(steps.length-1)">▶|</button>
+      배속 <select id="speed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>
+    </div>
+    <div class="footer-panel"><b>타임라인 <span id="tpos"></span></b>
+      <input type="range" id="slider" min="0" max="0" value="0">
+      <div id="marks" style="display:flex;justify-content:space-between;color:#777;font-size:10px"></div>
+    </div>
+    <div class="footer-panel"><b>옵션</b>
+      <label><input type="checkbox" id="opt-hidden" checked> 숨김 정보 보기</label><br>
+      <label><input type="checkbox" id="opt-debug"> 디버그 표시</label>
+    </div>
+  </footer>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+let TOKEN = localStorage.getItem('opsToken') || prompt('운영자 토큰');
+localStorage.setItem('opsToken', TOKEN || '');
+const qs = new URLSearchParams(location.search);
+let header = null, steps = [], events = [], result = null, cur = 0, playing = null, tab = 'sum', chip = '전체';
+let TYPES = {}, NAMES = {};   // cardNumber → cardType / 카드명 (cards.json)
+const CHIPS = ['전체','phase','effect','battle','select'];
+
+async function load() {
+  try {
+    const cards = await (await fetch('/api/runner/cards', {headers: {'X-Ops-Token': TOKEN}})).json();
+    for (const c of cards) { TYPES[c.cardNumber] = c.cardType; if (c.name) NAMES[c.cardNumber] = c.name; }
+  } catch (e) {}
+  const url = `/api/runner/runs/${qs.get('run')}/matches/${qs.get('match')}`;
+  const r = await fetch(url, {headers: {'X-Ops-Token': TOKEN}});
+  if (!r.ok) { $('loadmsg').textContent = r.status === 404 ? '판 로그 준비 중이거나 없음' : '오류 ' + r.status; return; }
+  const text = await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text();
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    const o = JSON.parse(line);
+    if (o.type === 'header') header = o;
+    else if (o.type === 'step') steps.push(o);
+    else if (o.type === 'event') events.push(o);
+    else if (o.type === 'result') result = o;
+  }
+  $('mid').textContent = header.matchId + ' · ' + header.engineSha;
+  $('deckinfo').textContent = header.players.map(p => `P${p.seat}:${p.deck}`).join('  ');
+  $('slider').max = steps.length - 1;
+  $('slider').oninput = () => go(+$('slider').value);
+  const marks = [], seen = new Set();
+  steps.forEach((s, i) => { const t = s.state.turn; if (!seen.has(t)) { seen.add(t); marks.push([i, t]); } });
+  $('marks').innerHTML = marks.filter((_, i) => i % Math.ceil(marks.length / 10 || 1) === 0)
+    .map(([i, t]) => `<span style="cursor:pointer" onclick="go(${i})">T${t}</span>`).join('') + (result ? `<span>END(${result.reason})</span>` : '');
+  $('chips').innerHTML = CHIPS.map(c => `<span class="chip${c === '전체' ? ' on' : ''}" onclick="setChip('${c}',this)">${c}</span>`).join('');
+  go(0);
+}
+function setChip(c, el) { chip = c; document.querySelectorAll('.chip').forEach(x => x.classList.remove('on')); el.classList.add('on'); renderLog(); }
+$('q') && ($('q').oninput = () => renderLog());
+document.querySelectorAll('.tabs span').forEach(s => s.onclick = () => {
+  tab = s.dataset.t; document.querySelectorAll('.tabs span').forEach(x => x.classList.remove('on')); s.classList.add('on'); renderState();
+});
+$('opt-hidden').onchange = () => render(); $('opt-debug').onchange = () => render();
+
+function toggle() {
+  if (playing) { clearInterval(playing); playing = null; $('play').textContent = '▶'; return; }
+  $('play').textContent = '⏸';
+  playing = setInterval(() => { if (cur >= steps.length - 1) toggle(); else go(cur + 1); }, 800 / +$('speed').value);
+}
+function go(i) { cur = Math.max(0, Math.min(steps.length - 1, i)); $('slider').value = cur; render(); }
+
+const nm = c => NAMES[c] ? `${c} ${NAMES[c]}` : c;   // 카드번호+카드명 (사용자 요구 2026-07-30)
+function chips(cards, hide) {
+  if (hide) return `<span class="cardchip">${cards.length}장 (숨김)</span>`;
+  return cards.map(c => `<span class="cardchip">${nm(c)}</span>`).join('') || '<span style="color:#999;font-size:11px;padding:4px">없음</span>';
+}
+function permBox(p) {
+  const roots = p.roots ?? (p.cards ? p.cards.filter(c => c !== p.top) : []);   // 구버전 로그 폴백
+  const st = roots.length ? `<div class="stack">▽ 진화원 ${roots.map(nm).join(', ')}</div>` : '';
+  const lv = p.level > 100 ? '-' : p.level, dp = p.dp < 0 ? '-' : p.dp;
+  const ty = TYPES[p.top] || '';
+  const stat = ty === 'Tamer' || ty === 'Option' ? `<i>${ty}</i>` : `Lv${lv} DP${dp}`;
+  return `<div class="perm${p.suspended ? ' susp' : ''}"><b>${nm(p.top) ?? '?'}</b><br>${stat}${p.suspended ? ' 레스트' : ''}${st}${p.links.length ? '<div class="stack">링크 ' + p.links.map(nm).join(', ') + '</div>' : ''}</div>`;
+}
+function sheet(el, side, name, mySeat) {
+  const showHidden = $('opt-hidden').checked;
+  el.innerHTML = `
+    <div class="pname">${name} <small style="color:#777">덱 ${side.deckCount} · 트래시 ${side.trash.length}</small></div>
+    <div class="zone zone-sec"><h4>시큐리티 (${side.security.length})</h4><div class="cardlist">${chips(side.security, !showHidden)}</div>
+      <h4>손패 (${side.hand.length})</h4><div class="cardlist">${chips(side.hand, !showHidden)}</div></div>
+    <div class="zone zone-battle"><h4>배틀 에어리어 (${side.field.length})</h4><div class="battle-grid">${side.field.map(permBox).join('')}</div></div>
+    <div class="zone-side">
+      <div class="zone"><h4>덱</h4><div style="padding:6px;font-size:13px;text-align:center">${side.deckCount}장</div></div>
+      <div class="zone"><h4>트래시 (${side.trash.length})</h4><div class="cardlist">${chips(side.trash, false)}</div></div>
+      <div class="zone"><h4>게임 정보</h4><div style="padding:5px;font-size:11px" id="ginfo-${mySeat}"></div></div>
+    </div>
+    <div class="zone zone-raise"><h4>육성 (${side.breeding.length})</h4><div class="battle-grid">${side.breeding.map(permBox).join('')}</div></div>`;
+}
+function render() {
+  const s = steps[cur]; if (!s) return;
+  const st = s.state;
+  $('tinfo').textContent = `턴 ${st.turn} · ${st.phase} · 수번 P${st.activeSeat}`;
+  sheet($('sheet1'), st.p1, 'PLAYER 1', 1); sheet($('sheet2'), st.p2, 'PLAYER 2', 2);
+  let cells = '';
+  for (let v = 10; v >= 1; v--) cells += `<div class="mem${st.memory === -v ? ' cur' : ''}">${v}</div>`;   // P2측(You 관점 음수)
+  cells += `<div class="mem${st.memory === 0 ? ' cur' : ''}" style="width:30px;height:30px">0</div>`;
+  for (let v = 1; v <= 10; v++) cells += `<div class="mem${st.memory === v ? ' cur' : ''}">${v}</div>`;
+  $('membar').innerHTML = cells + `<span style="margin-left:12px;font-size:12px">메모리 ${st.memory >= 0 ? 'P1 +' + st.memory : 'P2 +' + (-st.memory)}</span>`;
+  const dbg = $('opt-debug').checked ? ` · tick ${s.tick} · 합법 ${s.decision.legal.length}레인 · 선택 ${s.decision.chosen}` : '';
+  const g = `<b>${s.decision.kind}</b> — P${s.seat} 결정${dbg}`;
+  const gi = $('ginfo-' + s.seat); if (gi) gi.innerHTML = g;
+  $('tpos').textContent = `스텝 ${cur + 1}/${steps.length}`;
+  renderLog(); renderState();
+}
+function renderLog() {
+  const q = ($('q').value || '').toLowerCase();
+  const rows = events
+    .filter(e => (chip === '전체' || e.cat === chip) && (!q || e.text.toLowerCase().includes(q)))
+    .map(e => `<div class="logitem${e.afterStep === cur - 1 ? ' cur' : ''}" onclick="go(${Math.max(0, e.afterStep + 1)})">
+      <small>s${e.afterStep}→${e.afterStep + 1} · ${e.cat}</small>${e.text.trim()}</div>`);
+      // 스냅샷 앵커=결정 직전 상태 — afterStep=N 이벤트의 결과는 s(N+1) 보드에 보인다
+      // (사용자 발견 2026-07-30: Evolution 이벤트와 보드 불일치). 클릭=결과 시점으로 이동.
+  $('loglist').innerHTML = rows.join('') || '<div style="padding:8px;color:#999">없음</div>';
+}
+function summarize(st) {
+  const z = s => `덱${s.deckCount} 손${s.hand.length} 시큐${s.security.length} 트래시${s.trash.length} 필드${s.field.length}`;
+  return `턴 ${st.turn} ${st.phase} (P${st.activeSeat} 차례)\n메모리 ${st.memory}\nP1: ${z(st.p1)}\nP2: ${z(st.p2)}`;
+}
+function diff(a, b) {
+  const flat = (st, pre, out) => {
+    for (const seat of ['p1', 'p2']) {
+      const s = st[seat];
+      out[`${seat}.덱`] = s.deckCount; out[`${seat}.손패`] = s.hand.join(' ');
+      out[`${seat}.시큐리티`] = s.security.join(' '); out[`${seat}.트래시`] = s.trash.join(' ');
+      out[`${seat}.필드`] = s.field.map(p => p.top + '(' + p.cards.length + ')').join(' ');
+      out[`${seat}.육성`] = s.breeding.map(p => p.top).join(' ');
+    }
+    out['메모리'] = st.memory; out['턴'] = st.turn + ' ' + st.phase;
+  };
+  const A = {}, B = {}; flat(a, '', A); flat(b, '', B);
+  const lines = [];
+  for (const k of Object.keys(B)) if (String(A[k]) !== String(B[k]))
+    lines.push(`<div class="diffline del">- ${k}: ${A[k]}</div><div class="diffline add">+ ${k}: ${B[k]}</div>`);
+  return lines.join('') || '<div class="diffline">변화 없음</div>';
+}
+function renderState() {
+  const s = steps[cur];
+  if (tab === 'json') $('statepane').textContent = JSON.stringify(s, null, 2);
+  else if (tab === 'sum') $('statepane').textContent = summarize(s.state);
+  else $('statepane').innerHTML = cur === 0 ? '첫 스텝' : diff(steps[cur - 1].state, s.state);
+}
+load();
+</script>
+</body>
+</html>

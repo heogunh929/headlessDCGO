@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DCGO RL 관리</title>
+<style>
+* { box-sizing: border-box; } body { margin:0; font-family:'Noto Sans KR',Arial,sans-serif; background:#f2f2f2; color:#111; }
+header { background:#fff; border-bottom:1px solid #cfcfcf; padding:10px 16px; display:flex; gap:16px; align-items:center; }
+header h1 { font-size:16px; margin:0; } nav button { border:1px solid #999; background:#fff; padding:6px 14px; font:inherit; cursor:pointer; }
+nav button.on { font-weight:bold; text-decoration:underline; }
+#badge { margin-left:auto; color:#b00; font-weight:bold; }
+main { padding:14px; } section { display:none; } section.on { display:block; }
+.card { background:#fff; border:1px solid #cfcfcf; padding:12px; margin-bottom:12px; }
+table { border-collapse:collapse; width:100%; font-size:13px; } th,td { border:1px solid #ddd; padding:5px 8px; text-align:left; }
+th { background:#fafafa; } input,select { font:inherit; padding:4px 6px; border:1px solid #bbb; }
+label { display:inline-block; margin:4px 10px 4px 0; font-size:13px; }
+button.act { border:1px solid #999; background:#fff; padding:6px 12px; font:inherit; cursor:pointer; }
+pre { background:#fcfcfc; border:1px solid #eee; padding:8px; font-size:12px; overflow:auto; max-height:280px; }
+.ok { color:#070 } .bad { color:#b00 }
+</style>
+</head>
+<body>
+<header>
+  <h1>DCGO RL 관리</h1>
+  <nav>
+    <button data-tab="ops" class="on">운영</button>
+    <button data-tab="compare">런 비교</button>
+    <button data-tab="defect">결함</button>
+  </nav>
+  <span id="badge"></span>
+  <span id="health" style="font-size:12px;color:#555"></span>
+</header>
+<main>
+<section id="ops" class="on">
+  <div class="card">
+    <b>학습 기동</b><br>
+    <label><b>게임 수</b> <input id="f-games" type="number" value="500" style="width:80px"> 판</label>
+    <label><b>판 로그</b> <input id="f-lograte" type="number" value="20" style="width:60px"> 판당 1개 <small>(0=사고판만, 사고판은 항상 기록)</small></label>
+    <label>시드 <input id="f-seed" type="number" value="42" style="width:70px"></label>
+    <label>런 이름 <input id="f-out" placeholder="자동" style="width:110px"></label>
+    <button class="act" onclick="startJob()">기동</button> <span id="start-msg"></span>
+    <details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:#555">고급</summary>
+      <label>워커 <input id="f-envs" type="number" value="5" style="width:50px"></label>
+      <label>스텝 상한 <input id="f-steps" type="number" value="200000" style="width:90px"></label>
+      <label>체크포인트 <input id="f-ck" type="number" value="2000" style="width:70px">/보존 <input id="f-keep" type="number" value="5" style="width:50px"></label>
+      <label>eval <input id="f-eval" type="number" value="120" style="width:60px"></label>
+    </details>
+  </div>
+  <div class="card"><b>실행 중 잡</b><div id="jobs">불러오는 중…</div></div>
+</section>
+<section id="compare">
+  <div class="card"><b>런 이력·비교</b> (지표 8종 — 요구 §5)<div id="runs">불러오는 중…</div></div>
+</section>
+<section id="defect">
+  <div class="card"><b>임계 규칙</b> (요구 §7.5 — 기본 알림만, 자동 중단은 명시 선택)
+    <div id="rules"></div>
+    <button class="act" onclick="addRule()">규칙 추가</button> <button class="act" onclick="saveRules()">저장</button> <span id="rule-msg"></span>
+  </div>
+  <div class="card"><b>알림</b><div id="alerts">없음</div></div>
+  <div class="card"><b>런별 결함 census</b><div id="census">불러오는 중…</div></div>
+</section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let TOKEN = localStorage.getItem('opsToken') || '';
+if (!TOKEN) { TOKEN = prompt('운영자 토큰'); localStorage.setItem('opsToken', TOKEN || ''); }
+const H = () => ({'X-Ops-Token': TOKEN, 'Content-Type': 'application/json'});
+const api = (p, opt = {}) => fetch(p, {...opt, headers: H()}).then(r => {
+  if (r.status === 401) { localStorage.removeItem('opsToken'); throw new Error('토큰 오류 — 새로고침'); }
+  return r.json();
+});
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button, main section').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); $(b.dataset.tab).classList.add('on');
+});
+
+async function startJob() {
+  const rate = +$('f-lograte').value;
+  const args = {games: +$('f-games').value, steps: +$('f-steps').value, seed: +$('f-seed').value,
+    n_envs: +$('f-envs').value, vec: 'subproc',
+    record_mode: rate > 0 ? 'sample:' + rate : 'accident',
+    checkpoint_every: +$('f-ck').value, checkpoint_keep: +$('f-keep').value, eval_matches: +$('f-eval').value};
+  if ($('f-out').value) args.out = '../runs/' + $('f-out').value;
+  const r = await api('/api/runner/jobs', {method: 'POST', body: JSON.stringify({script: 'train', args})});
+  $('start-msg').textContent = r.error ? '거부: ' + r.error : '기동됨: ' + r.job;
+  pollJobs();
+}
+
+async function pollJobs() {
+  try {
+    const jobs = await api('/api/runner/jobs');
+    // 끝난 잡은 여기서 숨긴다 — 이력은 '런 비교' 탭이 정본(사용자 요구 2026-07-30).
+    const rows = Object.entries(jobs).filter(([, s]) => s.alive).map(([id, s]) => {
+      const meta = s.meta || {};
+      const cfg = meta.config || {};
+      const progress = cfg.games
+        ? `판 ${Math.min(s.matches_played ?? 0, cfg.games)}/${cfg.games}회`
+        : `판 ${s.matches_played ?? 0}회 · ${s.progress_steps == null ? '-' : Math.min(s.progress_steps, cfg.steps ?? 1e9)}/${cfg.steps ?? '?'} 스텝`;
+      return `<tr><td>${id}</td><td class="ok">실행 중</td>
+        <td>${progress}</td><td>${s.rss_mb} MB</td><td>${meta.engine_sha || ''}</td>
+        <td>${s.alive ? `<button class="act" onclick="sig('${id}','stop')">정지(graceful)</button>
+        <button class="act" onclick="sig('${id}','kill')">강제</button>` : ''}</td></tr>`;
+    });
+    $('jobs').innerHTML = rows.length
+      ? `<table><tr><th>잡</th><th>상태</th><th>진행</th><th>RSS</th><th>엔진</th><th></th></tr>${rows.join('')}</table>`
+      : "없음 — 종료된 런은 '런 비교' 탭에";
+    const h = await api('/api/runner/health');
+    $('health').textContent = `runner ✓ (워커 상한 ${h.worker_cap})`;
+  } catch (e) { $('health').textContent = 'runner ✗ ' + e.message; }
+}
+const sig = (id, what) => api(`/api/runner/jobs/${id}/${what}`, {method: 'POST'}).then(pollJobs);
+
+async function pollRuns() {
+  const runs = await api('/api/runner/runs');
+  const rows = runs.filter(r => r.meta && r.meta.status).map(r => {
+    const m = r.meta, c = m.census || {}, reasons = c.reasons || {};
+    const total = Object.values(reasons).reduce((a, b) => a + b, 0) || 1;
+    const winrate = m.eval_winrate_vs_random != null ? (m.eval_winrate_vs_random * 100).toFixed(1) + '%' : '-';
+    const ci = m.eval_ci95 ? `[${(m.eval_ci95[0]*100).toFixed(0)}, ${(m.eval_ci95[1]*100).toFixed(0)}]` : '';
+    return `<tr><td>${r.name}</td><td>${m.status}</td><td>${(m.config||{}).steps ?? ''}</td>
+      <td>${winrate} ${ci}</td><td>${Object.entries(reasons).map(([k,v])=>`${k}:${v}`).join(' ')}</td>
+      <td class="${c.swallowed ? 'bad' : ''}">${c.swallowed ?? 0}</td><td>${m.train_steps_per_sec ?? ''}</td>
+      <td>${m.engine_sha || ''}</td><td>${m.seed ?? (m.config||{}).seed ?? ''}</td>
+      <td>${r.matches.length ? `<details><summary>${r.matches.length}판</summary>${r.matches.map(x =>
+        `<div><a href="/static/viewer.html?run=${r.name}&match=${x}" target="_blank">${x.replace('.jsonl.gz','')}</a></div>`).join('')}</details>` : '0'}</td></tr>`;
+  });
+  $('runs').innerHTML = `<table><tr><th>런</th><th>상태</th><th>스텝</th><th>eval 승률 CI</th>
+    <th>판 사유</th><th>swallowed</th><th>steps/s</th><th>엔진 sha</th><th>시드</th><th>판로그</th></tr>${rows.join('')}</table>`;
+  $('census').innerHTML = $('runs').innerHTML;
+}
+
+let RULES = [];
+async function loadRules() {
+  RULES = await api('/api/thresholds'); renderRules();
+}
+function renderRules() {
+  $('rules').innerHTML = RULES.map((r, i) => `<div>
+    <label>지표 <select data-i="${i}" data-k="metric"><option${r.metric=='swallowed'?' selected':''}>swallowed</option><option${r.metric=='abort'?' selected':''}>abort</option></select></label>
+    <label>임계 <input type="number" value="${r.limit}" data-i="${i}" data-k="limit" style="width:60px"></label>
+    <label>액션 <select data-i="${i}" data-k="action"><option${r.action=='notify'?' selected':''}>notify</option><option${r.action=='notify+stop'?' selected':''}>notify+stop</option></select></label>
+    <label><input type="checkbox" ${r.enabled?'checked':''} data-i="${i}" data-k="enabled"> 켬</label></div>`).join('');
+  $('rules').querySelectorAll('[data-i]').forEach(el => el.onchange = () => {
+    RULES[+el.dataset.i][el.dataset.k] = el.type === 'checkbox' ? el.checked : (el.type === 'number' ? +el.value : el.value);
+  });
+}
+const addRule = () => { RULES.push({metric: 'abort', limit: 5, action: 'notify', enabled: true}); renderRules(); };
+const saveRules = () => api('/api/thresholds', {method: 'PUT', body: JSON.stringify(RULES)})
+  .then(() => $('rule-msg').textContent = '저장됨 ' + new Date().toLocaleTimeString());
+
+async function pollAlerts() {
+  const alerts = await api('/api/alerts');
+  $('badge').textContent = alerts.length ? `⚠ 알림 ${alerts.length}` : '';
+  $('alerts').innerHTML = alerts.length
+    ? alerts.map(a => `<div>${a.ts} [${a.job}] ${a.metric}=${a.value} > ${a.limit} (${a.action})</div>`).join('') : '없음';
+}
+
+pollJobs(); pollRuns(); loadRules(); pollAlerts();
+setInterval(pollJobs, 5000); setInterval(pollRuns, 20000); setInterval(pollAlerts, 15000);
+</script>
+</body>
+</html>

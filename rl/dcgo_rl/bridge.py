@@ -51,6 +51,9 @@ class BridgeClient:
         verify_vocab: bool = True,
         log_level: str = "OFF",
         event_log: str | None = None,
+        match_log_dir: str | None = None,
+        record_mode: str = "off",
+        engine_sha: str = "",
     ):
         dll = host_dll_path()
         if not dll.exists():
@@ -66,6 +69,10 @@ class BridgeClient:
             cmd += ["--log-level", log_level]
         if event_log:
             cmd += ["--event-log", event_log]
+        if match_log_dir and record_mode != "off":
+            cmd += ["--match-log-dir", match_log_dir, "--record-mode", record_mode]
+            if engine_sha:
+                cmd += ["--engine-sha", engine_sha]
         # 호스트 stderr는 기본 폐기하되, DCGO_HOST_STDERR=<path>면 추기 리다이렉트 — 호스트 내부
         # 예외 스택(프로토콜 error에는 message만 실림)의 유일한 회수 경로다.
         import os

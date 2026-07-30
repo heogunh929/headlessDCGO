@@ -43,11 +43,15 @@ class DcgoSeatEnv(gym.Env):
         log_level: str = "OFF",
         event_log: str | None = None,
         deck_provider: DeckProvider | None = None,
+        match_log_dir: str | None = None,
+        record_mode: str = "off",
+        engine_sha: str = "",
     ):
         super().__init__()
         if decks is not None and deck_provider is not None:
             raise ValueError("decks and deck_provider are mutually exclusive")
-        self._client = BridgeClient(result_log=result_log, log_level=log_level, event_log=event_log)
+        self._client = BridgeClient(result_log=result_log, log_level=log_level, event_log=event_log,
+                                    match_log_dir=match_log_dir, record_mode=record_mode, engine_sha=engine_sha)
         self._decks = decks or {"1": "starter:ST1", "2": "starter:ST2"}
         self._deck_provider = deck_provider
         self._experiment_seed = experiment_seed
