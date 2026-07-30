@@ -43,6 +43,7 @@ string? resultLog = null;
 string? matchLogDir = null;
 string recordMode = "off";
 string engineSha = "";
+int? listenPort = null;                             // TCP 모드(M5): 같은 프로토콜을 소켓으로 — DGX 분리 전제
 bool describeTurns = args.Contains("--describe");   // 아레나 좌석용: turn에 상태 스냅샷+서술형 합법 수 동봉
 
 for (int i = 0; i < args.Length - 1; i++)
@@ -51,6 +52,7 @@ for (int i = 0; i < args.Length - 1; i++)
     if (args[i] == "--match-log-dir") matchLogDir = args[i + 1];
     if (args[i] == "--record-mode") recordMode = args[i + 1];
     if (args[i] == "--engine-sha") engineSha = args[i + 1];
+    if (args[i] == "--listen") listenPort = int.Parse(args[i + 1]);
 }
 
 CardVocabulary vocab = CardVocabulary.FromCardsJson(CardsJsonRelative);
@@ -65,7 +67,53 @@ string matchId = "";
 TurnMessage? lastTurn = null;
 bool claimed = false;
 
-for (string? line = Console.In.ReadLine(); line is not null; line = Console.In.ReadLine())
+if (listenPort is int port)
+{
+    // TCP 모드: 한 번에 한 세션(프로토콜 v1은 단일 연결 2좌석) — 끊기면 다음 접속을 받는다.
+    // 병렬 워커 = 호스트 프로세스 N개(포트 N개), 배분은 runner/학습기 몫(설계 §3.3).
+    var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Any, port);
+    listener.Start();
+    Console.Error.WriteLine($"listen: 0.0.0.0:{port}");
+
+    while (true)
+    {
+        Console.Error.WriteLine("awaiting client");
+        var client = listener.AcceptTcpClient();
+        Console.Error.WriteLine($"client connected: {client.Client.RemoteEndPoint}");
+        var stream = client.GetStream();
+        var reader = new StreamReader(stream, Encoding.UTF8);
+        var writer = new StreamWriter(stream, new UTF8Encoding(false));
+        protocolOut = writer;
+        claimed = false;
+        lastTurn = null;
+
+        try
+        {
+            ServeSession(reader);
+        }
+        catch (IOException)
+        {
+            // 클라이언트 이탈 — 다음 접속 대기
+        }
+
+        protocolOut = TextWriter.Null;
+
+        try { writer.Dispose(); } catch (IOException) { }
+        Console.Error.WriteLine("writer disposed");
+        try { reader.Dispose(); } catch (IOException) { }
+        try { stream.Dispose(); } catch (IOException) { }
+        try { client.Dispose(); } catch (IOException) { }
+        Console.Error.WriteLine("client disconnected");
+    }
+}
+
+ServeSession(Console.In);
+
+return 0;
+
+void ServeSession(TextReader protocolIn)
+{
+for (string? line = protocolIn.ReadLine(); line is not null; line = protocolIn.ReadLine())
 {
     JsonDocument request;
 
@@ -165,15 +213,14 @@ for (string? line = Console.In.ReadLine(); line is not null; line = Console.In.R
                 break;
         }
     }
-    catch (Exception ex)
+    catch (Exception ex) when (ex is not IOException)
     {
         Emit(new { type = "error", code = "internal", message = ex.Message });
         Console.Error.WriteLine(ex.ToString());
         EmitResult(new ResultMessage(0, 0, null, true, "aborted", 0, 0));
     }
 }
-
-return 0;
+}
 
 void EmitOutcome(object outcome)
 {

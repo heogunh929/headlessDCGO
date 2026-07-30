@@ -46,12 +46,17 @@ class DcgoSeatEnv(gym.Env):
         match_log_dir: str | None = None,
         record_mode: str = "off",
         engine_sha: str = "",
+        host: str | None = None,
     ):
         super().__init__()
         if decks is not None and deck_provider is not None:
             raise ValueError("decks and deck_provider are mutually exclusive")
-        self._client = BridgeClient(result_log=result_log, log_level=log_level, event_log=event_log,
-                                    match_log_dir=match_log_dir, record_mode=record_mode, engine_sha=engine_sha)
+        # host="tcp://..." = 원격 상주 호스트(M5 TCP 브리지) — 서브프로세스 대신 소켓.
+        # 이 경우 기록/로그 옵션은 호스트 기동 측(--match-log-dir 등)의 소관이라 전달하지 않는다.
+        self._client = (BridgeClient(host=host, result_log=result_log) if host
+                        else BridgeClient(result_log=result_log, log_level=log_level, event_log=event_log,
+                                          match_log_dir=match_log_dir, record_mode=record_mode,
+                                          engine_sha=engine_sha))
         self._decks = decks or {"1": "starter:ST1", "2": "starter:ST2"}
         self._deck_provider = deck_provider
         self._experiment_seed = experiment_seed

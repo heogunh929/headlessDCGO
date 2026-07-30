@@ -72,6 +72,8 @@ def main() -> None:
                         help="기존 정책(zip)에서 시작 — 이어 학습. --steps는 이 런에서 추가로 도는 스텝")
     parser.add_argument("--eval-only", action="store_true",
                         help="학습 없이 --init-model 정책을 평가만 (eval_matches 판)")
+    parser.add_argument("--host", type=str, default=None,
+                        help="tcp://엔진PC:포트 — 원격 상주 호스트(M5). 워커 rank는 포트+rank에 접속")
     parser.add_argument("--my-recipe", type=str, default=None,
                         help="조합 리그 모드: 내 덱(레시피 파일) 고정 — --opponents-json과 함께")
     parser.add_argument("--opponents-json", type=str, default=None,
@@ -155,6 +157,13 @@ def main() -> None:
                   for o in spec] or [Combo("random", mine.recipe, None)]   # 상대 없음 = 내 덱 랜덤 상대
         return ComboOpponents(mine, others, _random.Random(args.seed * 77 + rank))
 
+    def host_for(rank: int) -> str | None:
+        # TCP 모드: 워커 rank → 기준 포트+rank (호스트 N개 상주 전제, 설계 §3.3).
+        if not args.host:
+            return None
+        base, _, port = args.host.rpartition(":")
+        return f"{base}:{int(port) + rank}"
+
     def make_env(rank: int):
         def _thunk():
             combo = combo_provider(rank) if league_mode else None
@@ -167,6 +176,7 @@ def main() -> None:
                 match_log_dir=str(out_dir / "matches"),
                 record_mode=args.record_mode,
                 engine_sha=engine_sha,
+                host=host_for(rank),
                 **({"opponent": combo} if league_mode else {}),
             )
             return ActionMasker(env, lambda e: e.action_masks())

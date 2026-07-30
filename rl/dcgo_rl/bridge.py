@@ -54,7 +54,26 @@ class BridgeClient:
         match_log_dir: str | None = None,
         record_mode: str = "off",
         engine_sha: str = "",
+        host: str | None = None,
     ):
+        # TCP 모드(M5, 설계 §3.3): host="tcp://엔진PC:포트" — 서브프로세스 대신 소켓으로 같은
+        # 프로토콜. DGX 학습기가 LAN 너머 엔진 PC의 상주 호스트(--listen)에 붙는 경로.
+        self._proc = None
+        if host and host.startswith("tcp://"):
+            import socket
+            address = host[len("tcp://"):]
+            hostname, _, port = address.rpartition(":")
+            sock = socket.create_connection((hostname or "127.0.0.1", int(port)), timeout=30)
+            # makefile 버퍼 IO는 블로킹 소켓 전제 — settimeout을 걸면 재접속 세션에서 읽기가
+            # 걸린다(실측 2026-07-30: 원시 소켓은 정상, makefile+timeout만 행). 연결 타임아웃만 쓰고
+            # 이후는 블로킹.
+            sock.settimeout(None)
+            self._sock = sock
+            self._win = sock.makefile("w", encoding="utf-8", newline="\n")
+            self._rout = sock.makefile("r", encoding="utf-8")
+            self._finish_init(verify_vocab)
+            return
+        self._sock = None
         dll = host_dll_path()
         if not dll.exists():
             raise BridgeError(
@@ -91,7 +110,11 @@ class BridgeClient:
             bufsize=1,
             cwd=str(repo_root()),
         )
+        self._win = self._proc.stdin
+        self._rout = self._proc.stdout
+        self._finish_init(verify_vocab)
 
+    def _finish_init(self, verify_vocab: bool) -> None:
         self.welcome = self._request({"type": "hello", "protocol": 1})
         if self.welcome.get("type") != "welcome":
             raise BridgeError(f"handshake failed: {self.welcome}")
@@ -142,21 +165,32 @@ class BridgeClient:
         return msg
 
     def close(self) -> None:
-        if self._proc.stdin:
+        if self._sock is not None:
+            # makefile은 fd를 참조계수로 쥔다 — 읽기 쪽(_rout)까지 닫아야 FIN이 나가고 호스트가
+            # 세션 종료(ReadLine null)를 본다(실측 2026-07-30: _rout 미닫음 → 호스트 영구 대기 →
+            # 다음 접속 accept 불가). shutdown으로 명시 종료까지.
+            import socket as _socket
+            for closer in (self._win.close, self._rout.close,
+                           lambda: self._sock.shutdown(_socket.SHUT_RDWR), self._sock.close):
+                try:
+                    closer()
+                except OSError:
+                    pass
+            return
+        if self._proc and self._proc.stdin:
             self._proc.stdin.close()
-        self._proc.wait(timeout=10)
+        if self._proc:
+            self._proc.wait(timeout=10)
 
     # --- plumbing ------------------------------------------------------------
 
     def _request(self, obj: dict) -> dict:
-        assert self._proc.stdin
-        self._proc.stdin.write(json.dumps(obj) + "\n")
-        self._proc.stdin.flush()
+        self._win.write(json.dumps(obj) + "\n")
+        self._win.flush()
         return self._read_line()
 
     def _read_line(self) -> dict:
-        assert self._proc.stdout
-        line = self._proc.stdout.readline()
+        line = self._rout.readline()
         if not line:
             raise BridgeError("host closed the connection")
         return json.loads(line)

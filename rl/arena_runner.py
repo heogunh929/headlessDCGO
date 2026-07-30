@@ -1,88 +1,81 @@
-"""아레나 참조 러너 CLI (M4 최소본 — 설계 §1 SDK/러너의 전신).
+"""아레나 참조 러너 CLI — dcgo-arena SDK 기반 (M5 공개 품질).
 
-API 키로 웹소켓 접속 → 래더 큐(또는 지정 도전) → your_turn마다 정책 함수로 착수.
-기본 정책은 무작위 합법 수 — M4 게이트("러너 CLI 2개가 래더 매칭으로 한 판 완주") 검증용.
+설정만으로 래더/룸 참가. 정책 2종:
+  --policy random           무작위 합법 수(연결 검증·바닥선)
+  --policy llm              OpenAI 호환 endpoint (--llm-base/--llm-key/--llm-model 또는
+                            환경변수 DCGO_LLM_BASE/DCGO_LLM_KEY/DCGO_LLM_MODEL)
 
-사용:  python arena_runner.py --server http://127.0.0.1:8791 --key <API키> [--create-room | --join <코드>] [--seed N]
-       (옵션 없음 = 래더 큐)
+사용 예:
+  python arena_runner.py --server http://서버:8791 --key <API키>                # 래더
+  python arena_runner.py ... --create-room                                     # 방 생성
+  python arena_runner.py ... --join ABC123                                     # 방 참가
+  python arena_runner.py ... --policy llm --llm-base http://localhost:11434/v1 --llm-model llama3
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
-import random
+import os
 
-import aiohttp
+from dcgo_arena import ArenaClient, LLMPolicy, RandomPolicy
 
 
-async def run(server: str, key: str, create_room: bool, join: str | None, seed: int, quiet: bool) -> dict | None:
-    rng = random.Random(seed)
-    url = server.rstrip("/").replace("http://", "ws://").replace("https://", "wss://") + f"/arena?key={key}"
-    outcome: dict | None = None
+def build_policy(args) -> object:
+    if args.policy == "llm":
+        base = args.llm_base or os.environ.get("DCGO_LLM_BASE", "")
+        key = args.llm_key or os.environ.get("DCGO_LLM_KEY", "none")
+        model = args.llm_model or os.environ.get("DCGO_LLM_MODEL", "")
+        if not base or not model:
+            raise SystemExit("--policy llm에는 --llm-base/--llm-model(또는 환경변수) 필요")
+        return LLMPolicy(base, key, model, temperature=args.llm_temp, seed=args.seed, verbose=not args.quiet)
+    return RandomPolicy(args.seed)
 
-    async with aiohttp.ClientSession() as session:
-        async with session.ws_connect(url, heartbeat=30) as ws:
-            async for raw in ws:
-                if raw.type != aiohttp.WSMsgType.TEXT:
-                    break
-                msg = json.loads(raw.data)
-                kind = msg.get("type")
 
-                if kind == "hello":
-                    if not quiet:
-                        print(f"[{msg['handle']}] 접속 — 시즌 {msg['season']}")
-                    if create_room:
-                        await ws.send_json({"type": "create_room"})
-                    elif join:
-                        await ws.send_json({"type": "join_room", "code": join})
-                    else:
-                        await ws.send_json({"type": "enqueue"})
+async def run(args) -> None:
+    client = ArenaClient(args.server, args.key)
+    mode = "create_room" if args.create_room else "join_room" if args.join else "ladder"
 
-                elif kind == "room_created":
-                    # flush — 파일 리다이렉트/파이프에서도 코드가 즉시 보이게(스크립트 회수용)
-                    print(f"방 생성됨 — 코드: {msg['code']} (상대에게 전달, 참가 대기 중)", flush=True)
+    def on_event(msg: dict) -> None:
+        kind = msg.get("type")
+        if kind == "hello" and not args.quiet:
+            print(f"[{msg['handle']}] 접속 — 시즌 {msg['season']}")
+        elif kind == "room_created":
+            print(f"방 생성됨 — 코드: {msg['code']} (상대에게 전달, 참가 대기 중)", flush=True)
+        elif kind == "queued" and not args.quiet:
+            print(f"래더 큐 {msg['position']}번째")
+        elif kind == "match_start" and not args.quiet:
+            print(f"매치 {msg['matchId']} — 좌석 {msg['seat']}, 상대 {msg['opponent']['handle']}"
+                  f"(레이팅 {msg['opponent']['rating']})")
+        elif kind == "your_turn" and not args.quiet:
+            print(f"  s{msg['stepIndex']} {msg.get('kind')} — 합법 {len(msg.get('legalActions') or [])}수")
 
-                elif kind == "queued":
-                    if not quiet:
-                        print(f"래더 큐 {msg['position']}번째")
-
-                elif kind == "match_start":
-                    if not quiet:
-                        print(f"매치 {msg['matchId']} — 좌석 {msg['seat']}, 상대 {msg['opponent']['handle']}"
-                              f"(레이팅 {msg['opponent']['rating']}), 내 덱 {msg['yourDeck'].get('name')}")
-
-                elif kind == "your_turn":
-                    actions = msg.get("legalActions") or []
-                    pick = rng.choice(actions)
-                    if not quiet:
-                        print(f"  s{msg['stepIndex']} {msg.get('kind')}: {pick['desc']}")
-                    await ws.send_json({"type": "action", "index": pick["index"]})
-
-                elif kind == "match_end":
-                    outcome = msg
-                    print(f"종료: winner={msg.get('winnerSeat')} reason={msg.get('reason')} Δ레이팅={msg.get('ratingDelta')}")
-                    break
-
-                elif kind == "error":
-                    print(f"오류: {msg.get('code')} {msg.get('message')}")
-                    if not msg.get("retry"):
-                        break
-
-    return outcome
+    for game in range(args.games):
+        result = await client.play(build_policy(args), mode=mode, room_code=args.join,
+                                   deck_id=args.deck_id, on_event=on_event)
+        print(f"종료: winner={result.get('winnerSeat')} reason={result.get('reason')}"
+              f" Δ레이팅={result.get('ratingDelta')}")
+        if mode != "ladder":
+            break   # 룸은 1판
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", default="http://127.0.0.1:8791")
     parser.add_argument("--key", required=True)
-    parser.add_argument("--create-room", action="store_true", help="방을 만들고 코드를 받아 대기")
+    parser.add_argument("--create-room", action="store_true")
     parser.add_argument("--join", default=None, help="방 코드로 참가")
+    parser.add_argument("--deck-id", type=int, default=None, help="이 판에 쓸 덱 ID(기본=활성 덱)")
+    parser.add_argument("--games", type=int, default=1, help="래더 연전 판수")
+    parser.add_argument("--policy", choices=["random", "llm"], default="random")
+    parser.add_argument("--llm-base", default=None, help="OpenAI 호환 base URL (…/v1)")
+    parser.add_argument("--llm-key", default=None)
+    parser.add_argument("--llm-model", default=None)
+    parser.add_argument("--llm-temp", type=float, default=0.3)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
-    asyncio.run(run(args.server, args.key, args.create_room, args.join, args.seed, args.quiet))
+    asyncio.run(run(args))
 
 
 if __name__ == "__main__":
