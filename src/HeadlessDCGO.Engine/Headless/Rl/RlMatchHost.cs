@@ -33,6 +33,14 @@ public sealed class RlMatchHost
     private IDisposable? _hook;
     private PolicyVirtualPlayer? _seat1;
     private PolicyVirtualPlayer? _seat2;
+
+    /// <summary>패널(좌석 무소속 ask)을 다른 좌석 인스턴스가 이미 서빙 중인지 — 같은 틱 이중 서빙
+    /// 차단(PolicyVirtualPlayer의 패널 포획 게이트 참조).</summary>
+    internal bool PanelServedElsewhere(PolicyVirtualPlayer asking, SelectCardPanel panel)
+    {
+        return (!ReferenceEquals(_seat1, asking) && ReferenceEquals(_seat1?.ServingPanel, panel))
+            || (!ReferenceEquals(_seat2, asking) && ReferenceEquals(_seat2?.ServingPanel, panel));
+    }
     private int _seed;
     private int _maxSteps;
     private long _stepIndex;

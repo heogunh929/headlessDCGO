@@ -134,6 +134,16 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
             return true;
         }
 
+        // 패널은 좌석 무소속(ask 1개) — 다른 좌석 인스턴스가 이미 이 패널을 서빙 중이면 포획하지
+        // 않는다. 기본 VirtualPlayer는 포획·클릭이 한 호출 안에서 원자적이라 안전하지만, 정책 좌석은
+        // 포획→적용이 분리돼 같은 틱에 양석이 같은 ask를 잡을 수 있다: 첫 클릭이 답을 등록·패널을
+        // 닫은 뒤 두 번째가 죽은 패널에 유령 클릭 → 스킬 인덱스 오염(실측 2026-07-30 m-18-18:
+        // MultipleSkills 순서 패널 이중 서빙 → [어택 시] 트리거 2건 전부 소실).
+        if (Host?.PanelServedElsewhere(this, panel) == true)
+        {
+            return true;
+        }
+
         // The panel's own wired card copies are the candidates; NotSelect/EndSelect are NULL/YES.
         // 후보는 패널 자신의 장부(_handCards)에서 읽는다 — AS-IS의 클릭·판정 루프(CheckSelection·
         // OnClickHandCard)가 걷는 그 목록이다. GetComponentsInChildren은 헤드리스에서 후보를 놓친다:
@@ -181,6 +191,9 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
     }
 
     private SelectCardPanel? _panel;
+
+    /// <summary>이 좌석이 지금 서빙 중(포획했고 아직 적용 전)인 패널 — 호스트의 이중 서빙 중재용.</summary>
+    internal SelectCardPanel? ServingPanel => _panel;
 
     protected override bool AnswerSelection(PendingSelection pending)
     {
@@ -649,6 +662,16 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
     private void ApplyPanel(DecisionPoint point, int lane)
     {
         SelectCardPanel panel = _panel!;
+
+        // 포획과 적용 사이에 패널이 닫혔으면(자동 종료·타 경로 완료) 클릭을 폐기한다 — 닫힌 패널
+        // 위 클릭은 AS-IS 핸들러의 부작용만 남긴다(위 이중 서빙 주석의 유령 클릭과 같은 계열).
+        if (!panel.gameObject.activeSelf)
+        {
+            Host?.Overflows.Add("panel-stale:click-dropped");
+            _panel = null;
+
+            return;
+        }
 
         if (lane == RlSchema.LaneNull)
         {
