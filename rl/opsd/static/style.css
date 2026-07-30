@@ -1,0 +1,202 @@
+/* DCGO 관리 툴 공용 디자인 시스템 v2 — Pretendard(로컬 벤더링) + 사이드바 레이아웃.
+   의존성: Pretendard 폰트 1개(오프라인 동작 위해 static/fonts에 벤더링, 사용자 승인 2026-07-30). */
+
+@font-face {
+  font-family: 'Pretendard';
+  src: url('/static/fonts/PretendardVariable.woff2') format('woff2-variations');
+  font-weight: 45 920;
+  font-display: swap;
+}
+
+:root {
+  --bg: #f2f4f8;
+  --surface: #ffffff;
+  --line: #e5e8ee;
+  --line-strong: #cbd2dc;
+  --ink: #171b23;
+  --muted: #667085;
+  --accent: #3b5bdb;
+  --accent-strong: #2f4bc0;
+  --accent-soft: #edf1fd;
+  --ok: #12813f;
+  --ok-soft: #e9f9ef;
+  --bad: #c02537;
+  --bad-soft: #fdeef0;
+  --warn: #b25e09;
+  --warn-soft: #fdf6e7;
+  --side-bg: #171d2b;
+  --side-ink: #aab3c5;
+  --side-on: #ffffff;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(23, 27, 35, .05), 0 2px 6px rgba(23, 27, 35, .06);
+  --shadow-lift: 0 4px 14px rgba(23, 27, 35, .10);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Pretendard', 'Noto Sans KR', -apple-system, 'Segoe UI', Arial, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- 앱 레이아웃: 데스크톱 = 좌측 사이드바 / 모바일 = 상단 바 ---------- */
+
+.layout { display: flex; min-height: 100vh; }
+
+aside.sidenav {
+  width: 216px; flex: 0 0 216px;
+  background: var(--side-bg); color: var(--side-ink);
+  padding: 18px 12px;
+  display: flex; flex-direction: column; gap: 2px;
+  position: sticky; top: 0; height: 100vh;
+}
+.sidenav .brand {
+  color: #fff; font-size: 15.5px; font-weight: 800; letter-spacing: -.2px;
+  padding: 4px 10px 14px; display: flex; align-items: center; gap: 8px;
+}
+.sidenav .brand::before { content: "◆"; color: #7d96f5; }
+.sidenav .group { font-size: 11px; letter-spacing: .8px; color: #5c6577; padding: 12px 10px 4px; text-transform: uppercase; }
+.sidenav button {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  border: none; background: none; color: var(--side-ink);
+  font: inherit; font-size: 13.5px; text-align: left;
+  padding: 9px 12px; border-radius: 9px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.sidenav button:hover { background: rgba(255, 255, 255, .06); color: #fff; }
+.sidenav button.on { background: var(--accent); color: var(--side-on); font-weight: 700; }
+.sidenav .foot { margin-top: auto; font-size: 12px; color: #5c6577; padding: 10px; }
+
+.content { flex: 1; min-width: 0; }
+
+.topline {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(255, 255, 255, .86); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+  padding: 12px 22px;
+  display: flex; align-items: center; gap: 14px;
+}
+.topline h2 { margin: 0; font-size: 16.5px; font-weight: 800; letter-spacing: -.2px; }
+
+main.page { padding: 18px 22px 40px; max-width: 1080px; }
+
+@media (max-width: 760px) {
+  .layout { flex-direction: column; }
+  aside.sidenav {
+    width: 100%; flex: none; height: auto; position: sticky;
+    flex-direction: row; align-items: center; overflow-x: auto;
+    padding: 8px 10px; gap: 4px; z-index: 30;
+  }
+  .sidenav .brand { padding: 0 8px 0 2px; font-size: 14px; white-space: nowrap; }
+  .sidenav .group, .sidenav .foot { display: none; }
+  .sidenav button { width: auto; white-space: nowrap; padding: 7px 11px; font-size: 13px; }
+  .topline { padding: 10px 12px; }
+  main.page { padding: 12px 10px 30px; }
+}
+
+/* ---------- 구형 appbar(독립 페이지: 순위표·참가자·뷰어) ---------- */
+
+header.appbar {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(255, 255, 255, .88); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+  padding: 11px 18px;
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+}
+header.appbar h1 { font-size: 16px; margin: 0; font-weight: 800; letter-spacing: -.2px; }
+header.appbar h1::before { content: "◆ "; color: var(--accent); }
+
+nav.tabs-nav { display: flex; gap: 4px; overflow-x: auto; }
+nav.tabs-nav button {
+  border: none; background: none; padding: 7px 13px; font: inherit; cursor: pointer;
+  border-radius: 9px; color: var(--muted); white-space: nowrap; transition: background .12s;
+}
+nav.tabs-nav button:hover { background: var(--bg); color: var(--ink); }
+nav.tabs-nav button.on { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+
+/* ---------- 카드 ---------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  transition: box-shadow .15s;
+}
+.card:hover { box-shadow: var(--shadow-lift); }
+.card > b:first-child { font-size: 14.5px; font-weight: 800; display: inline-block; margin-bottom: 8px; letter-spacing: -.2px; }
+.card small { color: var(--muted); font-weight: 400; }
+
+/* ---------- 표 ---------- */
+
+.scroll-x { overflow-x: auto; }
+
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { border-bottom: 1px solid var(--line); padding: 8px 11px; text-align: left; white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 11.5px; letter-spacing: .4px; text-transform: uppercase; }
+tbody tr, tr { transition: background .1s; }
+tbody tr:hover, tr:hover td { background: #f8fafd; }
+
+/* ---------- 버튼·입력 ---------- */
+
+button.act, .btn {
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
+  padding: 7px 15px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 9px;
+  transition: border-color .12s, color .12s, background .12s, transform .05s;
+}
+button.act:hover, .btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+button.act:active, .btn:active { transform: translateY(1px); }
+button.act.primary, .btn.primary {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+  box-shadow: 0 1px 3px rgba(59, 91, 219, .35);
+}
+button.act.primary:hover, .btn.primary:hover { background: var(--accent-strong); color: #fff; }
+
+input, select, textarea {
+  font: inherit; font-size: 13px; padding: 7px 10px;
+  border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); color: var(--ink);
+  transition: border-color .12s, box-shadow .12s;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+}
+label { display: inline-block; margin: 4px 12px 4px 0; font-size: 13px; }
+
+/* ---------- 상태 배지 ---------- */
+
+.pill {
+  display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  background: var(--bg); color: var(--muted);
+}
+.pill.run { background: var(--accent-soft); color: var(--accent); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+
+.ok { color: var(--ok); }
+.bad { color: var(--bad); }
+
+pre {
+  background: #f7f9fc; border: 1px solid var(--line); border-radius: 9px;
+  padding: 10px 12px; font-size: 12px; overflow: auto; max-height: 300px;
+}
+
+code {
+  background: var(--bg); border-radius: 6px; padding: 1px 7px; font-size: 12.5px;
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+}
+
+details > summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+
+#badge { margin-left: auto; color: var(--bad); font-weight: 800; }
+
+::-webkit-scrollbar { height: 8px; width: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 99px; }
+::-webkit-scrollbar-track { background: transparent; }

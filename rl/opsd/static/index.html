@@ -3,34 +3,52 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DCGO RL 관리</title>
+<link rel="stylesheet" href="/static/style.css">
 <style>
-* { box-sizing: border-box; } body { margin:0; font-family:'Noto Sans KR',Arial,sans-serif; background:#f2f2f2; color:#111; }
-header { background:#fff; border-bottom:1px solid #cfcfcf; padding:10px 16px; display:flex; gap:16px; align-items:center; }
-header h1 { font-size:16px; margin:0; } nav button { border:1px solid #999; background:#fff; padding:6px 14px; font:inherit; cursor:pointer; }
-nav button.on { font-weight:bold; text-decoration:underline; }
-#badge { margin-left:auto; color:#b00; font-weight:bold; }
-main { padding:14px; } section { display:none; } section.on { display:block; }
-.card { background:#fff; border:1px solid #cfcfcf; padding:12px; margin-bottom:12px; }
-table { border-collapse:collapse; width:100%; font-size:13px; } th,td { border:1px solid #ddd; padding:5px 8px; text-align:left; }
-th { background:#fafafa; } input,select { font:inherit; padding:4px 6px; border:1px solid #bbb; }
-label { display:inline-block; margin:4px 10px 4px 0; font-size:13px; }
-button.act { border:1px solid #999; background:#fff; padding:6px 12px; font:inherit; cursor:pointer; }
-pre { background:#fcfcfc; border:1px solid #eee; padding:8px; font-size:12px; overflow:auto; max-height:280px; }
-.ok { color:#070 } .bad { color:#b00 }
+section { display:none; } section.on { display:block; }
+
+/* 와이어프레임 탭 전용 */
+
+.sel { border:1px solid var(--line-strong); background:var(--surface); border-radius:8px; padding:4px 10px; display:inline-block; min-width:120px; color:var(--muted); font-size:13px }
+.sel::after { content:" ▾"; color:var(--line-strong) }
+.bar { height:8px; background:var(--bg); border-radius:99px; position:relative; margin-top:4px; overflow:hidden }
+.bar i { position:absolute; left:0; top:0; bottom:0; width:40%; background:var(--accent); border-radius:99px }
+.mat td { text-align:center } .mat td.diag { background:var(--bg); color:var(--line-strong) }
+.flow { font-size:12.5px; color:var(--muted); border:1px solid var(--line); background:#f8f9fb; border-radius:8px; padding:10px; line-height:1.7; margin-top:10px }
+.check { font-size:16px; color:var(--accent) } .uncheck { font-size:16px; color:var(--line-strong) }
+.note { font-size:12.5px; color:var(--muted); margin-top:6px }
+
+.inp { border:1px solid var(--line-strong); background:var(--surface); border-radius:8px; padding:4px 10px; display:inline-block; min-width:130px; color:var(--muted); font-size:13px }
+.cols { display:flex; gap:12px; flex-wrap:wrap }
+.cols > div { flex:1; min-width:250px }
+.pool { border:1px solid var(--line); border-radius:8px; padding:6px; height:180px; overflow:hidden; font-size:12.5px; color:var(--muted); background:#f8f9fb }
+.pool div { padding:2px 6px; border-radius:5px } .pool div:nth-child(odd) { background:#eef1f5 }
+.mini { font-size:12.5px; color:var(--muted) }
+.clip { border:1px solid var(--line); border-radius:8px; background:#f8f9fb; padding:8px; font-family:monospace; font-size:11.5px; color:var(--muted); line-height:1.5 }
 </style>
 </head>
 <body>
-<header>
-  <h1>DCGO RL 관리</h1>
-  <nav>
-    <button data-tab="ops" class="on">운영</button>
-    <button data-tab="compare">런 비교</button>
-    <button data-tab="defect">결함</button>
-  </nav>
-  <span id="badge"></span>
-  <span id="health" style="font-size:12px;color:#555"></span>
-</header>
-<main>
+<div class="layout">
+<aside class="sidenav">
+  <div class="brand">DCGO RL 관리</div>
+  <div class="group">학습</div>
+  <button data-tab="ops" class="on">운영</button>
+  <button data-tab="league">리그 학습</button>
+  <button data-tab="decks">덱</button>
+  <button data-tab="compare">런 비교</button>
+  <button data-tab="defect">결함</button>
+  <div class="group">아레나</div>
+  <button data-tab="arena">아레나 관리</button>
+  <button data-tab="pg-rankings">공개 순위표</button>
+  <button data-tab="pg-portal">참가자 페이지</button>
+  <div class="group">설계</div>
+  <button data-tab="pg-wire-league">와이어프레임 · 리그학습</button>
+  <button data-tab="pg-wire-decks">와이어프레임 · 덱관리</button>
+  <div class="foot" id="health"></div>
+</aside>
+<div class="content">
+<div class="topline"><h2 id="tabtitle">운영</h2><span id="badge"></span></div>
+<main class="page">
 <section id="ops" class="on">
   <div class="card">
     <b>학습 기동</b><br>
@@ -38,7 +56,14 @@ pre { background:#fcfcfc; border:1px solid #eee; padding:8px; font-size:12px; ov
     <label><b>판 로그</b> <input id="f-lograte" type="number" value="20" style="width:60px"> 판당 1개 <small>(0=사고판만, 사고판은 항상 기록)</small></label>
     <label>시드 <input id="f-seed" type="number" value="42" style="width:70px"></label>
     <label>런 이름 <input id="f-out" placeholder="자동" style="width:110px"></label>
-    <button class="act" onclick="startJob()">기동</button> <span id="start-msg"></span>
+    <button class="act primary" onclick="startJob()">기동</button> <span id="start-msg"></span>
+    <div style="margin-top:6px">
+      <label>덱 레시피 <select id="f-recipes" multiple size="3" style="min-width:170px;vertical-align:top"></select></label>
+      <label><input type="checkbox" id="f-perdeck" checked> 덱별 정책 (선택한 덱마다 정책 1개 — N개 잡 순차 기동)</label>
+      <small style="color:var(--muted)">체크 해제 시: 선택 덱 풀을 섞어 정책 1개 / 덱 미선택 시: 기본 ST1 vs ST2 정책 1개</small>
+      <label>시작 정책 <select id="f-init" style="max-width:250px"><option value="">신규 학습</option></select></label>
+      <label><input type="checkbox" id="f-evalonly"> 평가만(학습 없음)</label>
+    </div>
     <details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:#555">고급</summary>
       <label>워커 <input id="f-envs" type="number" value="5" style="width:50px"></label>
       <label>스텝 상한 <input id="f-steps" type="number" value="200000" style="width:90px"></label>
@@ -47,6 +72,61 @@ pre { background:#fcfcfc; border:1px solid #eee; padding:8px; font-size:12px; ov
     </details>
   </div>
   <div class="card"><b>실행 중 잡</b><div id="jobs">불러오는 중…</div></div>
+</section>
+<section id="league">
+  <div class="card">
+    <b>리그 학습</b> <small>— 덱+정책 조합끼리 라운드 학습(와이어프레임 확정안)</small>
+    <div class="scroll-x"><table id="lg-combos">
+      <tr><th>#</th><th>덱</th><th>시작 정책</th><th>학습</th><th></th></tr>
+    </table></div>
+    <div style="margin-top:6px"><button class="act" onclick="lgAddRow()">+ 조합 추가</button></div>
+    <div style="margin-top:8px">
+      리그 이름 <input id="lg-name" placeholder="자동" style="width:110px">
+      라운드 <input id="lg-rounds" type="number" value="3" style="width:52px"> ×
+      조합별 <input id="lg-games" type="number" value="300" style="width:64px"> 판 ·
+      시드 <input id="lg-seed" type="number" value="42" style="width:64px"> ·
+      교차평가 <input id="lg-pairs" type="number" value="10" style="width:52px"> 판/쌍
+      <button class="act primary" onclick="lgStart()">리그 기동</button> <span id="lg-msg"></span>
+    </div>
+    <div id="lg-status" style="margin-top:10px"></div>
+  </div>
+</section>
+<section id="decks">
+  <div class="card">
+    <b>레시피 라이브러리</b> <small>— 학습 파이프라인 덱(rl/decks). 카드 풀 제약 없음(실존·50장·매수만)</small>
+    <div class="scroll-x"><div id="dk-list">불러오는 중…</div></div>
+    <div style="margin-top:8px">
+      <button class="act primary" onclick="dkNew()">+ 새 덱</button>
+      <button class="act" onclick="dkArenaCopy()">아레나 덱에서 복사</button>
+    </div>
+    <div id="dk-arena" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
+    <b>클립보드 가져오기</b> <small>— digimonmeta JSON 배열 / "4 BT1-020" 줄 단위 모두 인식</small>
+    <textarea id="dk-clip" rows="4" style="width:100%;font-family:monospace;font-size:12px"
+      placeholder='["Exported from digimonmeta.com","P-157","P-157", …] 또는 줄 단위 덱리스트'></textarea>
+    <div style="margin-top:6px">
+      이름 <input id="dk-clipname" placeholder="가져온 덱">
+      <button class="act primary" onclick="dkParse()">인식 → 편집기로</button>
+      <span id="dk-clipmsg"></span>
+    </div>
+  </div>
+  <div class="card" id="dk-editor" style="display:none">
+    <b>덱 편집</b>
+    <div>이름 <input id="dk-name"> 파일 <input id="dk-file" placeholder="자동" style="width:150px">
+      <button class="act primary" onclick="dkSave()">저장</button> <span id="dk-savemsg"></span></div>
+    <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:250px">
+        <b style="font-size:13px">카드 검색/추가</b> <input id="dk-q" placeholder="검색" style="width:130px" oninput="dkRenderPool()">
+        <div id="dk-pool" style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:13px"></div>
+      </div>
+      <div style="flex:1;min-width:250px">
+        <b style="font-size:13px">구성 (클릭 +1 / 우클릭 -1)</b>
+        <div id="dk-build" style="max-height:230px;overflow:auto;font-size:13px"></div>
+        <div id="dk-count" style="margin-top:4px;font-size:13px"></div>
+      </div>
+    </div>
+  </div>
 </section>
 <section id="compare">
   <div class="card"><b>런 이력·비교</b> (지표 8종 — 요구 §5)<div id="runs">불러오는 중…</div></div>
@@ -59,7 +139,221 @@ pre { background:#fcfcfc; border:1px solid #eee; padding:8px; font-size:12px; ov
   <div class="card"><b>알림</b><div id="alerts">없음</div></div>
   <div class="card"><b>런별 결함 census</b><div id="census">불러오는 중…</div></div>
 </section>
+<section id="arena">
+  <div class="card"><b>참가자</b> <small>(승인만 하면 됩니다 — 키는 신청자가 자기 신청 코드로 순위표 페이지에서 직접 수령)</small>
+    <div id="ar-participants">불러오는 중…</div>
+    <div id="ar-key-once" style="margin-top:6px;color:#b00;font-weight:bold"></div>
+  </div>
+  <div class="card"><b>설정</b>
+    <label><input type="checkbox" id="ar-auto"> 가입 자동 승인</label>
+    <label>착수 제한 <input id="ar-timeout" type="number" style="width:60px">초</label>
+    <label>끊김 유예 <input id="ar-grace" type="number" style="width:60px">초</label>
+    <label>키당 덱 상한 <input id="ar-decklimit" type="number" style="width:50px"></label><br>
+    <label>카드 풀(세트, 쉼표 구분) <input id="ar-pool" style="width:260px"></label>
+    <button class="act" onclick="arenaSaveSettings()">저장</button> <span id="ar-set-msg"></span>
+  </div>
+  <div class="card"><b>RL 정책 참가자 등록</b> <small>(스냅샷 참가자 게이트 — 요구 §6.6.5)</small><br>
+    <label>핸들 <input id="ar-policy-handle" placeholder="l0-main-5"></label>
+    <button class="act" onclick="arenaRegisterPolicy()">등록(키 발급)</button>
+  </div>
+  <div class="card"><b>현황</b> <span id="ar-stats"></span></div>
+</section>
+<section id="pg-rankings">
+  <div class="card">
+    <b>공개 순위표</b> <span id="rk-season" style="color:var(--muted)"></span>
+    <div class="scroll-x"><table id="rk-board"></table></div>
+  </div>
+  <div class="card">
+    <b>참가 신청</b> <small>(신청 코드를 받고, 승인 후 그 코드로 API 키를 수령)</small><br><br>
+    <input id="rk-handle" placeholder="핸들(닉네임)" maxlength="40">
+    <button class="act primary" onclick="rkSignup()">신청</button>
+    <div id="rk-msg" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
+    <b>API 키 수령</b> <small>(승인 완료 후 1회)</small><br><br>
+    <input id="rk-chandle" placeholder="핸들" maxlength="40">
+    <input id="rk-cclaim" placeholder="신청 코드" style="width:180px">
+    <button class="act primary" onclick="rkClaim()">수령</button>
+    <div id="rk-cmsg" style="margin-top:8px"></div>
+  </div>
+</section>
+<section id="pg-portal">
+  <div class="card" id="ap-login">
+    <b>참가자 키 로그인</b><br><br>
+    <input id="ap-key" placeholder="API 키" style="width:min(320px,70vw)">
+    <button class="act primary" onclick="apLogin()">확인</button>
+    <span id="ap-loginmsg" class="bad" style="margin-left:8px"></span>
+  </div>
+  <div id="ap-portal" style="display:none">
+    <div class="card"><b>내 정보</b> <span id="ap-who"></span>
+      <button class="act" style="float:right" onclick="apLogout()">키 변경</button></div>
+    <div class="card"><b>내 덱</b> <small>(래더는 활성 덱으로 참가)</small><div id="ap-decks"></div></div>
+    <div class="card"><b>덱 등록</b>
+      <div style="font-size:13px;color:var(--muted);margin:4px 0">메인 정확히 50장 · 디지타마 최대 5장 · 카드별 최대 매수 · 허용 풀 내</div>
+      <label>덱 이름 <input id="ap-deckname" placeholder="내 덱"></label>
+      <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:250px">
+          <b style="font-size:13px">허용 카드 풀</b> <input id="ap-poolq" placeholder="검색" style="width:110px" oninput="apRenderPool()">
+          <div id="ap-pool" style="max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:13px"></div>
+        </div>
+        <div style="flex:1;min-width:250px">
+          <b style="font-size:13px">구성 (클릭 +1 / 우클릭 -1)</b>
+          <div id="ap-buildlist" style="font-size:13px"></div>
+          <div id="ap-buildcount" style="margin-top:4px;font-size:13px"></div>
+        </div>
+      </div>
+      <details style="margin-top:8px"><summary>JSON/클립보드로 직접 입력</summary>
+        <textarea id="ap-deckjson" rows="5" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+        <button class="act" onclick="apRegisterJson()">등록</button>
+      </details>
+      <div style="margin-top:8px"><button class="act primary" onclick="apRegisterBuilt()">이 구성으로 등록</button> <span id="ap-deckmsg"></span></div>
+    </div>
+    <div class="card"><b>대전 이력</b> <small>(클릭 → 판 뷰어)</small><div id="ap-history"></div></div>
+  </div>
+</section>
+<section id="pg-wire-league"><div style="margin-bottom:10px"><span class="pill warn">와이어프레임 — 기능 없음</span></div>
+  <h2 style="font-size:16px">리그 학습 (덱+정책 조합 학습) — "운영" 탭 내 신규 카드</h2>
+
+  <div class="card">
+    <b>① 조합 구성</b> <small>— 덱 하나에 정책 하나, 행 = 조합</small>
+    <div class="scroll-x"><table>
+      <tr><th style="width:34px">#</th><th>덱</th><th>시작 정책</th><th style="width:56px">학습</th><th style="width:64px"></th></tr>
+      <tr><td>1</td><td><span class="sel">red_st1_bt</span></td><td><span class="sel">신규 정책</span></td><td style="text-align:center"><span class="check">☑</span></td><td><button class="act">삭제</button></td></tr>
+      <tr><td>2</td><td><span class="sel">blue_st2_bt</span></td><td><span class="sel">perdeck-blue/policy.zip</span></td><td style="text-align:center"><span class="check">☑</span></td><td><button class="act">삭제</button></td></tr>
+      <tr><td>3</td><td><span class="sel">yellow_st3_bt</span></td><td><span class="sel">runs/l0-main-4/policy.zip</span></td><td style="text-align:center"><span class="uncheck">☐</span></td><td><button class="act">삭제</button></td></tr>
+    </table></div>
+    <div style="margin-top:8px"><button class="act">+ 조합 추가</button></div>
+    <div class="note">덱 = rl/decks 레시피 · 시작 정책 = 신규 또는 runs/의 기존 정책(zip). 같은 덱 중복 허용.<br>
+    <b>학습 체크</b> 해제 = <b>동결 상대(스파링 파트너)로만 참전</b> — 학습 순번에서 빠지고 상호 승률표엔 계속 나타남(고정 벤치마크).</div>
+  </div>
+
+  <div class="card">
+    <b>② 리그 설정</b><br>
+    라운드 <span class="sel" style="min-width:48px">3</span> ×
+    라운드당 조합별 <span class="sel" style="min-width:60px">300</span> 판 ·
+    시드 <span class="sel" style="min-width:54px">42</span> ·
+    판 로그 <span class="sel" style="min-width:48px">20</span> 판당 1
+    <div style="margin-top:10px"><button class="act primary">리그 기동</button> <button class="act">중단</button></div>
+    <div class="flow">
+      진행 규칙: 라운드마다 조합 1→2→… 순서로 학습(동시 1잡, 큐 자동). 학습 중 조합의 상대는
+      <b>나머지 조합들의 최신 동결 정책+그 덱</b>(판마다 순환). 라운드가 끝나면 동결본 갱신.
+      1라운드에서 동결본 없는 신규 조합의 상대 몫은 랜덤 합법 수로 대체.
+    </div>
+  </div>
+
+  <div class="card">
+    <b>③ 진행</b> <small>— 리그 실행 중 표시</small><br>
+    <b>league-0730</b> · 라운드 <b>2/3</b>
+    <div class="scroll-x"><table style="margin-top:8px">
+      <tr><th>조합</th><th>이번 라운드</th><th>진행</th></tr>
+      <tr><td>1 · red_st1_bt</td><td><span class="pill ok">완료</span></td><td>300/300판</td></tr>
+      <tr><td>2 · blue_st2_bt</td><td><span class="pill run">학습 중</span></td><td>판 121/300 <div class="bar"><i></i></div></td></tr>
+      <tr><td>3 · yellow_st3_bt</td><td><span class="pill">동결(학습 안 함)</span></td><td>상대로만 참전</td></tr>
+    </table></div>
+    <div class="note">각 조합 학습 = 잡 1개 — 기존 잡 카드(RSS·정지)와 동일 표면. 라운드 종료마다 승률표 갱신.</div>
+  </div>
+
+  <div class="card">
+    <b>④ 상호 승률표</b> <small>— 라운드 종료마다 교차 평가</small><br>
+    라운드 <span class="sel" style="min-width:40px">1</span>
+    <div class="scroll-x"><table class="mat" style="margin-top:8px">
+      <tr><th></th><th>vs red</th><th>vs blue</th><th>vs yellow</th><th>평균</th></tr>
+      <tr><td>red · r1</td><td class="diag">—</td><td class="ok"><b>62%</b></td><td class="bad">44%</td><td>53%</td></tr>
+      <tr><td>blue · r1</td><td class="bad">38%</td><td class="diag">—</td><td class="ok"><b>57%</b></td><td>48%</td></tr>
+      <tr><td>yellow · r1</td><td class="ok"><b>56%</b></td><td class="bad">43%</td><td class="diag">—</td><td>50%</td></tr>
+    </table></div>
+    <div class="note">셀 = 행 조합이 열 조합 상대 승률(각 M판). 클릭 → 그 매치업 판 목록 → 판 뷰어.</div>
+  </div>
+
+  <div class="card">
+    <b>⑤ 산출·연결</b>
+    <div class="scroll-x"><table>
+      <tr><th>조합</th><th>정책 이력</th><th></th></tr>
+      <tr><td>red_st1_bt</td><td>r1 → r2 → <b>r3(최신)</b></td><td><button class="act">아레나 참가자 등록</button></td></tr>
+      <tr><td>blue_st2_bt</td><td>r1 → r2 → <b>r3(최신)</b></td><td><button class="act">아레나 참가자 등록</button></td></tr>
+    </table></div>
+    <div class="note">runs/league-&lt;이름&gt;/&lt;조합&gt;/round-N/policy.zip 보존 — 라운드별 롤백 가능.
+    등록 = 기존 "RL 정책 참가자 등록" 게이트(스냅샷별 별도 참가자).</div>
+  </div>
+</section>
+<section id="pg-wire-decks"><div style="margin-bottom:10px"><span class="pill warn">와이어프레임 — 기능 없음</span></div>
+  <h2 style="font-size:16px">학습 덱 관리 — 대시보드 신규 탭 "덱"</h2>
+  <div class="note" style="margin-bottom:12px">대상 = 학습 파이프라인 소유 레시피(rl/decks/*.json).
+    아레나 참가자 덱(서버 DB)과 별개 — 포맷·검증기는 공용, 학습 덱은 <b>카드 풀 제약 없음</b>(실존·50장·매수만).</div>
+
+  <div class="card">
+    <b>① 레시피 라이브러리</b>
+    <div class="scroll-x"><table>
+      <tr><th>이름</th><th>메인/디지타마</th><th>구성 요약</th><th>검증</th><th style="width:210px"></th></tr>
+      <tr><td><b>red_st1_bt</b></td><td>50 / 4</td><td class="mini">ST1 위주 + BT 보강 · 레벨곡선 3~6</td><td><span class="pill ok">적법</span></td>
+        <td><button class="act">열기</button> <button class="act">복제</button> <button class="act">삭제</button></td></tr>
+      <tr><td><b>blue_st2_bt</b></td><td>50 / 4</td><td class="mini">ST2 위주 + BT 보강</td><td><span class="pill ok">적법</span></td>
+        <td><button class="act">열기</button> <button class="act">복제</button> <button class="act">삭제</button></td></tr>
+      <tr><td><b>coverage_rest_1</b></td><td>50 / 5</td><td class="mini">커버리지용 혼색</td><td><span class="pill bad">위반 2건</span></td>
+        <td><button class="act">열기</button> <button class="act">복제</button> <button class="act">삭제</button></td></tr>
+    </table></div>
+    <div style="margin-top:8px">
+      <button class="act primary">+ 새 덱</button>
+      <button class="act">아레나 덱에서 복사</button>
+      <button class="act">클립보드 가져오기</button>
+    </div>
+    <div class="note">아레나 덱에서 복사 = 참가자/하우스 덱을 레시피로 내려받기 ·
+    삭제는 파일만 제거 — 지난 런 메타의 덱 스냅샷은 남음.</div>
+  </div>
+
+  <div class="card">
+    <b>①-b 클립보드 가져오기</b> <small>— AS-IS Import Clipboard와 같은 양식 즉시 인식</small>
+    <div class="clip" style="margin-top:8px">
+["Exported from digimonmeta.com","P-157","P-157","P-157","P-157","P-123","EX1-045","EX1-045","EX1-045",
+ "EX9-064","EX9-064","EX9-064","LM-025","ST12-09","BT7-013", … ,"BT15-096","BT15-096"]</div>
+    <div style="margin-top:8px">
+      이름 <span class="inp">가져온 덱</span> <button class="act primary">인식 → 편집기로</button>
+    </div>
+    <div class="note">붙여넣기만 하면 자동 인식: <b>digimonmeta.com JSON 배열</b>(카드 반복=매수, 머리말 문자열 무시) ·
+    줄 단위 덱리스트("4 BT1-020" / "BT1-020 x4") 모두 지원. 디지타마는 카드 타입으로 자동 분리,
+    인식 결과는 ② 편집기에 실려 검증·수정 후 저장.</div>
+  </div>
+
+  <div class="card">
+    <b>② 덱 편집</b> <small>— "열기/새 덱" 시 아래 펼침 (아레나 빌더와 같은 부품)</small><br>
+    이름 <span class="inp">red_st1_bt</span> <button class="act primary">저장</button> <button class="act">다른 이름으로</button>
+    <div class="cols" style="margin-top:10px">
+      <div>
+        <b class="mini">카드 검색/추가</b> <span class="inp" style="min-width:90px">검색…</span>
+        <div class="pool">
+          <div>ST1-02 Biyomon · Lv3 · 최대4 <b style="float:right">[+]</b></div>
+          <div>ST1-03 Agumon · Lv3 · 최대4 <b style="float:right">[+]</b></div>
+          <div>BT1-020 … <b style="float:right">[+]</b></div>
+          <div>…전 카드 풀(제약 없음)…</div>
+        </div>
+      </div>
+      <div>
+        <b class="mini">구성 (클릭 +1 / 우클릭 -1)</b>
+        <div class="pool">
+          <div>ST1-02 Biyomon ×4</div>
+          <div>ST1-03 Agumon ×4</div>
+          <div>ST1-06 Coredramon ×4</div>
+          <div>🥚 ST1-01 Koromon ×4</div>
+          <div>…</div>
+        </div>
+        <div class="mini" style="margin-top:4px">메인 <b class="ok">50/50</b> · 디지타마 <b class="ok">4/5</b> · <span class="pill ok">적법</span></div>
+      </div>
+    </div>
+    <div class="note">검증 위반 시 사유 즉시 표시(50장·MaxCountInDeck·실존). 위반 상태로도 저장 가능하되 목록에 "위반" 태그 — 학습 기동 시점에 거부.</div>
+  </div>
+
+  <div class="card">
+    <b>③ 어디서 쓰이나</b> <small>— 연결 지점</small>
+    <div class="mini" style="line-height:1.9; margin-top:4px">
+      · 학습 런처 "덱 레시피" 목록 = 이 라이브러리<br>
+      · 리그 학습 조합 구성의 덱 선택 = 이 라이브러리<br>
+      · 아레나 하우스 봇 등록 시 덱 = 조합의 덱 그대로
+    </div>
+  </div>
+</section>
 </main>
+</div>
+</div>
 <script>
 const $ = id => document.getElementById(id);
 let TOKEN = localStorage.getItem('opsToken') || '';
@@ -70,10 +364,196 @@ const api = (p, opt = {}) => fetch(p, {...opt, headers: H()}).then(r => {
   return r.json();
 });
 
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('nav button, main section').forEach(x => x.classList.remove('on'));
-  b.classList.add('on'); $(b.dataset.tab).classList.add('on');
+const TAB_INIT = {'pg-rankings': () => rkLoad(), 'pg-portal': () => apAuto(), 'decks': () => dkInit()};
+
+// ---------- 덱 탭 (학습 레시피 라이브러리 — runner /recipes*) ----------
+let dkMeta = null;                       // 카드 사전(cards-meta) — 풀 제약 없음
+const dkBuild = {main: {}, digitama: {}};
+async function dkInit() { if (!dkMeta) { dkMeta = await api('/api/runner/cards-meta'); } dkLoad(); }
+async function dkLoad() {
+  const rows = await api('/api/runner/recipes/detail');
+  $('dk-list').innerHTML = '<table><tr><th>이름</th><th>파일</th><th>메인/디지타마</th><th>검증</th><th style="width:200px"></th></tr>' +
+    rows.map(r => `<tr><td><b>${r.name}</b></td><td><code>${r.file}</code></td><td>${r.mainCount}/${r.eggCount}</td>
+      <td>${r.valid ? '<span class="pill ok">적법</span>' : `<span class="pill bad" title="${(r.reasons||[]).join('\n')}">위반 ${(r.reasons||[]).length}건</span>`}</td>
+      <td><button class="act" onclick='dkOpen(${JSON.stringify(r).replace(/'/g, "&#39;")})'>열기</button>
+          <button class="act" onclick='dkOpen(${JSON.stringify(r).replace(/'/g, "&#39;")}, true)'>복제</button>
+          <button class="act" onclick="dkDelete('${r.file}')">삭제</button></td></tr>`).join('') + '</table>';
+}
+function dkOpen(r, dup) {
+  dkBuild.main = {}; dkBuild.digitama = {};
+  for (const e of r.main) dkBuild.main[e.display] = e.count;
+  for (const e of r.digitama) dkBuild.digitama[e.display] = e.count;
+  $('dk-name').value = dup ? r.name + ' 사본' : r.name;
+  $('dk-file').value = dup ? '' : r.file.replace('.json', '');
+  $('dk-editor').style.display = '';
+  dkRenderPool(); dkRenderBuild();
+  $('dk-editor').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+function dkNew() { dkBuild.main = {}; dkBuild.digitama = {}; $('dk-name').value = ''; $('dk-file').value = '';
+  $('dk-editor').style.display = ''; dkRenderPool(); dkRenderBuild(); }
+async function dkDelete(file) {
+  if (!confirm(file + ' 삭제?')) return;
+  await api(`/api/runner/recipes/${encodeURIComponent(file)}/delete`, {method: 'POST'});
+  dkLoad();
+}
+function dkRenderPool() {
+  const q = ($('dk-q').value || '').toLowerCase();
+  $('dk-pool').innerHTML = Object.entries(dkMeta)
+    .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q))
+    .slice(0, 300)
+    .map(([id, c]) => `<div style="cursor:pointer;padding:2px 5px" onclick="dkAdd('${id}')" oncontextmenu="event.preventDefault();dkSub('${id}')">` +
+      `${id} <b>${c.name}</b> <small>${c.type} · 최대 ${c.maxCount ?? 4}</small></div>`).join('') || '검색 결과 없음';
+}
+const dkSection = id => (dkMeta[id] || {}).type === 'DigiEgg' ? 'digitama' : 'main';
+function dkAdd(id) { const s = dkBuild[dkSection(id)]; s[id] = (s[id] || 0) + 1; dkRenderBuild(); }
+function dkSub(id) { const s = dkBuild[dkSection(id)]; if (s[id]) { s[id]--; if (!s[id]) delete s[id]; } dkRenderBuild(); }
+function dkRenderBuild() {
+  const line = (s, mark) => Object.entries(dkBuild[s]).map(([id, n]) =>
+    `<div style="cursor:pointer;padding:2px 5px" onclick="dkAdd('${id}')" oncontextmenu="event.preventDefault();dkSub('${id}')">${mark} ${id} ${(dkMeta[id]||{}).name||''} ×${n}</div>`).join('');
+  $('dk-build').innerHTML = line('main', '') + line('digitama', '🥚') || '<span style="color:var(--muted)">비어 있음</span>';
+  const m = Object.values(dkBuild.main).reduce((a, b) => a + b, 0);
+  const g = Object.values(dkBuild.digitama).reduce((a, b) => a + b, 0);
+  $('dk-count').innerHTML = `메인 <b class="${m === 50 ? 'ok' : 'bad'}">${m}/50</b> · 디지타마 <b class="${g <= 5 ? 'ok' : 'bad'}">${g}/5</b>`;
+}
+async function dkSave() {
+  const body = {name: $('dk-name').value || '무제 덱', file: $('dk-file').value || undefined,
+    main: Object.entries(dkBuild.main).map(([card, count]) => ({card, count})),
+    digitama: Object.entries(dkBuild.digitama).map(([card, count]) => ({card, count}))};
+  const r = await api('/api/runner/recipes', {method: 'POST', body: JSON.stringify(body)});
+  $('dk-savemsg').innerHTML = r.error ? `<span class="bad">${r.error}</span>`
+    : r.valid ? `<span class="ok">저장됨: ${r.file}</span>`
+    : `<span class="bad">저장됨(위반): ${(r.reasons||[]).join(' · ')}</span>`;
+  dkLoad(); loadLauncherChoices();
+}
+async function dkParse() {
+  const r = await api('/api/runner/recipes/parse', {method: 'POST',
+    body: JSON.stringify({text: $('dk-clip').value, name: $('dk-clipname').value})});
+  if (r.error) { $('dk-clipmsg').innerHTML = `<span class="bad">${r.error}: ${(r.reasons||[]).join(', ')}</span>`; return; }
+  $('dk-clipmsg').innerHTML = '<span class="ok">인식됨 — 편집기 확인</span>';
+  dkOpen({name: r.name, file: '', main: r.main.map(e => ({display: e.card.replace('_','-'), count: e.count})),
+          digitama: r.digitama.map(e => ({display: e.card.replace('_','-'), count: e.count}))}, true);
+  $('dk-name').value = r.name;
+}
+async function dkArenaCopy() {
+  const decks = await api('/api/arena/admin/decks');
+  $('dk-arena').innerHTML = decks.length
+    ? '<b style="font-size:13px">아레나 덱 선택:</b> ' + decks.map(d =>
+      `<button class="act" onclick='dkFromArena(${JSON.stringify(d).replace(/'/g, "&#39;")})'>${d.owner}/${d.name}</button>`).join(' ')
+    : '<span style="color:var(--muted)">아레나 덱 없음</span>';
+}
+function dkFromArena(d) {
+  dkOpen({name: `${d.owner}-${d.name}`, file: '',
+    main: d.cards.main.map(e => ({display: e.card, count: e.count})),
+    digitama: (d.cards.digitama || []).map(e => ({display: e.card, count: e.count}))}, true);
+}
+document.querySelectorAll('.sidenav button[data-tab]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.sidenav button, main section').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  const sec = $(b.dataset.tab);
+  sec.classList.add('on');
+  $('tabtitle').textContent = b.textContent;
+  (TAB_INIT[b.dataset.tab] || (() => {}))();
 });
+
+// ---------- 공개 순위표 탭 (네이티브 — /api/arena 공개 표면) ----------
+async function rkLoad() {
+  const r = await (await fetch('/api/arena/rankings')).json();
+  $('rk-season').textContent = `시즌 ${r.season}`;
+  $('rk-board').innerHTML = '<tr><th>순위</th><th>핸들</th><th>Elo</th><th>판수</th></tr>' +
+    (r.rows.length ? r.rows.map(x =>
+      `<tr><td><b>${x.rank}</b></td><td>${x.handle}${x.kind === 'policy' ? ' <span class="pill">하우스 봇</span>' : ''}</td>` +
+      `<td>${x.elo}</td><td>${x.games}</td></tr>`).join('')
+      : '<tr><td colspan="4" style="color:var(--muted)">아직 대전 기록이 없습니다</td></tr>');
+}
+async function rkSignup() {
+  const r = await (await fetch('/api/arena/signup', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({handle: $('rk-handle').value})})).json();
+  $('rk-msg').innerHTML = r.error ? `<span class="bad">${r.error}</span>`
+    : r.key ? `<b>승인 완료.</b> API 키(1회 표시): <code>${r.key}</code>`
+    : `신청 완료(${r.handle}). <b>신청 코드(1회 표시): <code>${r.claim}</code></b> — 승인 후 아래에서 키 수령`;
+}
+async function rkClaim() {
+  const r = await (await fetch('/api/arena/claim', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({handle: $('rk-chandle').value, claim: $('rk-cclaim').value})})).json();
+  $('rk-cmsg').innerHTML = r.error ? `<span class="bad">${r.error}</span>`
+    : `<b>API 키(1회 표시): <code>${r.key}</code></b>`;
+}
+
+// ---------- 참가자 페이지 탭 (네이티브 — 키 인증 표면) ----------
+let apKey = localStorage.getItem('arenaKey') || '';
+let apCards = {}, apPool = {sets: [], cards: []};
+const apBuild = {main: {}, digitama: {}};
+const apApi = (p, opt = {}) => fetch(p, {...opt, headers: {'X-Arena-Key': apKey, 'Content-Type': 'application/json'}}).then(r => r.json());
+function apAuto() { if (apKey && $('ap-portal').style.display === 'none') apLogin(true); }
+function apLogout() { localStorage.removeItem('arenaKey'); apKey = ''; $('ap-portal').style.display = 'none'; $('ap-login').style.display = ''; }
+async function apLogin(silent) {
+  if (!silent) apKey = $('ap-key').value.trim() || apKey;
+  const me = await apApi('/api/arena/me');
+  if (me.error) { if (!silent) $('ap-loginmsg').textContent = '키가 유효하지 않습니다'; return; }
+  localStorage.setItem('arenaKey', apKey);
+  $('ap-login').style.display = 'none'; $('ap-portal').style.display = '';
+  $('ap-who').textContent = `${me.handle} · Elo ${me.elo} · ${me.games}판`;
+  const data = await apApi('/api/arena/cards');
+  apCards = data.cards || {}; apPool = data.pool || apPool;
+  apRenderPool(); apRenderBuild(); apLoadDecks(); apLoadHistory();
+}
+const apInPool = id => apPool.sets.includes(id.split('-')[0]) || apPool.cards.includes(id);
+function apRenderPool() {
+  const q = ($('ap-poolq').value || '').toLowerCase();
+  $('ap-pool').innerHTML = Object.entries(apCards).filter(([id]) => apInPool(id))
+    .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q))
+    .slice(0, 400)
+    .map(([id, c]) => `<div style="cursor:pointer;padding:2px 5px" onclick="apAdd('${id}')" oncontextmenu="event.preventDefault();apSub('${id}')">` +
+      `${id} <b>${c.name}</b> <small>${c.type} · 최대 ${c.maxCount ?? 4}</small></div>`).join('') || '풀이 비어 있음';
+}
+const apSection = id => (apCards[id] || {}).type === 'DigiEgg' ? 'digitama' : 'main';
+function apAdd(id) { const s = apBuild[apSection(id)]; s[id] = (s[id] || 0) + 1; apRenderBuild(); }
+function apSub(id) { const s = apBuild[apSection(id)]; if (s[id]) { s[id]--; if (!s[id]) delete s[id]; } apRenderBuild(); }
+function apRenderBuild() {
+  const line = (s, mark) => Object.entries(apBuild[s]).map(([id, n]) =>
+    `<div style="cursor:pointer;padding:2px 5px" onclick="apAdd('${id}')" oncontextmenu="event.preventDefault();apSub('${id}')">${mark} ${id} ${(apCards[id]||{}).name||''} ×${n}</div>`).join('');
+  $('ap-buildlist').innerHTML = line('main', '') + line('digitama', '🥚') || '<span style="color:var(--muted)">비어 있음</span>';
+  const m = Object.values(apBuild.main).reduce((a, b) => a + b, 0);
+  const g = Object.values(apBuild.digitama).reduce((a, b) => a + b, 0);
+  $('ap-buildcount').innerHTML = `메인 <b class="${m === 50 ? 'ok' : 'bad'}">${m}/50</b> · 디지타마 <b class="${g <= 5 ? 'ok' : 'bad'}">${g}/5</b>`;
+}
+async function apRegister(deck) {
+  const r = await apApi('/api/arena/decks', {method: 'POST', body: JSON.stringify(deck)});
+  $('ap-deckmsg').innerHTML = r.error
+    ? `<span class="bad">${r.error}${(r.reasons || []).map(x => '<br>· ' + x).join('')}</span>`
+    : `<span class="ok">등록됨: ${r.deck}${r.active ? ' (활성)' : ''}</span>`;
+  apLoadDecks();
+}
+function apRegisterBuilt() {
+  apRegister({name: $('ap-deckname').value || '무제 덱',
+    main: Object.entries(apBuild.main).map(([card, count]) => ({card, count})),
+    digitama: Object.entries(apBuild.digitama).map(([card, count]) => ({card, count}))});
+}
+function apRegisterJson() {
+  try { apRegister(JSON.parse($('ap-deckjson').value)); }
+  catch (e) { $('ap-deckmsg').innerHTML = `<span class="bad">JSON 파싱 실패: ${e.message}</span>`; }
+}
+async function apLoadDecks() {
+  const decks = await apApi('/api/arena/decks');
+  $('ap-decks').innerHTML = decks.length ? '<div class="scroll-x"><table><tr><th>이름</th><th>메인/디지타마</th><th>상태</th><th></th></tr>' +
+    decks.map(d => {
+      const m = d.cards.main.reduce((a, e) => a + e.count, 0), g = (d.cards.digitama || []).reduce((a, e) => a + e.count, 0);
+      return `<tr><td>${d.name}</td><td>${m}/${g}</td><td>${d.active ? '<span class="pill ok">활성</span>' : ''}${d.enabled ? '' : `<span class="pill bad">비활성</span>`}</td>` +
+        `<td>${d.active || !d.enabled ? '' : `<button class="act" onclick="apActivate(${d.id})">활성화</button>`}</td></tr>`;
+    }).join('') + '</table></div>' : '등록된 덱 없음';
+}
+async function apActivate(id) { await apApi(`/api/arena/decks/${id}/activate`, {method: 'POST'}); apLoadDecks(); }
+async function apLoadHistory() {
+  const rows = await apApi('/api/arena/history');
+  $('ap-history').innerHTML = rows.length ? '<div class="scroll-x"><table><tr><th>시각</th><th>상대</th><th>결과</th><th>Δ</th><th>사유</th></tr>' +
+    rows.map(h => {
+      const won = h.winner === h.mySeat, draw = h.winner == null;
+      return `<tr style="cursor:pointer" onclick="window.open('/static/viewer.html?arena=${h.matchId}')">` +
+        `<td>${h.ts}</td><td>${h.opponent}</td><td><span class="pill ${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</span></td>` +
+        `<td>${h.ratingDelta > 0 ? '+' : ''}${h.ratingDelta}</td><td>${h.reason}</td></tr>`;
+    }).join('') + '</table></div>' : '대전 기록 없음';
+}
 
 async function startJob() {
   const rate = +$('f-lograte').value;
@@ -85,6 +565,24 @@ async function startJob() {
     record_mode: rate > 0 ? 'sample:' + rate : 'accident',
     checkpoint_every: +$('f-ck').value, checkpoint_keep: +$('f-keep').value, eval_matches: +$('f-eval').value};
   if ($('f-out').value) args.out = '../runs/' + $('f-out').value;
+  const recipes = [...$('f-recipes').selectedOptions].map(o => o.value);
+  if ($('f-init').value) args.init_model = $('f-init').value;
+  if ($('f-evalonly').checked) {
+    if (!args.init_model) { $('start-msg').textContent = '평가만 모드에는 시작 정책이 필요합니다'; return; }
+    args.eval_only = 1;
+  }
+  // 덱별 정책 배치(요구 2026-07-30): 선택한 덱마다 잡 1개 = 정책 1개, 순차 큐 기동.
+  if ($('f-perdeck').checked && recipes.length >= 1) {
+    const base = $('f-out').value || 'batch-' + new Date().toISOString().slice(5, 16).replace(/[-T:]/g, '');
+    const jobs = recipes.map(r => ({script: 'train',
+      args: {...args, recipes: [r], out: `../runs/${base}-${r.replace('.json', '')}`}}));
+    const res = await api('/api/runner/jobs/batch', {method: 'POST', body: JSON.stringify({jobs})});
+    $('start-msg').textContent = res.error ? '거부: ' + res.error
+      : `${res.queued}개 잡 큐 적재 (덱별 정책 ${recipes.length}개) — 순차 기동됩니다`;
+    pollJobs();
+    return;
+  }
+  if (recipes.length) args.recipes = recipes;
   const r = await api('/api/runner/jobs', {method: 'POST', body: JSON.stringify({script: 'train', args})});
   $('start-msg').textContent = r.error ? '거부: ' + r.error : '기동됨: ' + r.job;
   pollJobs();
@@ -101,14 +599,21 @@ async function pollJobs() {
         ? `판 ${Math.min(s.matches_played ?? 0, cfg.games)}/${cfg.games}회`
         : `판 ${s.matches_played ?? 0}회 · ${s.progress_steps == null ? '-' : Math.min(s.progress_steps, cfg.steps ?? 1e9)}/${cfg.steps ?? '?'} 스텝`;
       const phase = meta.status === 'evaluating' ? '평가 중' : '학습 중';
-      return `<tr><td>${id}</td><td class="ok">${phase}</td>
-        <td>${progress}${meta.status === 'evaluating' ? ` · eval ${cfg.eval_matches ?? ''}판` : ''}</td><td>${s.rss_mb} MB</td><td>${meta.engine_sha || ''}</td>
+      return `<tr><td>${id}</td><td><span class="pill run">${phase}</span></td>
+        <td>${progress}${meta.status === 'evaluating' ? ` · eval ${cfg.eval_matches ?? ''}판` : ''}</td><td>${s.rss_mb} MB</td><td><code>${meta.engine_sha || ''}</code></td>
         <td>${s.alive ? `<button class="act" onclick="sig('${id}','stop')">정지(graceful)</button>
         <button class="act" onclick="sig('${id}','kill')">강제</button>` : ''}</td></tr>`;
     });
-    $('jobs').innerHTML = rows.length
-      ? `<table><tr><th>잡</th><th>상태</th><th>진행</th><th>RSS</th><th>엔진</th><th></th></tr>${rows.join('')}</table>`
-      : "없음 — 종료된 런은 '런 비교' 탭에";
+    let queueHtml = '';
+    try {
+      const q = await api('/api/runner/jobs/queue');
+      if (q.pending.length) queueHtml = `<div style="margin-top:8px;font-size:13px">대기 큐 ${q.pending.length}개: `
+        + q.pending.map(e => `<span class="pill">${((e.args||{}).out||'').split('/').pop() || e.script}</span>`).join(' ')
+        + ` <button class="act" onclick="api('/api/runner/jobs/queue/clear',{method:'POST'}).then(pollJobs)">큐 비우기</button></div>`;
+    } catch (e) {}
+    $('jobs').innerHTML = (rows.length
+      ? `<div class="scroll-x"><table><tr><th>잡</th><th>상태</th><th>진행</th><th>RSS</th><th>엔진</th><th></th></tr>${rows.join('')}</table></div>`
+      : "없음 — 종료된 런은 '런 비교' 탭에") + queueHtml;
     const h = await api('/api/runner/health');
     $('health').textContent = `runner ✓ (워커 상한 ${h.worker_cap})`;
   } catch (e) { $('health').textContent = 'runner ✗ ' + e.message; }
@@ -122,15 +627,16 @@ async function pollRuns() {
     const total = Object.values(reasons).reduce((a, b) => a + b, 0) || 1;
     const winrate = m.eval_winrate_vs_random != null ? (m.eval_winrate_vs_random * 100).toFixed(1) + '%' : '-';
     const ci = m.eval_ci95 ? `[${(m.eval_ci95[0]*100).toFixed(0)}, ${(m.eval_ci95[1]*100).toFixed(0)}]` : '';
-    return `<tr><td>${r.name}</td><td>${m.status}</td><td>${m.steps_done ?? (m.config||{}).games + '판설정' ?? ''}</td>
+    const pill = m.status === 'done' ? 'ok' : m.status === 'interrupted' ? 'warn' : m.status === 'running' ? 'run' : '';
+    return `<tr><td>${r.name}</td><td><span class="pill ${pill}">${m.status}</span></td><td>${m.steps_done ?? (m.config||{}).games + '판설정' ?? ''}</td>
       <td>${winrate} ${ci}</td><td>${Object.entries(reasons).map(([k,v])=>`${k}:${v}`).join(' ')}</td>
       <td class="${c.swallowed ? 'bad' : ''}">${c.swallowed ?? 0}</td><td>${m.train_steps_per_sec ?? ''}</td>
-      <td>${m.engine_sha || ''}</td><td>${m.seed ?? (m.config||{}).seed ?? ''}</td>
+      <td><code>${m.engine_sha || ''}</code></td><td>${m.seed ?? (m.config||{}).seed ?? ''}</td>
       <td>${r.matches.length ? `<details><summary>${r.matches.length}판</summary>${r.matches.map(x =>
         `<div><a href="/static/viewer.html?run=${r.name}&match=${x}" target="_blank">${x.replace('.jsonl.gz','')}</a></div>`).join('')}</details>` : '0'}</td></tr>`;
   });
-  $('runs').innerHTML = `<table><tr><th>런</th><th>상태</th><th>스텝</th><th>eval 승률 CI</th>
-    <th>판 사유</th><th>swallowed</th><th>steps/s</th><th>엔진 sha</th><th>시드</th><th>판로그</th></tr>${rows.join('')}</table>`;
+  $('runs').innerHTML = `<div class="scroll-x"><table><tr><th>런</th><th>상태</th><th>스텝</th><th>eval 승률 CI</th>
+    <th>판 사유</th><th>swallowed</th><th>steps/s</th><th>엔진 sha</th><th>시드</th><th>판로그</th></tr>${rows.join('')}</table></div>`;
   // 결함 탭: 결함 있는 런만, 발생 지점별 분해 + 사고판 바로가기 (요구 ④ 가독화 2026-07-30).
   const bad = runs.filter(r => (r.meta.census || {}).swallowed > 0 ||
     Object.keys((r.meta.census || {}).reasons || {}).some(k => k.startsWith('aborted')));
@@ -172,8 +678,137 @@ async function pollAlerts() {
     ? alerts.map(a => `<div>${a.ts} [${a.job}] ${a.metric}=${a.value} > ${a.limit} (${a.action})</div>`).join('') : '없음';
 }
 
-pollJobs(); pollRuns(); loadRules(); pollAlerts();
-setInterval(pollJobs, 5000); setInterval(pollRuns, 20000); setInterval(pollAlerts, 15000);
+// ---------- 아레나 관리 탭 ----------
+async function arenaLoad() {
+  const o = await api('/api/arena/admin/overview');
+  const spill = s => s === 'active' ? 'ok' : s === 'pending' ? 'warn' : 'bad';
+  $('ar-participants').innerHTML = '<div class="scroll-x"><table><tr><th>ID</th><th>핸들</th><th>종류</th><th>상태</th><th>가입</th><th></th></tr>'
+    + o.participants.map(p => `<tr><td>${p.id}</td><td><b>${p.handle}</b></td><td>${p.kind}</td><td><span class="pill ${spill(p.status)}">${p.status}</span></td><td>${p.created}</td><td>`
+      + (p.status === 'pending' ? `<button class="act primary" onclick="arenaApprove(${p.id})">승인</button>` : '')
+      + (p.status === 'active' ? `<button class="act" onclick="arenaStatus(${p.id},'banned')">차단</button>` : '')
+      + (p.status === 'banned' ? `<button class="act" onclick="arenaStatus(${p.id},'active')">복구</button>` : '')
+      + '</td></tr>').join('') + '</table></div>';
+  $('ar-auto').checked = o.settings.auto_approve === '1';
+  $('ar-timeout').value = o.settings.move_timeout_sec;
+  $('ar-grace').value = o.settings.disconnect_grace_sec;
+  $('ar-decklimit').value = o.settings.deck_limit_per_key;
+  $('ar-pool').value = (JSON.parse(o.settings.card_pool).sets || []).join(',');
+  $('ar-stats').textContent = `시즌 ${o.season} · 누적 대전 ${o.matches}판`;
+}
+const arenaAdmin = (action, body) => api('/api/arena/admin/' + action, {method: 'POST', body: JSON.stringify(body)});
+async function arenaApprove(id) {
+  const r = await arenaAdmin('approve', {id});
+  $('ar-key-once').textContent = r.key ? `${r.handle}의 API 키(1회 표시): ${r.key}` : (r.error || '');
+  arenaLoad();
+}
+async function arenaStatus(id, status) { await arenaAdmin('status', {id, status}); arenaLoad(); }
+async function arenaSaveSettings() {
+  await arenaAdmin('setting', {key: 'auto_approve', value: $('ar-auto').checked ? '1' : '0'});
+  await arenaAdmin('setting', {key: 'move_timeout_sec', value: $('ar-timeout').value});
+  await arenaAdmin('setting', {key: 'disconnect_grace_sec', value: $('ar-grace').value});
+  await arenaAdmin('setting', {key: 'deck_limit_per_key', value: $('ar-decklimit').value});
+  const r = await arenaAdmin('setting', {key: 'card_pool',
+    value: JSON.stringify({sets: $('ar-pool').value.split(',').map(s => s.trim()).filter(Boolean), cards: []})});
+  $('ar-set-msg').textContent = '저장됨' + (r.disabled ? ` (풀 변경으로 덱 ${r.disabled}개 비활성)` : '')
+    + (r.restored ? ` (덱 ${r.restored}개 복원)` : '');
+}
+async function arenaRegisterPolicy() {
+  const r = await arenaAdmin('register-policy', {handle: $('ar-policy-handle').value});
+  $('ar-key-once').textContent = r.key ? `${r.handle}(policy)의 API 키(1회 표시): ${r.key}` : (r.error || '');
+  arenaLoad();
+}
+
+let CHOICES = {recipes: [], models: []};
+async function loadLauncherChoices() {
+  try {
+    CHOICES.recipes = await api('/api/runner/recipes');
+    $('f-recipes').innerHTML = CHOICES.recipes.map(r => `<option value="${r}">${r.replace('.json','')}</option>`).join('');
+    CHOICES.models = await api('/api/runner/models');
+    $('f-init').innerHTML = '<option value="">신규 학습</option>'
+      + CHOICES.models.map(m => `<option value="${m}">${m}</option>`).join('');
+    if ($('lg-combos').rows.length === 1) { lgAddRow(); lgAddRow(); }   // 기본 2행
+  } catch (e) {}
+}
+
+// ---------- 리그 학습 (조합 구성·기동·진행·매트릭스) ----------
+function lgAddRow() {
+  const tbody = $('lg-combos');
+  const n = tbody.rows.length;   // 헤더 포함
+  const row = tbody.insertRow(-1);
+  row.innerHTML = `<td>${n}</td>
+    <td><select class="lg-deck">${CHOICES.recipes.map(r => `<option>${r}</option>`).join('')}</select></td>
+    <td><select class="lg-init"><option value="">신규 정책</option>${CHOICES.models.map(m => `<option>${m}</option>`).join('')}</select></td>
+    <td style="text-align:center"><input type="checkbox" class="lg-train" checked title="해제 = 동결 상대(스파링)로만 참전"></td>
+    <td><button class="act" onclick="this.closest('tr').remove()">삭제</button></td>`;
+}
+async function lgStart() {
+  const combos = [...$('lg-combos').rows].slice(1).map((row, i) => ({
+    id: `c${i + 1}-` + row.querySelector('.lg-deck').value.replace('.json', ''),
+    deck: row.querySelector('.lg-deck').value,
+    init: row.querySelector('.lg-init').value || null,
+    train: row.querySelector('.lg-train').checked,
+  }));
+  if (combos.length < 2) { $('lg-msg').textContent = '조합이 최소 2개 필요'; return; }
+  const body = {name: $('lg-name').value || undefined, rounds: +$('lg-rounds').value,
+    games: +$('lg-games').value, seed: +$('lg-seed').value, eval_pairs: +$('lg-pairs').value,
+    n_envs: 4, record_mode: 'accident', combos};
+  const r = await api('/api/runner/league', {method: 'POST', body: JSON.stringify(body)});
+  $('lg-msg').textContent = r.error ? '거부: ' + r.error : `기동됨: ${r.league}`;
+  lgPoll();
+}
+async function lgPoll() {
+  try {
+    const leagues = await api('/api/runner/leagues');
+    if (!leagues.length) { $('lg-status').innerHTML = ''; return; }
+    const blocks = await Promise.all(leagues.slice(-3).reverse().map(async l => {
+      const s = await api(`/api/runner/runs/${l.run}/league`);
+      const combos = (s.config.combos || []);
+      const pol = s.policies || {};
+      const rows = combos.map(c => {
+        const training = s.training && s.training.combo === c.id;
+        const state = training ? '<span class="pill run">학습 중</span>'
+          : !c.train ? '<span class="pill">동결</span>'
+          : pol[c.id] ? '<span class="pill ok">정책 보유</span>' : '<span class="pill">대기</span>';
+        return `<tr><td>${c.id}</td><td>${c.deck.replace('.json','')}</td><td>${state}</td>
+          <td>${pol[c.id] ? `<button class="act" onclick="lgRegister('${c.id}','${(pol[c.id]||'').split('runs/').pop()}')">아레나 등록</button>` : ''}</td></tr>`;
+      }).join('');
+      const rounds = Object.keys(s.matrix || {});
+      const last = rounds.at(-1);
+      let matrixHtml = '';
+      if (last) {
+        const ids = combos.map(c => c.id);
+        matrixHtml = `<div style="margin-top:6px"><b style="font-size:13px">상호 승률 (${last})</b>
+          <div class="scroll-x"><table class="mat"><tr><th></th>${ids.map(i => `<th>vs ${i}</th>`).join('')}</tr>` +
+          ids.map(a => `<tr><td>${a}</td>` + ids.map(b => {
+            if (a === b) return '<td class="diag">—</td>';
+            const fwd = s.matrix[last][`${a}|${b}`];
+            const rev = s.matrix[last][`${b}|${a}`];
+            const rec = fwd || (rev ? {wins: rev.losses, losses: rev.wins, draws: rev.draws} : null);
+            if (!rec) return '<td>—</td>';
+            const total = rec.wins + rec.losses + rec.draws;
+            const pct = total ? Math.round(100 * rec.wins / total) : 0;
+            return `<td class="${pct >= 55 ? 'ok' : pct <= 45 ? 'bad' : ''}"><b>${pct}%</b></td>`;
+          }).join('') + '</tr>').join('') + '</table></div></div>';
+      }
+      const st = s.status === 'running' ? `<span class="pill run">라운드 ${s.round}/${s.config.rounds} ${s.phase === 'eval' ? '교차평가' : '진행'}</span>`
+        : `<span class="pill ${s.status === 'done' ? 'ok' : 'warn'}">${s.status}</span>`;
+      return `<div style="border-top:1px solid var(--line);padding-top:8px;margin-top:8px">
+        <b>${l.run}</b> ${st}
+        <div class="scroll-x"><table><tr><th>조합</th><th>덱</th><th>상태</th><th></th></tr>${rows}</table></div>
+        ${matrixHtml}</div>`;
+    }));
+    $('lg-status').innerHTML = blocks.join('');
+  } catch (e) {}
+}
+async function lgRegister(comboId, policyPath) {
+  const handle = prompt('아레나 참가자 핸들', comboId);
+  if (!handle) return;
+  const r = await arenaAdmin('register-policy', {handle});
+  $('lg-msg').textContent = r.key ? `${handle} 등록 — 키(1회): ${r.key} (정책: ${policyPath})` : (r.error || '');
+}
+
+pollJobs(); pollRuns(); loadRules(); pollAlerts(); arenaLoad(); loadLauncherChoices(); lgPoll();
+setInterval(pollJobs, 5000); setInterval(pollRuns, 20000); setInterval(pollAlerts, 15000); setInterval(lgPoll, 15000);
 </script>
 </body>
 </html>
