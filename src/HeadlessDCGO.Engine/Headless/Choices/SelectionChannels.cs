@@ -160,9 +160,13 @@ public static class SelectionChannels
                 return true;
 
             case nameof(MultipleSkills):
-                manager.GetComponent<MultipleSkills>()!.SetTargetSkill(seat, 0);
+                // 질문 주체는 풀(autoProcessing.multipleSkills)의 사용 중 인스턴스 — 가장 안쪽 실행분이
+                // 묻는다. GManager에는 MultipleSkills가 붙어 있지 않다(풀은 씬 구성물, HeadlessScene 참조).
+                MultipleSkills? asking = manager.autoProcessing.executingMultipleSkills
+                    ?? manager.autoProcessing_CutIn.executingMultipleSkills;
+                asking?.SetTargetSkill(seat, 0);
 
-                return true;
+                return asking is not null;
 
             case nameof(OptionalSkill):
                 manager.GetComponent<OptionalSkill>()!.SetUseOptional(seat, useOptional: false);

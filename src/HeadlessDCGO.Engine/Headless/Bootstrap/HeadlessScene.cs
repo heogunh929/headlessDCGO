@@ -338,6 +338,31 @@ public sealed class HeadlessScene
         SetField(manager, "Opponent", OpponentObject.GetComponent<Player>());
 
         FillAllSlots();
+
+        // 트리거 실행 풀. `AutoProcessing.TriggeredSkillProcess`는 스택된 스킬을 꺼낸 뒤(:585) 풀에서
+        // 빈 `MultipleSkills`를 얻어야만 활성화한다(:589) — 없으면 조용히 버린다. 원본 씬은 두
+        // AutoProcessing에 각 20개를 인스펙터로 공급한다(BattleScene.unity:18030/:33715). 이 리스트는
+        // 빈 리스트로 초기화된 필드라 널만 채우는 블랭킷 필이 지나친다 — 그래서 [어택 시]·[등장 시]·
+        // [소멸 시] 등 스택 경유 트리거 전 계열이 소실됐다(실측 2026-07-30 m-9986-1: ST2-07 [어택 시]
+        // 메모리 -2 무발화). FillAllSlots 뒤에 만드므로 각 인스턴스의 슬롯은 여기서 직접 채운다.
+        foreach (string processor in new[] { "autoProcessing", "autoProcessing_CutIn" })
+        {
+            if (FieldOf(manager, processor) is not AutoProcessing processing)
+            {
+                throw new InvalidOperationException($"GManager.{processor} was not filled by FillAllSlots.");
+            }
+
+            for (int i = 0; i < 20; i++)
+            {
+                // Fill과 같은 컨테이너 패턴 — AS-IS 표현층의 `transform.parent.gameObject.SetActive(false)`
+                // 관용구가 소유 객체를 끄지 않게 한다.
+                GameObject container = NewChild(processing.gameObject, $"MultipleSkills_{i}_Container");
+                MultipleSkills skills = NewChild(container, $"MultipleSkills_{i}").AddComponent<MultipleSkills>();
+                Track(skills);
+                FillSlotsOf(skills);
+                processing.multipleSkills.Add(skills);
+            }
+        }
     }
 
     /// <summary>Exceptions raised by a component's lifecycle message. Unity logs these and carries on with the
