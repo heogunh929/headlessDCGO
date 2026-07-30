@@ -212,6 +212,24 @@ public abstract class VirtualPlayer
         return false;
     }
 
+    private static readonly string[] BusyMembers = { "PlayCard", "UseCardEffect", "AttackingPermanent" };
+
+    private static bool TsmBusy(TurnStateMachine machine)
+    {
+        foreach (string name in BusyMembers)
+        {
+            object? value = typeof(TurnStateMachine).GetProperty(name, AnyInstance)?.GetValue(machine)
+                ?? typeof(TurnStateMachine).GetField(name, AnyInstance)?.GetValue(machine);
+
+            if (value is not null)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The player the main phase is waiting on, or null when it is not waiting.</summary>
     private static Player? PendingMainPhase()
     {
@@ -227,6 +245,15 @@ public abstract class VirtualPlayer
         // 불가능한 입력) 공격 흐름이 붕괴한다(실측 2026-07-30 시드 1055: 공격 중 어태커 위 진화 →
         // 자기전투 → 중복 파괴 — 사용자 룰 지적 "첫 장 패배 시 둘째 체크 불가"로 발견된 사슬).
         if (machine.IsSelecting || GManager.instance?.attackProcess?.IsAttacking == true)
+        {
+            return null;
+        }
+
+        // 플레이/효과/공격 소비 중에도 메인 질문이 아니다 — dequeue 직후 큐가 비어도 TSM은 그 액션을
+        // 아직 처리 중이며, 이때 다음 질문을 서빙하면 같은 수가 이중 큐잉돼 두 번째 소비가 변한 세상
+        // 위에서 무검증 진화로 실행된다(실측 2026-07-30: 같은 tfid 이중 소비 → 동명 자기진화 66건).
+        // AS-IS 신호 = TSM의 처리 중 필드 잔존(다음 루프 초입 ResetMainPhaseParameter까지).
+        if (TsmBusy(machine))
         {
             return null;
         }
