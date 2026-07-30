@@ -79,7 +79,7 @@ input[type=range] { width:100%; }
     <div class="footer-panel ctl"><b>재생</b>
       <button onclick="go(0)">|◀</button><button onclick="go(cur-1)">◀</button>
       <button id="play" onclick="toggle()">▶</button><button onclick="go(cur+1)">▶▶</button><button onclick="go(steps.length-1)">▶|</button>
-      배속 <select id="speed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>
+      배속 <select id="speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>
     </div>
     <div class="footer-panel"><b>타임라인 <span id="tpos"></span></b>
       <input type="range" id="slider" min="0" max="0" value="0">
@@ -142,7 +142,7 @@ $('opt-hidden').onchange = () => render(); $('opt-debug').onchange = () => rende
 function toggle() {
   if (playing) { clearInterval(playing); playing = null; $('play').textContent = '▶'; return; }
   $('play').textContent = '⏸';
-  playing = setInterval(() => { if (cur >= frames.length - 1) toggle(); else go(cur + 1); }, 500 / +$('speed').value);
+  playing = setInterval(() => { if (cur >= frames.length - 1) toggle(); else go(cur + 1); }, 1400 / +$('speed').value);   // 1배속=프레임당 1.4초 — 이벤트 단위 보드 변화를 읽을 시간
 }
 function go(i) { cur = Math.max(0, Math.min(frames.length - 1, i)); $('slider').value = cur; render(); }
 

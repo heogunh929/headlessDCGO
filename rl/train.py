@@ -171,7 +171,8 @@ def main() -> None:
         interrupted = True
         print("SIGINT — graceful 정지: 현재 정책 저장 후 종료")
     elapsed = time.time() - started
-    steps_per_sec = args.steps / elapsed
+    steps_done = int(model.num_timesteps)
+    steps_per_sec = steps_done / max(elapsed, 1e-9)   # 실제 학습 스텝 기준 — 상한으로 나누면 게임 수 모드에서 가짜 고속(850/s 표기 사고 2026-07-30)
 
     # 저장이 close보다 먼저 — vec_env.close()는 워커 상태에 따라 remote.recv()에서 무기한 블록할 수
     # 있다(실측 2026-07-30, graceful 정지 중 행). 정책부터 확보하고 close는 방어적으로.
@@ -201,7 +202,7 @@ def main() -> None:
 
     vec_env.close()
 
-    print(f"\ntraining: {args.steps} steps in {elapsed:.0f}s -> {steps_per_sec:.1f} steps/sec "
+    print(f"\ntraining: {steps_done} steps in {elapsed:.0f}s -> {steps_per_sec:.1f} steps/sec "
           f"({args.n_envs} envs, {vec_cls.__name__}, json+stdio)")
 
     # 평가 단계 표시 — 학습 종료 후 eval이 도는 동안 "안 멈춤"으로 오인되는 문제(2026-07-30).
@@ -221,7 +222,7 @@ def main() -> None:
           f"CI95=[{lo:.1%}, {hi:.1%}] over {args.eval_matches} matches")
 
     # 스냅샷 메타 최소형(dev design §5.1 선반영) — L1 SnapshotStore가 이 포맷을 승계한다.
-    meta.update(status="done", ended=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    meta.update(status="done", ended=time.strftime("%Y-%m-%dT%H:%M:%S%z"), steps_done=steps_done,
                 census={"reasons": dict(reasons), "swallowed": swallowed})
     meta_legacy = {
         "snapshot_id": "l0-pump",
