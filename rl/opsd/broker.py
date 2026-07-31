@@ -24,9 +24,12 @@ class Seat:
 
 
 class Match:
-    def __init__(self, match_id: str, seats: dict[int, Seat]):
+    def __init__(self, match_id: str, seats: dict[int, Seat], house_seat: int = 0,
+                 verification: bool = False):
         self.id = match_id
         self.seats = seats                      # 1|2 -> Seat
+        self.house_seat = house_seat            # 하우스 봇 좌석(0=없음) — 브로커가 무작위 합법 수로 대행
+        self.verification = verification        # 검증 에피소드(온보딩 ③): 비랭킹, 통과 시 verified=1
         self.log_run = ""
         self.log_path = ""
 
@@ -41,6 +44,7 @@ class Broker:
         self.matches: dict[str, Match] = {}                       # matchId -> Match
         self.by_participant: dict[int, str] = {}                  # participant id -> matchId
         self._seq = 0
+        self._pump_started = False
 
     # ---------- ws 수명 ----------
 
@@ -53,15 +57,24 @@ class Broker:
             await ws.close()
             return ws
 
+        if not self._pump_started:
+            # 주기 매치메이크(온보딩 ④): enqueue 이벤트 외에도 10초마다 큐를 페어링 —
+            # 검증 직후 재큐잉·시차 큐잉이 다음 이벤트 없이도 성립하게.
+            self._pump_started = True
+            asyncio.create_task(self._pump())
+
         pid = participant["id"]
         old = self.connections.get(pid)
         self.connections[pid] = ws
         if old is not None and not old.closed:
             await old.close()   # 재접속 = 기존 연결 대체(끊김 유예 재접속 경로)
 
-        await ws.send_json({"type": "hello", "handle": participant["handle"],
-                            "season": db.active_season(),
-                            "inMatch": self.by_participant.get(pid)})
+        try:
+            await ws.send_json({"type": "hello", "handle": participant["handle"],
+                                "season": db.active_season(),
+                                "inMatch": self.by_participant.get(pid)})
+        except (ConnectionError, RuntimeError):
+            return ws   # 접속 직후 이탈(재접속 경합) — finally가 정리
         try:
             async for msg in ws:
                 if msg.type != WSMsgType.TEXT:
@@ -94,6 +107,13 @@ class Broker:
             deck = self._deck_for(pid, data.get("deckId"))
             if deck is None:
                 return await ws.send_json({"type": "error", "code": "no_deck", "message": "활성 덱 없음 — 먼저 덱을 등록/지정"})
+            # 검증 에피소드(온보딩 ③): 미검증 참가자의 첫 큐잉 = 하우스 봇과 비랭킹 1판.
+            # 통과(완주)해야 래더 진입 — 연결·타임아웃 문제를 랭킹 반영 전에 걸러낸다.
+            if not self._is_verified(pid):
+                await ws.send_json({"type": "queued", "position": 0,
+                                    "notice": "검증 에피소드 — 하우스 봇과 비랭킹 1판(완주 시 래더 진입)"})
+                await self._start_verification(participant, deck)
+                return
             if pid not in self.queue:
                 self.queue.append(pid)
             await ws.send_json({"type": "queued", "position": self.queue.index(pid) + 1})
@@ -161,6 +181,45 @@ class Broker:
                                     (int(deck_id), pid)).fetchone()
             return json.loads(row["cards_json"]) if row else None
         return arena.active_deck(pid)
+
+    @staticmethod
+    def _is_verified(pid: int) -> bool:
+        row = db.conn().execute("SELECT verified FROM participants WHERE id=?", (pid,)).fetchone()
+        return bool(row and row["verified"])
+
+    async def _start_verification(self, participant, deck: dict) -> None:
+        """검증 에피소드: 상대 좌석(2) = 하우스 봇(브로커가 무작위 합법 수 대행), 미러 덱, 비랭킹."""
+        self._seq += 1
+        match_id = f"vm-{time.strftime('%Y%m%d%H%M%S')}-{self._seq}"
+        house = db.conn().execute("SELECT * FROM participants WHERE id=?", (participant["id"],)).fetchone()
+        match = Match(match_id, {1: Seat(participant, deck), 2: Seat(house, deck)},
+                      house_seat=2, verification=True)
+        async with ClientSession() as session:
+            async with session.post(f"{self.runner_url}/arena/match",
+                                    headers={"X-Ops-Token": self.token},
+                                    json={"matchId": match_id, "seed": random.randrange(1, 2 ** 30),
+                                          "decks": {"1": deck, "2": deck}, "maxSteps": 2000}) as response:
+                body = await response.json()
+                if response.status != 201:
+                    if ws := self.connections.get(participant["id"]):
+                        await ws.send_json({"type": "error", "code": "engine", "message": str(body)})
+                    return
+        match.log_run, match.log_path = body.get("run", ""), body.get("log", "")
+        self.matches[match_id] = match
+        self.by_participant[participant["id"]] = match_id
+        if ws := self.connections.get(participant["id"]):
+            await ws.send_json({"type": "match_start", "matchId": match_id, "seat": 1,
+                                "verification": True, "yourDeck": deck,
+                                "opponent": {"handle": "하우스 봇(검증)", "rating": 0}})
+        asyncio.create_task(self._drive(match))
+
+    async def _pump(self) -> None:
+        while True:
+            await asyncio.sleep(10)
+            try:
+                await self._matchmake()
+            except Exception:
+                pass
 
     # ---------- 매치 성립·진행 ----------
 
@@ -240,6 +299,14 @@ class Broker:
                         continue
 
                     seat_no = int(msg["seat"])
+                    if seat_no == match.house_seat:
+                        # 하우스 봇 좌석(검증 에피소드): 브로커가 무작위 합법 수를 대행 — ws 없음.
+                        legal = [i for i, v in enumerate(msg.get("actionMask") or []) if v == 1]
+                        async with session.post(f"{self.runner_url}/arena/match/{match.id}/act",
+                                                headers=headers,
+                                                json={"seat": seat_no, "index": random.choice(legal)}) as response:
+                            await response.json()
+                        continue
                     seat = match.seats[seat_no]
                     describe = msg.get("describe") or {}
                     payload = {
@@ -325,6 +392,24 @@ class Broker:
         else:
             winner = result.get("winnerSeat")
             reason = result.get("reason", "game_end")
+
+        if match.verification:
+            # 검증 에피소드: 비랭킹 — Elo/이력 무기록. 참가자 귀책 실패(타임아웃·투항)만 불합격.
+            pid = match.seats[1].participant["id"]
+            passed = not (forced is not None and forced[0] == 1)
+            if passed:
+                db.conn().execute("UPDATE participants SET verified=1 WHERE id=?", (pid,))
+                db.conn().commit()
+            if ws := self.connections.get(pid):
+                try:
+                    await ws.send_json({"type": "match_end", "matchId": match.id, "verification": True,
+                                        "passed": passed, "winnerSeat": winner, "reason": reason,
+                                        "notice": "검증 통과 — 다시 큐잉하면 래더 진입" if passed
+                                        else "검증 실패 — 착수 시간·연결을 점검 후 재시도"})
+                except ConnectionError:
+                    pass
+            self._cleanup(match)
+            return
 
         deltas = arena.record_match(
             match.id, match.seats[1].participant["id"], match.seats[2].participant["id"],

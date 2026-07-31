@@ -47,11 +47,16 @@ textarea { width:100%; font-family:monospace; font-size:12px }
       <div style="margin-top:8px"><button onclick="registerBuilt()">이 구성으로 등록</button> <span id="deck-msg"></span></div>
     </div>
     <div class="card"><b>대전 이력</b> <small>(클릭하면 판 뷰어로)</small><div id="history">불러오는 중…</div></div>
-    <div class="card"><b>접속 정보</b>
-      <div style="font-size:13px">
-        웹소켓: <code id="ws-url"></code><br>
-        참조 러너: <code>python rl/arena_runner.py --server <span id="srv"></span> --key &lt;API키&gt;</code>
-      </div>
+    <div class="card"><b>퀵스타트</b> <small>— 설정 파일 한 장으로 참가 (상주 참가 = daemon)</small>
+      <div style="font-size:13px;margin:6px 0">① 준비: <code>pip install aiohttp</code> + 저장소의 <code>rl/</code> 폴더</div>
+      <div style="font-size:13px">② <code>dcgo-arena.toml</code> 저장:
+        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-toml', this)">복사</button></div>
+      <pre id="qs-toml" style="margin-top:6px"></pre>
+      <div style="font-size:13px">③ 실행:
+        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-run', this)">복사</button></div>
+      <pre id="qs-run" style="margin-top:6px"></pre>
+      <div style="font-size:12.5px;color:var(--muted)">첫 큐잉은 하우스 봇과 <b>검증판</b>(비랭킹) — 완주하면 래더 진입.
+        LLM으로 두려면 toml의 [agent]를 채우고, 커스텀 로직은 kind="file"+act() 파일로.</div>
     </div>
   </div>
 </main>
@@ -64,6 +69,24 @@ const H = () => ({'X-Arena-Key': KEY, 'Content-Type': 'application/json'});
 const api = (p, opt = {}) => fetch(p, {...opt, headers: H()}).then(r => r.json());
 
 function logout() { localStorage.removeItem('arenaKey'); location.reload(); }
+function quickstartToml(server, key) {
+  return `server = "${server}"
+key = "${key}"
+
+[agent]                # 생략/kind="random" = 무작위 합법 수
+kind = "random"        # random | llm | file
+# kind="llm"이면:
+# base_url = "http://localhost:11434/v1"   # OpenAI 호환 endpoint
+# api_key  = "none"
+# model    = "llama3"
+# kind="file"이면:
+# path = "my_agent.py"                     # def act(state_text, actions) -> index`;
+}
+function qsCopy(id, btn) {
+  navigator.clipboard.writeText($(id).textContent).then(() => {
+    btn.textContent = '복사됨'; setTimeout(() => btn.textContent = '복사', 1500);
+  });
+}
 async function login() {
   KEY = $('key-in').value.trim() || KEY;
   const me = await api('/api/arena/me');
@@ -71,8 +94,8 @@ async function login() {
   localStorage.setItem('arenaKey', KEY);
   $('login-card').style.display = 'none'; $('portal').style.display = '';
   $('who').textContent = `${me.handle} · Elo ${me.elo} · ${me.games}판`;
-  $('ws-url').textContent = location.origin.replace('http', 'ws') + '/arena?key=…';
-  $('srv').textContent = location.origin;
+  $('qs-toml').textContent = quickstartToml(location.origin, KEY);
+  $('qs-run').textContent = 'python -m dcgo_arena daemon --config dcgo-arena.toml';
   const cardData = await api('/api/arena/cards');
   CARDS = cardData.cards || {}; POOL = cardData.pool || POOL;
   renderPool(); renderBuild(); loadDecks(); loadHistory();

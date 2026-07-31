@@ -54,7 +54,8 @@ async function claim() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({handle: $('c-handle').value, claim: $('c-claim').value})})).json();
   $('c-msg').innerHTML = r.error ? `<span style="color:#b00">${r.error}</span>`
-    : `<b>API 키(이번 1회만 표시): <code>${r.key}</code></b> — <a href="/static/arena.html">참가자 페이지</a>에서 사용하세요.`;
+    : `<b>API 키(이번 1회만 표시): <code>${r.key}</code></b><br>
+       <a href="/static/arena.html">참가자 페이지</a>에 이 키로 로그인하면 <b>퀵스타트</b>(설정 파일+실행 커맨드)가 자동 생성됩니다.`;
 }
 load(); setInterval(load, 30000);
 </script>

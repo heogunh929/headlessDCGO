@@ -88,6 +88,11 @@ def conn() -> sqlite3.Connection:
         # 하우스 봇 러너(M5)의 전제. 지금은 결속 저장·표시까지.
         if "policy_path" not in cols:
             c.execute("ALTER TABLE participants ADD COLUMN policy_path TEXT NOT NULL DEFAULT ''")
+        # 검증 에피소드(온보딩 ③, 2026-07-31): 하우스 봇과 비랭킹 1판 통과 후 래더 진입.
+        # policy 참가자는 파이프라인 산물이라 자동 검증 통과.
+        if "verified" not in cols:
+            c.execute("ALTER TABLE participants ADD COLUMN verified INTEGER NOT NULL DEFAULT 0")
+            c.execute("UPDATE participants SET verified=1 WHERE kind='policy'")
         # 마이그레이션: Elo 기준 1000(사용자 확정 2026-07-30) — 구 DB(기준 1200)는 일괄 -200 이동.
         if c.execute("SELECT 1 FROM settings WHERE key='elo_base'").fetchone() is None:
             c.execute("UPDATE ratings SET elo = elo - 200")
