@@ -25,6 +25,25 @@ section { display:none; } section.on { display:block; }
 .pool div { padding:2px 6px; border-radius:5px } .pool div:nth-child(odd) { background:#eef1f5 }
 .mini { font-size:12.5px; color:var(--muted) }
 .clip { border:1px solid var(--line); border-radius:8px; background:#f8f9fb; padding:8px; font-family:monospace; font-size:11.5px; color:var(--muted); line-height:1.5 }
+/* 정책 탭: 페이지 좌우 스크롤 방지 — 경로·액션 셀은 줄바꿈 허용, 버튼은 컴팩트 */
+#po-list td { white-space:normal }
+#po-list code { word-break:break-all }
+.po-name { cursor:pointer; min-width:120px } .po-name:hover { background:var(--accent-soft) }
+.po-path { min-width:180px }
+/* 폼 그리드 — 학습 기동 등 입력 폼의 정렬 */
+.form-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px 14px; max-width:820px }
+.field { display:flex; flex-direction:column; gap:4px }
+.flabel { font-size:12px; font-weight:600; color:var(--muted) }
+.flabel small { font-weight:400 }
+.field input, .field select { width:100% }
+/* 체크박스 행: 박스+라벨이 한 줄 — .field input 전폭 규칙에서 제외 */
+label.check { display:flex; align-items:center; gap:7px; margin:2px 0; font-size:13px; white-space:nowrap }
+label.check input[type=checkbox] { width:auto; margin:0 }
+.po-actions { min-width:170px }
+.po-actions .act { padding:4px 9px; font-size:12px; margin:1px 0 }
+/* 런 비교: 판로그 펼침이 표를 무한정 키우지 않게 — 목록은 내부 스크롤 */
+.matchlist { max-height:200px; overflow:auto; margin-top:4px; padding:4px 6px; border:1px solid var(--line); border-radius:8px; background:#f8f9fb; font-size:12px; white-space:normal }
+.matchlist div { padding:1px 0 }
 </style>
 </head>
 <body>
@@ -52,25 +71,42 @@ section { display:none; } section.on { display:block; }
 <main class="page">
 <section id="ops" class="on">
   <div class="card">
-    <b>학습 기동</b><br>
-    <label><b>게임 수</b> <input id="f-games" type="number" value="500" style="width:80px"> 판</label>
-    <label><b>판 로그</b> <input id="f-lograte" type="number" value="20" style="width:60px"> 판당 1개 <small>(0=사고판만, 사고판은 항상 기록)</small></label>
-    <label>시드 <input id="f-seed" type="number" value="42" style="width:70px"></label>
-    <label>런 이름 <input id="f-out" placeholder="자동" style="width:110px"></label>
-    <button class="act primary" onclick="startJob()">기동</button> <span id="start-msg"></span>
-    <div style="margin-top:6px">
-      <label>덱 레시피 <select id="f-recipes" multiple size="3" style="min-width:170px;vertical-align:top"></select></label>
-      <label><input type="checkbox" id="f-perdeck" checked> 덱별 정책 (선택한 덱마다 정책 1개 — N개 잡 순차 기동)</label>
-      <small style="color:var(--muted)">체크 해제 시: 선택 덱 풀을 섞어 정책 1개 / 덱 미선택 시: 기본 ST1 vs ST2 정책 1개</small>
-      <label>시작 정책 <select id="f-init" style="max-width:250px"><option value="">신규 학습</option></select></label>
-      <label><input type="checkbox" id="f-evalonly"> 평가만(학습 없음)</label>
+    <b>학습 기동</b>
+    <div class="form-grid">
+      <div class="field"><span class="flabel">게임 수</span><input id="f-games" type="number" value="500"></div>
+      <div class="field"><span class="flabel">판 로그 <small>(N판당 1개 · 0=사고판만)</small></span><input id="f-lograte" type="number" value="20"></div>
+      <div class="field"><span class="flabel">시드</span><input id="f-seed" type="number" value="42"></div>
+      <div class="field"><span class="flabel">런 이름</span><input id="f-out" placeholder="자동"></div>
     </div>
-    <details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:#555">고급</summary>
-      <label>워커 <input id="f-envs" type="number" value="5" style="width:50px"></label>
-      <label>스텝 상한 <input id="f-steps" type="number" value="200000" style="width:90px"></label>
-      <label>체크포인트 <input id="f-ck" type="number" value="2000" style="width:70px">/보존 <input id="f-keep" type="number" value="5" style="width:50px"></label>
-      <label>eval <input id="f-eval" type="number" value="120" style="width:60px"></label>
+    <div class="form-grid" style="margin-top:10px">
+      <div class="field" style="grid-row:span 2">
+        <span class="flabel">덱 레시피 <small>(복수 선택 가능)</small></span>
+        <select id="f-recipes" multiple size="5"></select>
+      </div>
+      <div class="field">
+        <span class="flabel">시작 정책</span>
+        <select id="f-init"><option value="">신규 학습</option></select>
+      </div>
+      <div class="field">
+        <span class="flabel">모드</span>
+        <label class="check"><input type="checkbox" id="f-perdeck" checked> 덱별 정책 <small>(덱마다 정책 1개, 순차 기동)</small></label>
+        <label class="check"><input type="checkbox" id="f-evalonly"> 평가만 <small>(학습 없음)</small></label>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:6px">덱 미선택 = 기본 ST1 vs ST2 · 덱별 정책 해제 = 선택 덱 풀을 섞어 정책 1개</div>
+    <details style="margin-top:8px"><summary>고급 (워커·스텝 상한·체크포인트·eval)</summary>
+      <div class="form-grid" style="margin-top:8px">
+        <div class="field"><span class="flabel">워커</span><input id="f-envs" type="number" value="5"></div>
+        <div class="field"><span class="flabel">스텝 상한</span><input id="f-steps" type="number" value="200000"></div>
+        <div class="field"><span class="flabel">체크포인트 주기</span><input id="f-ck" type="number" value="2000"></div>
+        <div class="field"><span class="flabel">체크포인트 보존</span><input id="f-keep" type="number" value="5"></div>
+        <div class="field"><span class="flabel">eval 판수</span><input id="f-eval" type="number" value="120"></div>
+      </div>
     </details>
+    <div style="margin-top:12px;display:flex;align-items:center;gap:10px">
+      <button class="act primary" onclick="startJob()">기동</button>
+      <span id="start-msg" style="font-size:13px"></span>
+    </div>
   </div>
   <div class="card"><b>실행 중 잡</b><div id="jobs">불러오는 중…</div></div>
 </section>
@@ -78,14 +114,14 @@ section { display:none; } section.on { display:block; }
   <div class="card">
     <b>리그 학습</b> <small>— 덱+정책 조합끼리 라운드 학습(와이어프레임 확정안)</small>
     <div class="scroll-x"><table id="lg-combos">
-      <tr><th>#</th><th>덱</th><th>시작 정책</th><th>학습</th><th></th></tr>
+      <tr><th>#</th><th>덱</th><th>시작 정책</th><th>정책 논리명</th><th>학습</th><th></th></tr>
     </table></div>
     <div style="margin-top:6px"><button class="act" onclick="lgAddRow()">+ 조합 추가</button></div>
     <div style="margin-top:8px">
       리그 이름 <input id="lg-name" placeholder="자동" style="width:110px">
       라운드 <input id="lg-rounds" type="number" value="3" style="width:52px"> ×
       조합별 <input id="lg-games" type="number" value="300" style="width:64px"> 판 ·
-      시드 <input id="lg-seed" type="number" value="42" style="width:64px"> ·
+      시드 <input id="lg-seed" type="number" placeholder="랜덤" style="width:64px"> ·
       교차평가 <input id="lg-pairs" type="number" value="10" style="width:52px"> 판/쌍
       <button class="act primary" onclick="lgStart()">리그 기동</button> <span id="lg-msg"></span>
     </div>
@@ -131,10 +167,11 @@ section { display:none; } section.on { display:block; }
 </section>
 <section id="policies">
   <div class="card">
-    <b>정책 관리</b> <small>— runs/ 전체 정책 + 메타. 삭제는 정책 파일만(런 기록·판 로그 보존)</small>
+    <b>정책 관리</b> <small>— runs/ 전체 정책 + 메타. 보관 = 논리삭제(파일·기록 보존, 목록·드롭다운에서만 제외)</small>
     <div style="margin:6px 0">
       <label><input type="checkbox" id="po-hidestale"> 구엔진 정책 숨기기</label>
       <label><input type="checkbox" id="po-hideck" checked> 체크포인트 숨기기</label>
+      <label><input type="checkbox" id="po-showhidden"> 보관 정책 보기</label>
       <span id="po-summary" style="color:var(--muted);font-size:13px"></span>
     </div>
     <div class="scroll-x"><div id="po-list">불러오는 중…</div></div>
@@ -221,6 +258,11 @@ section { display:none; } section.on { display:block; }
       <div style="margin-top:8px"><button class="act primary" onclick="apRegisterBuilt()">이 구성으로 등록</button> <span id="ap-deckmsg"></span></div>
     </div>
     <div class="card"><b>대전 이력</b> <small>(클릭 → 판 뷰어)</small><div id="ap-history"></div></div>
+    <div class="card"><b>퀵스타트</b> <small>— dcgo-arena.toml 저장 후 실행 (첫 큐잉=검증판)</small>
+      <pre id="ap-qs"></pre>
+      <button class="act" onclick="navigator.clipboard.writeText($('ap-qs').textContent)">toml 복사</button>
+      <code>python -m dcgo_arena daemon --config dcgo-arena.toml</code>
+    </div>
   </div>
 </section>
 <section id="pg-wire-league"><div style="margin-bottom:10px"><span class="pill warn">와이어프레임 — 기능 없음</span></div>
@@ -366,6 +408,12 @@ section { display:none; } section.on { display:block; }
 </main>
 </div>
 </div>
+<!-- 판 로그 = 우측 오버레이 서랍(전역): 런 비교·리그 매트릭스 셀에서 공용, 섹션 전환과 무관 -->
+<div class="card" id="runlog-card" style="display:none;position:fixed;right:18px;top:76px;width:280px;z-index:40;box-shadow:var(--shadow-lift)">
+  <b>판 로그</b> <span id="runlog-run" style="color:var(--muted);font-size:12.5px"></span>
+  <button class="act" style="float:right;padding:2px 9px;font-size:12px" onclick="$('runlog-card').style.display='none'">닫기</button>
+  <div id="runlog-list" class="matchlist" style="max-height:70vh;margin-top:8px"></div>
+</div>
 <script>
 const $ = id => document.getElementById(id);
 let TOKEN = localStorage.getItem('opsToken') || '';
@@ -383,22 +431,26 @@ const TAB_INIT = {'pg-rankings': () => rkLoad(), 'pg-portal': () => apAuto(), 'd
 let PO = null;
 async function poLoad() {
   PO = await api('/api/runner/models/detail');
-  $('po-hidestale').onchange = poRender; $('po-hideck').onchange = poRender;
+  $('po-hidestale').onchange = poRender; $('po-hideck').onchange = poRender; $('po-showhidden').onchange = poRender;
   poRender();
 }
 function poRender() {
-  const hideStale = $('po-hidestale').checked, hideCk = $('po-hideck').checked;
+  const hideStale = $('po-hidestale').checked, hideCk = $('po-hideck').checked, showHidden = $('po-showhidden').checked;
   const rows = PO.models
+    .filter(m => showHidden ? m.hidden : !m.hidden)
     .filter(m => !(hideStale && m.stale)).filter(m => !(hideCk && m.kind === 'checkpoint'))
     .sort((a, b) => b.created.localeCompare(a.created));
   const kindK = {single: '단일런', league: '리그', checkpoint: '체크포인트'};
-  $('po-summary').textContent = `전체 ${PO.models.length}개 · 표시 ${rows.length}개 · 현행 엔진 ${PO.currentSha}`;
-  $('po-list').innerHTML = '<table><tr><th>별칭</th><th>정책</th><th>출처</th><th>덱</th><th>엔진</th><th>스텝</th><th>vs랜덤</th><th>생성</th><th style="min-width:290px"></th></tr>' +
+  const hiddenCount = PO.models.filter(m => m.hidden).length;
+  $('po-summary').textContent = `전체 ${PO.models.length}개 · 표시 ${rows.length}개 · 보관 ${hiddenCount}개 · 현행 엔진 ${PO.currentSha}`;
+  $('po-list').innerHTML = '<table><tr><th>논리명 (클릭해 편집)</th><th>물리 파일</th><th>출처</th><th>덱</th><th>엔진</th><th>스텝</th><th>vs랜덤</th><th>생성</th><th></th></tr>' +
     rows.map(m => {
       const p = JSON.stringify(m.path);
+      const shortPath = m.path.replace(/\/policy\.zip$/, '').replace(/\/checkpoints\//, '/ck/');
       return `<tr>
-      <td>${m.alias ? `<b>${m.alias}</b>` : '<span style="color:var(--muted)">—</span>'}</td>
-      <td><code style="font-size:11px">${m.path}</code></td>
+      <td class="po-name" onclick='poEditName(this, ${p}, ${JSON.stringify(m.alias)})' title="클릭해 논리명 편집">
+        ${m.alias ? `<b>${m.alias}</b>` : '<span style="color:var(--muted)">이름 없음 ✎</span>'}</td>
+      <td class="po-path"><code style="font-size:11px" title="${m.path}">${shortPath}</code></td>
       <td>${kindK[m.kind] || m.kind}</td>
       <td style="font-size:12px">${(m.deck_context || []).join(', ')}</td>
       <td>${m.stale ? '<span class="pill warn" title="이후 엔진 수리가 있었음 — 재학습 권장">구엔진</span>'
@@ -406,20 +458,47 @@ function poRender() {
       <td>${m.steps_done ?? ''}</td>
       <td>${m.eval_winrate != null ? (m.eval_winrate * 100).toFixed(0) + '%' : ''}</td>
       <td style="font-size:12px">${m.created.slice(5, 16)}</td>
-      <td>
-        <button class="act" onclick='poAlias(${p}, ${JSON.stringify(m.alias)})'>별칭</button>
-        <button class="act" onclick='poResume(${p})'>이어학습</button>
+      <td class="po-actions">${m.hidden
+        ? `<button class="act" onclick='poHide(${p}, false)'>복원</button>`
+        : `<button class="act" onclick='poResume(${p})'>이어학습</button>
         <button class="act" onclick='poEval(${p})'>평가</button>
         <button class="act" onclick='poBind(${p})'>아레나</button>
-        <button class="act" onclick='poDelete(${p})'>삭제</button>
+        <button class="act" onclick='poHide(${p}, true)'>보관</button>`}
       </td></tr>`;
     }).join('') + '</table>';
 }
-async function poAlias(path, current) {
-  const alias = prompt('별칭 (비우면 해제)', current || '');
-  if (alias === null) return;
-  await api('/api/runner/models/alias', {method: 'POST', body: JSON.stringify({path, alias})});
-  poLoad(); loadLauncherChoices();
+function poEditName(cell, path, current) {
+  if (cell.querySelector('input')) return;   // 이미 편집 중
+  cell.onclick = null;
+  cell.innerHTML = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <input value="${(current || '').replace(/"/g, '&quot;')}" placeholder="논리명" style="flex:1;min-width:110px;font-size:13px">
+    <button class="act primary" style="padding:5px 12px;font-size:12.5px">저장</button>
+    <button class="act" style="padding:5px 10px;font-size:12.5px">취소</button></div>`;
+  const input = cell.querySelector('input');
+  const [saveBtn, cancelBtn] = cell.querySelectorAll('button');
+  input.focus();
+  let done = false;   // Enter+blur, 취소 후 blur 등 이중 발화 가드
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    if (save) {
+      await api('/api/runner/models/alias', {method: 'POST',
+        body: JSON.stringify({path, alias: input.value.trim()})});
+      loadLauncherChoices();
+    }
+    poLoad();
+  };
+  // 모바일: 한글 IME 조합 중 Enter는 keydown에 안 잡히고(keyCode 229), 바깥 탭이 blur를 안
+  // 일으키는 키보드가 많다(실측 2026-07-31: 입력만 되고 저장 불가) — 명시 저장/취소 버튼이 정본.
+  // pointerdown은 blur보다 먼저 발화 — 취소가 blur 저장에 선수를 친다.
+  saveBtn.onpointerdown = e => { e.preventDefault(); finish(true); };
+  cancelBtn.onpointerdown = e => { e.preventDefault(); finish(false); };
+  input.onkeydown = e => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter') finish(true);
+    if (e.key === 'Escape') finish(false);
+  };
+  input.onblur = () => setTimeout(() => finish(true), 150);   // 버튼 pointerdown이 먼저 처리되게 지연
 }
 function poResume(path) {
   // 운영 탭 프리필 — 시작 정책만 채우고 나머지는 운영자가 조정 후 기동.
@@ -449,9 +528,8 @@ async function poBind(path) {
   }
   arenaLoad();
 }
-async function poDelete(path) {
-  if (!confirm(path + ' 정책 파일을 삭제합니까? (런 기록·판 로그는 남습니다)')) return;
-  await api('/api/runner/models/delete', {method: 'POST', body: JSON.stringify({path})});
+async function poHide(path, hidden) {
+  await api('/api/runner/models/hide', {method: 'POST', body: JSON.stringify({path, hidden})});
   poLoad(); loadLauncherChoices();
 }
 
@@ -535,14 +613,35 @@ function dkFromArena(d) {
     main: d.cards.main.map(e => ({display: e.card, count: e.count})),
     digitama: (d.cards.digitama || []).map(e => ({display: e.card, count: e.count}))}, true);
 }
+// UI 상태 영속(사용자 요구 2026-07-31): 체크박스·숫자/텍스트 입력·선택 탭을 localStorage에
+// 보존해 새로고침에도 유지. 동적 select(정책·레시피 목록)는 옵션 로드 타이밍 문제로 제외.
+document.querySelectorAll('input[id]').forEach(el => {
+  if (!['checkbox', 'number', 'text'].includes(el.type)) return;
+  const key = 'ui:' + el.id;
+  const saved = localStorage.getItem(key);
+  if (saved !== null) {
+    if (el.type === 'checkbox') el.checked = saved === '1';
+    else el.value = saved;
+  }
+  el.addEventListener('change', () =>
+    localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value));
+});
+
 document.querySelectorAll('.sidenav button[data-tab]').forEach(b => b.onclick = () => {
   document.querySelectorAll('.sidenav button, main section').forEach(x => x.classList.remove('on'));
   b.classList.add('on');
   const sec = $(b.dataset.tab);
   sec.classList.add('on');
   $('tabtitle').textContent = b.textContent;
+  localStorage.setItem('ui:tab', b.dataset.tab);
   (TAB_INIT[b.dataset.tab] || (() => {}))();
 });
+// 저장된 탭 복원 — 핸들러 배선 후 클릭으로 재진입(그 탭의 로더까지 실행)
+{
+  const savedTab = localStorage.getItem('ui:tab');
+  const btn = savedTab && document.querySelector(`.sidenav button[data-tab="${savedTab}"]`);
+  if (btn && !btn.classList.contains('on')) btn.click();
+}
 
 // ---------- 공개 순위표 탭 (네이티브 — /api/arena 공개 표면) ----------
 async function rkLoad() {
@@ -583,6 +682,7 @@ async function apLogin(silent) {
   localStorage.setItem('arenaKey', apKey);
   $('ap-login').style.display = 'none'; $('ap-portal').style.display = '';
   $('ap-who').textContent = `${me.handle} · Elo ${me.elo} · ${me.games}판`;
+  $('ap-qs').textContent = `server = "${location.origin}"\nkey = "${apKey}"\n\n[agent]\nkind = "random"   # random | llm | file — 상세는 참가자 페이지 퀵스타트`;
   const data = await apApi('/api/arena/cards');
   apCards = data.cards || {}; apPool = data.pool || apPool;
   apRenderPool(); apRenderBuild(); apLoadDecks(); apLoadHistory();
@@ -709,20 +809,30 @@ async function pollJobs() {
 }
 const sig = (id, what) => api(`/api/runner/jobs/${id}/${what}`, {method: 'POST'}).then(pollJobs);
 
+let LAST_RUNS = [];
+function showRunLog(name) {
+  const r = LAST_RUNS.find(x => x.name === name);
+  if (!r) return;
+  $('runlog-run').textContent = name + ` · ${r.matches.length}판`;
+  $('runlog-list').innerHTML = r.matches.map(x =>
+    `<div><a href="/static/viewer.html?run=${name}&match=${x}" target="_blank">${x.replace('.jsonl.gz','')}</a></div>`).join('');
+  $('runlog-card').style.display = '';
+}
+
 async function pollRuns() {
   const runs = await api('/api/runner/runs');
+  LAST_RUNS = runs;
   const rows = runs.filter(r => r.meta && r.meta.status).map(r => {
     const m = r.meta, c = m.census || {}, reasons = c.reasons || {};
     const total = Object.values(reasons).reduce((a, b) => a + b, 0) || 1;
     const winrate = m.eval_winrate_vs_random != null ? (m.eval_winrate_vs_random * 100).toFixed(1) + '%' : '-';
     const ci = m.eval_ci95 ? `[${(m.eval_ci95[0]*100).toFixed(0)}, ${(m.eval_ci95[1]*100).toFixed(0)}]` : '';
     const pill = m.status === 'done' ? 'ok' : m.status === 'interrupted' ? 'warn' : m.status === 'running' ? 'run' : '';
-    return `<tr><td>${r.name}</td><td><span class="pill ${pill}">${m.status}</span></td><td>${m.steps_done ?? (m.config||{}).games + '판설정' ?? ''}</td>
+    return `<tr><td>${r.name}</td><td><span class="pill ${pill}">${m.status}</span></td><td>${m.steps_done ?? ((m.config||{}).games ? (m.config||{}).games + '판설정' : '')}</td>
       <td>${winrate} ${ci}</td><td>${Object.entries(reasons).map(([k,v])=>`${k}:${v}`).join(' ')}</td>
       <td class="${c.swallowed ? 'bad' : ''}">${c.swallowed ?? 0}</td><td>${m.train_steps_per_sec ?? ''}</td>
       <td><code>${m.engine_sha || ''}</code></td><td>${m.seed ?? (m.config||{}).seed ?? ''}</td>
-      <td>${r.matches.length ? `<details><summary>${r.matches.length}판</summary>${r.matches.map(x =>
-        `<div><a href="/static/viewer.html?run=${r.name}&match=${x}" target="_blank">${x.replace('.jsonl.gz','')}</a></div>`).join('')}</details>` : '0'}</td></tr>`;
+      <td>${r.matches.length ? `<button class="act" style="padding:3px 10px;font-size:12px" onclick="showRunLog('${r.name}')">${r.matches.length}판</button>` : '0'}</td></tr>`;
   });
   $('runs').innerHTML = `<div class="scroll-x"><table><tr><th>런</th><th>상태</th><th>스텝</th><th>eval 승률 CI</th>
     <th>판 사유</th><th>swallowed</th><th>steps/s</th><th>엔진 sha</th><th>시드</th><th>판로그</th></tr>${rows.join('')}</table></div>`;
@@ -814,11 +924,25 @@ async function loadLauncherChoices() {
     $('f-recipes').innerHTML = CHOICES.recipes.map(r => `<option value="${r}">${r.replace('.json','')}</option>`).join('');
     const detail = await api('/api/runner/models/detail');
     // 드롭다운 라벨 = 별칭 우선(정책 탭에서 부여), 구엔진은 표시로 구분.
-    CHOICES.models = detail.models.map(m => m.path);
-    CHOICES.labels = Object.fromEntries(detail.models.map(m =>
+    const visible = detail.models.filter(m => !m.hidden);   // 보관(논리삭제)분은 드롭다운 제외
+    CHOICES.models = visible.map(m => m.path);
+    CHOICES.labels = Object.fromEntries(visible.map(m =>
       [m.path, (m.alias ? `★ ${m.alias}` : m.path) + (m.stale ? ' (구엔진)' : '')]));
-    const opts = detail.models.map(m => `<option value="${m.path}">${CHOICES.labels[m.path]}</option>`).join('');
+    const opts = visible.map(m => `<option value="${m.path}">${CHOICES.labels[m.path]}</option>`).join('');
+    const prevInit = $('f-init').value;
     $('f-init').innerHTML = '<option value="">신규 학습</option>' + opts;
+    if (CHOICES.models.includes(prevInit)) $('f-init').value = prevInit;   // 보관됐으면 신규로 리셋
+    // 리그 조합의 기존 행 드롭다운도 재구축 — 보관(논리삭제)분이 남지 않게. 선택값은 살아있으면 유지.
+    document.querySelectorAll('#lg-combos .lg-init').forEach(sel => {
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">신규 정책</option>' + opts;
+      if (CHOICES.models.includes(prev)) sel.value = prev;
+    });
+    document.querySelectorAll('#lg-combos .lg-deck').forEach(sel => {
+      const prev = sel.value;
+      sel.innerHTML = CHOICES.recipes.map(r => `<option>${r}</option>`).join('');
+      if (CHOICES.recipes.includes(prev)) sel.value = prev;
+    });
     if ($('lg-combos').rows.length === 1) { lgAddRow(); lgAddRow(); }   // 기본 2행
   } catch (e) {}
 }
@@ -831,6 +955,7 @@ function lgAddRow() {
   row.innerHTML = `<td>${n}</td>
     <td><select class="lg-deck">${CHOICES.recipes.map(r => `<option>${r}</option>`).join('')}</select></td>
     <td><select class="lg-init"><option value="">신규 정책</option>${CHOICES.models.map(m => `<option value="${m}">${CHOICES.labels[m] || m}</option>`).join('')}</select></td>
+    <td><input class="lg-alias" placeholder="예: 레드메인 (라운드별 -rN)" style="width:150px"></td>
     <td style="text-align:center"><input type="checkbox" class="lg-train" checked title="해제 = 동결 상대(스파링)로만 참전"></td>
     <td><button class="act" onclick="this.closest('tr').remove()">삭제</button></td>`;
 }
@@ -839,12 +964,14 @@ async function lgStart() {
     id: `c${i + 1}-` + row.querySelector('.lg-deck').value.replace('.json', ''),
     deck: row.querySelector('.lg-deck').value,
     init: row.querySelector('.lg-init').value || null,
+    alias: row.querySelector('.lg-alias').value.trim() || null,
     train: row.querySelector('.lg-train').checked,
   }));
   if (combos.length < 2) { $('lg-msg').textContent = '조합이 최소 2개 필요'; return; }
   const body = {name: $('lg-name').value || undefined, rounds: +$('lg-rounds').value,
-    games: +$('lg-games').value, seed: +$('lg-seed').value, eval_pairs: +$('lg-pairs').value,
+    games: +$('lg-games').value, eval_pairs: +$('lg-pairs').value,
     n_envs: 4, record_mode: 'accident', combos};
+  if ($('lg-seed').value) body.seed = +$('lg-seed').value;   // 공백 = 서버가 랜덤 발급+기록
   const r = await api('/api/runner/league', {method: 'POST', body: JSON.stringify(body)});
   $('lg-msg').textContent = r.error ? '거부: ' + r.error : `기동됨: ${r.league}`;
   lgPoll();
@@ -857,12 +984,19 @@ async function lgPoll() {
       const s = await api(`/api/runner/runs/${l.run}/league`);
       const combos = (s.config.combos || []);
       const pol = s.policies || {};
+      const gamesPer = s.config.games || 0;
       const rows = combos.map(c => {
         const training = s.training && s.training.combo === c.id;
-        const state = training ? '<span class="pill run">학습 중</span>'
-          : !c.train ? '<span class="pill">동결</span>'
-          : pol[c.id] ? '<span class="pill ok">정책 보유</span>' : '<span class="pill">대기</span>';
-        return `<tr><td>${c.id}</td><td>${c.deck.replace('.json','')}</td><td>${state}</td>
+        let state, progress = '';
+        if (training) {
+          const g = Math.min(s.training.games ?? 0, gamesPer);
+          state = '<span class="pill run">학습 중</span>';
+          progress = ` 판 ${g}/${gamesPer} <div class="bar" style="max-width:120px"><i style="width:${gamesPer ? Math.round(100 * g / gamesPer) : 0}%"></i></div>`;
+        } else {
+          state = !c.train ? '<span class="pill">동결</span>'
+            : pol[c.id] ? '<span class="pill ok">정책 보유</span>' : '<span class="pill">대기</span>';
+        }
+        return `<tr><td>${c.alias ? `<b>${c.alias}</b> ` : ''}${c.id}</td><td>${c.deck.replace('.json','')}</td><td>${state}${progress}</td>
           <td>${pol[c.id] ? `<button class="act" onclick="lgRegister('${c.id}','${(pol[c.id]||'').split('runs/').pop()}')">아레나 등록</button>` : ''}</td></tr>`;
       }).join('');
       const rounds = Object.keys(s.matrix || {});
@@ -870,28 +1004,41 @@ async function lgPoll() {
       let matrixHtml = '';
       if (last) {
         const ids = combos.map(c => c.id);
-        matrixHtml = `<div style="margin-top:6px"><b style="font-size:13px">상호 승률 (${last})</b>
-          <div class="scroll-x"><table class="mat"><tr><th></th>${ids.map(i => `<th>vs ${i}</th>`).join('')}</tr>` +
+        // 순서쌍 전체: 행=선공(P1), 열=후공(P2). 대각선=미러(선공 이득 측정). 셀 클릭=그 매치업 판 로그.
+        matrixHtml = `<div style="margin-top:6px"><b style="font-size:13px">상호 승률 (${last} · 행=선공)</b>
+          <div class="scroll-x"><table class="mat"><tr><th>선공\\후공</th>${ids.map(i => `<th>${i}</th>`).join('')}</tr>` +
           ids.map(a => `<tr><td>${a}</td>` + ids.map(b => {
-            if (a === b) return '<td class="diag">—</td>';
-            const fwd = s.matrix[last][`${a}|${b}`];
-            const rev = s.matrix[last][`${b}|${a}`];
-            const rec = fwd || (rev ? {wins: rev.losses, losses: rev.wins, draws: rev.draws} : null);
-            if (!rec) return '<td>—</td>';
+            const rec = s.matrix[last][`${a}|${b}`];
+            if (!rec) return '<td class="diag">—</td>';
             const total = rec.wins + rec.losses + rec.draws;
             const pct = total ? Math.round(100 * rec.wins / total) : 0;
-            return `<td class="${pct >= 55 ? 'ok' : pct <= 45 ? 'bad' : ''}"><b>${pct}%</b></td>`;
+            const cls = a === b ? '' : pct >= 55 ? 'ok' : pct <= 45 ? 'bad' : '';
+            return `<td class="${cls}" style="cursor:pointer" title="판 로그 보기"
+              onclick='lgShowMatches("${l.run}", "${last}", ${JSON.stringify(`${a}|${b}`)})'><b>${pct}%</b></td>`;
           }).join('') + '</tr>').join('') + '</table></div></div>';
       }
       const st = s.status === 'running' ? `<span class="pill run">라운드 ${s.round}/${s.config.rounds} ${s.phase === 'eval' ? '교차평가' : '진행'}</span>`
         : `<span class="pill ${s.status === 'done' ? 'ok' : 'warn'}">${s.status}</span>`;
+      const seedInfo = s.config.seed != null ? ` <small style="color:var(--muted)">시드 ${s.config.seed}</small>` : '';
       return `<div style="border-top:1px solid var(--line);padding-top:8px;margin-top:8px">
-        <b>${l.run}</b> ${st}
+        <b>${l.run}</b> ${st}${seedInfo}
         <div class="scroll-x"><table><tr><th>조합</th><th>덱</th><th>상태</th><th></th></tr>${rows}</table></div>
         ${matrixHtml}</div>`;
     }));
     $('lg-status').innerHTML = blocks.join('');
+    window.LG_STATES = Object.fromEntries(await Promise.all(leagues.map(async l =>
+      [l.run, await api(`/api/runner/runs/${l.run}/league`)])));
   } catch (e) {}
+}
+function lgShowMatches(run, round, key) {
+  const s = (window.LG_STATES || {})[run];
+  const rec = s && s.matrix[round] && s.matrix[round][key];
+  if (!rec || !rec.matches) { alert('이 매치업의 판 기록 없음(구버전 리그)'); return; }
+  const evalRun = `${run}/eval-matches/${round}`;
+  $('runlog-run').textContent = `${run} · ${round} · ${key.replace('|', ' vs ')}`;
+  $('runlog-list').innerHTML = rec.matches.map(m =>
+    `<div><a href="/static/viewer.html?run=${encodeURIComponent(evalRun)}&match=${m}.jsonl.gz" target="_blank">${m}</a></div>`).join('');
+  $('runlog-card').style.display = '';
 }
 async function lgRegister(comboId, policyPath) {
   const handle = prompt('아레나 참가자 핸들', comboId);
