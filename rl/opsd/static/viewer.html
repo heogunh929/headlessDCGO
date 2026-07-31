@@ -43,6 +43,8 @@
 .btag { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:999px; }
 .btag.sec { background:var(--warn-soft); color:var(--warn); }
 .btag.fld { background:var(--accent-soft); color:var(--accent); }
+.btag.eff { background:#f3ecfd; color:#6d3fc0; }
+.btag.opt { background:var(--ok-soft); color:var(--ok); }
 .chips { padding:6px; border-top:1px solid var(--line); display:flex; gap:5px; flex-wrap:wrap; }
 .chip { border:1px solid var(--line-strong); padding:2px 9px; font-size:11px; cursor:pointer; background:var(--surface); border-radius:999px; } .chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
 .jsonpanel { display:grid; grid-template-rows:auto auto minmax(0,1fr); min-height:0; }
@@ -318,8 +320,18 @@ function renderLog() {
     const battleTag = /\nBattle:/.test(e.text)
       ? (e._sec ? '<span class="btag sec">🛡 시큐리티 배틀</span> ' : '<span class="btag fld">⚔ 필드 배틀</span> ')
       : '';
+    // 효과 발동 배지(사용자 요구 2026-08-01): Effect: 이벤트에 주체(디지몬/테이머/옵션) 구분 표시.
+    let effectTag = '';
+    if (/\nEffect:/.test(e.text)) {
+      const idMatch = e.text.match(/\(([A-Z]+\d*-\d+[^)]*)\)/);
+      const cardType = idMatch && TYPES[idMatch[1]];
+      const who = cardType === 'Tamer' ? ' · 테이머' : cardType === 'Option' ? ' · 옵션'
+        : cardType === 'Digimon' ? ' · 디지몬' : cardType === 'DigiEgg' ? ' · 디지타마' : '';
+      effectTag = `<span class="btag eff">✨ 효과 발동${who}</span> `;
+    }
+    if (/\nPlay Option:/.test(e.text)) effectTag += '<span class="btag opt">🃏 옵션 사용</span> ';
     rows.push(`<div class="logitem${e === now ? ' cur' : ''}"${e === now ? ' id="logcur"' : ''} onclick="goEvent(${events.indexOf(e)})">
-      <small>s${e.afterStep}→${e.afterStep + 1} · ${e.cat}</small>${who}${battleTag}${e.text.trim()}</div>`);
+      <small>s${e.afterStep}→${e.afterStep + 1} · ${e.cat}</small>${who}${battleTag}${effectTag}${e.text.trim()}</div>`);
   }
       // 스냅샷 앵커=결정 직전 상태 — afterStep=N 이벤트의 결과는 s(N+1) 보드에 보인다
       // (사용자 발견 2026-07-30: Evolution 이벤트와 보드 불일치). 클릭=결과 시점으로 이동.

@@ -174,7 +174,17 @@ public static class SelectionChannels
                 return true;
 
             case nameof(TurnStateMachine):
-                // Both TurnStateMachine waits (mulligan, breeding) take a bool; declining is legal for each.
+                // 시작 절차 창(= 멀리건 대기, DoneStartGame 전): 진짜 답은 멀리건 패널 클릭이
+                // 0.1초 지연 코루틴(SelectCardPanel:665, 드라이버에선 1틱)으로 큐잉한다. 여기서
+                // 폴백 bool을 쏘면 그 false가 먼저 소비돼 멀리건이 영구 불능이 되고, 지연 도착한
+                // 패널 답은 고아로 남는다(실측 2026-08-01: 전 판 멀리건 0 — 강제 YES도 무시).
+                // 응답하지 않고 지연 답을 기다린다.
+                if (!manager.turnStateMachine.DoneStartGame)
+                {
+                    return true;
+                }
+
+                // 육성 대기(시작 절차 후)만 폴백 bool로 거절 — 종전 최소응답 유지.
                 manager.turnStateMachine.SetBreedingPhase(seat, doBreeding: false);
 
                 return true;
