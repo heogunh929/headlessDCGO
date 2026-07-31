@@ -32,7 +32,7 @@ class ArenaClient:
         return self.server.replace("http://", "ws://").replace("https://", "wss://") + f"/arena?key={self.key}"
 
     async def play(self, policy: Policy, mode: str = "ladder", room_code: str | None = None,
-                   deck_id: int | None = None, on_event: Callable[[dict], None] | None = None) -> dict:
+                   on_event: Callable[[dict], None] | None = None) -> dict:
         """한 판 참가(완주까지). mode = ladder | create_room | join_room. 결과 match_end를 반환."""
         import inspect
 
@@ -53,16 +53,13 @@ class ArenaClient:
                     if kind == "hello":
                         self.handle = msg.get("handle")
                         if mode == "create_room":
-                            await ws.send_json({"type": "create_room",
-                                                **({"deckId": deck_id} if deck_id else {})})
+                            await ws.send_json({"type": "create_room"})
                         elif mode == "join_room":
                             if not room_code:
                                 raise ArenaError("join_room에는 room_code 필요")
-                            await ws.send_json({"type": "join_room", "code": room_code,
-                                                **({"deckId": deck_id} if deck_id else {})})
+                            await ws.send_json({"type": "join_room", "code": room_code})
                         else:
-                            await ws.send_json({"type": "enqueue",
-                                                **({"deckId": deck_id} if deck_id else {})})
+                            await ws.send_json({"type": "enqueue"})
 
                     elif kind == "your_turn":
                         retries = 0
@@ -101,10 +98,8 @@ class ArenaClient:
         return await self._api("GET", "/api/arena/me")
 
     async def decks(self) -> list:
+        """등록 덱 조회(읽기 전용) — 생성·수정·활성 지정은 웹 참가자 페이지 전용(2026-07-31 확정)."""
         return await self._api("GET", "/api/arena/decks")
-
-    async def register_deck(self, deck: dict) -> dict:
-        return await self._api("POST", "/api/arena/decks", deck)
 
     async def history(self) -> list:
         return await self._api("GET", "/api/arena/history")

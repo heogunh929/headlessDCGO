@@ -141,25 +141,14 @@ def recipe_summary(path: Path) -> dict:
 
 
 def parse_deck_text(text: str, name: str) -> dict:
-    """클립보드 덱리스트 → 레시피. digimonmeta JSON 배열(카드 반복=매수)과 줄 단위 표기 모두 —
-    정본 파서(dcgo_rl.decks.recipe.parse_external) 재사용."""
-    from dcgo_rl.cards import CardIndex
-    from dcgo_rl.decks.recipe import RecipeError, parse_external
-    text = text.strip()
-    lines: list[str]
-    if text.startswith("["):
-        try:
-            lines = [str(x) for x in json.loads(text)]
-        except json.JSONDecodeError:
-            lines = text.splitlines()
-    else:
-        lines = text.splitlines()
-    try:
-        recipe = parse_external(lines, CardIndex.load(), name=name or "가져온 덱")
-    except RecipeError as ex:
-        return {"error": "미지원 카드", "reasons": [recipe_display(c) for c in ex.unknown_cards]}
-    data = recipe.to_json()
-    return {"name": data["name"], "main": data["main"], "digitama": data["digitama"]}
+    """클립보드 덱리스트 → 레시피 구성. AS-IS DeckCodeUtility 전사 파서(opsd/deckcode.py) 공용 —
+    관리자·참가자가 같은 형식(빌더 줄/TTS·digimonmeta 배열)·같은 거동(사용자 확정 2026-07-31)."""
+    from opsd.deckcode import parse_clipboard
+    parsed = parse_clipboard(text, cards_meta())
+    if parsed.get("error"):
+        return parsed
+    return {"name": name or "가져온 덱", "main": parsed["main"], "digitama": parsed["digitama"],
+            "skipped": parsed.get("skipped", [])}
 
 
 def model_aliases() -> dict:

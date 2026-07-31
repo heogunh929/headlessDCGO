@@ -251,17 +251,21 @@ label.check input[type=checkbox] { width:auto; margin:0 }
           <div id="ap-buildcount" style="margin-top:4px;font-size:13px"></div>
         </div>
       </div>
-      <details style="margin-top:8px"><summary>JSON/클립보드로 직접 입력</summary>
-        <textarea id="ap-deckjson" rows="5" style="width:100%;font-family:monospace;font-size:12px"></textarea>
-        <button class="act" onclick="apRegisterJson()">등록</button>
+      <details style="margin-top:8px"><summary>클립보드에서 가져오기 (digimonmeta / "4 카드명 ST1-03" 줄 형식 — AS-IS와 동일)</summary>
+        <textarea id="ap-clip" rows="4" style="width:100%;font-family:monospace;font-size:12px"
+          placeholder='["Exported from digimonmeta.com","ST1-03","ST1-03", ...] 또는 줄 단위 덱리스트'></textarea>
+        <button class="act" onclick="apImportClip()">가져오기 → 편집기로</button> <span id="ap-clipmsg" style="font-size:12.5px"></span>
       </details>
-      <div style="margin-top:8px"><button class="act primary" onclick="apRegisterBuilt()">이 구성으로 등록</button> <span id="ap-deckmsg"></span></div>
+      <div style="margin-top:8px">
+        <button class="act primary" onclick="apSaveDeck()">저장</button>
+        <button class="act" id="ap-saveas" style="display:none" onclick="apSaveDeckAsNew()">다른 이름으로 등록</button>
+        <span id="ap-editlabel" class="pill run" style="display:none"></span>
+        <span id="ap-deckmsg"></span></div>
     </div>
     <div class="card"><b>대전 이력</b> <small>(클릭 → 판 뷰어)</small><div id="ap-history"></div></div>
-    <div class="card"><b>퀵스타트</b> <small>— dcgo-arena.toml 저장 후 실행 (첫 큐잉=검증판)</small>
+    <div class="card"><b>퀵스타트</b> <small>— SDK 파일 하나 + 코드 몇 줄 (첫 큐잉=검증판, 상세는 참가자 페이지)</small>
       <pre id="ap-qs"></pre>
-      <button class="act" onclick="navigator.clipboard.writeText($('ap-qs').textContent)">toml 복사</button>
-      <code>python -m dcgo_arena daemon --config dcgo-arena.toml</code>
+      <button class="act" onclick="navigator.clipboard.writeText($('ap-qs').textContent)">복사</button>
     </div>
   </div>
 </section>
@@ -682,7 +686,11 @@ async function apLogin(silent) {
   localStorage.setItem('arenaKey', apKey);
   $('ap-login').style.display = 'none'; $('ap-portal').style.display = '';
   $('ap-who').textContent = `${me.handle} · Elo ${me.elo} · ${me.games}판`;
-  $('ap-qs').textContent = `server = "${location.origin}"\nkey = "${apKey}"\n\n[agent]\nkind = "random"   # random | llm | file — 상세는 참가자 페이지 퀵스타트`;
+  $('ap-qs').textContent = `curl -O ${location.origin}/static/dcgo_arena.py && pip install aiohttp
+
+import dcgo_arena as da
+da.play(server="${location.origin}", key="${apKey}", daemon=True)
+# 덱은 웹(이 포털/참가자 페이지)에서 등록·활성 지정 — SDK는 덱에 관여하지 않음`;
   const data = await apApi('/api/arena/cards');
   apCards = data.cards || {}; apPool = data.pool || apPool;
   apRenderPool(); apRenderBuild(); apLoadDecks(); apLoadHistory();
@@ -707,32 +715,64 @@ function apRenderBuild() {
   const g = Object.values(apBuild.digitama).reduce((a, b) => a + b, 0);
   $('ap-buildcount').innerHTML = `메인 <b class="${m === 50 ? 'ok' : 'bad'}">${m}/50</b> · 디지타마 <b class="${g <= 5 ? 'ok' : 'bad'}">${g}/5</b>`;
 }
-async function apRegister(deck) {
-  const r = await apApi('/api/arena/decks', {method: 'POST', body: JSON.stringify(deck)});
+let apEditId = null;
+function apBuiltDeck() {
+  return {name: $('ap-deckname').value || '무제 덱',
+    main: Object.entries(apBuild.main).map(([card, count]) => ({card, count})),
+    digitama: Object.entries(apBuild.digitama).map(([card, count]) => ({card, count}))};
+}
+async function apSaveDeck() {
+  const deck = apBuiltDeck();
+  const r = apEditId
+    ? await apApi(`/api/arena/decks/${apEditId}`, {method: 'PUT', body: JSON.stringify(deck)})
+    : await apApi('/api/arena/decks', {method: 'POST', body: JSON.stringify(deck)});
   $('ap-deckmsg').innerHTML = r.error
     ? `<span class="bad">${r.error}${(r.reasons || []).map(x => '<br>· ' + x).join('')}</span>`
-    : `<span class="ok">등록됨: ${r.deck}${r.active ? ' (활성)' : ''}</span>`;
+    : `<span class="ok">${apEditId ? '수정됨' : '등록됨'}: ${r.deck}${r.active ? ' (활성)' : ''}</span>`;
   apLoadDecks();
 }
-function apRegisterBuilt() {
-  apRegister({name: $('ap-deckname').value || '무제 덱',
-    main: Object.entries(apBuild.main).map(([card, count]) => ({card, count})),
-    digitama: Object.entries(apBuild.digitama).map(([card, count]) => ({card, count}))});
+async function apSaveDeckAsNew() { apEditId = null; $('ap-editlabel').style.display = 'none'; $('ap-saveas').style.display = 'none'; await apSaveDeck(); }
+function apDeckOpen(d) {
+  apEditId = d.id; apBuild.main = {}; apBuild.digitama = {};
+  for (const e of d.cards.main) apBuild.main[e.card] = e.count;
+  for (const e of (d.cards.digitama || [])) apBuild.digitama[e.card] = e.count;
+  $('ap-deckname').value = d.name;
+  $('ap-editlabel').textContent = `편집 중: ${d.name}`; $('ap-editlabel').style.display = '';
+  $('ap-saveas').style.display = '';
+  apRenderBuild();
 }
-function apRegisterJson() {
-  try { apRegister(JSON.parse($('ap-deckjson').value)); }
-  catch (e) { $('ap-deckmsg').innerHTML = `<span class="bad">JSON 파싱 실패: ${e.message}</span>`; }
+async function apImportClip() {
+  const r = await apApi('/api/arena/decks/parse', {method: 'POST', body: JSON.stringify({text: $('ap-clip').value})});
+  if (r.error) { $('ap-clipmsg').innerHTML = `<span class="bad">${r.error}</span>`; return; }
+  apBuild.main = {}; apBuild.digitama = {};
+  for (const e of r.main) apBuild.main[e.card] = e.count;
+  for (const e of r.digitama) apBuild.digitama[e.card] = e.count;
+  apRenderBuild();
+  $('ap-clipmsg').innerHTML = '<span class="ok">가져옴</span>'
+    + (r.skipped && r.skipped.length ? ` <span class="bad">(미인식 ${r.skipped.length}건)</span>` : '');
 }
 async function apLoadDecks() {
   const decks = await apApi('/api/arena/decks');
-  $('ap-decks').innerHTML = decks.length ? '<div class="scroll-x"><table><tr><th>이름</th><th>메인/디지타마</th><th>상태</th><th></th></tr>' +
-    decks.map(d => {
+  $('ap-decks').innerHTML = decks.length ? '<div class="scroll-x"><table><tr><th>이름</th><th>메인/디지타마</th><th>상태</th><th style="min-width:190px"></th></tr>' +
+    decks.sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0)).map(d => {
       const m = d.cards.main.reduce((a, e) => a + e.count, 0), g = (d.cards.digitama || []).reduce((a, e) => a + e.count, 0);
-      return `<tr><td>${d.name}</td><td>${m}/${g}</td><td>${d.active ? '<span class="pill ok">활성</span>' : ''}${d.enabled ? '' : `<span class="pill bad">비활성</span>`}</td>` +
-        `<td>${d.active || !d.enabled ? '' : `<button class="act" onclick="apActivate(${d.id})">활성화</button>`}</td></tr>`;
+      const detail = [...d.cards.main, ...(d.cards.digitama || [])]
+        .map(e => `${e.card}${(apCards[e.card] || {}).name ? ' ' + apCards[e.card].name : ''} ×${e.count}`).join('<br>');
+      return `<tr><td><details><summary style="cursor:pointer">${d.active ? '★ ' : ''}${d.name}</summary>
+          <div style="font-size:12px;color:var(--muted);max-height:150px;overflow:auto;margin-top:4px">${detail}</div></details></td>
+        <td>${m}/${g}</td>
+        <td>${d.active ? '<span class="pill ok">사용 중</span>' : ''}${d.enabled ? '' : `<span class="pill bad" title="${d.disabledReason}">비활성</span>`}</td>
+        <td>${d.active || !d.enabled ? '' : `<button class="act" onclick="apActivate(${d.id})">이 덱 사용</button>`}
+            <button class="act" onclick='apDeckOpen(${JSON.stringify(d).replace(/'/g, "&#39;")})'>열기</button>
+            <button class="act" onclick="apDeckDelete(${d.id})">삭제</button></td></tr>`;
     }).join('') + '</table></div>' : '등록된 덱 없음';
 }
 async function apActivate(id) { await apApi(`/api/arena/decks/${id}/activate`, {method: 'POST'}); apLoadDecks(); }
+async function apDeckDelete(id) {
+  if (!confirm('덱을 삭제합니까? (지난 판 기록은 판 시점 스냅샷으로 보존)')) return;
+  await apApi(`/api/arena/decks/${id}/delete`, {method: 'POST'});
+  apLoadDecks();
+}
 async function apLoadHistory() {
   const rows = await apApi('/api/arena/history');
   $('ap-history').innerHTML = rows.length ? '<div class="scroll-x"><table><tr><th>시각</th><th>상대</th><th>결과</th><th>Δ</th><th>사유</th></tr>' +

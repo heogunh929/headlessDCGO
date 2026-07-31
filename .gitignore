@@ -43,3 +43,4 @@ __pycache__/
 rl/opsd/arena.db*
 rl/opsd/model-aliases.json
 rl/opsd/model-hidden.json
+rl/opsd/static/dcgo_arena.py

@@ -198,6 +198,31 @@ async def arena_decks(request: web.Request) -> web.Response:
     return web.json_response(arena.register_deck(p["id"], deck, await cards_meta(request.app)))
 
 
+async def arena_deck_parse(request: web.Request) -> web.Response:
+    """클립보드 덱 코드 → 구성(참가자 표면) — AS-IS DeckCodeUtility 전사 파서."""
+    if arena_participant(request) is None:
+        return web.json_response({"error": "key"}, status=401)
+    from opsd.deckcode import parse_clipboard
+    data = await request.json()
+    return web.json_response(parse_clipboard(str(data.get("text", "")), await cards_meta(request.app)))
+
+
+async def arena_deck_update(request: web.Request) -> web.Response:
+    p = arena_participant(request)
+    if p is None:
+        return web.json_response({"error": "key"}, status=401)
+    deck = await request.json()
+    return web.json_response(arena.update_deck(p["id"], int(request.match_info["deck_id"]),
+                                               deck, await cards_meta(request.app)))
+
+
+async def arena_deck_delete(request: web.Request) -> web.Response:
+    p = arena_participant(request)
+    if p is None:
+        return web.json_response({"error": "key"}, status=401)
+    return web.json_response(arena.delete_deck(p["id"], int(request.match_info["deck_id"])))
+
+
 async def arena_deck_activate(request: web.Request) -> web.Response:
     p = arena_participant(request)
     if p is None:
@@ -301,7 +326,46 @@ async def static_html(request: web.Request) -> web.Response:
     return static_page(name)
 
 
+def build_single_file_sdk() -> None:
+    """dcgo_arena 패키지 → static/dcgo_arena.py 단일 파일(참가자 배포, TextArena식 온보딩).
+
+    참가자는 저장소 없이 `curl -O <서버>/static/dcgo_arena.py` 한 번으로 SDK를 받는다.
+    기법: 모듈 소스를 문자열로 내장하고 로드 시 sys.modules에 실제 패키지로 조립 —
+    `import dcgo_arena as da` 와 CLI(`python dcgo_arena.py play|daemon`) 둘 다 동작."""
+    package_dir = HERE.parent / "dcgo_arena"
+    order = ["state_text", "policies", "client", "config", "agents", "highlevel", "__main__"]
+    sources = {name: (package_dir / f"{name}.py").read_text(encoding="utf-8") for name in order}
+    init_source = (package_dir / "__init__.py").read_text(encoding="utf-8")
+
+    out = [
+        "# dcgo_arena.py — DCGO 아레나 참가 SDK 단일 파일 (서버 자동 생성 — 편집 금지)",
+        "# 사용:  import dcgo_arena as da  /  python dcgo_arena.py daemon --config dcgo-arena.toml",
+        "import sys, types",
+        "_pkg = types.ModuleType('dcgo_arena'); _pkg.__path__ = []; sys.modules['dcgo_arena'] = _pkg",
+        f"_SOURCES = {{'__init__': {init_source!r},",
+    ]
+    for name in order:
+        out.append(f"  {name!r}: {sources[name]!r},")
+    out += [
+        "}",
+        "for _name in %r:" % order,
+        "    _mod = types.ModuleType(f'dcgo_arena.{_name}')",
+        "    _mod.__package__ = 'dcgo_arena'",
+        "    sys.modules[f'dcgo_arena.{_name}'] = _mod",
+        "    exec(compile(_SOURCES[_name], f'dcgo_arena/{_name}.py', 'exec'), _mod.__dict__)",
+        "exec(compile(_SOURCES['__init__'], 'dcgo_arena/__init__.py', 'exec'), _pkg.__dict__)",
+        "if __name__ == '__main__':",
+        "    sys.modules['dcgo_arena.__main__'].main()",
+        "",
+    ]
+    (STATIC / "dcgo_arena.py").write_text("\n".join(out), encoding="utf-8")
+
+
 async def on_start(app: web.Application) -> None:
+    try:
+        build_single_file_sdk()
+    except OSError as ex:
+        print(f"단일 파일 SDK 생성 실패(참가자 다운로드 불가): {ex}")
     app["watcher"] = asyncio.create_task(watch(app))
 
 
@@ -331,6 +395,9 @@ def main() -> None:
     app.router.add_get("/api/arena/me", arena_me)
     app.router.add_get("/api/arena/decks", arena_decks)
     app.router.add_post("/api/arena/decks", arena_decks)
+    app.router.add_post("/api/arena/decks/parse", arena_deck_parse)
+    app.router.add_put("/api/arena/decks/{deck_id}", arena_deck_update)
+    app.router.add_post("/api/arena/decks/{deck_id}/delete", arena_deck_delete)
     app.router.add_post("/api/arena/decks/{deck_id}/activate", arena_deck_activate)
     app.router.add_get("/api/arena/history", arena_history)
     app.router.add_get("/api/arena/cards", arena_cards)

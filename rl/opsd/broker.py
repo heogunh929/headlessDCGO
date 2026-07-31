@@ -104,7 +104,7 @@ class Broker:
         if kind == "enqueue":
             if pid in self.by_participant:
                 return await ws.send_json({"type": "error", "code": "busy", "message": "이미 대전 중"})
-            deck = self._deck_for(pid, data.get("deckId"))
+            deck = self._active_deck(pid)   # 덱 선택은 웹 전용(2026-07-31 확정) — 항상 활성 덱
             if deck is None:
                 return await ws.send_json({"type": "error", "code": "no_deck", "message": "활성 덱 없음 — 먼저 덱을 등록/지정"})
             # 검증 에피소드(온보딩 ③): 미검증 참가자의 첫 큐잉 = 하우스 봇과 비랭킹 1판.
@@ -124,7 +124,7 @@ class Broker:
             # 상대가 join_room으로 들어오면 즉시 성립.
             if pid in self.by_participant:
                 return await ws.send_json({"type": "error", "code": "busy", "message": "이미 대전 중"})
-            deck = self._deck_for(pid, data.get("deckId"))
+            deck = self._active_deck(pid)   # 덱 선택은 웹 전용(2026-07-31 확정) — 항상 활성 덱
             if deck is None:
                 return await ws.send_json({"type": "error", "code": "no_deck", "message": "활성 덱 없음"})
             for code, room in list(self.rooms.items()):
@@ -145,7 +145,7 @@ class Broker:
             if host_pid not in self.connections or host_pid in self.by_participant:
                 del self.rooms[code]
                 return await ws.send_json({"type": "error", "code": "host_unavailable", "message": "방 주인이 접속 중이 아님"})
-            deck2 = self._deck_for(pid, data.get("deckId"))
+            deck2 = self._active_deck(pid)  # 덱 선택은 웹 전용 — 항상 활성 덱
             if deck2 is None:
                 return await ws.send_json({"type": "error", "code": "no_deck", "message": "활성 덱 없음"})
             del self.rooms[code]
@@ -175,11 +175,7 @@ class Broker:
         else:
             await ws.send_json({"type": "error", "code": "protocol", "message": f"unknown type '{kind}'"})
 
-    def _deck_for(self, pid: int, deck_id) -> dict | None:
-        if deck_id is not None:
-            row = db.conn().execute("SELECT * FROM decks WHERE id=? AND owner=? AND enabled=1",
-                                    (int(deck_id), pid)).fetchone()
-            return json.loads(row["cards_json"]) if row else None
+    def _active_deck(self, pid: int) -> dict | None:
         return arena.active_deck(pid)
 
     @staticmethod
@@ -227,7 +223,7 @@ class Broker:
         while len(self.queue) >= 2:
             pid1, pid2 = self.queue[0], self.queue[1]
             row = lambda pid: db.conn().execute("SELECT * FROM participants WHERE id=?", (pid,)).fetchone()
-            deck1, deck2 = self._deck_for(pid1, None), self._deck_for(pid2, None)
+            deck1, deck2 = self._active_deck(pid1), self._active_deck(pid2)
             self.queue = self.queue[2:]
             if deck1 is None or deck2 is None:
                 continue

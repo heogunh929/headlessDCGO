@@ -164,6 +164,33 @@ def register_deck(owner_id: int, deck: dict, cards_meta: dict) -> dict:
     return {"ok": True, "deck": name, "active": first}
 
 
+def update_deck(owner_id: int, deck_id: int, deck: dict, cards_meta: dict) -> dict:
+    """덱 덮어쓰기(웹 편집 저장) — 소유 검증 + 재검증. 판 시점 스냅샷 원칙이라 과거 이력 무영향."""
+    c = db.conn()
+    row = c.execute("SELECT * FROM decks WHERE id=? AND owner=?", (deck_id, owner_id)).fetchone()
+    if row is None:
+        return {"error": "없는 덱"}
+    errors = validate_deck(deck, cards_meta)
+    if errors:
+        return {"error": "덱 검증 실패", "reasons": errors}
+    name = str(deck.get("name") or row["name"])[:60]
+    c.execute("UPDATE decks SET name=?, cards_json=?, enabled=1, disabled_reason='' WHERE id=?",
+              (name, json.dumps(deck, ensure_ascii=False), deck_id))
+    c.commit()
+    return {"ok": True, "deck": name}
+
+
+def delete_deck(owner_id: int, deck_id: int) -> dict:
+    """덱 삭제 — 이력의 판 시점 스냅샷은 decks와 무관하게 보존되므로 안전(요구 §6.6 ③)."""
+    c = db.conn()
+    row = c.execute("SELECT * FROM decks WHERE id=? AND owner=?", (deck_id, owner_id)).fetchone()
+    if row is None:
+        return {"error": "없는 덱"}
+    c.execute("DELETE FROM decks WHERE id=?", (deck_id,))
+    c.commit()
+    return {"ok": True, "deleted": row["name"], "wasActive": bool(row["active"])}
+
+
 def decks_of(owner_id: int) -> list[dict]:
     rows = db.conn().execute("SELECT * FROM decks WHERE owner=? ORDER BY id", (owner_id,)).fetchall()
     return [{"id": r["id"], "name": r["name"], "active": bool(r["active"]), "enabled": bool(r["enabled"]),

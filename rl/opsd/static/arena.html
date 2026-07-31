@@ -26,9 +26,10 @@ textarea { width:100%; font-family:monospace; font-size:12px }
     <div class="card"><b>내 덱</b> <small>(래더는 활성 덱으로 참가합니다)</small>
       <div id="decks">불러오는 중…</div>
     </div>
-    <div class="card"><b>덱 등록</b>
+    <div class="card"><b>덱 편집기</b> <span id="edit-label" class="pill run" style="display:none"></span>
       <div style="font-size:13px;color:#555;margin:4px 0">규칙: 메인 정확히 50장 · 디지타마 최대 5장 · 카드별 최대 매수 제한 · 허용 카드 풀 내</div>
       <label>덱 이름 <input id="deck-name" placeholder="내 덱"></label>
+      <button class="btn" style="font-size:12.5px" onclick="deckNew()">새 덱(비우기)</button>
       <div style="display:flex; gap:12px; margin-top:8px; flex-wrap:wrap">
         <div style="flex:1; min-width:260px">
           <b style="font-size:13px">허용 카드 풀</b> <input id="pool-q" placeholder="검색" style="width:120px" oninput="renderPool()">
@@ -40,23 +41,27 @@ textarea { width:100%; font-family:monospace; font-size:12px }
           <div id="build-count" style="margin-top:4px;font-size:13px"></div>
         </div>
       </div>
-      <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">JSON으로 직접 입력</summary>
-        <textarea id="deck-json" rows="6" placeholder='{"name":"...","main":[{"card":"ST1-02","count":4},...],"digitama":[{"card":"ST1-01","count":4}]}'></textarea>
-        <button onclick="registerJson()">JSON 등록</button>
+      <details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">클립보드에서 가져오기 — digimonmeta 내보내기 / "4 카드명 ST1-03" 줄 형식 (AS-IS와 동일)</summary>
+        <textarea id="clip-text" rows="4" placeholder='["Exported from digimonmeta.com","ST1-03","ST1-03", ...] 또는 줄 단위 덱리스트'></textarea>
+        <button class="btn" onclick="importClipboard()">가져오기 → 편집기로</button> <span id="clip-msg" style="font-size:12.5px"></span>
       </details>
-      <div style="margin-top:8px"><button onclick="registerBuilt()">이 구성으로 등록</button> <span id="deck-msg"></span></div>
+      <div style="margin-top:8px">
+        <button class="btn primary" onclick="saveDeck()">저장</button>
+        <button class="btn" id="saveas-btn" style="display:none" onclick="saveDeckAsNew()">다른 이름으로 등록</button>
+        <span id="deck-msg"></span></div>
     </div>
     <div class="card"><b>대전 이력</b> <small>(클릭하면 판 뷰어로)</small><div id="history">불러오는 중…</div></div>
-    <div class="card"><b>퀵스타트</b> <small>— 설정 파일 한 장으로 참가 (상주 참가 = daemon)</small>
-      <div style="font-size:13px;margin:6px 0">① 준비: <code>pip install aiohttp</code> + 저장소의 <code>rl/</code> 폴더</div>
-      <div style="font-size:13px">② <code>dcgo-arena.toml</code> 저장:
-        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-toml', this)">복사</button></div>
-      <pre id="qs-toml" style="margin-top:6px"></pre>
-      <div style="font-size:13px">③ 실행:
-        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-run', this)">복사</button></div>
-      <pre id="qs-run" style="margin-top:6px"></pre>
-      <div style="font-size:12.5px;color:var(--muted)">첫 큐잉은 하우스 봇과 <b>검증판</b>(비랭킹) — 완주하면 래더 진입.
-        LLM으로 두려면 toml의 [agent]를 채우고, 커스텀 로직은 kind="file"+act() 파일로.</div>
+    <div class="card"><b>퀵스타트</b> <small>— SDK 파일 하나 받아 코드 몇 줄로 참가</small>
+      <div style="font-size:13px">① SDK 받기·의존성:
+        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-dl', this)">복사</button></div>
+      <pre id="qs-dl" style="margin-top:6px"></pre>
+      <div style="font-size:13px">② 참가 스크립트 — <b>덱은 이 페이지에서 먼저 등록하고 사용할 덱을 활성으로 지정</b>하세요(SDK는 덱에 관여하지 않음):
+        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-code', this)">복사</button></div>
+      <pre id="qs-code" style="margin-top:6px"></pre>
+      <div style="font-size:12.5px;color:var(--muted)">서버가 활성 덱으로 참가시킵니다(활성 덱 없으면 no_deck 에러).
+        첫 큐잉은 하우스 봇과 <b>검증판</b>(비랭킹) — 완주하면 래더 진입, 이후 자동 매칭 연전.<br>
+        agent를 빼면 무작위 합법 수 · <code>da.agents.from_file("my_agent.py")</code>로 커스텀
+        (<code>def act(state_text, actions) -&gt; index</code>) · CLI도 지원: <code>python dcgo_arena.py daemon --config dcgo-arena.toml</code></div>
     </div>
   </div>
 </main>
@@ -69,18 +74,17 @@ const H = () => ({'X-Arena-Key': KEY, 'Content-Type': 'application/json'});
 const api = (p, opt = {}) => fetch(p, {...opt, headers: H()}).then(r => r.json());
 
 function logout() { localStorage.removeItem('arenaKey'); location.reload(); }
-function quickstartToml(server, key) {
-  return `server = "${server}"
-key = "${key}"
+function quickstartCode(server, key) {
+  return `import dcgo_arena as da
 
-[agent]                # 생략/kind="random" = 무작위 합법 수
-kind = "random"        # random | llm | file
-# kind="llm"이면:
-# base_url = "http://localhost:11434/v1"   # OpenAI 호환 endpoint
-# api_key  = "none"
-# model    = "llama3"
-# kind="file"이면:
-# path = "my_agent.py"                     # def act(state_text, actions) -> index`;
+da.play(
+    server="${server}",
+    key="${key}",
+    # 덱: 이 페이지(웹)에서 등록·활성 지정 — 서버가 활성 덱을 자동 적용
+    # LLM으로 두려면 (생략 = 무작위 합법 수):
+    # agent=da.agents.OpenAICompat(base_url="http://localhost:11434/v1", model="llama3"),
+    daemon=True,   # 상주 — 검증판 통과 후 자동 매칭 연전. 1판만이면 games=1
+)`;
 }
 function qsCopy(id, btn) {
   navigator.clipboard.writeText($(id).textContent).then(() => {
@@ -94,8 +98,8 @@ async function login() {
   localStorage.setItem('arenaKey', KEY);
   $('login-card').style.display = 'none'; $('portal').style.display = '';
   $('who').textContent = `${me.handle} · Elo ${me.elo} · ${me.games}판`;
-  $('qs-toml').textContent = quickstartToml(location.origin, KEY);
-  $('qs-run').textContent = 'python -m dcgo_arena daemon --config dcgo-arena.toml';
+  $('qs-dl').textContent = `curl -O ${location.origin}/static/dcgo_arena.py\npip install aiohttp`;
+  $('qs-code').textContent = quickstartCode(location.origin, KEY);
   const cardData = await api('/api/arena/cards');
   CARDS = cardData.cards || {}; POOL = cardData.pool || POOL;
   renderPool(); renderBuild(); loadDecks(); loadHistory();
@@ -135,28 +139,67 @@ function builtDeck() {
     main: Object.entries(BUILD.main).map(([card, count]) => ({card, count})),
     digitama: Object.entries(BUILD.digitama).map(([card, count]) => ({card, count}))};
 }
-async function registerBuilt() { await register(builtDeck()); }
-async function registerJson() {
-  try { await register(JSON.parse($('deck-json').value)); }
-  catch (e) { $('deck-msg').innerHTML = `<span class="bad">JSON 파싱 실패: ${e.message}</span>`; }
+let EDIT_ID = null;   // 편집 중인 덱 id (null = 신규)
+function deckNew() {
+  EDIT_ID = null; BUILD.main = {}; BUILD.digitama = {};
+  $('deck-name').value = ''; $('edit-label').style.display = 'none'; $('saveas-btn').style.display = 'none';
+  renderBuild();
 }
-async function register(deck) {
-  const r = await api('/api/arena/decks', {method: 'POST', body: JSON.stringify(deck)});
+function deckOpen(d) {
+  EDIT_ID = d.id; BUILD.main = {}; BUILD.digitama = {};
+  for (const e of d.cards.main) BUILD.main[e.card] = e.count;
+  for (const e of (d.cards.digitama || [])) BUILD.digitama[e.card] = e.count;
+  $('deck-name').value = d.name;
+  $('edit-label').textContent = `편집 중: ${d.name}`; $('edit-label').style.display = '';
+  $('saveas-btn').style.display = '';
+  renderBuild();
+  $('deck-name').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+async function saveDeck() {
+  const deck = builtDeck();
+  const r = EDIT_ID
+    ? await api(`/api/arena/decks/${EDIT_ID}`, {method: 'PUT', body: JSON.stringify(deck)})
+    : await api('/api/arena/decks', {method: 'POST', body: JSON.stringify(deck)});
   $('deck-msg').innerHTML = r.error
     ? `<span class="bad">${r.error}${(r.reasons || []).map(x => '<br>· ' + x).join('')}</span>`
-    : `<span class="ok">등록됨: ${r.deck}${r.active ? ' (활성)' : ''}</span>`;
+    : `<span class="ok">${EDIT_ID ? '수정됨' : '등록됨'}: ${r.deck}${r.active ? ' (활성)' : ''}</span>`;
   loadDecks();
+}
+async function saveDeckAsNew() { EDIT_ID = null; await saveDeck(); $('edit-label').style.display = 'none'; $('saveas-btn').style.display = 'none'; }
+async function importClipboard() {
+  // AS-IS DeckCodeUtility 전사 파서(서버) — digimonmeta 배열·빌더 줄 형식
+  const r = await api('/api/arena/decks/parse', {method: 'POST', body: JSON.stringify({text: $('clip-text').value})});
+  if (r.error) { $('clip-msg').innerHTML = `<span class="bad">${r.error}</span>`; return; }
+  BUILD.main = {}; BUILD.digitama = {};
+  for (const e of r.main) BUILD.main[e.card] = e.count;
+  for (const e of r.digitama) BUILD.digitama[e.card] = e.count;
+  renderBuild();
+  $('clip-msg').innerHTML = `<span class="ok">가져옴 — 편집기 확인</span>`
+    + (r.skipped && r.skipped.length ? ` <span class="bad">(미인식 ${r.skipped.length}건: ${r.skipped.slice(0,3).join(', ')}…)</span>` : '');
 }
 async function loadDecks() {
   const decks = await api('/api/arena/decks');
-  $('decks').innerHTML = decks.length ? '<table><tr><th>이름</th><th>메인/디지타마</th><th>상태</th><th></th></tr>' +
-    decks.map(d => {
+  $('decks').innerHTML = decks.length ? '<table><tr><th>이름</th><th>메인/디지타마</th><th>상태</th><th style="min-width:200px"></th></tr>' +
+    decks.sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0)).map(d => {
       const m = d.cards.main.reduce((a, e) => a + e.count, 0), g = (d.cards.digitama || []).reduce((a, e) => a + e.count, 0);
-      return `<tr><td>${d.name}</td><td>${m}/${g}</td><td>${d.active ? '<b>활성</b>' : ''}${d.enabled ? '' : `<span class="bad">비활성: ${d.disabledReason}</span>`}</td>` +
-        `<td>${d.active || !d.enabled ? '' : `<button onclick="activate(${d.id})">활성화</button>`}</td></tr>`;
-    }).join('') + '</table>' : '등록된 덱 없음';
+      const detail = [...d.cards.main, ...(d.cards.digitama || [])]
+        .map(e => `${e.card}${(CARDS[e.card] || {}).name ? ' ' + CARDS[e.card].name : ''} ×${e.count}`).join('<br>');
+      return `<tr><td><details><summary style="cursor:pointer">${d.active ? '★ ' : ''}${d.name}</summary>
+          <div style="font-size:12px;color:#555;max-height:160px;overflow:auto;margin-top:4px">${detail}</div></details></td>
+        <td>${m}/${g}</td>
+        <td>${d.active ? '<span class="pill ok">사용 중</span>' : ''}${d.enabled ? '' : `<span class="pill bad" title="${d.disabledReason}">비활성</span>`}</td>
+        <td>${d.active || !d.enabled ? '' : `<button class="btn" onclick="activate(${d.id})">이 덱 사용</button>`}
+            <button class="btn" onclick='deckOpen(${JSON.stringify(d).replace(/'/g, "&#39;")})'>열기</button>
+            <button class="btn" onclick="deckDelete(${d.id}, ${d.active})">삭제</button></td></tr>`;
+    }).join('') + '</table>' : '등록된 덱 없음 — 아래 편집기에서 만들어 주세요';
 }
 async function activate(id) { await api(`/api/arena/decks/${id}/activate`, {method: 'POST'}); loadDecks(); }
+async function deckDelete(id, wasActive) {
+  if (!confirm('덱을 삭제합니까? (지난 판 기록은 판 시점 스냅샷으로 보존됩니다)')) return;
+  await api(`/api/arena/decks/${id}/delete`, {method: 'POST'});
+  if (wasActive) $('deck-msg').innerHTML = '<span class="bad">사용 중 덱을 삭제했습니다 — 다른 덱을 "이 덱 사용"으로 지정하세요</span>';
+  loadDecks();
+}
 async function loadHistory() {
   const rows = await api('/api/arena/history');
   $('history').innerHTML = rows.length ? '<table><tr><th>시각</th><th>상대</th><th>결과</th><th>Δ</th><th>사유</th></tr>' +

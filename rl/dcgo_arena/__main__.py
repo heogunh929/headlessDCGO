@@ -23,7 +23,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--key", default=None)
     parser.add_argument("--create-room", action="store_true")
     parser.add_argument("--join", default=None)
-    parser.add_argument("--deck-id", type=int, default=None)
     parser.add_argument("--games", type=int, default=1, help="play 모드 래더 연전 판수")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--quiet", action="store_true")
@@ -66,7 +65,7 @@ async def run() -> None:
         backoff = 3
         while True:
             try:
-                result = await client.play(agent, mode="ladder", deck_id=args.deck_id, on_event=on_event)
+                result = await client.play(agent, mode="ladder", on_event=on_event)
                 print(f"종료: winner={result.get('winnerSeat')} reason={result.get('reason')}"
                       f" Δ={result.get('ratingDelta')}", flush=True)
                 backoff = 3
@@ -79,7 +78,7 @@ async def run() -> None:
     mode = "create_room" if args.create_room else "join_room" if args.join else "ladder"
     for _ in range(args.games):
         result = await client.play(agent, mode=mode, room_code=args.join,
-                                   deck_id=args.deck_id, on_event=on_event)
+                                   on_event=on_event)
         print(f"종료: winner={result.get('winnerSeat')} reason={result.get('reason')}"
               f" Δ={result.get('ratingDelta')}")
         if mode != "ladder":
