@@ -125,8 +125,9 @@ label.check input[type=checkbox] { width:auto; margin:0 }
       교차평가 <input id="lg-pairs" type="number" value="10" style="width:52px"> 판/쌍
       <button class="act primary" onclick="lgStart()">리그 기동</button> <span id="lg-msg"></span>
     </div>
-    <div id="lg-status" style="margin-top:10px"></div>
   </div>
+  <!-- 리그 현황: 리그마다 별도 카드(프레임) — 사용자 요구 2026-07-31 -->
+  <div id="lg-status"></div>
 </section>
 <section id="decks">
   <div class="card">
@@ -1039,30 +1040,32 @@ async function lgPoll() {
         return `<tr><td>${c.alias ? `<b>${c.alias}</b> ` : ''}${c.id}</td><td>${c.deck.replace('.json','')}</td><td>${state}${progress}</td>
           <td>${pol[c.id] ? `<button class="act" onclick="lgRegister('${c.id}','${(pol[c.id]||'').split('runs/').pop()}')">아레나 등록</button>` : ''}</td></tr>`;
       }).join('');
-      const rounds = Object.keys(s.matrix || {});
-      const last = rounds.at(-1);
-      let matrixHtml = '';
-      if (last) {
-        const ids = combos.map(c => c.id);
-        // 순서쌍 전체: 행=선공(P1), 열=후공(P2). 대각선=미러(선공 이득 측정). 셀 클릭=그 매치업 판 로그.
-        matrixHtml = `<div style="margin-top:6px"><b style="font-size:13px">상호 승률 (${last} · 행=선공)</b>
-          <div class="scroll-x"><table class="mat"><tr><th>선공\\후공</th>${ids.map(i => `<th>${i}</th>`).join('')}</tr>` +
-          ids.map(a => `<tr><td>${a}</td>` + ids.map(b => {
-            const rec = s.matrix[last][`${a}|${b}`];
-            if (!rec) return '<td class="diag">—</td>';
-            const total = rec.wins + rec.losses + rec.draws;
-            const pct = total ? Math.round(100 * rec.wins / total) : 0;
-            const cls = a === b ? '' : pct >= 55 ? 'ok' : pct <= 45 ? 'bad' : '';
-            return `<td class="${cls}" style="cursor:pointer" title="판 로그 보기"
-              onclick='lgShowMatches("${l.run}", "${last}", ${JSON.stringify(`${a}|${b}`)})'><b>${pct}%</b></td>`;
-          }).join('') + '</tr>').join('') + '</table></div></div>';
-      }
+      // 라운드별 승률표(사용자 요구 2026-07-31): 최신 라운드가 먼저, 전 라운드 나란히.
+      const ids = combos.map(c => c.id);
+      const roundMatrix = (round) => `<div style="min-width:220px">
+        <b style="font-size:13px">라운드 ${round.replace('r', '')} <small style="color:var(--muted)">(행=선공)</small></b>
+        <div class="scroll-x"><table class="mat"><tr><th>선공\\후공</th>${ids.map(i => `<th>${i}</th>`).join('')}</tr>` +
+        ids.map(a => `<tr><td>${a}</td>` + ids.map(b => {
+          const rec = s.matrix[round][`${a}|${b}`];
+          if (!rec) return '<td class="diag">—</td>';
+          const total = rec.wins + rec.losses + rec.draws;
+          const pct = total ? Math.round(100 * rec.wins / total) : 0;
+          const cls = a === b ? '' : pct >= 55 ? 'ok' : pct <= 45 ? 'bad' : '';
+          return `<td class="${cls}" style="cursor:pointer" title="판 로그 보기"
+            onclick='lgShowMatches("${l.run}", "${round}", ${JSON.stringify(`${a}|${b}`)})'><b>${pct}%</b></td>`;
+        }).join('') + '</tr>').join('') + '</table></div></div>';
+      const rounds = Object.keys(s.matrix || {}).sort((a, b) => +b.slice(1) - +a.slice(1));
+      const matrixHtml = rounds.length
+        ? `<div style="margin-top:8px"><b style="font-size:13.5px">상호 승률</b>
+           <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">${rounds.map(roundMatrix).join('')}</div></div>`
+        : '';
       const st = s.status === 'running' ? `<span class="pill run">라운드 ${s.round}/${s.config.rounds} ${s.phase === 'eval' ? '교차평가' : '진행'}</span>`
         : `<span class="pill ${s.status === 'done' ? 'ok' : 'warn'}">${s.status}</span>`;
       const seedInfo = s.config.seed != null ? ` <small style="color:var(--muted)">시드 ${s.config.seed}</small>` : '';
-      return `<div style="border-top:1px solid var(--line);padding-top:8px;margin-top:8px">
+      // 리그 = 별도 카드(프레임)
+      return `<div class="card">
         <b>${l.run}</b> ${st}${seedInfo}
-        <div class="scroll-x"><table><tr><th>조합</th><th>덱</th><th>상태</th><th></th></tr>${rows}</table></div>
+        <div class="scroll-x" style="margin-top:6px"><table><tr><th>조합</th><th>덱</th><th>상태</th><th></th></tr>${rows}</table></div>
         ${matrixHtml}</div>`;
     }));
     $('lg-status').innerHTML = blocks.join('');
