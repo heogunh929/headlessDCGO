@@ -24,6 +24,7 @@ REPO = RL_DIR.parent
 RUNS = REPO / "runs"
 CONFIG_PATH = RL_DIR / "opsd" / "runner-config.json"
 ALIASES_PATH = RL_DIR / "opsd" / "model-aliases.json"   # 정책 별칭 {상대경로: 별칭} — 정책 관리 탭
+HIDDEN_PATH = RL_DIR / "opsd" / "model-hidden.json"     # 논리삭제(보관) 목록 [상대경로] — 파일은 보존
 PYTHON = str(RL_DIR / ".venv" / "bin" / "python")   # uv 래퍼 우회 — SIGTERM이 python에 직행 [M1 실측]
 
 # 화이트리스트(요구 §8): 스크립트와 허용 인자·형만 통과. 임의 셸 불가.
@@ -198,10 +199,24 @@ def sha_is_stale(recorded: str, head: str) -> bool:
     return _stale_cache[key]
 
 
+def hidden_models() -> set:
+    if HIDDEN_PATH.exists():
+        try:
+            return set(json.loads(HIDDEN_PATH.read_text(encoding="utf-8")))
+        except json.JSONDecodeError:
+            return set()
+    return set()
+
+
+def save_hidden(hidden: set) -> None:
+    HIDDEN_PATH.write_text(json.dumps(sorted(hidden), ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def models_detail() -> dict:
     """정책 전수 열거 + 메타 조인(정책 관리 탭). 경로는 runs/ 상대. kind = single|league|checkpoint.
     메타는 그 정책이 태어난 런 폴더의 meta.json(리그 라운드 포함 — train.py가 라운드 폴더에 씀)."""
     aliases = model_aliases()
+    hidden = hidden_models()
     current_sha = engine_head()[:12]
     models = []
 
@@ -221,6 +236,7 @@ def models_detail() -> dict:
         rel = str(path.relative_to(RUNS))
         info = meta_of(meta_dir)
         models.append({"path": rel, "kind": kind, "alias": aliases.get(rel, ""),
+                       "hidden": rel in hidden,
                        "created": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(path.stat().st_mtime)),
                        "stale": sha_is_stale(info.get("engine_sha", ""), engine_head()),
                        **info})
@@ -521,7 +537,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/models/detail":
                 return self._send(200, models_detail())
             if path == "/models":
-                # 기존 정책 열거(이어 학습·평가 전용의 시작점) — runs/ 하위 policy.zip + 체크포인트
+                # 기존 정책 열거(이어 학습·평가 전용의 시작점) — 보관(논리삭제)분 제외
+                hidden = hidden_models()
                 models = []
                 for run_dir in sorted(RUNS.iterdir()):
                     if not run_dir.is_dir():
@@ -530,7 +547,7 @@ class Handler(BaseHTTPRequestHandler):
                         models.append(f"{run_dir.name}/policy.zip")
                     for ck in sorted((run_dir / "checkpoints").glob("step-*.zip")):
                         models.append(f"{run_dir.name}/checkpoints/{ck.name}")
-                return self._send(200, models)
+                return self._send(200, [m for m in models if m not in hidden])
             if path == "/jobs":
                 return self._send(200, {jid: job_status(j) for jid, j in _jobs.items()})
             if path == "/jobs/queue":
@@ -555,7 +572,18 @@ class Handler(BaseHTTPRequestHandler):
                 f = RUNS / m.group(1) / "league.json"
                 if not f.exists():
                     return self._send(404, {"error": "league.json 없음"})
-                return self._send(200, f.read_bytes())
+                state = json.loads(f.read_text(encoding="utf-8"))
+                # 판수 단위 진행(사용자 요구 2026-07-31): 학습 중 라운드 폴더의 결과 라인 수 동봉.
+                training = state.get("training")
+                if state.get("status") == "running" and training and training.get("out"):
+                    games = 0
+                    for rf in Path(training["out"]).glob("results-env*.jsonl"):
+                        try:
+                            games += sum(1 for _ in open(rf, encoding="utf-8"))
+                        except OSError:
+                            pass
+                    training["games"] = games
+                return self._send(200, state)
             if path == "/leagues":
                 out = []
                 for d in sorted(RUNS.glob("league-*")):
@@ -567,7 +595,9 @@ class Handler(BaseHTTPRequestHandler):
                         except json.JSONDecodeError:
                             pass
                 return self._send(200, out)
-            if m := re.fullmatch(r"/runs/([\w.-]+)/matches/([\w.-]+\.jsonl\.gz)", path):
+            if m := re.fullmatch(r"/runs/((?:[\w가-힣.-]+/)*[\w가-힣.-]+)/matches/([\w.-]+\.jsonl\.gz)", path):
+                # 중첩 런 경로 허용(리그: league-X/red/round-1, 평가: league-X/eval-matches/r1) —
+                # 탈출은 resolve+prefix 검증으로 차단.
                 f = (RUNS / m.group(1) / "matches" / m.group(2)).resolve()
                 if not str(f).startswith(str(RUNS.resolve())) or not f.exists():
                     return self._send(404, {"error": "no match log"})
@@ -634,6 +664,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"cleared": cleared})
         if path == "/league":
             # 리그 기동(와이어프레임 확정): config를 runs/league-<name>/에 쓰고 league.py 잡으로 기동.
+            # 시드 미지정 = 랜덤 발급 + config에 기록(재현은 기록된 시드 재입력으로 — 사용자 확정 2026-07-31).
+            import random as _random
+            if not data.get("seed"):
+                data["seed"] = _random.randrange(1, 2 ** 31)
             name = re.sub(r"[^\w가-힣-]", "_", str(data.get("name") or time.strftime("league-%m%d-%H%M")))
             for combo in data.get("combos") or []:
                 deck = (RL_DIR / "decks" / str(combo.get("deck", ""))).resolve()
@@ -670,18 +704,20 @@ class Handler(BaseHTTPRequestHandler):
                 aliases.pop(rel, None)
             ALIASES_PATH.write_text(json.dumps(aliases, ensure_ascii=False, indent=2), encoding="utf-8")
             return self._send(200, {"path": rel, "alias": alias})
-        if path == "/models/delete":
-            # 정책 파일(zip)만 삭제 — 런 기록(meta·판 로그)은 보존(이력 메타 영구 원칙, 요구 §8.5).
+        if path == "/models/hide":
+            # 논리삭제(보관, 사용자 확정 2026-07-31): 파일은 그대로, 목록·드롭다운에서만 제외.
+            # hidden=false로 복원. 물리 삭제는 제공하지 않는다 — 디스크 정리는 별도 수동 작업.
             rel = str(data.get("path", ""))
             target = (RUNS / rel).resolve()
-            if (not str(target).startswith(str(RUNS.resolve())) or target.suffix != ".zip"
-                    or not target.exists()):
-                return self._send(404, {"error": "없는 정책(zip 경로만 허용)"})
-            target.unlink()
-            aliases = model_aliases()
-            if aliases.pop(rel, None) is not None:
-                ALIASES_PATH.write_text(json.dumps(aliases, ensure_ascii=False, indent=2), encoding="utf-8")
-            return self._send(200, {"deleted": rel})
+            if not str(target).startswith(str(RUNS.resolve())) or not target.exists():
+                return self._send(404, {"error": "없는 정책"})
+            hidden = hidden_models()
+            if bool(data.get("hidden", True)):
+                hidden.add(rel)
+            else:
+                hidden.discard(rel)
+            save_hidden(hidden)
+            return self._send(200, {"path": rel, "hidden": rel in hidden})
         if path == "/recipes":
             # 레시피 저장 — 항목은 canonical/표시형 어느 쪽도 허용, 검증 결과를 함께 반환(위반이어도 저장).
             from dcgo_rl.cards import canonical_card_number

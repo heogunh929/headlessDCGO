@@ -41,8 +41,14 @@ class League:
         self.current: dict[str, str | None] = {}
         for combo in self.combos:
             self.current[combo["id"]] = combo.get("init") or None
+        try:
+            engine_sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"],
+                                        capture_output=True, text=True, cwd=RL_DIR).stdout.strip()
+        except OSError:
+            engine_sha = ""
         self.state = {
             "status": "running", "started": now(), "config": self.config,
+            "engine_sha": engine_sha,
             "round": 0, "phase": "", "training": None,
             "policies": dict(self.current), "matrix": {}, "log": [],
         }
@@ -71,10 +77,24 @@ class League:
 
     # ---------- 라운드 학습 ----------
 
+    def set_alias(self, path: Path, alias: str) -> None:
+        """정책 논리명 등록 — runner의 별칭 장부(model-aliases.json)에 직접 기입(같은 머신 전제)."""
+        if not alias:
+            return
+        book = RL_DIR / "opsd" / "model-aliases.json"
+        try:
+            aliases = json.loads(book.read_text(encoding="utf-8")) if book.exists() else {}
+        except json.JSONDecodeError:
+            aliases = {}
+        runs_root = RL_DIR.parent / "runs"
+        aliases[str(path.resolve().relative_to(runs_root))] = alias
+        book.write_text(json.dumps(aliases, ensure_ascii=False, indent=2), encoding="utf-8")
+
     def train_combo(self, round_no: int, index: int, combo) -> bool:
-        others = [c for c in self.combos if c["id"] != combo["id"]]
+        # 상대 순환 = 자기 동결본 포함 전 조합(사용자 확정 2026-07-31: a vs a도 한 종류) —
+        # 자기 동결본이 아직 없으면(1라운드 신규) ComboOpponents가 랜덤으로 대체한다.
         opponents = [{"id": c["id"], "recipe": self.deck_path(c), "model": self.current[c["id"]]}
-                     for c in others]
+                     for c in self.combos]
         opp_path = self.out / f"opponents-{combo['id']}-r{round_no}.json"
         opp_path.write_text(json.dumps(opponents, ensure_ascii=False), encoding="utf-8")
 
@@ -104,6 +124,8 @@ class League:
         policy = run_out / "policy.zip"
         if policy.exists():
             self.current[combo["id"]] = str(policy)
+            if combo.get("alias"):
+                self.set_alias(policy, f"{combo['alias']}-r{round_no}")
             self.log(f"라운드 {round_no} · {combo['id']} 완료 → {policy}")
             return True
         self.log(f"라운드 {round_no} · {combo['id']} 실패(정책 미생성)")
@@ -126,39 +148,48 @@ class League:
             actor = PolicyOpponent(MaskablePPO.load(model_path)) if model_path else None
             players[combo["id"]] = (recipe, actor)
 
-        pairs = [(a["id"], b["id"]) for i, a in enumerate(self.combos) for b in self.combos[i + 1:]]
+        # 순서쌍 전체 N×N(사용자 확정 2026-07-31): 행=선공(P1), 열=후공(P2) 고정 — 좌석 교대 없음.
+        # 대각선(미러)도 실측: 미러 선공 승률 = 순수 선공 이득의 측정치.
+        pairs = [(a["id"], b["id"]) for a in self.combos for b in self.combos]
         matches_per_pair = int(self.config.get("eval_pairs", 10))
         self.state.update(phase="eval", training=None)
-        self.log(f"라운드 {round_no} 교차 평가: {len(pairs)}쌍 × {matches_per_pair}판")
+        self.log(f"라운드 {round_no} 교차 평가: 매치업 {len(pairs)}종 × {matches_per_pair}판 (행=선공)")
 
         matrix: dict[str, dict] = {}
+        # .../matches/ 하위에 기록 — runner의 판 로그 서빙 규칙(run/matches/파일)과 정합.
+        eval_dir = self.out / "eval-matches" / f"r{round_no}" / "matches"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        # 평가 판은 상시 기록(사용자 확정: 배틀 로그 열람) — 조합 vs 조합 실전이 리그의 1급 관찰물.
         client = BridgeClient(verify_vocab=False,
-                              match_log_dir=str(self.out / "eval-matches"), record_mode="off")
-        rng = random.Random(self.config.get("seed", 42) * 31 + round_no)
+                              match_log_dir=str(eval_dir), record_mode="all",
+                              engine_sha=self.state.get("engine_sha", ""))
+        rng = random.Random(int(self.config.get("seed", 42)) * 31 + round_no)
         try:
             for a_id, b_id in pairs:
                 if self.stopped:
                     return
-                record = {"wins": 0, "losses": 0, "draws": 0}   # a 관점
+                record = {"wins": 0, "losses": 0, "draws": 0, "matches": []}   # a(선공) 관점
                 for game in range(matches_per_pair):
-                    a_seat = 1 if game % 2 == 0 else 2          # 좌석 교대(선공 편향 제거)
                     recipe_a, actor_a = players[a_id]
                     recipe_b, actor_b = players[b_id]
-                    decks = {str(a_seat): recipe_a.to_json(), str(3 - a_seat): recipe_b.to_json()}
+                    decks = {"1": recipe_a.to_json(), "2": recipe_b.to_json()}
                     msg = client.reset(rng.randrange(1, 2 ** 30), decks, 2000)
+                    match_id = msg.get("matchId", "")
                     while msg["type"] == "turn":
-                        actor = actor_a if msg["seat"] == a_seat else actor_b
+                        actor = actor_a if msg["seat"] == 1 else actor_b
                         action = actor.act(msg) if actor else random_action(msg, rng)
                         msg = client.act(msg["seat"], action)
                     winner = msg.get("winnerSeat")
+                    match_id = msg.get("matchId", match_id)
+                    record["matches"].append(match_id)
                     if winner is None:
                         record["draws"] += 1
-                    elif winner == a_seat:
+                    elif winner == 1:
                         record["wins"] += 1
                     else:
                         record["losses"] += 1
                 matrix[f"{a_id}|{b_id}"] = record
-                self.log(f"  {a_id} vs {b_id}: {record['wins']}승 {record['draws']}무 {record['losses']}패")
+                self.log(f"  선공 {a_id} vs {b_id}: {record['wins']}승 {record['draws']}무 {record['losses']}패")
         finally:
             client.close()
         self.state["matrix"][f"r{round_no}"] = matrix
@@ -169,22 +200,30 @@ class League:
     def run(self):
         self.save()
         rounds = int(self.config.get("rounds", 3))
+        final_round = 0
         for round_no in range(1, rounds + 1):
             self.state["round"] = round_no
             for i, combo in enumerate(self.combos):
                 if self.stopped:
                     break
                 if combo.get("train", True):
-                    self.train_combo(round_no, i, combo)
+                    if self.train_combo(round_no, i, combo):
+                        final_round = round_no
                 else:
                     self.log(f"라운드 {round_no} · {combo['id']} 동결(학습 안 함) — 상대로만 참전")
             if self.stopped:
                 break
             self.cross_eval(round_no)
-        self.state.update(status="interrupted" if self.stopped else "done",
+        done = not self.stopped
+        if done:
+            # 완주: 각 조합의 최종 정책에 무접미 논리명(중간 라운드는 -rN 유지)
+            for combo in self.combos:
+                if combo.get("alias") and self.current[combo["id"]]:
+                    self.set_alias(Path(self.current[combo["id"]]), combo["alias"])
+        self.state.update(status="done" if done else "interrupted",
                           ended=now(), phase="", training=None)
         self.save()
-        self.log("리그 중단" if self.stopped else "리그 완료")
+        self.log("리그 완료" if done else "리그 중단")
 
 
 def main():

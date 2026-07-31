@@ -42,3 +42,4 @@ __pycache__/
 .claude/worktrees/
 rl/opsd/arena.db*
 rl/opsd/model-aliases.json
+rl/opsd/model-hidden.json
