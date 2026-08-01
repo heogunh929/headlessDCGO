@@ -357,10 +357,13 @@ function permBox(p) {
   // 부여 지속 효과 뱃지(v2.1): AS-IS 부여 리스트 원문 (효과명 · 지속)
   const eff = (p.effects || []).map(e =>
     `<div class="permeff" title="${e.until}까지">⏳ ${e.text} <small>(${e.until})</small></div>`).join('');
-  const mark = HL.atk.has(p.top) ? ' hl-atk' : HL.tgt.has(p.top) ? ' hl-tgt' : HL.sel.has(p.top) ? ' hl-sel' : '';
-  const badge = HL.atk.has(p.top) ? '<span class="pbadge atk">⚔ 어택</span>'
-    : HL.tgt.has(p.top) ? '<span class="pbadge tgt">피격</span>'
-    : HL.sel.has(p.top) ? '<span class="pbadge sel">🎯 대상</span>' : '';
+  const isAtk = HL.atkU.has(p.uid) || HL.atk.has(p.top);
+  const isTgt = HL.tgtU.has(p.uid) || HL.tgt.has(p.top);
+  const isSel = HL.selU.has(p.uid) || HL.sel.has(p.top);
+  const mark = isAtk ? ' hl-atk' : isTgt ? ' hl-tgt' : isSel ? ' hl-sel' : '';
+  const badge = isAtk ? '<span class="pbadge atk">⚔ 어택</span>'
+    : isTgt ? '<span class="pbadge tgt">피격</span>'
+    : isSel ? '<span class="pbadge sel">🎯 대상</span>' : '';
   return `<div class="perm${p.suspended ? ' susp' : ''}${mark}">${badge}<b>${nm(p.top) ?? '?'}</b>${dots(p.top)}<br>${stat}${p.suspended ? ' 레스트' : ''}${st}${eff}${p.links.length ? '<div class="stack">링크 ' + p.links.map(nm).join(', ') + '</div>' : ''}</div>`;
 }
 function sheet(el, side, name, mySeat, activeSeat) {
@@ -390,14 +393,19 @@ function render() {
   const isStep = f.type === 'step';
   // 프레임 하이라이트 갱신(사용자 요구 ③④): 이번 프레임이 어택/배틀/대상지정 이벤트면
   // 관련 카드 ID를 뽑아 보드에서 강조. ID는 "이름(ID)" 표기에서 추출.
-  HL = {atk: new Set(), tgt: new Set(), sel: new Set()};
+  HL = {atk: new Set(), tgt: new Set(), sel: new Set(), atkU: new Set(), tgtU: new Set(), selU: new Set()};
   if (!isStep && f.text) {
+    // v2.2 로그: 퍼머넌트 uid가 있으면 정확히 그 개체만(동명 카드 중복 수리 2026-08-01),
+    // 구 로그는 카드 ID 매칭 폴백.
+    if (f.atkUid != null) HL.atkU.add(f.atkUid);
+    if (f.tgtUid != null) HL.tgtU.add(f.tgtUid);
+    if (f.selUids) f.selUids.forEach(u => HL.selU.add(u));
     const ids = line => [...line.matchAll(/\(([A-Z]+\d*-\d+[^)]*)\)/g)].map(m => m[1]);
     const atk = f.text.match(/\nAttack:\n([^\n]+)\n«\n([^\n]+)/);
-    if (atk) { ids(atk[1]).forEach(i => HL.atk.add(i)); ids(atk[2]).forEach(i => HL.tgt.add(i)); }
+    if (atk && !HL.atkU.size) { ids(atk[1]).forEach(i => HL.atk.add(i)); ids(atk[2]).forEach(i => HL.tgt.add(i)); }
     const btl = f.text.match(/\nBattle:\n([^\n]+)\n[^\n]*\n([^\n]+)/);
-    if (btl) { ids(btl[1]).forEach(i => HL.atk.add(i)); ids(btl[2]).forEach(i => HL.tgt.add(i)); }
-    if (/\nSelected Cards:/.test(f.text)) ids(f.text).forEach(i => HL.sel.add(i));
+    if (btl && !HL.atkU.size) { ids(btl[1]).forEach(i => HL.atk.add(i)); ids(btl[2]).forEach(i => HL.tgt.add(i)); }
+    if (/\nSelected Cards:/.test(f.text) && !HL.selU.size) ids(f.text).forEach(i => HL.sel.add(i));
   }
   const s = isStep ? f : steps.filter(x => x._f <= cur).at(-1);   // 게임 정보 박스용 최근 결정
   $('tinfo').textContent = `턴 ${st.turn} · ${st.phase} · 수번 P${st.activeSeat}`;

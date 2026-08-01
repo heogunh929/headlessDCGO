@@ -72,7 +72,54 @@ public sealed class MatchRecorder
 
         // 이벤트에도 발생 순간의 스냅샷 동봉(로그 v2) — "등장 따로, 드로우 따로" 화면 변화를
         // 뷰어가 이벤트 단위로 재생할 수 있게(사용자 요구 2026-07-30). gz가 반복 구조를 흡수한다.
-        Add(new { type = "event", afterStep = _steps - 1, cat, text, state = Snapshot() });
+        // v2.2(2026-08-01): 동명 카드 하이라이트 중복 수리 — 어택 주체/대상·선택 대상의 퍼머넌트
+        // uid를 동봉한다. 어택은 AS-IS 공개 표면(attackProcess), 선택은 발행 주체의 사적 리스트
+        // (_targetPermanents)를 리플렉션 직독(무수정 원문 — 카드 효과들도 attackProcess를 직접 읽는다).
+        // AS-IS는 어택 종료 후에도 AttackingPermanent를 비우지 않는다(실측 2026-08-01: 턴 종료·
+        // 드로우 이벤트까지 잔존) — 어택/배틀 이벤트에만 동봉해 창 밖 오표시를 막는다.
+        bool attackEvent = text.StartsWith("\nAttack:", StringComparison.Ordinal)
+            || text.StartsWith("\nBattle:", StringComparison.Ordinal);
+
+        Add(new
+        {
+            type = "event", afterStep = _steps - 1, cat, text,
+            atkUid = attackEvent ? Uid(GManager.instance?.attackProcess?.AttackingPermanent) : null,
+            tgtUid = attackEvent ? Uid(GManager.instance?.attackProcess?.DefendingPermanent) : null,
+            selUids = SelectedUids(text),
+            state = Snapshot(),
+        });
+    }
+
+    private static int? Uid(Permanent? p) =>
+        p is null ? null : System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(p);
+
+    /// <summary>"Selected Cards:" 이벤트의 선택 퍼머넌트 uid 목록 — SelectPermanentEffect의
+    /// _targetPermanents(발행 시점에 채워져 있는 선택 실체)를 리플렉션으로 직독.</summary>
+    private static List<int>? SelectedUids(string text)
+    {
+        if (!text.StartsWith("\nSelected Cards:", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        try
+        {
+            SelectPermanentEffect? selector = GManager.instance?.GetComponent<SelectPermanentEffect>();
+            System.Reflection.FieldInfo? field = typeof(SelectPermanentEffect).GetField(
+                "_targetPermanents",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+            if (selector is not null && field?.GetValue(selector) is List<Permanent> targets && targets.Count > 0)
+            {
+                return targets.Select(p => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(p)).ToList();
+            }
+        }
+        catch (Exception)
+        {
+            // 기록이 판을 죽이면 안 된다 — uid 없으면 뷰어가 ID 매칭 폴백
+        }
+
+        return null;
     }
 
     /// <summary>판 종료: 모드 판정 후 기록 또는 폐기. accident는 모드 무관 항상 기록.</summary>
@@ -146,6 +193,8 @@ public sealed class MatchRecorder
     {
         // AS-IS 의미론적 접근자 그대로 — StackCards는 top이 첫 요소라 순서 추측이 왜곡을 낳았다
         // (사용자 발견 2026-07-30). roots = DigivolutionCards(Permanent.cs:888) = 정확히 "진화원".
+        // uid = 퍼머넌트 객체 identity(판 내 안정) — 동명 카드 하이라이트 중복 수리(사용자 보고 2026-08-01)
+        uid = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(p),
         roots = p.DigivolutionCards.Select(c => c.CardID),
         top = p.TopCard?.CardID,
         level = p.Level,
