@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import secrets
 
 from . import db
@@ -106,9 +107,15 @@ def validate_deck(deck: dict, cards_meta: dict) -> list[str]:
     """오류 목록 반환(빈 목록 = 적법). 사유는 참가자 UI에 즉시 표시(요구 §6.6 ②)."""
     errors: list[str] = []
     pool = json.loads(db.setting("card_pool"))
-    pool_sets, pool_cards = set(pool.get("sets", [])), set(pool.get("cards", []))
+    # 풀 = 세트 단위 + 개별 허용(cards: P-/LM- 등 번호 단위) + 개별 제외(excluded — 세트 허용에서 예외)
+    # (사용자 확정 2026-08-01: 세트 단위만으로는 P-/LM 관리 불가)
+    pool_sets = set(pool.get("sets", []))
+    pool_cards = set(pool.get("cards", []))
+    pool_excluded = set(pool.get("excluded", []))
 
     def in_pool(card_id: str) -> bool:
+        if card_id in pool_excluded:
+            return False
         return card_id.split("-")[0] in pool_sets or card_id in pool_cards
 
     main = deck.get("main") or []
@@ -144,6 +151,22 @@ def validate_deck(deck: dict, cards_meta: dict) -> list[str]:
         max_count = cards_meta.get(card_id, {}).get("maxCount", 4)
         if total > max_count:
             errors.append(f"{card_id}: {total}장 > 최대 {max_count}장(MaxCountInDeck)")
+
+    # 금지/제한/금지페어 — AS-IS DeckBuildingRule.cs 의미론 이식(사용자 지시 2026-08-01):
+    # CanAddCard = AllDeckCards(메인+디지타마) 합산 매수가 restriction.limit 초과 불가(limit 0=금지),
+    # BannedPair = id와 pairs 중 어느 카드도 한 덱에 공존 불가(양방향 검사).
+    ban = json.loads(db.setting("ban_list"))
+    limits = {str(r.get("id", "")): int(r.get("limit", 0)) for r in ban.get("restrictions", [])}
+    for card_id, total in counts.items():
+        if card_id in limits and total > limits[card_id]:
+            limit = limits[card_id]
+            errors.append(f"{card_id}: 금지 카드" if limit == 0
+                          else f"{card_id}: 제한 카드 — 최대 {limit}장(현재 {total})")
+    for pair in ban.get("banned_pairs", []):
+        anchor = str(pair.get("id", ""))
+        partners = [p for p in pair.get("pairs", []) if p in counts]
+        if anchor in counts and partners:
+            errors.append(f"금지 페어: {anchor} ↔ {', '.join(partners)} 공존 불가")
 
     return errors
 
@@ -222,9 +245,11 @@ def reaudit_pool(cards_meta: dict) -> dict:
     changed = {"disabled": 0, "restored": 0}
     for row in c.execute("SELECT * FROM decks").fetchall():
         errors = validate_deck(json.loads(row["cards_json"]), cards_meta)
-        if errors and row["enabled"]:
-            c.execute("UPDATE decks SET enabled=0, disabled_reason=? WHERE id=?", ("; ".join(errors)[:300], row["id"]))
-            changed["disabled"] += 1
+        if errors:
+            reason = "; ".join(errors)[:300]
+            if row["enabled"] or row["disabled_reason"] != reason:   # 이미 비활성이어도 사유는 최신으로
+                c.execute("UPDATE decks SET enabled=0, disabled_reason=? WHERE id=?", (reason, row["id"]))
+                changed["disabled"] += int(bool(row["enabled"]))
         elif not errors and not row["enabled"]:
             c.execute("UPDATE decks SET enabled=1, disabled_reason='' WHERE id=?", (row["id"],))
             changed["restored"] += 1
@@ -234,7 +259,84 @@ def reaudit_pool(cards_meta: dict) -> dict:
 
 # ---------- Elo·이력 ----------
 
-K_FACTOR = 32
+# ── Glicko-2 (Glickman 2013, 사용자 확정 2026-08-01: Elo → Glicko 전환) ─────────────────────
+# 평가 기간 = 1판 근사(아레나는 연전 스트림이라 기간 묶음이 없다). 미접속 RD 증가는 미적용 —
+# 판이 없으면 레이팅이 그대로인 보수적 단순화(공개 운영에서 필요해지면 기간 스케줄러로 확장).
+GLICKO_SCALE = 173.7178
+GLICKO_BASE = 1500.0
+GLICKO_TAU = 0.5
+
+
+def glicko2_update(rating: float, rd: float, vol: float,
+                   opp_rating: float, opp_rd: float, score: float) -> tuple[float, float, float]:
+    """한 판 결과(score 1/0.5/0)로 (rating, rd, vol) 갱신 — Glickman 논문 절차 그대로."""
+    mu = (rating - GLICKO_BASE) / GLICKO_SCALE
+    phi = rd / GLICKO_SCALE
+    mu_j = (opp_rating - GLICKO_BASE) / GLICKO_SCALE
+    phi_j = opp_rd / GLICKO_SCALE
+
+    g = 1.0 / math.sqrt(1.0 + 3.0 * phi_j ** 2 / math.pi ** 2)
+    expected = 1.0 / (1.0 + math.exp(-g * (mu - mu_j)))
+    v = 1.0 / (g ** 2 * expected * (1.0 - expected))
+    delta = v * g * (score - expected)
+
+    # 변동성 반복(Illinois) — 수렴 실패 방지 상한 100회(실제 ~10회 내 수렴)
+    a = math.log(vol ** 2)
+
+    def f(x: float) -> float:
+        ex = math.exp(x)
+        return (ex * (delta ** 2 - phi ** 2 - v - ex)) / (2.0 * (phi ** 2 + v + ex) ** 2) \
+            - (x - a) / GLICKO_TAU ** 2
+
+    big_a = a
+    if delta ** 2 > phi ** 2 + v:
+        big_b = math.log(delta ** 2 - phi ** 2 - v)
+    else:
+        k = 1
+        while f(a - k * GLICKO_TAU) < 0:
+            k += 1
+        big_b = a - k * GLICKO_TAU
+
+    fa, fb = f(big_a), f(big_b)
+
+    for _ in range(100):
+        if abs(big_b - big_a) <= 1e-6:
+            break
+        big_c = big_a + (big_a - big_b) * fa / (fb - fa)
+        fc = f(big_c)
+        if fc * fb <= 0:
+            big_a, fa = big_b, fb
+        else:
+            fa /= 2.0
+        big_b, fb = big_c, fc
+
+    new_vol = math.exp(big_a / 2.0)
+    phi_star = math.sqrt(phi ** 2 + new_vol ** 2)
+    new_phi = 1.0 / math.sqrt(1.0 / phi_star ** 2 + 1.0 / v)
+    new_mu = mu + new_phi ** 2 * g * (score - expected)
+
+    return GLICKO_BASE + GLICKO_SCALE * new_mu, GLICKO_SCALE * new_phi, new_vol
+
+
+def delete_participant(participant_id: int, force: bool = False) -> dict:
+    """참가자 완전 삭제(관리자, 사용자 지시 2026-08-01) — 대전 기록이 있으면 기본 거부(이력 조인 보전,
+    상대방의 이력·판 로그 링크가 깨진다). force=True면 그 참가자가 낀 대전 기록까지 함께 삭제
+    (테스트 데이터 정리·시즌 초기화용 — 상대방 이력에서도 해당 판이 사라짐을 UI가 고지)."""
+    c = db.conn()
+    row = c.execute("SELECT handle FROM participants WHERE id=?", (participant_id,)).fetchone()
+    if row is None:
+        return {"error": "없는 참가자"}
+    n_matches = c.execute("SELECT COUNT(*) AS n FROM matches WHERE p1=? OR p2=?",
+                          (participant_id, participant_id)).fetchone()["n"]
+    if n_matches and not force:
+        return {"error": f"대전 기록 {n_matches}판 존재 — 기록 보전 삭제 불가. 기록까지 지우려면 강제 삭제"}
+    if n_matches:
+        c.execute("DELETE FROM matches WHERE p1=? OR p2=?", (participant_id, participant_id))
+    c.execute("DELETE FROM ratings WHERE participant=?", (participant_id,))
+    c.execute("DELETE FROM decks WHERE owner=?", (participant_id,))
+    c.execute("DELETE FROM participants WHERE id=?", (participant_id,))
+    c.commit()
+    return {"ok": True, "deleted": row["handle"], "matchesDeleted": n_matches}
 
 
 def rating_row(participant: int, season: str):
@@ -247,28 +349,33 @@ def rating_row(participant: int, season: str):
 def record_match(match_id: str, p1: int, p2: int, deck1: dict, deck2: dict,
                  winner: int | None, reason: str, log_run: str, log_path: str) -> dict:
     season = db.active_season()
-    r1, r2 = rating_row(p1, season)["elo"], rating_row(p2, season)["elo"]
-    expected1 = 1 / (1 + 10 ** ((r2 - r1) / 400))
+    row1, row2 = rating_row(p1, season), rating_row(p2, season)
     score1 = 0.5 if winner is None else (1.0 if winner == 1 else 0.0)
-    delta1 = round(K_FACTOR * (score1 - expected1), 1)
+    new1 = glicko2_update(row1["rating"], row1["rd"], row1["vol"], row2["rating"], row2["rd"], score1)
+    new2 = glicko2_update(row2["rating"], row2["rd"], row2["vol"], row1["rating"], row1["rd"], 1.0 - score1)
+    delta1 = round(new1[0] - row1["rating"], 1)
+    delta2 = round(new2[0] - row2["rating"], 1)
     c = db.conn()
-    c.execute("UPDATE ratings SET elo=elo+?, games=games+1 WHERE participant=? AND season=?", (delta1, p1, season))
-    c.execute("UPDATE ratings SET elo=elo-?, games=games+1 WHERE participant=? AND season=?", (delta1, p2, season))
+    for pid, new in ((p1, new1), (p2, new2)):
+        c.execute("UPDATE ratings SET rating=?, rd=?, vol=?, games=games+1 WHERE participant=? AND season=?",
+                  (new[0], new[1], new[2], pid, season))
     c.execute("INSERT OR REPLACE INTO matches(id, season, p1, p2, deck1_json, deck2_json, winner, reason,"
               " rating_delta_json, log_run, log_path, ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
               (match_id, season, p1, p2, json.dumps(deck1, ensure_ascii=False), json.dumps(deck2, ensure_ascii=False),
-               winner, reason, json.dumps({"1": delta1, "2": -delta1}), log_run, log_path, db.now()))
+               winner, reason, json.dumps({"1": delta1, "2": delta2}), log_run, log_path, db.now()))
     c.commit()
-    return {"1": delta1, "2": -delta1}
+    return {"1": delta1, "2": delta2}
 
 
 def rankings() -> list[dict]:
-    """공개 순위표(무인증) — 로그 링크 없음(요구 §7: 공개 순위표는 로그 비공개)."""
+    """공개 순위표(무인증) — 로그 링크 없음(요구 §7: 공개 순위표는 로그 비공개).
+    차단(banned) 참가자는 제외(사용자 지시 2026-08-01) — 복구되면 다시 나타난다."""
     season = db.active_season()
     rows = db.conn().execute(
-        "SELECT p.handle, p.kind, r.elo, r.games FROM ratings r JOIN participants p ON p.id=r.participant"
-        " WHERE r.season=? ORDER BY r.elo DESC", (season,)).fetchall()
-    return [{"rank": i + 1, "handle": r["handle"], "kind": r["kind"], "elo": round(r["elo"], 1), "games": r["games"]}
+        "SELECT p.handle, p.kind, r.rating, r.rd, r.games FROM ratings r JOIN participants p ON p.id=r.participant"
+        " WHERE r.season=? AND p.status='active' ORDER BY r.rating DESC", (season,)).fetchall()
+    return [{"rank": i + 1, "handle": r["handle"], "kind": r["kind"],
+             "rating": round(r["rating"]), "rd": round(r["rd"]), "games": r["games"]}
             for i, r in enumerate(rows)]
 
 

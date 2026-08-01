@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS matches(
 );
 CREATE TABLE IF NOT EXISTS ratings(
   participant INTEGER NOT NULL, season TEXT NOT NULL,
-  elo REAL NOT NULL DEFAULT 1000, games INTEGER NOT NULL DEFAULT 0,
+  -- Glicko-2(사용자 확정 2026-08-01, 이연 해제): 표준 시작값 1500 / RD 350 / 변동성 0.06
+  rating REAL NOT NULL DEFAULT 1500, rd REAL NOT NULL DEFAULT 350, vol REAL NOT NULL DEFAULT 0.06,
+  games INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(participant, season)
 );
 CREATE TABLE IF NOT EXISTS seasons(id TEXT PRIMARY KEY, name TEXT NOT NULL, state TEXT NOT NULL);
@@ -56,9 +58,10 @@ CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
 DEFAULT_SETTINGS = {
-    "elo_base": "1000",
     "auto_approve": "0",
     "card_pool": json.dumps({"sets": ["ST1", "ST2", "ST3"], "cards": []}),   # 초기=검증된 풀(요구 §6.7)
+    # 금지/제한/금지페어 — AS-IS DeckBuildingRule.cs 의미론(limit 0=금지, 1=제한 1장, 페어=양방향 공존 금지)
+    "ban_list": json.dumps({"restrictions": [], "banned_pairs": []}),
     "move_timeout_sec": "60",
     "disconnect_grace_sec": "30",
     "deck_limit_per_key": "10",
@@ -93,9 +96,16 @@ def conn() -> sqlite3.Connection:
         if "verified" not in cols:
             c.execute("ALTER TABLE participants ADD COLUMN verified INTEGER NOT NULL DEFAULT 0")
             c.execute("UPDATE participants SET verified=1 WHERE kind='policy'")
-        # 마이그레이션: Elo 기준 1000(사용자 확정 2026-07-30) — 구 DB(기준 1200)는 일괄 -200 이동.
-        if c.execute("SELECT 1 FROM settings WHERE key='elo_base'").fetchone() is None:
-            c.execute("UPDATE ratings SET elo = elo - 200")
+        # 마이그레이션: Elo → Glicko-2(사용자 확정 2026-08-01). 구(elo) 테이블은 재생성 —
+        # 기존 행은 기준 평행이동(1000→1500, +500)에 RD 350(불확실성 재시작)으로 이관.
+        rcols = [r["name"] for r in c.execute("PRAGMA table_info(ratings)")]
+        if "rd" not in rcols:
+            old_rows = c.execute("SELECT participant, season, elo, games FROM ratings").fetchall()
+            c.execute("DROP TABLE ratings")
+            c.executescript(SCHEMA)   # ratings만 새 스키마로 재생성(나머지는 IF NOT EXISTS no-op)
+            for r in old_rows:
+                c.execute("INSERT INTO ratings(participant, season, rating, games) VALUES(?,?,?,?)",
+                          (r["participant"], r["season"], r["elo"] + 500, r["games"]))
         for key, value in DEFAULT_SETTINGS.items():
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)", (key, value))
         c.execute("INSERT OR IGNORE INTO seasons(id, name, state) VALUES('S1', 'Season 1', 'active')")

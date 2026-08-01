@@ -1,0 +1,71 @@
+{
+  "name": "Cres-Mgargo",
+  "source": "operator",
+  "main": [
+    {
+      "card": "BT1_064",
+      "count": 4
+    },
+    {
+      "card": "BT1_073",
+      "count": 4
+    },
+    {
+      "card": "BT2_042",
+      "count": 4
+    },
+    {
+      "card": "BT2_045",
+      "count": 1
+    },
+    {
+      "card": "BT2_047",
+      "count": 4
+    },
+    {
+      "card": "BT2_048",
+      "count": 2
+    },
+    {
+      "card": "BT3_046",
+      "count": 3
+    },
+    {
+      "card": "BT3_048",
+      "count": 4
+    },
+    {
+      "card": "BT3_054",
+      "count": 4
+    },
+    {
+      "card": "BT3_056",
+      "count": 3
+    },
+    {
+      "card": "BT3_057",
+      "count": 4
+    },
+    {
+      "card": "BT3_103",
+      "count": 3
+    },
+    {
+      "card": "ST4_03",
+      "count": 1
+    },
+    {
+      "card": "ST4_04",
+      "count": 4
+    },
+    {
+      "card": "ST4_08",
+      "count": 4
+    },
+    {
+      "card": "ST4_13",
+      "count": 1
+    }
+  ],
+  "digitama": []
+}

@@ -122,6 +122,7 @@ label.check input[type=checkbox] { width:auto; margin:0 }
       라운드 <input id="lg-rounds" type="number" value="3" style="width:52px"> ×
       조합별 <input id="lg-games" type="number" value="300" style="width:64px"> 판 ·
       시드 <input id="lg-seed" type="number" placeholder="랜덤" style="width:64px"> ·
+      워커 <input id="lg-envs" type="number" value="6" style="width:48px"> ·
       교차평가 <input id="lg-pairs" type="number" value="10" style="width:52px"> 판/쌍
       <button class="act primary" onclick="lgStart()">리그 기동</button> <span id="lg-msg"></span>
     </div>
@@ -199,7 +200,15 @@ label.check input[type=checkbox] { width:auto; margin:0 }
     <label>착수 제한 <input id="ar-timeout" type="number" style="width:60px">초</label>
     <label>끊김 유예 <input id="ar-grace" type="number" style="width:60px">초</label>
     <label>키당 덱 상한 <input id="ar-decklimit" type="number" style="width:50px"></label><br>
-    <label>카드 풀(세트, 쉼표 구분) <input id="ar-pool" style="width:260px"></label>
+    <div style="margin-top:6px"><b style="font-size:13px">카드 풀</b> <small>(쉼표/공백/줄바꿈 구분)</small></div>
+    <label>세트 단위 허용 <input id="ar-pool" style="width:260px" placeholder="ST1, ST2, ST3"></label><br>
+    <label>개별 카드 허용 <input id="ar-pool-cards" style="width:340px" placeholder="P-157, LM-025 (세트 밖 번호 단위 허용)"></label><br>
+    <label>개별 카드 제외 <input id="ar-pool-ex" style="width:340px" placeholder="ST1-16 (허용 세트 안에서 예외 금지)"></label><br>
+    <div style="margin-top:6px"><b style="font-size:13px">금지/제한 (AS-IS DeckBuildingRule)</b> <small>줄당 하나</small></div>
+    <label style="vertical-align:top">금지·제한 카드 <textarea id="ar-ban-restrict" rows="3" style="width:340px;font-family:var(--mono,monospace);font-size:12.5px"
+      placeholder="BT5-109 0   ← 매수 0 = 금지&#10;P-008 1     ← 매수 1 = 제한(1장)"></textarea></label><br>
+    <label style="vertical-align:top">금지 페어 <textarea id="ar-ban-pairs" rows="2" style="width:340px;font-family:var(--mono,monospace);font-size:12.5px"
+      placeholder="BT20-037 = BT17-035, EX8-037   ← 좌우 카드 공존 불가"></textarea></label><br>
     <button class="act" onclick="arenaSaveSettings()">저장</button> <span id="ar-set-msg"></span>
   </div>
   <div class="card"><b>RL 정책 참가자 등록</b> <small>(스냅샷 참가자 게이트 — 요구 §6.6.5)</small><br>
@@ -652,10 +661,10 @@ document.querySelectorAll('.sidenav button[data-tab]').forEach(b => b.onclick = 
 async function rkLoad() {
   const r = await (await fetch('/api/arena/rankings')).json();
   $('rk-season').textContent = `시즌 ${r.season}`;
-  $('rk-board').innerHTML = '<tr><th>순위</th><th>핸들</th><th>Elo</th><th>판수</th></tr>' +
+  $('rk-board').innerHTML = '<tr><th>순위</th><th>핸들</th><th>레이팅 ±RD</th><th>판수</th></tr>' +
     (r.rows.length ? r.rows.map(x =>
       `<tr><td><b>${x.rank}</b></td><td>${x.handle}${x.kind === 'policy' ? ' <span class="pill">하우스 봇</span>' : ''}</td>` +
-      `<td>${x.elo}</td><td>${x.games}</td></tr>`).join('')
+      `<td>${x.rating} <small style="color:var(--muted)">±${x.rd}</small></td><td>${x.games}</td></tr>`).join('')
       : '<tr><td colspan="4" style="color:var(--muted)">아직 대전 기록이 없습니다</td></tr>');
 }
 async function rkSignup() {
@@ -675,7 +684,7 @@ async function rkClaim() {
 
 // ---------- 참가자 페이지 탭 (네이티브 — 키 인증 표면) ----------
 let apKey = localStorage.getItem('arenaKey') || '';
-let apCards = {}, apPool = {sets: [], cards: []};
+let apCards = {}, apPool = {sets: [], cards: []}, apBan = {restrictions: [], banned_pairs: []};
 const apBuild = {main: {}, digitama: {}};
 const apApi = (p, opt = {}) => fetch(p, {...opt, headers: {'X-Arena-Key': apKey, 'Content-Type': 'application/json'}}).then(r => r.json());
 function apAuto() { if (apKey && $('ap-portal').style.display === 'none') apLogin(true); }
@@ -686,27 +695,48 @@ async function apLogin(silent) {
   if (me.error) { if (!silent) $('ap-loginmsg').textContent = '키가 유효하지 않습니다'; return; }
   localStorage.setItem('arenaKey', apKey);
   $('ap-login').style.display = 'none'; $('ap-portal').style.display = '';
-  $('ap-who').textContent = `${me.handle} · Elo ${me.elo} · ${me.games}판`;
+  $('ap-who').textContent = `${me.handle} · 레이팅 ${me.rating}±${me.rd} · ${me.games}판`;
   $('ap-qs').textContent = `curl -O ${location.origin}/static/dcgo_arena.py && pip install aiohttp
 
 import dcgo_arena as da
 da.play(server="${location.origin}", key="${apKey}", daemon=True)
 # 덱은 웹(이 포털/참가자 페이지)에서 등록·활성 지정 — SDK는 덱에 관여하지 않음`;
   const data = await apApi('/api/arena/cards');
-  apCards = data.cards || {}; apPool = data.pool || apPool;
+  apCards = data.cards || {}; apPool = data.pool || apPool; apBan = data.ban || apBan;
   apRenderPool(); apRenderBuild(); apLoadDecks(); apLoadHistory();
 }
-const apInPool = id => apPool.sets.includes(id.split('-')[0]) || apPool.cards.includes(id);
+const apInPool = id => !(apPool.excluded || []).includes(id)
+  && (apPool.sets.includes(id.split('-')[0]) || apPool.cards.includes(id));
+// AS-IS DeckBuildingRule 의미론(참가자 페이지와 동일): 금지/제한이 최대 매수를 대체, 금지 페어는 양방향
+const apBanLimit = id => { const r = (apBan.restrictions || []).find(r => r.id === id); return r ? r.limit : null; };
+const apMaxCount = id => { const lim = apBanLimit(id); return lim !== null ? lim : ((apCards[id] || {}).maxCount ?? 4); };
+function apPairConflict(id) {
+  const inDeck = cid => (apBuild.main[cid] || 0) + (apBuild.digitama[cid] || 0) > 0;
+  for (const p of (apBan.banned_pairs || [])) {
+    if (p.id === id && p.pairs.some(inDeck)) return p.pairs.find(inDeck);
+    if (p.pairs.includes(id) && inDeck(p.id)) return p.id;
+  }
+  return null;
+}
 function apRenderPool() {
   const q = ($('ap-poolq').value || '').toLowerCase();
   $('ap-pool').innerHTML = Object.entries(apCards).filter(([id]) => apInPool(id))
     .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q))
     .slice(0, 400)
-    .map(([id, c]) => `<div style="cursor:pointer;padding:2px 5px" onclick="apAdd('${id}')" oncontextmenu="event.preventDefault();apSub('${id}')">` +
-      `${id} <b>${c.name}</b> <small>${c.type} · 최대 ${c.maxCount ?? 4}</small></div>`).join('') || '풀이 비어 있음';
+    .map(([id, c]) => {
+      const lim = apBanLimit(id);
+      const mark = lim === 0 ? ' <b style="color:#c33">금지</b>' : lim !== null ? ` <b style="color:#b60">제한 ${lim}</b>` : '';
+      return `<div style="cursor:pointer;padding:2px 5px" onclick="apAdd('${id}')" oncontextmenu="event.preventDefault();apSub('${id}')">` +
+        `${id} <b>${c.name}</b> <small>${c.type} · 최대 ${apMaxCount(id)}</small>${mark}</div>`;
+    }).join('') || '풀이 비어 있음';
 }
 const apSection = id => (apCards[id] || {}).type === 'DigiEgg' ? 'digitama' : 'main';
-function apAdd(id) { const s = apBuild[apSection(id)]; s[id] = (s[id] || 0) + 1; apRenderBuild(); }
+function apAdd(id) {
+  if ((apBuild.main[id] || 0) + (apBuild.digitama[id] || 0) >= apMaxCount(id)) return;
+  const conflict = apPairConflict(id);
+  if (conflict) { alert(`금지 페어: ${id} ↔ ${conflict} 공존 불가`); return; }
+  const s = apBuild[apSection(id)]; s[id] = (s[id] || 0) + 1; apRenderBuild();
+}
 function apSub(id) { const s = apBuild[apSection(id)]; if (s[id]) { s[id]--; if (!s[id]) delete s[id]; } apRenderBuild(); }
 function apRenderBuild() {
   const line = (s, mark) => Object.entries(apBuild[s]).map(([id, n]) =>
@@ -863,19 +893,24 @@ function showRunLog(name) {
 async function pollRuns() {
   const runs = await api('/api/runner/runs');
   LAST_RUNS = runs;
+  // 최신 런이 위로(사용자 요구 2026-08-01) — meta.started 내림차순, started 없는 폴더는 뒤로
+  runs.sort((a, b) => ((b.meta || {}).started || '').localeCompare((a.meta || {}).started || ''));
+  const dt = s => s ? s.slice(5, 16).replace('T', ' ') : '';   // "08-01 12:06"
   const rows = runs.filter(r => r.meta && r.meta.status).map(r => {
     const m = r.meta, c = m.census || {}, reasons = c.reasons || {};
     const total = Object.values(reasons).reduce((a, b) => a + b, 0) || 1;
     const winrate = m.eval_winrate_vs_random != null ? (m.eval_winrate_vs_random * 100).toFixed(1) + '%' : '-';
     const ci = m.eval_ci95 ? `[${(m.eval_ci95[0]*100).toFixed(0)}, ${(m.eval_ci95[1]*100).toFixed(0)}]` : '';
     const pill = m.status === 'done' ? 'ok' : m.status === 'interrupted' ? 'warn' : m.status === 'running' ? 'run' : '';
-    return `<tr><td>${r.name}</td><td><span class="pill ${pill}">${m.status}</span></td><td>${m.steps_done ?? ((m.config||{}).games ? (m.config||{}).games + '판설정' : '')}</td>
+    return `<tr><td>${r.name}</td><td><span class="pill ${pill}">${m.status}</span></td>
+      <td title="${m.started || ''}">${dt(m.started)}</td><td title="${m.ended || ''}">${dt(m.ended)}</td>
+      <td>${m.steps_done ?? ((m.config||{}).games ? (m.config||{}).games + '판설정' : '')}</td>
       <td>${winrate} ${ci}</td><td>${Object.entries(reasons).map(([k,v])=>`${k}:${v}`).join(' ')}</td>
       <td class="${c.swallowed ? 'bad' : ''}">${c.swallowed ?? 0}</td><td>${m.train_steps_per_sec ?? ''}</td>
       <td><code>${m.engine_sha || ''}</code></td><td>${m.seed ?? (m.config||{}).seed ?? ''}</td>
       <td>${r.matches.length ? `<button class="act" style="padding:3px 10px;font-size:12px" onclick="showRunLog('${r.name}')">${r.matches.length}판</button>` : '0'}</td></tr>`;
   });
-  $('runs').innerHTML = `<div class="scroll-x"><table><tr><th>런</th><th>상태</th><th>스텝</th><th>eval 승률 CI</th>
+  $('runs').innerHTML = `<div class="scroll-x"><table><tr><th>런</th><th>상태</th><th>시작</th><th>종료</th><th>스텝</th><th>eval 승률 CI</th>
     <th>판 사유</th><th>swallowed</th><th>steps/s</th><th>엔진 sha</th><th>시드</th><th>판로그</th></tr>${rows.join('')}</table></div>`;
   // 결함 탭: 결함 있는 런만, 발생 지점별 분해 + 사고판 바로가기 (요구 ④ 가독화 2026-07-30).
   const bad = runs.filter(r => (r.meta.census || {}).swallowed > 0 ||
@@ -922,17 +957,24 @@ async function pollAlerts() {
 async function arenaLoad() {
   const o = await api('/api/arena/admin/overview');
   const spill = s => s === 'active' ? 'ok' : s === 'pending' ? 'warn' : 'bad';
-  $('ar-participants').innerHTML = '<div class="scroll-x"><table><tr><th>ID</th><th>핸들</th><th>종류</th><th>상태</th><th>가입</th><th>결속 정책</th><th></th></tr>'
-    + o.participants.map(p => `<tr><td>${p.id}</td><td><b>${p.handle}</b></td><td>${p.kind}</td><td><span class="pill ${spill(p.status)}">${p.status}</span></td><td>${p.created}</td><td style="font-size:11.5px">${p.policy_path ? `<code>${p.policy_path}</code>` : ''}</td><td>`
+  $('ar-participants').innerHTML = '<div class="scroll-x"><table><tr><th>ID</th><th>핸들</th><th>종류</th><th>상태</th><th>레이팅</th><th>판수</th><th>대전수</th><th>가입</th><th>결속 정책</th><th></th></tr>'
+    + o.participants.map(p => `<tr><td>${p.id}</td><td><b>${p.handle}</b></td><td>${p.kind}</td><td><span class="pill ${spill(p.status)}">${p.status}</span></td><td>${p.games ? `${p.rating} <small style="color:var(--muted)">±${p.rd}</small>` : ''}</td><td>${p.games}</td><td>${p.matches}</td><td>${p.created}</td><td style="font-size:11.5px">${p.policy_path ? `<code>${p.policy_path}</code>` : ''}</td><td>`
       + (p.status === 'pending' ? `<button class="act primary" onclick="arenaApprove(${p.id})">승인</button>` : '')
       + (p.status === 'active' ? `<button class="act" onclick="arenaStatus(${p.id},'banned')">차단</button>` : '')
       + (p.status === 'banned' ? `<button class="act" onclick="arenaStatus(${p.id},'active')">복구</button>` : '')
+      + ` <button class="act" onclick="arenaDelete(${p.id}, '${p.handle}', ${p.matches})">삭제</button>`
       + '</td></tr>').join('') + '</table></div>';
   $('ar-auto').checked = o.settings.auto_approve === '1';
   $('ar-timeout').value = o.settings.move_timeout_sec;
   $('ar-grace').value = o.settings.disconnect_grace_sec;
   $('ar-decklimit').value = o.settings.deck_limit_per_key;
-  $('ar-pool').value = (JSON.parse(o.settings.card_pool).sets || []).join(',');
+  const poolCfg = JSON.parse(o.settings.card_pool);
+  $('ar-pool').value = (poolCfg.sets || []).join(', ');
+  $('ar-pool-cards').value = (poolCfg.cards || []).join(', ');
+  $('ar-pool-ex').value = (poolCfg.excluded || []).join(', ');
+  const banCfg = JSON.parse(o.settings.ban_list || '{}');
+  $('ar-ban-restrict').value = (banCfg.restrictions || []).map(r => `${r.id} ${r.limit}`).join('\n');
+  $('ar-ban-pairs').value = (banCfg.banned_pairs || []).map(p => `${p.id} = ${p.pairs.join(', ')}`).join('\n');
   $('ar-stats').textContent = `시즌 ${o.season} · 누적 대전 ${o.matches}판`;
 }
 const arenaAdmin = (action, body) => api('/api/arena/admin/' + action, {method: 'POST', body: JSON.stringify(body)});
@@ -942,15 +984,38 @@ async function arenaApprove(id) {
   arenaLoad();
 }
 async function arenaStatus(id, status) { await arenaAdmin('status', {id, status}); arenaLoad(); }
+async function arenaDelete(id, handle, matches) {
+  // 완전 삭제 — 대전 기록 있으면 2차 확인 후 강제(기록까지 삭제, 상대 이력에서도 사라짐)
+  if (!confirm(`참가자 "${handle}"를 완전 삭제합니까? (키·덱·레이팅 제거, 되돌릴 수 없음)`)) return;
+  const force = matches > 0
+    && confirm(`"${handle}"는 대전 기록 ${matches}판이 있습니다. 기록까지 삭제합니까?\n(상대방의 이력에서도 해당 판이 사라집니다)`);
+  if (matches > 0 && !force) return;
+  const r = await arenaAdmin('delete', {id, force});
+  $('ar-key-once').textContent = r.error || `삭제됨: ${r.deleted}` + (r.matchesDeleted ? ` (대전 기록 ${r.matchesDeleted}판 포함)` : '');
+  arenaLoad();
+}
 async function arenaSaveSettings() {
   await arenaAdmin('setting', {key: 'auto_approve', value: $('ar-auto').checked ? '1' : '0'});
   await arenaAdmin('setting', {key: 'move_timeout_sec', value: $('ar-timeout').value});
   await arenaAdmin('setting', {key: 'disconnect_grace_sec', value: $('ar-grace').value});
   await arenaAdmin('setting', {key: 'deck_limit_per_key', value: $('ar-decklimit').value});
+  const tokens = id => $(id).value.split(/[\s,]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
   const r = await arenaAdmin('setting', {key: 'card_pool',
-    value: JSON.stringify({sets: $('ar-pool').value.split(',').map(s => s.trim()).filter(Boolean), cards: []})});
-  $('ar-set-msg').textContent = '저장됨' + (r.disabled ? ` (풀 변경으로 덱 ${r.disabled}개 비활성)` : '')
-    + (r.restored ? ` (덱 ${r.restored}개 복원)` : '');
+    value: JSON.stringify({sets: tokens('ar-pool'), cards: tokens('ar-pool-cards'), excluded: tokens('ar-pool-ex')})});
+  // 금지/제한: 줄당 "카드ID 매수"(0=금지). 금지 페어: 줄당 "카드ID = 상대ID, 상대ID"
+  const restrictions = $('ar-ban-restrict').value.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const m = l.toUpperCase().split(/[\s,]+/).filter(Boolean);
+    return {id: m[0], limit: Math.max(0, parseInt(m[1]) || 0)};
+  });
+  const pairs = $('ar-ban-pairs').value.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const [lhs, rhs] = l.toUpperCase().split('=');
+    return {id: (lhs || '').trim(), pairs: (rhs || '').split(/[\s,]+/).map(s => s.trim()).filter(Boolean)};
+  }).filter(p => p.id && p.pairs.length);
+  const r2 = await arenaAdmin('setting', {key: 'ban_list',
+    value: JSON.stringify({restrictions, banned_pairs: pairs})});
+  const disabled = (r.disabled || 0) + (r2.disabled || 0), restored = (r.restored || 0) + (r2.restored || 0);
+  $('ar-set-msg').textContent = '저장됨' + (disabled ? ` (풀/금지 변경으로 덱 ${disabled}개 비활성)` : '')
+    + (restored ? ` (덱 ${restored}개 복원)` : '');
 }
 async function arenaRegisterPolicy() {
   const r = await arenaAdmin('register-policy', {handle: $('ar-policy-handle').value});
@@ -1011,7 +1076,7 @@ async function lgStart() {
   if (combos.length < 2) { $('lg-msg').textContent = '조합이 최소 2개 필요'; return; }
   const body = {name: $('lg-name').value || undefined, rounds: +$('lg-rounds').value,
     games: +$('lg-games').value, eval_pairs: +$('lg-pairs').value,
-    n_envs: 4, record_mode: 'accident', combos};
+    n_envs: +$('lg-envs').value || 6, record_mode: 'accident', combos};
   if ($('lg-seed').value) body.seed = +$('lg-seed').value;   // 공백 = 서버가 랜덤 발급+기록
   const r = await api('/api/runner/league', {method: 'POST', body: JSON.stringify(body)});
   $('lg-msg').textContent = r.error ? '거부: ' + r.error : `기동됨: ${r.league}`;
@@ -1020,8 +1085,10 @@ async function lgStart() {
 async function lgPoll() {
   try {
     const leagues = await api('/api/runner/leagues');
+    // 시작 시각 내림차순(신 runner는 정렬해서 주지만, 구 runner 상주 중에도 동작하는 폴백)
+    leagues.sort((a, b) => (b.started || '').localeCompare(a.started || ''));
     if (!leagues.length) { $('lg-status').innerHTML = ''; return; }
-    const blocks = await Promise.all(leagues.slice(-3).reverse().map(async l => {
+    const blocks = await Promise.all(leagues.slice(0, 3).map(async l => {
       const s = await api(`/api/runner/runs/${l.run}/league`);
       const combos = (s.config.combos || []);
       const pol = s.policies || {};
@@ -1071,7 +1138,9 @@ async function lgPoll() {
     $('lg-status').innerHTML = blocks.join('');
     window.LG_STATES = Object.fromEntries(await Promise.all(leagues.map(async l =>
       [l.run, await api(`/api/runner/runs/${l.run}/league`)])));
-  } catch (e) {}
+  } catch (e) {   // 무증상 실패 방지 — 렌더 실패를 화면에 남긴다(실측 2026-08-01)
+    $('lg-status').innerHTML = `<div class="card" style="color:#c33">리그 상태 표시 실패: ${e.message || e}</div>`;
+  }
 }
 function lgShowMatches(run, round, key) {
   const s = (window.LG_STATES || {})[run];

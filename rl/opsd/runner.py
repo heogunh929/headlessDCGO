@@ -60,9 +60,14 @@ def config() -> dict:
 _cards_meta: dict | None = None
 
 
+#: AS-IS CEntity_Base.CardColor 열거 순서 그대로(CEntity_Base.cs:381) — 자산 hex 디코드용
+CARD_COLORS = ["Red", "Blue", "Yellow", "Green", "White", "Black", "Purple", "None"]
+
+
 def cards_meta() -> dict:
-    """카드번호 → {name, type, maxCount} — 덱 검증기(opsd)의 데이터원. cards.json(엔진 export)에
-    자산의 MaxCountInDeck만 보강해 합친다. 규칙 자체는 AS-IS DeckData.IsValidDeckData가 정본."""
+    """카드번호 → {name, type, maxCount, colors} — 덱 검증기(opsd)·뷰어의 데이터원. cards.json(엔진
+    export)에 자산의 MaxCountInDeck·cardColors를 보강해 합친다. cardColors는 Unity 직렬화 hex
+    (리틀엔디언 int32/색). 규칙 자체는 AS-IS DeckData.IsValidDeckData가 정본."""
     global _cards_meta
     if _cards_meta is None:
         base: dict[str, dict] = {}
@@ -70,17 +75,24 @@ def cards_meta() -> dict:
         for entry in json.loads(cards_path.read_text(encoding="utf-8")):
             base.setdefault(entry["cardNumber"], {"name": entry["name"], "type": entry["cardType"]})
         for asset in (REPO / "DCGO/Assets/CardBaseEntity").rglob("*.asset"):
-            cid, maxc = None, None
+            cid, maxc, colors_hex = None, None, None
             try:
                 for line in asset.read_text(encoding="utf-8", errors="replace").splitlines():
                     if line.startswith("  CardID:"):
                         cid = line.split(":", 1)[1].strip()
                     elif line.startswith("  MaxCountInDeck:"):
                         maxc = int(line.split(":", 1)[1])
+                    elif line.startswith("  cardColors:"):
+                        colors_hex = line.split(":", 1)[1].strip()
             except (OSError, ValueError):
                 continue
             if cid in base and maxc is not None and "maxCount" not in base[cid]:
                 base[cid]["maxCount"] = maxc
+            if cid in base and colors_hex and "colors" not in base[cid]:
+                colors = [CARD_COLORS[int(colors_hex[k:k+2], 16)]
+                          for k in range(0, len(colors_hex), 8)
+                          if int(colors_hex[k:k+2], 16) < len(CARD_COLORS)]
+                base[cid]["colors"] = [c for c in colors if c != "None"]
         _cards_meta = base
     return _cards_meta
 
@@ -555,11 +567,16 @@ class Handler(BaseHTTPRequestHandler):
                 wait = float(re.search(r"wait=([\d.]+)", query).group(1)) if "wait=" in query else 25.0
                 msg = match.next_message(min(wait, 55.0))
                 return self._send(200, msg if msg is not None else {"type": "none"})
-            if m := re.fullmatch(r"/runs/([\w.-]+)/meta", path):
-                return self._send(200, run_summary(RUNS / m.group(1)))
-            if m := re.fullmatch(r"/runs/([\w가-힣.-]+)/league", path):
-                f = RUNS / m.group(1) / "league.json"
-                if not f.exists():
+            # 런 폴더명은 공백·한글 포함 전 범위 허용([^/]+) — 문자class가 좁아 "퍼플 테스트-…" 판로그가
+            # 404였다(실측 2026-08-01). 탈출은 각 지점의 resolve+prefix(is_relative_to) 검증으로 차단.
+            if m := re.fullmatch(r"/runs/([^/]+)/meta", path):
+                d = (RUNS / m.group(1)).resolve()
+                if not d.is_relative_to(RUNS.resolve()) or not d.is_dir():
+                    return self._send(404, {"error": "no run"})
+                return self._send(200, run_summary(d))
+            if m := re.fullmatch(r"/runs/([^/]+)/league", path):
+                f = (RUNS / m.group(1) / "league.json").resolve()
+                if not f.is_relative_to(RUNS.resolve()) or not f.exists():
                     return self._send(404, {"error": "league.json 없음"})
                 state = json.loads(f.read_text(encoding="utf-8"))
                 # 판수 단위 진행(사용자 요구 2026-07-31): 학습 중 라운드 폴더의 결과 라인 수 동봉.
@@ -574,29 +591,36 @@ class Handler(BaseHTTPRequestHandler):
                     training["games"] = games
                 return self._send(200, state)
             if path == "/leagues":
+                # 시작 시각 내림차순 — 폴더명 알파벳순으로 주면 UI의 "최근 N개" 창이
+                # 새 리그를 밀어냈다(실측 2026-08-01: league-Bt1_4가 대문자 B라 창 밖).
                 out = []
                 for d in sorted(RUNS.glob("league-*")):
                     if (d / "league.json").exists():
                         try:
                             s = json.loads((d / "league.json").read_text(encoding="utf-8"))
                             out.append({"run": d.name, "status": s.get("status"), "round": s.get("round"),
-                                        "rounds": (s.get("config") or {}).get("rounds")})
+                                        "rounds": (s.get("config") or {}).get("rounds"),
+                                        "started": s.get("started")})
                         except json.JSONDecodeError:
                             pass
+                out.sort(key=lambda l: l.get("started") or "", reverse=True)
                 return self._send(200, out)
-            if m := re.fullmatch(r"/runs/((?:[\w가-힣.-]+/)*[\w가-힣.-]+)/matches/([\w.-]+\.jsonl\.gz)", path):
+            if m := re.fullmatch(r"/runs/((?:[^/]+/)*[^/]+)/matches/([\w.-]+\.jsonl\.gz)", path):
                 # 중첩 런 경로 허용(리그: league-X/red/round-1, 평가: league-X/eval-matches/r1) —
                 # 탈출은 resolve+prefix 검증으로 차단.
                 f = (RUNS / m.group(1) / "matches" / m.group(2)).resolve()
-                if not str(f).startswith(str(RUNS.resolve())) or not f.exists():
+                if not f.is_relative_to(RUNS.resolve()) or not f.exists():
                     return self._send(404, {"error": "no match log"})
                 return self._send(200, f.read_bytes(), content_type="application/gzip")
-            if m := re.fullmatch(r"/runs/([\w.-]+)/defects", path):
+            if m := re.fullmatch(r"/runs/([^/]+)/defects", path):
                 # 결함 요약: stderr에서 삼킴/abort의 발생 지점(첫 AS-IS 프레임)별 집계 (결함 탭용).
                 kinds: dict[str, int] = {}
                 KNOWN = {"CardObjectController.AddTrashCard": "구(舊) 고아응답 사슬 유래 — 1a8bded6에서 근절, 재등장 시 신규 조사"}
+                run_dir = (RUNS / m.group(1)).resolve()
+                if not run_dir.is_relative_to(RUNS.resolve()):
+                    return self._send(404, {"error": "no run"})
                 lines: list[str] = []
-                for f in sorted((RUNS / m.group(1)).glob("host-stderr.log*")):
+                for f in sorted(run_dir.glob("host-stderr.log*")):
                     lines += f.read_text(encoding="utf-8", errors="replace").splitlines()
                 if lines:
                     for i, ln in enumerate(lines):
@@ -613,8 +637,11 @@ class Handler(BaseHTTPRequestHandler):
                                 kind += f" — {KNOWN[origin]}"
                             kinds[kind] = kinds.get(kind, 0) + 1
                 return self._send(200, {"kinds": kinds})
-            if m := re.fullmatch(r"/runs/([\w.-]+)/stderr", path):
-                blob = b"".join(f.read_bytes() for f in sorted((RUNS / m.group(1)).glob("host-stderr.log*")))
+            if m := re.fullmatch(r"/runs/([^/]+)/stderr", path):
+                d = (RUNS / m.group(1)).resolve()
+                if not d.is_relative_to(RUNS.resolve()):
+                    return self._send(404, {"error": "no run"})
+                blob = b"".join(f.read_bytes() for f in sorted(d.glob("host-stderr.log*")))
                 return self._send(200, blob, content_type="text/plain; charset=utf-8")
             return self._send(404, {"error": "not found"})
         except OSError as ex:
@@ -669,6 +696,11 @@ class Handler(BaseHTTPRequestHandler):
                     combo["init"] = str(model)
             if len(data.get("combos") or []) < 2:
                 return self._send(400, {"error": "조합이 최소 2개 필요"})
+            # 리그 학습 워커도 러너 상한 강제(요구 §8.5) — league.py가 train.py에 직접 넘기므로
+            # 여기서 막지 않으면 cap 우회가 된다.
+            cap = int(config().get("worker_cap", 6))
+            if int(data.get("n_envs", 4)) > cap:
+                return self._send(400, {"error": f"worker_cap {cap} 초과 (n_envs={data.get('n_envs')})"})
             out_dir = RUNS / f"league-{name}"
             out_dir.mkdir(parents=True, exist_ok=True)
             # 주의: 이름을 config로 지으면 모듈 함수 config()를 함수 전체에서 가린다

@@ -35,10 +35,10 @@ const $ = id => document.getElementById(id);
 async function load() {
   const r = await (await fetch('/api/arena/rankings')).json();
   $('season').textContent = `시즌 ${r.season}`;
-  $('board').innerHTML = '<tr><th>순위</th><th>핸들</th><th>Elo</th><th>판수</th></tr>' +
+  $('board').innerHTML = '<tr><th>순위</th><th>핸들</th><th>레이팅 ±RD</th><th>판수</th></tr>' +
     (r.rows.length ? r.rows.map(x =>
       `<tr><td>${x.rank}</td><td>${x.handle}${x.kind === 'policy' ? ' <span class="house">(하우스 봇)</span>' : ''}</td>` +
-      `<td>${x.elo}</td><td>${x.games}</td></tr>`).join('')
+      `<td>${x.rating} <small class="house">±${x.rd}</small></td><td>${x.games}</td></tr>`).join('')
       : '<tr><td colspan="4" style="color:#999">아직 대전 기록이 없습니다</td></tr>');
 }
 async function signup() {

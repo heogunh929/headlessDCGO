@@ -184,8 +184,19 @@ async def arena_me(request: web.Request) -> web.Response:
     if p is None:
         return web.json_response({"error": "key"}, status=401)
     rating = arena.rating_row(p["id"], db.active_season())
+    # 참가자 대시보드 홈 탭(2026-08-01): 실시간 상태 동봉 — 데몬 접속/검증 통과/활성 덱/열린 방
+    broker = request.app["broker"]
+    active = db.conn().execute(
+        "SELECT name FROM decks WHERE owner=? AND active=1 AND enabled=1", (p["id"],)).fetchone()
+    room = next((code for code, r in broker.rooms.items() if r["pid"] == p["id"]), None)
     return web.json_response({"handle": p["handle"], "kind": p["kind"],
-                              "elo": round(rating["elo"], 1), "games": rating["games"]})
+                              "rating": round(rating["rating"]), "rd": round(rating["rd"]),
+                              "games": rating["games"],
+                              "verified": bool(p["verified"]),
+                              "connected": p["id"] in broker.connections,
+                              "inMatch": p["id"] in broker.by_participant,
+                              "activeDeck": active["name"] if active else None,
+                              "room": room})
 
 
 async def arena_decks(request: web.Request) -> web.Response:
@@ -243,7 +254,8 @@ async def arena_cards(request: web.Request) -> web.Response:
         return web.json_response({"error": "key"}, status=401)
     meta = await cards_meta(request.app)
     pool = json.loads(db.setting("card_pool"))
-    return web.json_response({"cards": meta, "pool": pool})
+    ban = json.loads(db.setting("ban_list"))
+    return web.json_response({"cards": meta, "pool": pool, "ban": ban})
 
 
 async def arena_log(request: web.Request) -> web.Response:
@@ -278,12 +290,18 @@ async def arena_admin(request: web.Request) -> web.Response:
                                    "cards": json.loads(r["cards_json"])} for r in rows])
 
     if request.method == "GET" and action == "overview":
+        # 참가자 관리(사용자 지시 2026-08-01): Elo/판수/대전수 동봉 — 삭제 가능 여부(대전 0) 판단 근거
         rows = db.conn().execute(
-            "SELECT id, handle, kind, status, created, policy_path FROM participants ORDER BY id").fetchall()
+            "SELECT p.id, p.handle, p.kind, p.status, p.created, p.policy_path,"
+            " ROUND(COALESCE(r.rating, 0)) AS rating, ROUND(COALESCE(r.rd, 0)) AS rd,"
+            " COALESCE(r.games, 0) AS games,"
+            " (SELECT COUNT(*) FROM matches m WHERE m.p1=p.id OR m.p2=p.id) AS matches"
+            " FROM participants p LEFT JOIN ratings r ON r.participant=p.id AND r.season=?"
+            " ORDER BY p.id", (db.active_season(),)).fetchall()
         return web.json_response({
             "participants": [dict(r) for r in rows],
             "settings": {k: db.setting(k) for k in
-                         ("auto_approve", "card_pool", "move_timeout_sec", "disconnect_grace_sec", "deck_limit_per_key")},
+                         ("auto_approve", "card_pool", "ban_list", "move_timeout_sec", "disconnect_grace_sec", "deck_limit_per_key")},
             "season": db.active_season(),
             "matches": db.conn().execute("SELECT COUNT(*) AS n FROM matches").fetchone()["n"],
         })
@@ -293,10 +311,12 @@ async def arena_admin(request: web.Request) -> web.Response:
         return web.json_response(arena.approve(int(data["id"])))
     if action == "status":
         return web.json_response(arena.set_status(int(data["id"]), str(data["status"])))
+    if action == "delete":
+        return web.json_response(arena.delete_participant(int(data["id"]), force=bool(data.get("force"))))
     if action == "setting":
         db.set_setting(str(data["key"]), str(data["value"]))
         changed = {}
-        if data["key"] == "card_pool":
+        if data["key"] in ("card_pool", "ban_list"):   # 금지/제한 변경도 전 덱 재감사
             changed = arena.reaudit_pool(await cards_meta(request.app))
         return web.json_response({"ok": True, **changed})
     if action == "register-policy":

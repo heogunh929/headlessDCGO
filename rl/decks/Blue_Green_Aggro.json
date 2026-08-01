@@ -1,0 +1,72 @@
+{
+  "name": "Blue Green Aggro",
+  "source": "operator",
+  "main": [
+    {
+      "card": "BT1_027",
+      "count": 3
+    },
+    {
+      "card": "BT1_028",
+      "count": 4
+    },
+    {
+      "card": "BT1_029",
+      "count": 4
+    },
+    {
+      "card": "BT1_065",
+      "count": 4
+    },
+    {
+      "card": "BT1_110",
+      "count": 3
+    },
+    {
+      "card": "BT2_049",
+      "count": 4
+    },
+    {
+      "card": "BT3_021",
+      "count": 4
+    },
+    {
+      "card": "BT3_022",
+      "count": 2
+    },
+    {
+      "card": "BT3_024",
+      "count": 2
+    },
+    {
+      "card": "BT3_025",
+      "count": 4
+    },
+    {
+      "card": "BT3_044",
+      "count": 4
+    },
+    {
+      "card": "BT3_093",
+      "count": 2
+    },
+    {
+      "card": "BT3_104",
+      "count": 3
+    },
+    {
+      "card": "ST2_02",
+      "count": 3
+    },
+    {
+      "card": "ST2_13",
+      "count": 4
+    }
+  ],
+  "digitama": [
+    {
+      "card": "BT1_003",
+      "count": 4
+    }
+  ]
+}

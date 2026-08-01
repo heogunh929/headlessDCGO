@@ -1,0 +1,80 @@
+{
+  "name": "Black Millennium",
+  "source": "operator",
+  "main": [
+    {
+      "card": "BT2_054",
+      "count": 4
+    },
+    {
+      "card": "BT2_055",
+      "count": 4
+    },
+    {
+      "card": "BT2_057",
+      "count": 4
+    },
+    {
+      "card": "BT2_061",
+      "count": 3
+    },
+    {
+      "card": "BT2_063",
+      "count": 4
+    },
+    {
+      "card": "BT2_064",
+      "count": 2
+    },
+    {
+      "card": "BT2_083",
+      "count": 4
+    },
+    {
+      "card": "BT3_067",
+      "count": 4
+    },
+    {
+      "card": "BT3_071",
+      "count": 2
+    },
+    {
+      "card": "BT3_073",
+      "count": 4
+    },
+    {
+      "card": "BT3_075",
+      "count": 1
+    },
+    {
+      "card": "BT3_095",
+      "count": 2
+    },
+    {
+      "card": "ST5_03",
+      "count": 4
+    },
+    {
+      "card": "ST5_04",
+      "count": 2
+    },
+    {
+      "card": "ST5_08",
+      "count": 4
+    },
+    {
+      "card": "ST5_16",
+      "count": 2
+    }
+  ],
+  "digitama": [
+    {
+      "card": "BT2_005",
+      "count": 1
+    },
+    {
+      "card": "BT3_005",
+      "count": 4
+    }
+  ]
+}

@@ -254,7 +254,7 @@ class Broker:
         for seat_no, seat in match.seats.items():
             if ws := self.connections.get(seat.participant["id"]):
                 opponent = match.seats[3 - seat_no].participant
-                elo = arena.rating_row(opponent["id"], db.active_season())["elo"]
+                elo = arena.rating_row(opponent["id"], db.active_season())["rating"]
                 await ws.send_json({"type": "match_start", "matchId": match_id, "seat": seat_no,
                                     "seed": seed, "yourDeck": seat.deck,
                                     "opponent": {"handle": opponent["handle"], "rating": round(elo, 1)}})

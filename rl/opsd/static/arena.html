@@ -5,16 +5,33 @@
 <title>DCGO 아레나 — 참가자</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
-main.page { max-width:880px }
-#builder-pool { max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px; font-size:13px }
+#builder-pool { max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px; font-size:13px }
 .poolrow { cursor:pointer; padding:3px 6px; border-radius:6px } .poolrow:hover { background:var(--accent-soft) }
 textarea { width:100%; font-family:monospace; font-size:12px }
+.stat { display:inline-block; min-width:110px; padding:10px 14px; border:1px solid var(--line); border-radius:10px; margin:0 8px 8px 0; background:var(--surface) }
+.stat b { font-size:20px; display:block } .stat small { color:var(--muted) }
+main section { display:none } main section.on { display:block }
 </style>
 </head>
 <body>
-<header class="appbar"><h1>DCGO 아레나 — 참가자 페이지</h1><span id="who" style="color:var(--muted)"></span>
-  <button class="btn" style="margin-left:auto" onclick="logout()">키 변경</button></header>
+<div class="layout">
+<aside class="sidenav">
+  <div class="brand">DCGO 아레나</div>
+  <div class="group">참가자</div>
+  <button data-tab="home" class="on">홈</button>
+  <button data-tab="connect">연결 / SDK</button>
+  <button data-tab="deck">덱 관리</button>
+  <button data-tab="history">대전 이력</button>
+  <button data-tab="room">룸 매치</button>
+  <div class="group">공개</div>
+  <button data-tab="rank">순위표</button>
+  <div class="foot" id="side-who"></div>
+</aside>
+<div class="content">
+<div class="topline"><h2 id="tabtitle">홈</h2><span id="who" style="color:var(--muted)"></span>
+  <button class="btn" style="margin-left:auto" onclick="logout()">키 변경</button></div>
 <main class="page">
+
   <div class="card" id="login-card">
     <b>API 키 로그인</b><br><br>
     <input id="key-in" placeholder="API 키" style="width:min(320px,70vw)"> <button class="btn primary" onclick="login()">확인</button>
@@ -22,7 +39,31 @@ textarea { width:100%; font-family:monospace; font-size:12px }
     <div style="margin-top:8px;font-size:13px;color:#555">키가 없다면 <a href="/static/rankings.html">순위표 페이지</a>에서 참가 신청하세요.</div>
   </div>
 
-  <div id="portal" style="display:none">
+  <section id="home">
+    <div class="card"><b>내 현황</b>
+      <div style="margin-top:8px" id="home-stats"></div>
+      <div id="home-state" style="font-size:13.5px"></div>
+    </div>
+    <div class="card"><b>최근 대전</b> <small>(클릭하면 판 뷰어로 — 전체는 대전 이력 탭)</small>
+      <div id="home-history">불러오는 중…</div></div>
+  </section>
+
+  <section id="connect">
+    <div class="card"><b>퀵스타트</b> <small>— SDK 파일 하나 받아 코드 몇 줄로 참가</small>
+      <div style="font-size:13px">① SDK 받기·의존성:
+        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-dl', this)">복사</button></div>
+      <pre id="qs-dl" style="margin-top:6px"></pre>
+      <div style="font-size:13px">② 참가 스크립트 — <b>덱은 덱 관리 탭에서 먼저 등록하고 사용할 덱을 활성으로 지정</b>하세요(SDK는 덱에 관여하지 않음):
+        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-code', this)">복사</button></div>
+      <pre id="qs-code" style="margin-top:6px"></pre>
+      <div style="font-size:12.5px;color:var(--muted)">서버가 활성 덱으로 참가시킵니다(활성 덱 없으면 no_deck 에러).
+        첫 큐잉은 하우스 봇과 <b>검증판</b>(비랭킹) — 완주하면 래더 진입, 이후 자동 매칭 연전.<br>
+        agent를 빼면 무작위 합법 수 · <code>da.agents.from_file("my_agent.py")</code>로 커스텀
+        (<code>def act(state_text, actions) -&gt; index</code>) · CLI도 지원: <code>python dcgo_arena.py daemon --config dcgo-arena.toml</code></div>
+    </div>
+  </section>
+
+  <section id="deck">
     <div class="card"><b>내 덱</b> <small>(래더는 활성 덱으로 참가합니다)</small>
       <div id="decks">불러오는 중…</div>
     </div>
@@ -50,28 +91,59 @@ textarea { width:100%; font-family:monospace; font-size:12px }
         <button class="btn" id="saveas-btn" style="display:none" onclick="saveDeckAsNew()">다른 이름으로 등록</button>
         <span id="deck-msg"></span></div>
     </div>
-    <div class="card"><b>대전 이력</b> <small>(클릭하면 판 뷰어로)</small><div id="history">불러오는 중…</div></div>
-    <div class="card"><b>퀵스타트</b> <small>— SDK 파일 하나 받아 코드 몇 줄로 참가</small>
-      <div style="font-size:13px">① SDK 받기·의존성:
-        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-dl', this)">복사</button></div>
-      <pre id="qs-dl" style="margin-top:6px"></pre>
-      <div style="font-size:13px">② 참가 스크립트 — <b>덱은 이 페이지에서 먼저 등록하고 사용할 덱을 활성으로 지정</b>하세요(SDK는 덱에 관여하지 않음):
-        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-code', this)">복사</button></div>
-      <pre id="qs-code" style="margin-top:6px"></pre>
-      <div style="font-size:12.5px;color:var(--muted)">서버가 활성 덱으로 참가시킵니다(활성 덱 없으면 no_deck 에러).
-        첫 큐잉은 하우스 봇과 <b>검증판</b>(비랭킹) — 완주하면 래더 진입, 이후 자동 매칭 연전.<br>
-        agent를 빼면 무작위 합법 수 · <code>da.agents.from_file("my_agent.py")</code>로 커스텀
-        (<code>def act(state_text, actions) -&gt; index</code>) · CLI도 지원: <code>python dcgo_arena.py daemon --config dcgo-arena.toml</code></div>
+  </section>
+
+  <section id="history">
+    <div class="card"><b>대전 이력</b> <small>(클릭하면 판 뷰어로)</small><div id="history-list">불러오는 중…</div></div>
+  </section>
+
+  <section id="room">
+    <div class="card"><b>내 방 상태</b>
+      <div id="room-state" style="margin-top:6px;font-size:13.5px">불러오는 중…</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:6px">방은 데몬(SDK)이 접속한 상태에서 만들어지고, 방 주인이 접속을 끊으면 소멸합니다. 룸 매치도 랭킹에 반영됩니다.</div>
     </div>
-  </div>
+    <div class="card"><b>방 만들기</b> <small>— 코드가 데몬 콘솔에 출력됩니다. 상대에게 코드를 전달하세요</small>
+      <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-room-create', this)">복사</button>
+      <pre id="qs-room-create" style="margin-top:6px"></pre>
+    </div>
+    <div class="card"><b>방 참가</b> <small>— 전달받은 코드로 입장 (양쪽 모두 활성 덱 필요)</small>
+      <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-room-join', this)">복사</button>
+      <pre id="qs-room-join" style="margin-top:6px"></pre>
+    </div>
+  </section>
+
+  <section id="rank">
+    <div class="card">
+      <div id="rank-season" style="margin-bottom:8px;color:#555"></div>
+      <div class="scroll-x"><table id="rank-board"><tr><th>순위</th><th>핸들</th><th>Elo</th><th>판수</th></tr></table></div>
+    </div>
+  </section>
+
 </main>
+</div>
+</div>
 <script>
 const $ = id => document.getElementById(id);
 let KEY = localStorage.getItem('arenaKey') || '';
-let CARDS = {}, POOL = {sets: [], cards: []};
+let CARDS = {}, POOL = {sets: [], cards: []}, BAN = {restrictions: [], banned_pairs: []};
 const BUILD = {main: {}, digitama: {}};
 const H = () => ({'X-Arena-Key': KEY, 'Content-Type': 'application/json'});
 const api = (p, opt = {}) => fetch(p, {...opt, headers: H()}).then(r => r.json());
+
+// ── 탭 (관리자 대시보드와 동일 UX: localStorage 영속) ─────────────────────────
+const TITLES = {home: '홈', connect: '연결 / SDK', deck: '덱 관리', history: '대전 이력', room: '룸 매치', rank: '순위표'};
+document.querySelectorAll('.sidenav button[data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+function setTab(tab) {
+  document.querySelectorAll('.sidenav button, main section').forEach(x => x.classList.remove('on'));
+  document.querySelector(`.sidenav button[data-tab="${tab}"]`).classList.add('on');
+  $(tab).classList.add('on');
+  $('tabtitle').textContent = TITLES[tab] || tab;
+  localStorage.setItem('ui:arenaTab', tab);
+  if (tab === 'home') loadHome();
+  if (tab === 'history') loadHistory();
+  if (tab === 'rank') loadRank();
+  if (tab === 'room') loadRoom();
+}
 
 function logout() { localStorage.removeItem('arenaKey'); location.reload(); }
 function quickstartCode(server, key) {
@@ -80,7 +152,7 @@ function quickstartCode(server, key) {
 da.play(
     server="${server}",
     key="${key}",
-    # 덱: 이 페이지(웹)에서 등록·활성 지정 — 서버가 활성 덱을 자동 적용
+    # 덱: 덱 관리 탭(웹)에서 등록·활성 지정 — 서버가 활성 덱을 자동 적용
     # LLM으로 두려면 (생략 = 무작위 합법 수):
     # agent=da.agents.OpenAICompat(base_url="http://localhost:11434/v1", model="llama3"),
     daemon=True,   # 상주 — 검증판 통과 후 자동 매칭 연전. 1판만이면 games=1
@@ -94,29 +166,123 @@ function qsCopy(id, btn) {
 async function login() {
   KEY = $('key-in').value.trim() || KEY;
   const me = await api('/api/arena/me');
-  if (me.error) { $('login-msg').textContent = '키가 유효하지 않습니다'; return; }
+  if (me.error) { $('login-msg').textContent = '키가 유효하지 않습니다'; localStorage.removeItem('arenaKey'); return; }
   localStorage.setItem('arenaKey', KEY);
-  $('login-card').style.display = 'none'; $('portal').style.display = '';
-  $('who').textContent = `${me.handle} · Elo ${me.elo} · ${me.games}판`;
+  $('login-card').style.display = 'none';
+  $('who').textContent = `${me.handle} · 레이팅 ${me.rating}±${me.rd} · ${me.games}판`;
+  $('side-who').textContent = me.handle;
   $('qs-dl').textContent = `curl -O ${location.origin}/static/dcgo_arena.py\npip install aiohttp`;
   $('qs-code').textContent = quickstartCode(location.origin, KEY);
+  $('qs-room-create').textContent = `import dcgo_arena as da
+da.play(server="${location.origin}", key="${KEY}", room="create")
+# 콘솔에 "방 코드: XXXXXX" 출력 — 상대 입장까지 대기
+# CLI: python dcgo_arena.py play --server ${location.origin} --key <키> --create-room`;
+  $('qs-room-join').textContent = `import dcgo_arena as da
+da.play(server="${location.origin}", key="${KEY}", join="상대방코드")
+# CLI: python dcgo_arena.py play --server ${location.origin} --key <키> --join 상대방코드`;
   const cardData = await api('/api/arena/cards');
-  CARDS = cardData.cards || {}; POOL = cardData.pool || POOL;
-  renderPool(); renderBuild(); loadDecks(); loadHistory();
+  CARDS = cardData.cards || {}; POOL = cardData.pool || POOL; BAN = cardData.ban || BAN;
+  renderPool(); renderBuild(); loadDecks();
+  setTab(localStorage.getItem('ui:arenaTab') || 'home');
 }
 
-function inPool(id) { return POOL.sets.includes(id.split('-')[0]) || POOL.cards.includes(id); }
+// ── 홈 ────────────────────────────────────────────────────────────────────────
+async function loadHome() {
+  const me = await api('/api/arena/me');
+  if (me.error) return;
+  $('who').textContent = `${me.handle} · 레이팅 ${me.rating}±${me.rd} · ${me.games}판`;
+  $('home-stats').innerHTML =
+    `<span class="stat"><small>레이팅 (Glicko-2)</small><b>${me.rating} <small style="font-size:12px;color:var(--muted)">±${me.rd}</small></b></span>` +
+    `<span class="stat"><small>판수</small><b>${me.games}</b></span>` +
+    `<span class="stat"><small>활성 덱</small><b style="font-size:15px">${me.activeDeck || '<span class="bad">없음</span>'}</b></span>`;
+  const pill = (on, yes, no, cls) => on ? `<span class="pill ${cls || 'ok'}">${yes}</span>` : `<span class="pill">${no}</span>`;
+  $('home-state').innerHTML =
+    `데몬 접속 ${pill(me.connected, '접속 중', '오프라인')} · ` +
+    `검증 ${pill(me.verified, '통과', '미통과(첫 큐잉 시 검증판)', 'ok')} · ` +
+    `${me.inMatch ? '<span class="pill run">대전 중</span>' : '대기'}` +
+    (me.room ? ` · 열린 방 <code>${me.room}</code>` : '');
+  const rows = await api('/api/arena/history');
+  $('home-history').innerHTML = historyTable(rows.slice(0, 5));
+}
+
+// ── 이력 ──────────────────────────────────────────────────────────────────────
+function historyTable(rows) {
+  return rows.length ? '<div class="scroll-x"><table><tr><th>시각</th><th>상대</th><th>결과</th><th>Δ</th><th>사유</th></tr>' +
+    rows.map(h => {
+      const won = h.winner === h.mySeat;
+      const draw = h.winner == null;
+      return `<tr style="cursor:pointer" onclick="location='/static/viewer.html?arena=${h.matchId}'">` +
+        `<td>${h.ts}</td><td>${h.opponent}</td><td class="${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</td>` +
+        `<td>${h.ratingDelta > 0 ? '+' : ''}${h.ratingDelta}</td><td>${h.reason}</td></tr>`;
+    }).join('') + '</table></div>' : '대전 기록 없음';
+}
+async function loadHistory() {
+  $('history-list').innerHTML = historyTable(await api('/api/arena/history'));
+}
+
+// ── 룸 매치 ───────────────────────────────────────────────────────────────────
+async function loadRoom() {
+  const me = await api('/api/arena/me');
+  if (me.error) return;
+  $('room-state').innerHTML = me.room
+    ? `열린 방 코드: <code style="font-size:16px">${me.room}</code> — 상대 참가 대기 중`
+    : (me.inMatch ? '<span class="pill run">대전 중</span>'
+       : `열린 방 없음${me.connected ? '' : ' · <span class="bad">데몬 미접속 — 아래 스니펫으로 접속해야 방을 만들 수 있습니다</span>'}`);
+}
+
+// ── 순위표 ────────────────────────────────────────────────────────────────────
+async function loadRank() {
+  const r = await (await fetch('/api/arena/rankings')).json();
+  $('rank-season').textContent = `시즌 ${r.season}`;
+  $('rank-board').innerHTML = '<tr><th>순위</th><th>핸들</th><th>레이팅 ±RD</th><th>판수</th></tr>' +
+    (r.rows.length ? r.rows.map(x =>
+      `<tr><td><b>${x.rank}</b></td><td>${x.handle}${x.kind === 'policy' ? ' <small style="color:var(--muted)">(하우스 봇)</small>' : ''}</td>` +
+      `<td>${x.rating} <small style="color:var(--muted)">±${x.rd}</small></td><td>${x.games}</td></tr>`).join('')
+      : '<tr><td colspan="4" style="color:#999">아직 대전 기록이 없습니다</td></tr>');
+}
+
+// ── 덱 빌더 (기존 그대로) ─────────────────────────────────────────────────────
+function inPool(id) {
+  if ((POOL.excluded || []).includes(id)) return false;
+  return POOL.sets.includes(id.split('-')[0]) || POOL.cards.includes(id);
+}
+// AS-IS DeckBuildingRule.MaxCount_BanList: 금지/제한 등재 카드는 limit이 최대 매수를 대체
+function banLimit(id) {
+  const r = (BAN.restrictions || []).find(r => r.id === id);
+  return r ? r.limit : null;
+}
+function maxCount(id) {
+  const lim = banLimit(id);
+  return lim !== null ? lim : ((CARDS[id] || {}).maxCount ?? 4);
+}
+// AS-IS DeckBuildingRule.CanAddCard의 금지 페어 검사(양방향)
+function pairConflict(id) {
+  const inDeck = cid => (BUILD.main[cid] || 0) + (BUILD.digitama[cid] || 0) > 0;
+  for (const p of (BAN.banned_pairs || [])) {
+    if (p.id === id && p.pairs.some(inDeck)) return p.pairs.find(inDeck);
+    if (p.pairs.includes(id) && inDeck(p.id)) return p.id;
+  }
+  return null;
+}
 function renderPool() {
   const q = ($('pool-q').value || '').toLowerCase();
   const rows = Object.entries(CARDS).filter(([id]) => inPool(id))
     .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q))
     .slice(0, 400)
-    .map(([id, c]) => `<div class="poolrow" onclick="add('${id}')" oncontextmenu="event.preventDefault();sub('${id}')">` +
-      `${id} <b>${c.name}</b> <small>${c.type} · 최대 ${c.maxCount ?? 4}</small></div>`);
+    .map(([id, c]) => {
+      const lim = banLimit(id);
+      const mark = lim === 0 ? ' <b style="color:#c33">금지</b>' : lim !== null ? ` <b style="color:#b60">제한 ${lim}</b>` : '';
+      return `<div class="poolrow" onclick="add('${id}')" oncontextmenu="event.preventDefault();sub('${id}')">` +
+        `${id} <b>${c.name}</b> <small>${c.type} · 최대 ${maxCount(id)}</small>${mark}</div>`;
+    });
   $('builder-pool').innerHTML = rows.join('') || '풀이 비어 있음';
 }
 function section(id) { return (CARDS[id] || {}).type === 'DigiEgg' ? 'digitama' : 'main'; }
 function add(id) {
+  const total = (BUILD.main[id] || 0) + (BUILD.digitama[id] || 0);
+  if (total >= maxCount(id)) return;         // 금지(0)·제한(1)·MaxCountInDeck — AS-IS CanAddCard
+  const conflict = pairConflict(id);
+  if (conflict) { alert(`금지 페어: ${id} ↔ ${conflict} 공존 불가`); return; }
   const s = BUILD[section(id)];
   s[id] = (s[id] || 0) + 1;
   renderBuild();
@@ -179,7 +345,7 @@ async function importClipboard() {
 }
 async function loadDecks() {
   const decks = await api('/api/arena/decks');
-  $('decks').innerHTML = decks.length ? '<table><tr><th>이름</th><th>메인/디지타마</th><th>상태</th><th style="min-width:200px"></th></tr>' +
+  $('decks').innerHTML = decks.length ? '<div class="scroll-x"><table><tr><th>이름</th><th>메인/디지타마</th><th>상태</th><th style="min-width:200px"></th></tr>' +
     decks.sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0)).map(d => {
       const m = d.cards.main.reduce((a, e) => a + e.count, 0), g = (d.cards.digitama || []).reduce((a, e) => a + e.count, 0);
       const detail = [...d.cards.main, ...(d.cards.digitama || [])]
@@ -191,26 +357,24 @@ async function loadDecks() {
         <td>${d.active || !d.enabled ? '' : `<button class="btn" onclick="activate(${d.id})">이 덱 사용</button>`}
             <button class="btn" onclick='deckOpen(${JSON.stringify(d).replace(/'/g, "&#39;")})'>열기</button>
             <button class="btn" onclick="deckDelete(${d.id}, ${d.active})">삭제</button></td></tr>`;
-    }).join('') + '</table>' : '등록된 덱 없음 — 아래 편집기에서 만들어 주세요';
+    }).join('') + '</table></div>' : '등록된 덱 없음 — 아래 편집기에서 만들어 주세요';
 }
-async function activate(id) { await api(`/api/arena/decks/${id}/activate`, {method: 'POST'}); loadDecks(); }
+async function activate(id) { await api(`/api/arena/decks/${id}/activate`, {method: 'POST'}); loadDecks(); loadHome(); }
 async function deckDelete(id, wasActive) {
   if (!confirm('덱을 삭제합니까? (지난 판 기록은 판 시점 스냅샷으로 보존됩니다)')) return;
   await api(`/api/arena/decks/${id}/delete`, {method: 'POST'});
   if (wasActive) $('deck-msg').innerHTML = '<span class="bad">사용 중 덱을 삭제했습니다 — 다른 덱을 "이 덱 사용"으로 지정하세요</span>';
   loadDecks();
 }
-async function loadHistory() {
-  const rows = await api('/api/arena/history');
-  $('history').innerHTML = rows.length ? '<table><tr><th>시각</th><th>상대</th><th>결과</th><th>Δ</th><th>사유</th></tr>' +
-    rows.map(h => {
-      const won = h.winner === h.mySeat;
-      const draw = h.winner == null;
-      return `<tr style="cursor:pointer" onclick="location='/static/viewer.html?arena=${h.matchId}'">` +
-        `<td>${h.ts}</td><td>${h.opponent}</td><td class="${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</td>` +
-        `<td>${h.ratingDelta > 0 ? '+' : ''}${h.ratingDelta}</td><td>${h.reason}</td></tr>`;
-    }).join('') + '</table>' : '대전 기록 없음';
-}
+
+// 홈 상태 자동 갱신(10초) — 데몬 접속/대전 중 표시가 살아 움직이게
+setInterval(() => {
+  if (!KEY || $('login-card').style.display !== 'none') return;
+  const tab = localStorage.getItem('ui:arenaTab') || 'home';
+  if (tab === 'home') loadHome();
+  if (tab === 'room') loadRoom();
+}, 10000);
+
 if (KEY) login();
 </script>
 </body>

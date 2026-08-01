@@ -1,0 +1,84 @@
+{
+  "name": "Mono Yellow Shine",
+  "source": "operator",
+  "main": [
+    {
+      "card": "BT1_048",
+      "count": 4
+    },
+    {
+      "card": "BT1_049",
+      "count": 4
+    },
+    {
+      "card": "BT1_052",
+      "count": 3
+    },
+    {
+      "card": "BT1_057",
+      "count": 2
+    },
+    {
+      "card": "BT1_060",
+      "count": 1
+    },
+    {
+      "card": "BT1_087",
+      "count": 4
+    },
+    {
+      "card": "BT2_034",
+      "count": 2
+    },
+    {
+      "card": "BT2_038",
+      "count": 4
+    },
+    {
+      "card": "BT2_041",
+      "count": 4
+    },
+    {
+      "card": "BT2_087",
+      "count": 4
+    },
+    {
+      "card": "BT2_097",
+      "count": 2
+    },
+    {
+      "card": "BT2_098",
+      "count": 2
+    },
+    {
+      "card": "BT2_099",
+      "count": 2
+    },
+    {
+      "card": "BT3_037",
+      "count": 3
+    },
+    {
+      "card": "BT3_040",
+      "count": 2
+    },
+    {
+      "card": "ST3_04",
+      "count": 2
+    },
+    {
+      "card": "ST3_07",
+      "count": 4
+    },
+    {
+      "card": "ST3_12",
+      "count": 1
+    }
+  ],
+  "digitama": [
+    {
+      "card": "BT1_006",
+      "count": 4
+    }
+  ]
+}

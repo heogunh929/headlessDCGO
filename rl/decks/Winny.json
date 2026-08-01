@@ -1,68 +1,68 @@
 {
-  "name": "green_st4_bt",
+  "name": "Winny",
   "source": "operator",
   "main": [
     {
-      "card": "ST4_03",
+      "card": "BT1_027",
       "count": 4
     },
     {
-      "card": "ST4_04",
+      "card": "BT1_028",
       "count": 4
     },
     {
-      "card": "ST4_10",
+      "card": "BT1_029",
       "count": 4
     },
     {
-      "card": "ST4_11",
+      "card": "BT1_030",
       "count": 4
     },
     {
-      "card": "ST4_12",
+      "card": "BT1_037",
+      "count": 2
+    },
+    {
+      "card": "BT1_065",
       "count": 4
     },
     {
-      "card": "ST4_13",
+      "card": "BT1_071",
+      "count": 2
+    },
+    {
+      "card": "BT3_021",
       "count": 4
     },
     {
-      "card": "ST4_14",
+      "card": "BT3_025",
+      "count": 4
+    },
+    {
+      "card": "BT3_044",
+      "count": 4
+    },
+    {
+      "card": "ST2_02",
+      "count": 4
+    },
+    {
+      "card": "ST2_13",
+      "count": 4
+    },
+    {
+      "card": "ST4_02",
       "count": 4
     },
     {
       "card": "ST4_15",
-      "count": 4
-    },
-    {
-      "card": "ST4_16",
-      "count": 4
-    },
-    {
-      "card": "BT1_066",
-      "count": 4
-    },
-    {
-      "card": "BT1_067",
-      "count": 4
-    },
-    {
-      "card": "BT1_068",
-      "count": 4
-    },
-    {
-      "card": "BT22_044",
       "count": 2
     }
   ],
   "digitama": [
     {
-      "card": "ST4_01",
+      "card": "BT1_003",
       "count": 4
-    },
-    {
-      "card": "BT1_007",
-      "count": 1
     }
   ]
 }

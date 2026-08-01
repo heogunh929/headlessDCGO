@@ -1,0 +1,83 @@
+{
+  "name": "Purple Metalgaruru",
+  "source": "operator",
+  "main": [
+    {
+      "card": "BT2_067",
+      "count": 4
+    },
+    {
+      "card": "BT2_070",
+      "count": 3
+    },
+    {
+      "card": "BT2_072",
+      "count": 2
+    },
+    {
+      "card": "BT2_074",
+      "count": 4
+    },
+    {
+      "card": "BT2_075",
+      "count": 4
+    },
+    {
+      "card": "BT2_079",
+      "count": 1
+    },
+    {
+      "card": "BT2_083",
+      "count": 2
+    },
+    {
+      "card": "BT2_110",
+      "count": 2
+    },
+    {
+      "card": "BT3_076",
+      "count": 4
+    },
+    {
+      "card": "BT3_083",
+      "count": 2
+    },
+    {
+      "card": "BT3_085",
+      "count": 3
+    },
+    {
+      "card": "P_027",
+      "count": 4
+    },
+    {
+      "card": "ST6_04",
+      "count": 2
+    },
+    {
+      "card": "ST6_05",
+      "count": 2
+    },
+    {
+      "card": "ST6_08",
+      "count": 4
+    },
+    {
+      "card": "ST6_10",
+      "count": 1
+    },
+    {
+      "card": "ST6_13",
+      "count": 1
+    },
+    {
+      "card": "ST6_15",
+      "count": 1
+    },
+    {
+      "card": "ST6_16",
+      "count": 4
+    }
+  ],
+  "digitama": []
+}

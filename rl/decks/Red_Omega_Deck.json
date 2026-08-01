@@ -1,0 +1,79 @@
+{
+  "name": "Red Omega Deck",
+  "source": "operator",
+  "main": [
+    {
+      "card": "BT1_009",
+      "count": 3
+    },
+    {
+      "card": "BT1_010",
+      "count": 2
+    },
+    {
+      "card": "BT1_019",
+      "count": 4
+    },
+    {
+      "card": "BT1_021",
+      "count": 3
+    },
+    {
+      "card": "BT1_023",
+      "count": 2
+    },
+    {
+      "card": "BT1_024",
+      "count": 4
+    },
+    {
+      "card": "BT1_084",
+      "count": 2
+    },
+    {
+      "card": "BT1_085",
+      "count": 2
+    },
+    {
+      "card": "BT2_009",
+      "count": 2
+    },
+    {
+      "card": "BT2_018",
+      "count": 3
+    },
+    {
+      "card": "BT2_020",
+      "count": 4
+    },
+    {
+      "card": "P_009",
+      "count": 2
+    },
+    {
+      "card": "ST1_03",
+      "count": 4
+    },
+    {
+      "card": "ST1_06",
+      "count": 3
+    },
+    {
+      "card": "ST1_07",
+      "count": 3
+    },
+    {
+      "card": "ST1_11",
+      "count": 1
+    },
+    {
+      "card": "ST1_12",
+      "count": 2
+    },
+    {
+      "card": "ST1_16",
+      "count": 4
+    }
+  ],
+  "digitama": []
+}
