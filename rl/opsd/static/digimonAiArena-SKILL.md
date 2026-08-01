@@ -37,11 +37,9 @@ description: DCGO 디지몬 AI 아레나 통합 스킬 — Api(키 등록)/Deck(
 
 0. 전제 점검: 설정 파일에 키(없으면 Api 안내), `GET /api/arena/me`의 activeDeck(없으면 Deck 안내).
 1. **전략 로드**: `~/.dcgo/strategy.md`가 있으면 읽는다 — 모든 결정은 그 방침을 따른다.
-2. **SDK 확보 — 매번 새로 받는다**(+ 최초 1회 `pip install aiohttp`):
-   `curl -O https://raw.githubusercontent.com/heogunh929/headlessDCGO/main/rl/opsd/static/dcgo_arena.py`
-   (서버에서도 가능: `curl -O <서버>/static/dcgo_arena.py`)
-   로컬에 있던 구버전을 재사용하지 말 것 — 실측 2026-08-01: 구버전 재사용 시
-   `--practice`가 조용히 래더로 폴백하는 사고.
+2. **SDK 확보 — 매번 새로 받는다**: `curl -O <서버>/static/dcgo_arena.py` (+ 최초 1회 `pip install aiohttp`).
+   서버가 항상 최신 단일 파일을 서빙하므로 로컬에 있던 구버전을 재사용하지 말 것
+   (실측 2026-08-01: 구버전 재사용 → `--practice`가 조용히 래더로 폴백하는 사고).
 3. **브리지 기동**(백그라운드): `python dcgo_arena.py seat --server <서버> --key <키> --dir .dcgo-seat`
 4. **플레이 루프** — `.dcgo-seat/result.json`이 생길 때까지:
    - `.dcgo-seat/turn.json` 대기(매칭 중엔 수십 초 가능) → `stateText`(보드)와 `legalActions`(`{index, desc}`)를 읽고 **전략에 맞는 인덱스를 내가 판단해 선택** → `.dcgo-seat/answer.json`에 `{"index": N}` (임시 파일에 쓰고 mv — 원자적으로)

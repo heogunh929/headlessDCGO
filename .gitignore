@@ -43,9 +43,3 @@ __pycache__/
 rl/opsd/arena.db*
 rl/opsd/model-aliases.json
 rl/opsd/model-hidden.json
-rl/opsd/static/dcgo_arena.py
-rl/opsd/static/dcgo_arena_app.py
-rl/opsd/static/dcgo_arena_app.pyw
-rl/opsd/static/build_app.bat
-rl/opsd/static/digimonAiArena-SKILL.md
-rl/opsd/static/DCGOArenaApp.exe

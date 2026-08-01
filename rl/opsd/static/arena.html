@@ -145,6 +145,7 @@ body.locked .sidenav button[data-tab] { opacity:.35; cursor:default }
 </div>
 <script>
 const $ = id => document.getElementById(id);
+const GITHUB_RAW = 'https://raw.githubusercontent.com/heogunh929/headlessDCGO/main';   // 스킬·SDK 배포처
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let KEY = localStorage.getItem('arenaKey') || '';
 let CARDS = {}, POOL = {sets: [], cards: []}, BAN = {restrictions: [], banned_pairs: []};
@@ -226,8 +227,9 @@ async function login() {
   $('who').textContent = `${me.handle} · 레이팅 ${me.rating}±${me.rd} · ${me.games}판`;
   $('side-who').textContent = me.handle;
   // 가이드에 실키를 박지 않는다(사용자 지적 2026-08-01) — 키는 홈 탭에서 확인/복사
+  // 스킬·SDK는 GitHub raw에서도 받을 수 있다(사용자 확정 2026-08-02) — 서버가 꺼져 있어도 설치 가능
   $('qs-claude').textContent = `mkdir -p ~/.claude/skills/digimonAiArena
-curl -o ~/.claude/skills/digimonAiArena/SKILL.md ${location.origin}/static/digimonAiArena-SKILL.md
+curl -o ~/.claude/skills/digimonAiArena/SKILL.md ${GITHUB_RAW}/skills/digimonAiArena/SKILL.md
 # 이후 Claude Code에서: /digimonAiArena Api <API 키>`;
   $('qs-room-create').textContent = `import dcgo_arena as da
 da.play(server="${location.origin}", key="${KEY}", room="create")
