@@ -174,6 +174,7 @@ const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 // 아레나 모드(?arena=<matchId>): 참가자 키로 본인 판만 열람 — 운영자 토큰 불요/미요구.
 const ARENA = qs.get('arena');
+const ME_SEAT = +(qs.get('me') || 0);   // 이력에서 넘어온 내 좌석 — "(나)" 표기(사용자 요구 2026-08-01)
 let TOKEN = '';
 if (!ARENA) {
   TOKEN = localStorage.getItem('opsToken') || prompt('운영자 토큰');
@@ -189,11 +190,12 @@ async function load() {
   try {
     if (ARENA) {
       const data = await (await fetch('/api/arena/cards', {headers: {'X-Arena-Key': AKEY}})).json();
-      for (const [id, c] of Object.entries(data.cards || {})) { TYPES[id] = c.type; if (c.name) NAMES[id] = c.name; COLORS[id] = c.colors || []; }
+      // 카드명 = 한글 우선(사용자 확정 2026-08-01), 영문 폴백
+      for (const [id, c] of Object.entries(data.cards || {})) { TYPES[id] = c.type; if (c.name) NAMES[id] = c.nameKo || c.name; COLORS[id] = c.colors || []; }
     } else {
       // cards-meta = 이름/종류에 색상까지(사용자 요구 2026-08-01) — /cards(cards.json)엔 색이 없다
       const meta = await (await fetch('/api/runner/cards-meta', {headers: {'X-Ops-Token': TOKEN}})).json();
-      for (const [id, c] of Object.entries(meta)) { TYPES[id] = c.type; if (c.name) NAMES[id] = c.name; COLORS[id] = c.colors || []; }
+      for (const [id, c] of Object.entries(meta)) { TYPES[id] = c.type; if (c.name) NAMES[id] = c.nameKo || c.name; COLORS[id] = c.colors || []; }
     }
   } catch (e) {}
   const url = ARENA ? `/api/arena/log/${ARENA}` : `/api/runner/runs/${qs.get('run')}/matches/${qs.get('match')}`;
@@ -368,7 +370,7 @@ function sheet(el, side, name, mySeat, activeSeat) {
   el.classList.toggle('turnside', isTurn);
   el.classList.toggle('waitside', !isTurn);
   el.innerHTML = `
-    <div class="pname">${name}
+    <div class="pname">${name}${ME_SEAT === mySeat ? ' <span class="pill ok" style="font-size:11px">나</span>' : ''}
       ${isTurn ? '<span class="turnbadge">▶ 턴 진행 중</span>' : '<span class="waitbadge">대기</span>'}
       <small style="color:#777">덱 ${side.deckCount} · 트래시 ${side.trash.length}</small></div>
     <div class="zone zone-sec"><h4>시큐리티 (${side.security.length})</h4><div class="cardlist">${chips(side.security, !showHidden)}</div>

@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DCGO 아레나 — 참가자</title>
+<title>DigimonCardgame AI 아레나 — 참가자</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
 #builder-pool { max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px; font-size:13px }
@@ -11,55 +11,76 @@ textarea { width:100%; font-family:monospace; font-size:12px }
 .stat { display:inline-block; min-width:110px; padding:10px 14px; border:1px solid var(--line); border-radius:10px; margin:0 8px 8px 0; background:var(--surface) }
 .stat b { font-size:20px; display:block } .stat small { color:var(--muted) }
 main section { display:none } main section.on { display:block }
+body.locked .sidenav button[data-tab] { opacity:.35; cursor:default }
 </style>
 </head>
 <body>
 <div class="layout">
 <aside class="sidenav">
-  <div class="brand">DCGO 아레나</div>
+  <div class="brand">DigimonCardgame AI 아레나</div>
   <div class="group">참가자</div>
   <button data-tab="home" class="on">홈</button>
-  <button data-tab="connect">연결 / SDK</button>
+  <button data-tab="connect">연결 가이드</button>
   <button data-tab="deck">덱 관리</button>
   <button data-tab="history">대전 이력</button>
-  <button data-tab="room">룸 매치</button>
+  <!-- 룸 매치 탭: 비공개(사용자 결정 2026-08-01 — 백엔드는 유지, 노출만 보류) -->
   <div class="group">공개</div>
   <button data-tab="rank">순위표</button>
   <div class="foot" id="side-who"></div>
 </aside>
 <div class="content">
-<div class="topline"><h2 id="tabtitle">홈</h2><span id="who" style="color:var(--muted)"></span>
-  <button class="btn" style="margin-left:auto" onclick="logout()">키 변경</button></div>
+<div class="topline"><h2 id="tabtitle">로그인</h2><span id="who" style="color:var(--muted)"></span>
+  <button class="btn" id="logout-btn" style="margin-left:auto;display:none" onclick="logout()">키 변경</button></div>
 <main class="page">
 
-  <div class="card" id="login-card">
-    <b>API 키 로그인</b><br><br>
-    <input id="key-in" placeholder="API 키" style="width:min(320px,70vw)"> <button class="btn primary" onclick="login()">확인</button>
-    <div id="login-msg" class="bad"></div>
-    <div style="margin-top:8px;font-size:13px;color:#555">키가 없다면 <a href="/static/rankings.html">순위표 페이지</a>에서 참가 신청하세요.</div>
+  <div id="login-card">
+    <div class="card">
+      <b>API 키 로그인</b><br><br>
+      <input id="key-in" placeholder="API 키" style="width:min(320px,70vw)"> <button class="btn primary" onclick="login()">확인</button>
+      <div id="login-msg" class="bad"></div>
+    </div>
+    <div class="card">
+      <b>참가 신청</b> <small>(키가 없다면 여기서 — 신청 코드를 받고, 승인 후 그 코드로 API 키를 수령합니다)</small><br><br>
+      <input id="su-handle" placeholder="핸들(닉네임)" maxlength="40">
+      <button class="btn primary" onclick="signup()">신청</button>
+      <div id="su-msg" style="margin-top:8px;font-size:13.5px"></div>
+    </div>
+    <div class="card">
+      <b>API 키 수령</b> <small>(관리자 승인 완료 후, 신청 코드로 1회)</small><br><br>
+      <input id="cl-handle" placeholder="핸들" maxlength="40">
+      <input id="cl-claim" placeholder="신청 코드" style="width:180px">
+      <button class="btn primary" onclick="claim()">수령</button>
+      <div id="cl-msg" style="margin-top:8px;font-size:13.5px"></div>
+    </div>
   </div>
 
   <section id="home">
     <div class="card"><b>내 현황</b>
       <div style="margin-top:8px" id="home-stats"></div>
       <div id="home-state" style="font-size:13.5px"></div>
+      <div style="margin-top:8px;font-size:13px">API 키: <code id="my-key" style="display:inline-block;width:34ch;font-family:monospace">••••••••••••••••••••••••••••••••</code>
+        <button class="btn" style="padding:2px 10px;font-size:12px;min-width:5em" onclick="keyToggle(this)">보기</button>
+        <button class="btn" style="padding:2px 10px;font-size:12px;min-width:5em" onclick="keyCopy(this)">복사</button>
+        <small style="color:var(--muted)">— 분실 시 관리자에게 문의하면 확인·재발급이 가능합니다</small></div>
+      <div style="margin-top:6px;font-size:13px">API 카드명 언어:
+        <select id="lang-sel" onchange="setLang(this.value)" style="font-size:13px">
+          <option value="ko">한글 (기본)</option><option value="en">English</option>
+        </select>
+        <small style="color:var(--muted)">— SDK/스킬 상태 서술의 카드명이 이 언어로 나갑니다</small>
+        <span id="lang-msg" class="ok" style="font-size:12.5px"></span></div>
     </div>
     <div class="card"><b>최근 대전</b> <small>(클릭하면 판 뷰어로 — 전체는 대전 이력 탭)</small>
       <div id="home-history">불러오는 중…</div></div>
   </section>
 
   <section id="connect">
-    <div class="card"><b>퀵스타트</b> <small>— SDK 파일 하나 받아 코드 몇 줄로 참가</small>
-      <div style="font-size:13px">① SDK 받기·의존성:
-        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-dl', this)">복사</button></div>
-      <pre id="qs-dl" style="margin-top:6px"></pre>
-      <div style="font-size:13px">② 참가 스크립트 — <b>덱은 덱 관리 탭에서 먼저 등록하고 사용할 덱을 활성으로 지정</b>하세요(SDK는 덱에 관여하지 않음):
-        <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-code', this)">복사</button></div>
-      <pre id="qs-code" style="margin-top:6px"></pre>
-      <div style="font-size:12.5px;color:var(--muted)">서버가 활성 덱으로 참가시킵니다(활성 덱 없으면 no_deck 에러).
-        첫 큐잉은 하우스 봇과 <b>검증판</b>(비랭킹) — 완주하면 래더 진입, 이후 자동 매칭 연전.<br>
-        agent를 빼면 무작위 합법 수 · <code>da.agents.from_file("my_agent.py")</code>로 커스텀
-        (<code>def act(state_text, actions) -&gt; index</code>) · CLI도 지원: <code>python dcgo_arena.py daemon --config dcgo-arena.toml</code></div>
+    <div class="card"><b>클로드코드 스킬로 참가</b> <small>— Claude Code에서 <code>/digimonAiArena</code>로 (구독 과금, 모델 API 키 불필요)</small>
+      <button class="btn" style="float:right;padding:3px 10px;font-size:12px" onclick="qsCopy('qs-claude', this)">복사</button>
+      <pre id="qs-claude" style="margin-top:6px"></pre>
+      <div style="font-size:12.5px;color:var(--muted)">설치 후 Claude Code에서:
+        <code>/digimonAiArena Api &lt;API 키&gt;</code> → <code>/digimonAiArena Deck</code>(활성 덱 확인) →
+        <code>/digimonAiArena Plan &lt;전략&gt;</code> → <code>/digimonAiArena Play</code> — 세션의 AI가 직접 판을 둡니다.<br>
+        서드파티 구독 OAuth는 2026-04 차단 — 공식 에이전트 앱 안에서 스킬로 참가하는 이 방식이 유일한 구독 경로입니다.</div>
     </div>
   </section>
 
@@ -131,8 +152,9 @@ const H = () => ({'X-Arena-Key': KEY, 'Content-Type': 'application/json'});
 const api = (p, opt = {}) => fetch(p, {...opt, headers: H()}).then(r => r.json());
 
 // ── 탭 (관리자 대시보드와 동일 UX: localStorage 영속) ─────────────────────────
-const TITLES = {home: '홈', connect: '연결 / SDK', deck: '덱 관리', history: '대전 이력', room: '룸 매치', rank: '순위표'};
-document.querySelectorAll('.sidenav button[data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+const TITLES = {home: '홈', connect: '연결 가이드', deck: '덱 관리', history: '대전 이력', room: '룸 매치', rank: '순위표'};
+let AUTHED = false;   // 로그인 전 = 로그인 화면만(탭 잠금) — 로그인 카드가 탭마다 따라다니지 않게
+document.querySelectorAll('.sidenav button[data-tab]').forEach(b => b.onclick = () => { if (AUTHED) setTab(b.dataset.tab); });
 function setTab(tab) {
   document.querySelectorAll('.sidenav button, main section').forEach(x => x.classList.remove('on'));
   document.querySelector(`.sidenav button[data-tab="${tab}"]`).classList.add('on');
@@ -146,33 +168,66 @@ function setTab(tab) {
 }
 
 function logout() { localStorage.removeItem('arenaKey'); location.reload(); }
-function quickstartCode(server, key) {
-  return `import dcgo_arena as da
-
-da.play(
-    server="${server}",
-    key="${key}",
-    # 덱: 덱 관리 탭(웹)에서 등록·활성 지정 — 서버가 활성 덱을 자동 적용
-    # LLM으로 두려면 (생략 = 무작위 합법 수):
-    # agent=da.agents.OpenAICompat(base_url="http://localhost:11434/v1", model="llama3"),
-    daemon=True,   # 상주 — 검증판 통과 후 자동 매칭 연전. 1판만이면 games=1
-)`;
+let KEY_SHOWN = false;
+const KEY_MASK = '•'.repeat(32);   // 키(32자)와 같은 길이 — 토글 시 폭 고정
+function keyToggle(btn) {
+  KEY_SHOWN = !KEY_SHOWN;
+  $('my-key').textContent = KEY_SHOWN ? KEY : KEY_MASK;
+  btn.textContent = KEY_SHOWN ? '가리기' : '보기';
 }
-function qsCopy(id, btn) {
-  navigator.clipboard.writeText($(id).textContent).then(() => {
-    btn.textContent = '복사됨'; setTimeout(() => btn.textContent = '복사', 1500);
-  });
+function keyCopy(btn) { copyText(KEY, btn); }
+async function setLang(lang) {
+  const r = await api('/api/arena/lang', {method: 'POST', body: JSON.stringify({lang})});
+  $('lang-msg').textContent = r.ok ? '저장됨' : (r.error || '실패');
+  setTimeout(() => $('lang-msg').textContent = '', 1500);
 }
+async function signup() {
+  const r = await (await fetch('/api/arena/signup', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({handle: $('su-handle').value})})).json();
+  $('su-msg').innerHTML = r.error ? `<span class="bad">${r.error}</span>`
+    : r.key ? `<b>즉시 승인됨.</b> API 키(이번 1회만 표시): <code>${r.key}</code> — 위 로그인 칸에 넣어 시작하세요`
+    : `신청 완료(${r.handle}). <b>신청 코드(이번 1회만 표시): <code>${r.claim}</code></b><br>` +
+      `보관해 두세요 — 관리자 승인 후 아래 "API 키 수령"에서 이 코드로 키를 받습니다.`;
+}
+async function claim() {
+  const r = await (await fetch('/api/arena/claim', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({handle: $('cl-handle').value, claim: $('cl-claim').value})})).json();
+  if (r.error) { $('cl-msg').innerHTML = `<span class="bad">${r.error}</span>`; return; }
+  $('cl-msg').innerHTML = `<b>API 키(이번 1회만 표시): <code>${r.key}</code></b> — 바로 로그인합니다…`;
+  $('key-in').value = r.key;
+  login();
+}
+// http(비보안 컨텍스트)에선 navigator.clipboard가 없다 — execCommand 폴백(실측 2026-08-01)
+function copyText(text, btn) {
+  const done = ok => { btn.textContent = ok ? '복사됨' : '복사 실패'; setTimeout(() => btn.textContent = '복사', 1500); };
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { return document.execCommand('copy'); } finally { ta.remove(); }
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => done(true), () => done(fallback()));
+  } else {
+    done(fallback());
+  }
+}
+function qsCopy(id, btn) { copyText($(id).textContent, btn); }
 async function login() {
   KEY = $('key-in').value.trim() || KEY;
   const me = await api('/api/arena/me');
   if (me.error) { $('login-msg').textContent = '키가 유효하지 않습니다'; localStorage.removeItem('arenaKey'); return; }
   localStorage.setItem('arenaKey', KEY);
+  AUTHED = true;
+  document.body.classList.remove('locked');
   $('login-card').style.display = 'none';
   $('who').textContent = `${me.handle} · 레이팅 ${me.rating}±${me.rd} · ${me.games}판`;
   $('side-who').textContent = me.handle;
-  $('qs-dl').textContent = `curl -O ${location.origin}/static/dcgo_arena.py\npip install aiohttp`;
-  $('qs-code').textContent = quickstartCode(location.origin, KEY);
+  // 가이드에 실키를 박지 않는다(사용자 지적 2026-08-01) — 키는 홈 탭에서 확인/복사
+  $('qs-claude').textContent = `mkdir -p ~/.claude/skills/digimonAiArena
+curl -o ~/.claude/skills/digimonAiArena/SKILL.md ${location.origin}/static/digimonAiArena-SKILL.md
+# 이후 Claude Code에서: /digimonAiArena Api <API 키>`;
   $('qs-room-create').textContent = `import dcgo_arena as da
 da.play(server="${location.origin}", key="${KEY}", room="create")
 # 콘솔에 "방 코드: XXXXXX" 출력 — 상대 입장까지 대기
@@ -180,6 +235,7 @@ da.play(server="${location.origin}", key="${KEY}", room="create")
   $('qs-room-join').textContent = `import dcgo_arena as da
 da.play(server="${location.origin}", key="${KEY}", join="상대방코드")
 # CLI: python dcgo_arena.py play --server ${location.origin} --key <키> --join 상대방코드`;
+  $('logout-btn').style.display = '';
   const cardData = await api('/api/arena/cards');
   CARDS = cardData.cards || {}; POOL = cardData.pool || POOL; BAN = cardData.ban || BAN;
   renderPool(); renderBuild(); loadDecks();
@@ -191,6 +247,7 @@ async function loadHome() {
   const me = await api('/api/arena/me');
   if (me.error) return;
   $('who').textContent = `${me.handle} · 레이팅 ${me.rating}±${me.rd} · ${me.games}판`;
+  if (me.lang) $('lang-sel').value = me.lang;
   $('home-stats').innerHTML =
     `<span class="stat"><small>레이팅 (Glicko-2)</small><b>${me.rating} <small style="font-size:12px;color:var(--muted)">±${me.rd}</small></b></span>` +
     `<span class="stat"><small>판수</small><b>${me.games}</b></span>` +
@@ -207,13 +264,14 @@ async function loadHome() {
 
 // ── 이력 ──────────────────────────────────────────────────────────────────────
 function historyTable(rows) {
-  return rows.length ? '<div class="scroll-x"><table><tr><th>시각</th><th>상대</th><th>결과</th><th>Δ</th><th>사유</th></tr>' +
+  return rows.length ? '<div class="scroll-x"><table><tr><th>시각</th><th>내 좌석</th><th>상대</th><th>결과</th><th>Δ</th><th>사유</th></tr>' +
     rows.map(h => {
       const won = h.winner === h.mySeat;
       const draw = h.winner == null;
-      return `<tr style="cursor:pointer" onclick="location='/static/viewer.html?arena=${h.matchId}'">` +
-        `<td>${h.ts}</td><td>${h.opponent}</td><td class="${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</td>` +
-        `<td>${h.ratingDelta > 0 ? '+' : ''}${h.ratingDelta}</td><td>${h.reason}</td></tr>`;
+      return `<tr style="cursor:pointer" onclick="location='/static/viewer.html?arena=${h.matchId}&me=${h.mySeat}'">` +
+        `<td>${h.ts}</td><td><b>P${h.mySeat}</b></td><td>${h.opponent}${h.practice ? ' <span class="pill">연습</span>' : h.verification ? ' <span class="pill">검증</span>' : ''}</td>` +
+        `<td class="${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</td>` +
+        `<td>${h.verification || h.practice ? '-' : (h.ratingDelta > 0 ? '+' : '') + h.ratingDelta}</td><td>${h.reason}</td></tr>`;
     }).join('') + '</table></div>' : '대전 기록 없음';
 }
 async function loadHistory() {
@@ -267,13 +325,13 @@ function pairConflict(id) {
 function renderPool() {
   const q = ($('pool-q').value || '').toLowerCase();
   const rows = Object.entries(CARDS).filter(([id]) => inPool(id))
-    .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q))
+    .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q) || (c.nameKo || '').includes(q))
     .slice(0, 400)
     .map(([id, c]) => {
       const lim = banLimit(id);
       const mark = lim === 0 ? ' <b style="color:#c33">금지</b>' : lim !== null ? ` <b style="color:#b60">제한 ${lim}</b>` : '';
       return `<div class="poolrow" onclick="add('${id}')" oncontextmenu="event.preventDefault();sub('${id}')">` +
-        `${id} <b>${c.name}</b> <small>${c.type} · 최대 ${maxCount(id)}</small>${mark}</div>`;
+        `${id} <b>${c.nameKo || c.name}</b> <small>${c.type} · 최대 ${maxCount(id)}</small>${mark}</div>`;
     });
   $('builder-pool').innerHTML = rows.join('') || '풀이 비어 있음';
 }
@@ -294,7 +352,7 @@ function sub(id) {
 }
 function renderBuild() {
   const line = (s, label) => Object.entries(BUILD[s]).map(([id, n]) =>
-    `<div class="poolrow" onclick="add('${id}')" oncontextmenu="event.preventDefault();sub('${id}')">${label} ${id} ${(CARDS[id]||{}).name||''} ×${n}</div>`).join('');
+    `<div class="poolrow" onclick="add('${id}')" oncontextmenu="event.preventDefault();sub('${id}')">${label} ${id} ${(CARDS[id]||{}).nameKo||(CARDS[id]||{}).name||''} ×${n}</div>`).join('');
   $('build-list').innerHTML = line('main', '') + line('digitama', '🥚') || '<span style="color:#999">비어 있음</span>';
   const mainN = Object.values(BUILD.main).reduce((a, b) => a + b, 0);
   const eggN = Object.values(BUILD.digitama).reduce((a, b) => a + b, 0);
@@ -349,7 +407,7 @@ async function loadDecks() {
     decks.sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0)).map(d => {
       const m = d.cards.main.reduce((a, e) => a + e.count, 0), g = (d.cards.digitama || []).reduce((a, e) => a + e.count, 0);
       const detail = [...d.cards.main, ...(d.cards.digitama || [])]
-        .map(e => `${e.card}${(CARDS[e.card] || {}).name ? ' ' + CARDS[e.card].name : ''} ×${e.count}`).join('<br>');
+        .map(e => `${e.card}${(CARDS[e.card] || {}).name ? ' ' + ((CARDS[e.card] || {}).nameKo || CARDS[e.card].name) : ''} ×${e.count}`).join('<br>');
       return `<tr><td><details><summary style="cursor:pointer">${d.active ? '★ ' : ''}${d.name}</summary>
           <div style="font-size:12px;color:#555;max-height:160px;overflow:auto;margin-top:4px">${detail}</div></details></td>
         <td>${m}/${g}</td>
@@ -375,6 +433,7 @@ setInterval(() => {
   if (tab === 'room') loadRoom();
 }, 10000);
 
+document.body.classList.add('locked');
 if (KEY) login();
 </script>
 </body>

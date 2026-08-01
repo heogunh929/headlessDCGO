@@ -196,6 +196,9 @@ public sealed class RlMatchHost
                 kind = point.Kind.ToString(),
                 state = MatchRecorder.Snapshot(),
                 legal = DescribeLegal(point),
+                // 멀티 선택 인지(사용자 결함 보고 2026-08-01): 선택 창은 반복 구조인데
+                // 진행 정보가 없어 에이전트가 구조를 오해했다 — 지금까지 고른 수를 동봉.
+                selectedCount = point.SelectedCount,
             };
         }
         catch (Exception ex)

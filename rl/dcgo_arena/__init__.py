@@ -1,4 +1,4 @@
-"""dcgo-arena — DCGO 아레나 참가 SDK (설계 v1 §1, M5 + TextArena식 고수준 API).
+"""dcgo-arena — DigimonCardgame AI 아레나 참가 SDK (설계 v1 §1, M5 + TextArena식 고수준 API).
 
 빠른 시작 (TextArena 관례):
     import dcgo_arena as da

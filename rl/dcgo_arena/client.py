@@ -58,6 +58,8 @@ class ArenaClient:
                             if not room_code:
                                 raise ArenaError("join_room에는 room_code 필요")
                             await ws.send_json({"type": "join_room", "code": room_code})
+                        elif mode == "practice":
+                            await ws.send_json({"type": "practice"})   # 연습판 — 레이팅·이력 미반영
                         else:
                             await ws.send_json({"type": "enqueue"})
 
@@ -96,6 +98,10 @@ class ArenaClient:
 
     async def me(self) -> dict:
         return await self._api("GET", "/api/arena/me")
+
+    async def cards(self) -> dict:
+        """카드 사전(이름·한글명·종류·풀) — 상태 서술 한글 병기용."""
+        return await self._api("GET", "/api/arena/cards")
 
     async def decks(self) -> list:
         """등록 덱 조회(읽기 전용) — 생성·수정·활성 지정은 웹 참가자 페이지 전용(2026-07-31 확정)."""

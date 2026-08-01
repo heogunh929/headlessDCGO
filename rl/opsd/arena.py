@@ -33,9 +33,9 @@ def signup(handle: str) -> dict:
     auto = db.setting("auto_approve") == "1"
     key = secrets.token_urlsafe(24) if auto else None
     claim = None if auto else secrets.token_urlsafe(12)
-    c.execute("INSERT INTO participants(handle, key_hash, claim_hash, kind, status, created) VALUES(?,?,?,?,?,?)",
+    c.execute("INSERT INTO participants(handle, key_hash, claim_hash, kind, status, created, key_plain) VALUES(?,?,?,?,?,?,?)",
               (handle, key_hash(key) if key else None, key_hash(claim) if claim else None,
-               "llm", "active" if auto else "pending", db.now()))
+               "llm", "active" if auto else "pending", db.now(), key or ""))
     c.commit()
     if auto:
         return {"handle": handle, "status": "active", "key": key, "notice": "키는 이번 1회만 표시됩니다"}
@@ -68,9 +68,10 @@ def claim_key(handle: str, claim: str) -> dict:
     if row["key_hash"] is not None:
         return {"error": "이미 키가 발급되었습니다(재발급은 관리자 문의)"}
     key = secrets.token_urlsafe(24)
-    c.execute("UPDATE participants SET key_hash=? WHERE id=?", (key_hash(key), row["id"]))
+    c.execute("UPDATE participants SET key_hash=?, key_plain=? WHERE id=?", (key_hash(key), key, row["id"]))
     c.commit()
-    return {"handle": row["handle"], "key": key, "notice": "키는 이번 1회만 표시됩니다"}
+    return {"handle": row["handle"], "key": key,
+            "notice": "키를 보관하세요 — 분실 시 관리자 페이지에서도 확인 가능합니다"}
 
 
 def set_status(participant_id: int, status: str) -> dict:
@@ -95,8 +96,8 @@ def register_policy_participant(handle: str, policy_path: str = "") -> dict:
     if c.execute("SELECT 1 FROM participants WHERE handle=?", (handle,)).fetchone():
         return {"error": "이미 존재하는 handle"}
     key = secrets.token_urlsafe(24)
-    c.execute("INSERT INTO participants(handle, key_hash, kind, status, created, policy_path) VALUES(?,?,?,?,?,?)",
-              (handle, key_hash(key), "policy", "active", db.now(), policy_path))
+    c.execute("INSERT INTO participants(handle, key_hash, kind, status, created, policy_path, key_plain) VALUES(?,?,?,?,?,?,?)",
+              (handle, key_hash(key), "policy", "active", db.now(), policy_path, key))
     c.commit()
     return {"handle": handle, "key": key, "kind": "policy", "policyPath": policy_path}
 
@@ -318,6 +319,20 @@ def glicko2_update(rating: float, rd: float, vol: float,
     return GLICKO_BASE + GLICKO_SCALE * new_mu, GLICKO_SCALE * new_phi, new_vol
 
 
+def rekey(participant_id: int) -> dict:
+    """관리자 키 재발급(사용자 확정 2026-08-01: 관리자 키 열람) — 구키 즉시 무효.
+    평문 저장 전 참가자(key_plain 공란)의 키 확인 수단이기도 하다."""
+    c = db.conn()
+    row = c.execute("SELECT handle FROM participants WHERE id=?", (participant_id,)).fetchone()
+    if row is None:
+        return {"error": "없는 참가자"}
+    key = secrets.token_urlsafe(24)
+    c.execute("UPDATE participants SET key_hash=?, key_plain=? WHERE id=?",
+              (key_hash(key), key, participant_id))
+    c.commit()
+    return {"ok": True, "handle": row["handle"], "key": key}
+
+
 def delete_participant(participant_id: int, force: bool = False) -> dict:
     """참가자 완전 삭제(관리자, 사용자 지시 2026-08-01) — 대전 기록이 있으면 기본 거부(이력 조인 보전,
     상대방의 이력·판 로그 링크가 깨진다). force=True면 그 참가자가 낀 대전 기록까지 함께 삭제
@@ -347,7 +362,8 @@ def rating_row(participant: int, season: str):
 
 
 def record_match(match_id: str, p1: int, p2: int, deck1: dict, deck2: dict,
-                 winner: int | None, reason: str, log_run: str, log_path: str) -> dict:
+                 winner: int | None, reason: str, log_run: str, log_path: str,
+                 started_ts: str = "") -> dict:
     season = db.active_season()
     row1, row2 = rating_row(p1, season), rating_row(p2, season)
     score1 = 0.5 if winner is None else (1.0 if winner == 1 else 0.0)
@@ -360,11 +376,27 @@ def record_match(match_id: str, p1: int, p2: int, deck1: dict, deck2: dict,
         c.execute("UPDATE ratings SET rating=?, rd=?, vol=?, games=games+1 WHERE participant=? AND season=?",
                   (new[0], new[1], new[2], pid, season))
     c.execute("INSERT OR REPLACE INTO matches(id, season, p1, p2, deck1_json, deck2_json, winner, reason,"
-              " rating_delta_json, log_run, log_path, ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+              " rating_delta_json, log_run, log_path, ts, started_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
               (match_id, season, p1, p2, json.dumps(deck1, ensure_ascii=False), json.dumps(deck2, ensure_ascii=False),
-               winner, reason, json.dumps({"1": delta1, "2": delta2}), log_run, log_path, db.now()))
+               winner, reason, json.dumps({"1": delta1, "2": delta2}), log_run, log_path, db.now(), started_ts))
     c.commit()
     return {"1": delta1, "2": delta2}
+
+
+def record_verification(match_id: str, participant_id: int, deck: dict,
+                        winner: int | None, reason: str, log_run: str, log_path: str,
+                        practice: bool = False, started_ts: str = "") -> None:
+    """검증판/연습판 이력 기록(사용자 지시 2026-08-01) — 레이팅 무반영, [검증]/[연습] 배지 노출용.
+    양좌석 모두 본인(상대=하우스 봇 대행)이라 p1=p2, 델타 없음. 행이 있어야 본인 뷰어 접근이 된다."""
+    c = db.conn()
+    c.execute("INSERT OR REPLACE INTO matches(id, season, p1, p2, deck1_json, deck2_json, winner, reason,"
+              " rating_delta_json, log_run, log_path, ts, verification, practice, started_ts)"
+              " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+              (match_id, db.active_season(), participant_id, participant_id,
+               json.dumps(deck, ensure_ascii=False), json.dumps(deck, ensure_ascii=False),
+               winner, reason, "{}", log_run, log_path, db.now(),
+               0 if practice else 1, 1 if practice else 0, started_ts))
+    c.commit()
 
 
 def rankings() -> list[dict]:
@@ -388,7 +420,13 @@ def history_of(participant_id: int) -> list[dict]:
     for r in rows:
         my_seat = 1 if r["p1"] == participant_id else 2
         delta = json.loads(r["rating_delta_json"]).get(str(my_seat), 0)
-        out.append({"matchId": r["id"], "ts": r["ts"], "opponent": r["h2"] if my_seat == 1 else r["h1"],
+        verification = bool(r["verification"])
+        practice = bool(r["practice"])
+        out.append({"matchId": r["id"], "ts": r["ts"],
+                    "opponent": "하우스 봇(연습)" if practice
+                                else "하우스 봇(검증)" if verification
+                                else (r["h2"] if my_seat == 1 else r["h1"]),
                     "mySeat": my_seat, "winner": r["winner"], "reason": r["reason"],
-                    "ratingDelta": delta, "logRun": r["log_run"], "logPath": r["log_path"]})
+                    "ratingDelta": delta, "verification": verification, "practice": practice,
+                    "logRun": r["log_run"], "logPath": r["log_path"]})
     return out

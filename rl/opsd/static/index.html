@@ -44,12 +44,19 @@ label.check input[type=checkbox] { width:auto; margin:0 }
 /* 런 비교: 판로그 펼침이 표를 무한정 키우지 않게 — 목록은 내부 스크롤 */
 .matchlist { max-height:200px; overflow:auto; margin-top:4px; padding:4px 6px; border:1px solid var(--line); border-radius:8px; background:#f8f9fb; font-size:12px; white-space:normal }
 .matchlist div { padding:1px 0 }
+/* 현황 탭(2026-08-01): 스탯 박스 + 게이지 */
+.stat { display:inline-block; min-width:104px; padding:10px 14px; border:1px solid var(--line); border-radius:10px; margin:0 8px 8px 0; background:var(--surface); vertical-align:top }
+.stat b { font-size:20px; display:block } .stat small { color:var(--muted) }
+.gauge { height:8px; border-radius:4px; background:#e9edf3; overflow:hidden; margin-top:4px }
+.gauge i { display:block; height:100%; background:var(--accent) } .gauge i.warn { background:#e8590c }
 </style>
 </head>
 <body>
 <div class="layout">
 <aside class="sidenav">
   <div class="brand">DCGO RL 관리</div>
+  <div class="group">모니터링</div>
+  <button data-tab="status">현황</button>
   <div class="group">학습</div>
   <button data-tab="ops" class="on">운영</button>
   <button data-tab="league">리그 학습</button>
@@ -69,6 +76,28 @@ label.check input[type=checkbox] { width:auto; margin:0 }
 <div class="content">
 <div class="topline"><h2 id="tabtitle">운영</h2><span id="badge"></span></div>
 <main class="page">
+<section id="status">
+  <div class="card" id="st-alerts-card" style="display:none"><b class="bad">⚠ 알림</b>
+    <div style="margin-top:6px" id="st-alerts"></div>
+  </div>
+  <div class="card"><b>아레나</b> <span id="st-season" style="color:var(--muted);font-size:13px"></span>
+    <div style="margin-top:8px" id="st-arena"></div>
+    <div id="st-active" style="margin-top:4px"></div>
+  </div>
+  <div class="card"><b>최근 대전</b>
+    <div style="margin-top:6px" id="st-feed">없음</div>
+  </div>
+  <div class="card"><b>학습 (runner)</b>
+    <div style="margin-top:8px" id="st-runner"></div>
+  </div>
+  <div class="card"><b>PC 자원</b>
+    <div style="margin-top:8px" id="st-system"></div>
+  </div>
+  <div class="card" style="font-size:13px"><b>버전·가동</b>
+    <div style="margin-top:6px" id="st-versions"></div>
+  </div>
+  <div style="color:var(--muted);font-size:12px">10초마다 자동 갱신</div>
+</section>
 <section id="ops" class="on">
   <div class="card">
     <b>학습 기동</b>
@@ -210,6 +239,11 @@ label.check input[type=checkbox] { width:auto; margin:0 }
     <label style="vertical-align:top">금지 페어 <textarea id="ar-ban-pairs" rows="2" style="width:340px;font-family:var(--mono,monospace);font-size:12.5px"
       placeholder="BT20-037 = BT17-035, EX8-037   ← 좌우 카드 공존 불가"></textarea></label><br>
     <button class="act" onclick="arenaSaveSettings()">저장</button> <span id="ar-set-msg"></span>
+    <div style="margin-top:10px"><b style="font-size:13px">데스크탑 앱 exe 배포</b>
+      <small>(윈도우에서 <a href="/static/build_app.bat" download>build_app.bat</a>로 빌드한 DCGOArenaApp.exe 업로드 → 참가자 페이지에 다운로드 노출)</small><br>
+      <input type="file" id="ar-exe" accept=".exe" style="font-size:12.5px">
+      <button class="act" onclick="arenaUploadExe()">업로드</button> <span id="ar-exe-msg" style="font-size:12.5px"></span>
+    </div>
   </div>
   <div class="card"><b>RL 정책 참가자 등록</b> <small>(스냅샷 참가자 게이트 — 요구 §6.6.5)</small><br>
     <label>핸들 <input id="ar-policy-handle" placeholder="l0-main-5"></label>
@@ -439,7 +473,7 @@ const api = (p, opt = {}) => fetch(p, {...opt, headers: H()}).then(r => {
 });
 
 const TAB_INIT = {'pg-rankings': () => rkLoad(), 'pg-portal': () => apAuto(), 'decks': () => dkInit(),
-                  'policies': () => poLoad()};
+                  'policies': () => poLoad(), 'status': () => statusLoad()};
 
 // ---------- 정책 관리 탭 ----------
 let PO = null;
@@ -580,17 +614,17 @@ async function dkDelete(file) {
 function dkRenderPool() {
   const q = ($('dk-q').value || '').toLowerCase();
   $('dk-pool').innerHTML = Object.entries(dkMeta)
-    .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q))
+    .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q) || (c.nameKo || '').includes(q))
     .slice(0, 300)
     .map(([id, c]) => `<div style="cursor:pointer;padding:2px 5px" onclick="dkAdd('${id}')" oncontextmenu="event.preventDefault();dkSub('${id}')">` +
-      `${id} <b>${c.name}</b> <small>${c.type} · 최대 ${c.maxCount ?? 4}</small></div>`).join('') || '검색 결과 없음';
+      `${id} <b>${c.nameKo || c.name}</b> <small>${c.type} · 최대 ${c.maxCount ?? 4}</small></div>`).join('') || '검색 결과 없음';
 }
 const dkSection = id => (dkMeta[id] || {}).type === 'DigiEgg' ? 'digitama' : 'main';
 function dkAdd(id) { const s = dkBuild[dkSection(id)]; s[id] = (s[id] || 0) + 1; dkRenderBuild(); }
 function dkSub(id) { const s = dkBuild[dkSection(id)]; if (s[id]) { s[id]--; if (!s[id]) delete s[id]; } dkRenderBuild(); }
 function dkRenderBuild() {
   const line = (s, mark) => Object.entries(dkBuild[s]).map(([id, n]) =>
-    `<div style="cursor:pointer;padding:2px 5px" onclick="dkAdd('${id}')" oncontextmenu="event.preventDefault();dkSub('${id}')">${mark} ${id} ${(dkMeta[id]||{}).name||''} ×${n}</div>`).join('');
+    `<div style="cursor:pointer;padding:2px 5px" onclick="dkAdd('${id}')" oncontextmenu="event.preventDefault();dkSub('${id}')">${mark} ${id} ${(dkMeta[id]||{}).nameKo||(dkMeta[id]||{}).name||''} ×${n}</div>`).join('');
   $('dk-build').innerHTML = line('main', '') + line('digitama', '🥚') || '<span style="color:var(--muted)">비어 있음</span>';
   const m = Object.values(dkBuild.main).reduce((a, b) => a + b, 0);
   const g = Object.values(dkBuild.digitama).reduce((a, b) => a + b, 0);
@@ -721,13 +755,13 @@ function apPairConflict(id) {
 function apRenderPool() {
   const q = ($('ap-poolq').value || '').toLowerCase();
   $('ap-pool').innerHTML = Object.entries(apCards).filter(([id]) => apInPool(id))
-    .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q))
+    .filter(([id, c]) => !q || id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q) || (c.nameKo || '').includes(q))
     .slice(0, 400)
     .map(([id, c]) => {
       const lim = apBanLimit(id);
       const mark = lim === 0 ? ' <b style="color:#c33">금지</b>' : lim !== null ? ` <b style="color:#b60">제한 ${lim}</b>` : '';
       return `<div style="cursor:pointer;padding:2px 5px" onclick="apAdd('${id}')" oncontextmenu="event.preventDefault();apSub('${id}')">` +
-        `${id} <b>${c.name}</b> <small>${c.type} · 최대 ${apMaxCount(id)}</small>${mark}</div>`;
+        `${id} <b>${c.nameKo || c.name}</b> <small>${c.type} · 최대 ${apMaxCount(id)}</small>${mark}</div>`;
     }).join('') || '풀이 비어 있음';
 }
 const apSection = id => (apCards[id] || {}).type === 'DigiEgg' ? 'digitama' : 'main';
@@ -806,12 +840,12 @@ async function apDeckDelete(id) {
 }
 async function apLoadHistory() {
   const rows = await apApi('/api/arena/history');
-  $('ap-history').innerHTML = rows.length ? '<div class="scroll-x"><table><tr><th>시각</th><th>상대</th><th>결과</th><th>Δ</th><th>사유</th></tr>' +
+  $('ap-history').innerHTML = rows.length ? '<div class="scroll-x"><table><tr><th>시각</th><th>내 좌석</th><th>상대</th><th>결과</th><th>Δ</th><th>사유</th></tr>' +
     rows.map(h => {
       const won = h.winner === h.mySeat, draw = h.winner == null;
-      return `<tr style="cursor:pointer" onclick="window.open('/static/viewer.html?arena=${h.matchId}')">` +
-        `<td>${h.ts}</td><td>${h.opponent}</td><td><span class="pill ${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</span></td>` +
-        `<td>${h.ratingDelta > 0 ? '+' : ''}${h.ratingDelta}</td><td>${h.reason}</td></tr>`;
+      return `<tr style="cursor:pointer" onclick="window.open('/static/viewer.html?arena=${h.matchId}&me=${h.mySeat}')">` +
+        `<td>${h.ts}</td><td><b>P${h.mySeat}</b></td><td>${h.opponent}${h.practice ? ' <span class="pill">연습</span>' : h.verification ? ' <span class="pill">검증</span>' : ''}</td><td><span class="pill ${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</span></td>` +
+        `<td>${h.verification || h.practice ? '-' : (h.ratingDelta > 0 ? '+' : '') + h.ratingDelta}</td><td>${h.reason}</td></tr>`;
     }).join('') + '</table></div>' : '대전 기록 없음';
 }
 
@@ -957,8 +991,13 @@ async function pollAlerts() {
 async function arenaLoad() {
   const o = await api('/api/arena/admin/overview');
   const spill = s => s === 'active' ? 'ok' : s === 'pending' ? 'warn' : 'bad';
-  $('ar-participants').innerHTML = '<div class="scroll-x"><table><tr><th>ID</th><th>핸들</th><th>종류</th><th>상태</th><th>레이팅</th><th>판수</th><th>대전수</th><th>가입</th><th>결속 정책</th><th></th></tr>'
-    + o.participants.map(p => `<tr><td>${p.id}</td><td><b>${p.handle}</b></td><td>${p.kind}</td><td><span class="pill ${spill(p.status)}">${p.status}</span></td><td>${p.games ? `${p.rating} <small style="color:var(--muted)">±${p.rd}</small>` : ''}</td><td>${p.games}</td><td>${p.matches}</td><td>${p.created}</td><td style="font-size:11.5px">${p.policy_path ? `<code>${p.policy_path}</code>` : ''}</td><td>`
+  $('ar-participants').innerHTML = '<div class="scroll-x"><table><tr><th>ID</th><th>핸들</th><th>종류</th><th>상태</th><th>API 키</th><th>레이팅</th><th>판수</th><th>대전수</th><th>가입</th><th>결속 정책</th><th></th></tr>'
+    + o.participants.map(p => `<tr><td>${p.id}</td><td><b>${p.handle}</b></td><td>${p.kind}</td><td><span class="pill ${spill(p.status)}">${p.status}</span></td>`
+      + `<td style="font-size:11.5px">${p.key_plain
+          ? `<code id="pk-${p.id}" style="display:inline-block;width:34ch;font-family:monospace">${KEY_MASK}</code> <button class="act" style="padding:1px 7px;font-size:11px;min-width:4.5em" onclick="arenaKeyToggle(${p.id}, '${p.key_plain}', this)">보기</button>`
+          : '<span style="color:var(--muted)">미발급/구계정</span>'}`
+      + ` <button class="act" style="padding:1px 7px;font-size:11px" onclick="arenaRekey(${p.id}, '${p.handle}')">재발급</button></td>`
+      + `<td>${p.games ? `${p.rating} <small style="color:var(--muted)">±${p.rd}</small>` : ''}</td><td>${p.games}</td><td>${p.matches}</td><td>${p.created}</td><td style="font-size:11.5px">${p.policy_path ? `<code>${p.policy_path}</code>` : ''}</td><td>`
       + (p.status === 'pending' ? `<button class="act primary" onclick="arenaApprove(${p.id})">승인</button>` : '')
       + (p.status === 'active' ? `<button class="act" onclick="arenaStatus(${p.id},'banned')">차단</button>` : '')
       + (p.status === 'banned' ? `<button class="act" onclick="arenaStatus(${p.id},'active')">복구</button>` : '')
@@ -975,7 +1014,7 @@ async function arenaLoad() {
   const banCfg = JSON.parse(o.settings.ban_list || '{}');
   $('ar-ban-restrict').value = (banCfg.restrictions || []).map(r => `${r.id} ${r.limit}`).join('\n');
   $('ar-ban-pairs').value = (banCfg.banned_pairs || []).map(p => `${p.id} = ${p.pairs.join(', ')}`).join('\n');
-  $('ar-stats').textContent = `시즌 ${o.season} · 누적 대전 ${o.matches}판`;
+  $('ar-stats').textContent = `시즌 ${o.season} · 누적 대전 ${o.matches}판 · 오늘 ${o.matchesToday}판 — 실시간 지표는 현황 탭`;
 }
 const arenaAdmin = (action, body) => api('/api/arena/admin/' + action, {method: 'POST', body: JSON.stringify(body)});
 async function arenaApprove(id) {
@@ -984,6 +1023,89 @@ async function arenaApprove(id) {
   arenaLoad();
 }
 async function arenaStatus(id, status) { await arenaAdmin('status', {id, status}); arenaLoad(); }
+const KEY_MASK = '•'.repeat(32);   // 키(32자)와 같은 길이 + 고정폭 — 토글 시 폭이 안 흔들리게
+function arenaKeyToggle(id, key, btn) {
+  const el = $('pk-' + id), shown = el.textContent !== KEY_MASK;
+  el.textContent = shown ? KEY_MASK : key;
+  btn.textContent = shown ? '보기' : '가리기';
+}
+async function arenaRekey(id, handle) {
+  if (!confirm(`"${handle}"의 API 키를 재발급합니까? 기존 키는 즉시 무효화됩니다.`)) return;
+  const r = await arenaAdmin('rekey', {id});
+  $('ar-key-once').textContent = r.error || `재발급됨: ${r.handle} → ${r.key}`;
+  arenaLoad();
+}
+// ---------- 현황 탭(사용자 지시 2026-08-01: 전용 탭 분리) ----------
+async function statusLoad() {
+  const o = await api('/api/arena/admin/overview');
+  const lv = o.live || {}, sy = o.system || {}, sc = lv.statusCounts || {}, rj = o.runnerJobs || {};
+  $('st-season').textContent = `시즌 ${o.season}`;
+  const stat = (label, value, cls) => `<span class="stat"><small>${label}</small><b class="${cls || ''}">${value}</b></span>`;
+  $('st-arena').innerHTML =
+    stat('접속 중', lv.connected ?? '?') + stat('큐 대기', lv.queued ?? '?') +
+    stat('활성 대전', lv.activeMatches ?? '?', lv.activeMatches ? 'ok' : '') +
+    stat('열린 방', lv.openRooms ?? '?') +
+    stat('오늘 대전', o.matchesToday) + stat('누적 대전', o.matches) +
+    stat('참가자', `${sc.active || 0} <small style="font-size:12px">활성</small>`) +
+    stat('대기/차단', `${sc.pending || 0} / ${sc.banned || 0}`);
+  const memPct = sy.memTotalMB ? Math.round(100 * sy.memUsedMB / sy.memTotalMB) : 0;
+  const diskPct = sy.diskTotalGB ? Math.round(100 * (sy.diskTotalGB - sy.diskFreeGB) / sy.diskTotalGB) : 0;
+  const loadPct = sy.cpus ? Math.min(100, Math.round(100 * (sy.load || [0])[0] / sy.cpus)) : 0;
+  const gauge = (pct, warnAt) => `<div class="gauge"><i class="${pct >= warnAt ? 'warn' : ''}" style="width:${pct}%"></i></div>`;
+  $('st-system').innerHTML =
+    `<div style="max-width:520px;font-size:13.5px">
+      CPU 부하 ${(sy.load || []).map(x => x.toFixed(2)).join(' / ')} <small style="color:var(--muted)">(1/5/15분 · 코어 ${sy.cpus})</small>${gauge(loadPct, 85)}
+      <div style="margin-top:8px">램 ${((sy.memUsedMB || 0) / 1024).toFixed(1)} / ${((sy.memTotalMB || 0) / 1024).toFixed(1)} GB (${memPct}%)</div>${gauge(memPct, 85)}
+      <div style="margin-top:8px">디스크 사용 ${diskPct}% <small style="color:var(--muted)">(여유 ${sy.diskFreeGB} / ${sy.diskTotalGB} GB)</small></div>${gauge(diskPct, 90)}
+    </div>`;
+  // 알림 카드 — 있을 때만 노출
+  const al = o.alerts || {};
+  $('st-alerts-card').style.display = al.count ? '' : 'none';
+  $('st-alerts').innerHTML = (al.recent || []).map(a =>
+    `<div style="font-size:13px">${a.ts} · <b>${a.metric}</b> ${a.value} &gt; ${a.limit} (${a.job}) — ${a.action}</div>`).join('')
+    + (al.count > 3 ? `<small style="color:var(--muted)">외 ${al.count - 3}건</small>` : '');
+  // 활성 대전 목록 — 스톨 감지(경과가 큰데 스텝이 안 오르면 의심)
+  const fmtDur = s => s >= 60 ? `${Math.floor(s / 60)}분 ${s % 60}초` : `${s}초`;
+  $('st-active').innerHTML = (lv.activeList || []).length
+    ? '<div class="scroll-x"><table><tr><th>매치</th><th>대전</th><th>경과</th><th>스텝</th></tr>' +
+      lv.activeList.map(m => `<tr><td><code>${m.id}</code>${m.practice ? ' <span class="pill">연습</span>' : m.verification ? ' <span class="pill">검증</span>' : ''}</td>` +
+        `<td>${m.p1} vs ${m.p2}</td><td>${fmtDur(m.elapsedSec)}</td><td>${m.step}</td></tr>`).join('') + '</table></div>'
+    : '';
+  // 최근 대전 피드 — 플레이 시작·종료 시각(사용자 요구 2026-08-01)
+  const hm = t => t ? t.slice(11, 19) : '?';
+  $('st-feed').innerHTML = (o.feed || []).length
+    ? '<div class="scroll-x"><table><tr><th>시작 → 종료</th><th>대전</th><th>결과</th><th>사유</th><th></th></tr>' +
+      o.feed.map(f => {
+        const badge = f.practice ? ' <span class="pill">연습</span>' : f.verification ? ' <span class="pill">검증</span>' : '';
+        const res = f.winner == null ? '무' : `P${f.winner} 승`;
+        return `<tr><td>${hm(f.started_ts)} → ${hm(f.ts)} <small style="color:var(--muted)">(${f.ts.slice(5, 10)})</small></td>` +
+          `<td>${f.h1} vs ${f.h2}${badge}</td><td>${res}</td><td>${f.reason}</td>` +
+          `<td>${f.log_run ? `<a href="/static/viewer.html?run=${encodeURIComponent(f.log_run)}&match=${f.id}.jsonl.gz" target="_blank">뷰어</a>` : ''}</td></tr>`;
+      }).join('') + '</table></div>'
+    : '아직 없음';
+  // 학습 상세 — 잡별 진행·RSS(OOM 감시)
+  $('st-runner').innerHTML = rj.alive == null
+    ? '<span class="bad">runner 연결 안 됨</span>'
+    : stat('실행 중 잡', rj.alive, rj.alive ? 'ok' : '') + stat('큐 대기 잡', rj.queued) +
+      ((rj.detail || []).length
+        ? '<div class="scroll-x"><table><tr><th>잡</th><th>종류</th><th>스텝</th><th>판수</th><th>RSS</th></tr>' +
+          rj.detail.map(j => `<tr><td>${j.name}</td><td>${j.script}</td><td>${j.steps ?? ''}</td><td>${j.matches ?? ''}</td>` +
+            `<td class="${j.rssMb > 10000 ? 'bad' : ''}">${j.rssMb ? (j.rssMb / 1024).toFixed(1) + 'GB' : ''}</td></tr>`).join('') + '</table></div>'
+        : '');
+  // 버전·가동·품질
+  const v = o.versions || {}, q = o.quality || {};
+  const up = t => t ? `${Math.floor((Date.now() / 1000 - t) / 3600)}시간 ${Math.floor(((Date.now() / 1000 - t) % 3600) / 60)}분` : '?';
+  $('st-versions').innerHTML =
+    `엔진 <code>${v.engineSha || '?'}</code> · 액션 스키마 lanes-v3-asis · 판로그 누적 <b>${sy.runsSizeGB ?? '?'}GB</b><br>` +
+    `가동: opsd ${up(v.opsdStarted)} · runner ${v.runnerStarted ? up(v.runnerStarted) : '<span class="bad">연결 안 됨</span>'}<br>` +
+    `오늘 품질: ${q.today || 0}판 · 타임아웃 ${q.timeouts || 0}건${q.today ? ` (${Math.round(100 * q.timeouts / q.today)}%)` : ''}` +
+    (q.avgSec ? ` · 평균 판 길이 ${fmtDur(q.avgSec)}` : '');
+}
+// 열려 있는 탭 10초 자동 갱신
+setInterval(() => {
+  if (document.querySelector('#arena.on')) arenaLoad();
+  if (document.querySelector('#status.on')) statusLoad();
+}, 10000);
 async function arenaDelete(id, handle, matches) {
   // 완전 삭제 — 대전 기록 있으면 2차 확인 후 강제(기록까지 삭제, 상대 이력에서도 사라짐)
   if (!confirm(`참가자 "${handle}"를 완전 삭제합니까? (키·덱·레이팅 제거, 되돌릴 수 없음)`)) return;
@@ -1016,6 +1138,14 @@ async function arenaSaveSettings() {
   const disabled = (r.disabled || 0) + (r2.disabled || 0), restored = (r.restored || 0) + (r2.restored || 0);
   $('ar-set-msg').textContent = '저장됨' + (disabled ? ` (풀/금지 변경으로 덱 ${disabled}개 비활성)` : '')
     + (restored ? ` (덱 ${restored}개 복원)` : '');
+}
+async function arenaUploadExe() {
+  const f = $('ar-exe').files[0];
+  if (!f) { $('ar-exe-msg').textContent = '파일을 선택하세요'; return; }
+  $('ar-exe-msg').textContent = `업로드 중… (${(f.size / 1048576).toFixed(1)}MB)`;
+  const r = await fetch('/api/arena/admin/upload-app', {method: 'POST',
+    headers: {'X-Ops-Token': TOKEN}, body: f}).then(x => x.json()).catch(e => ({error: String(e)}));
+  $('ar-exe-msg').textContent = r.error ? '실패: ' + r.error : `배포됨 (${(r.size / 1048576).toFixed(1)}MB) — 참가자 페이지에 노출`;
 }
 async function arenaRegisterPolicy() {
   const r = await arenaAdmin('register-policy', {handle: $('ar-policy-handle').value});

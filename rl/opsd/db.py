@@ -96,6 +96,23 @@ def conn() -> sqlite3.Connection:
         if "verified" not in cols:
             c.execute("ALTER TABLE participants ADD COLUMN verified INTEGER NOT NULL DEFAULT 0")
             c.execute("UPDATE participants SET verified=1 WHERE kind='policy'")
+        # 키 평문 보관(사용자 확정 2026-08-01: "관리자도 키를 볼 수 있게 — 개인정보 없음"):
+        # 인증은 여전히 해시 경로, 평문은 관리자 표시·재안내용. 외부 공개 시 재검토 대상.
+        if "key_plain" not in cols:
+            c.execute("ALTER TABLE participants ADD COLUMN key_plain TEXT NOT NULL DEFAULT ''")
+        # 카드명 언어(사용자 확정 2026-08-01): API 응답·상태 서술의 카드명을 ko/en으로 — 기본 한글
+        if "lang" not in cols:
+            c.execute("ALTER TABLE participants ADD COLUMN lang TEXT NOT NULL DEFAULT 'ko'")
+        # 검증판 이력 노출(사용자 지시 2026-08-01): 검증 에피소드도 이력에 [검증] 배지로 보이게
+        mcols = [r["name"] for r in c.execute("PRAGMA table_info(matches)")]
+        if "verification" not in mcols:
+            c.execute("ALTER TABLE matches ADD COLUMN verification INTEGER NOT NULL DEFAULT 0")
+        # 연습판(botPlay)도 이력·뷰어 접근 가능하게(사용자 지시 2026-08-01) — 레이팅만 무반영
+        if "practice" not in mcols:
+            c.execute("ALTER TABLE matches ADD COLUMN practice INTEGER NOT NULL DEFAULT 0")
+        # 플레이 시작 시각(현황 탭 피드 2026-08-01) — ts(종료)와 함께 판 길이 산출
+        if "started_ts" not in mcols:
+            c.execute("ALTER TABLE matches ADD COLUMN started_ts TEXT NOT NULL DEFAULT ''")
         # 마이그레이션: Elo → Glicko-2(사용자 확정 2026-08-01). 구(elo) 테이블은 재생성 —
         # 기존 행은 기준 평행이동(1000→1500, +500)에 RD 350(불확실성 재시작)으로 이관.
         rcols = [r["name"] for r in c.execute("PRAGMA table_info(ratings)")]

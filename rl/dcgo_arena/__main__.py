@@ -17,12 +17,16 @@ from dcgo_arena.config import build_agent, load_config
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="dcgo-arena")
-    parser.add_argument("mode", choices=["play", "daemon"], nargs="?", default="play")
+    parser.add_argument("mode", choices=["play", "daemon", "seat"], nargs="?", default="play")
+    parser.add_argument("--dir", default=".dcgo-seat", help="seat 모드 파일 브리지 디렉터리")
     parser.add_argument("--config", default=None, help="dcgo-arena.toml 경로")
     parser.add_argument("--server", default=None)
     parser.add_argument("--key", default=None)
     parser.add_argument("--create-room", action="store_true")
     parser.add_argument("--join", default=None)
+    parser.add_argument("--practice", action="store_true", help="연습판(하우스 봇, 레이팅·이력 미반영)")
+    parser.add_argument("--lang", choices=["ko", "en"], default=None,
+                        help="카드명 언어(생략 시 서버 계정 설정)")
     parser.add_argument("--games", type=int, default=1, help="play 모드 래더 연전 판수")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--quiet", action="store_true")
@@ -61,6 +65,16 @@ async def run() -> None:
         elif kind == "your_turn":
             print(f"  s{msg['stepIndex']} {msg.get('kind')} — 합법 {len(msg.get('legalActions') or [])}수")
 
+    if args.mode == "seat":
+        # 파일 브리지(스킬 경로): 세션 AI가 turn.json/answer.json으로 직접 착수.
+        # --practice = 상대가 하우스 봇(자동)인 연습판 — botPlay(2026-08-01 재정의)
+        from dcgo_arena.seatbridge import run_seat
+        seat_mode = ("create_room" if args.create_room else "join_room" if args.join
+                     else "practice" if args.practice else "ladder")
+        await run_seat(server, key, args.dir, mode=seat_mode, join=args.join, seed=seed,
+                       lang=args.lang)
+        return
+
     if args.mode == "daemon":
         backoff = 3
         while True:
@@ -75,13 +89,15 @@ async def run() -> None:
                 backoff = min(backoff * 2, 60)
         return
 
-    mode = "create_room" if args.create_room else "join_room" if args.join else "ladder"
+    mode = ("create_room" if args.create_room else "join_room" if args.join
+            else "practice" if args.practice else "ladder")
     for _ in range(args.games):
         result = await client.play(agent, mode=mode, room_code=args.join,
                                    on_event=on_event)
         print(f"종료: winner={result.get('winnerSeat')} reason={result.get('reason')}"
-              f" Δ={result.get('ratingDelta')}")
-        if mode != "ladder":
+              f" Δ={result.get('ratingDelta')}"
+              + (" [연습 — 미반영]" if result.get("practice") else ""))
+        if mode not in ("ladder", "practice"):
             break
 
 

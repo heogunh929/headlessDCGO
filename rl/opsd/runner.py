@@ -45,6 +45,7 @@ SCRIPTS = {
 DEFAULT_CONFIG = {"worker_cap": 6, "arena_cap": 2,
                   "notes": "worker_cap: rl-workers-six 규약 + OOM 이력(2026-07-29) 기준값 / arena_cap: 동시 아레나 판 상한(설계 R-b)"}
 
+_STARTED = time.time()        # 가동 시각(현황 탭 2026-08-01)
 _jobs: dict[str, dict] = {}   # job_id -> {proc, script, args, out, log, started}
 _arena: dict[str, "ArenaMatch"] = {}   # matchId -> 진행 중 아레나 판 (릴레이 §3.1 /arena/match)
 _queue: list[dict] = []       # 순차 잡 큐(덱별 정책 배치 등) — 슬롯이 비면 스케줄러가 하나씩 기동
@@ -93,6 +94,14 @@ def cards_meta() -> dict:
                           for k in range(0, len(colors_hex), 8)
                           if int(colors_hex[k:k+2], 16) < len(CARD_COLORS)]
                 base[cid]["colors"] = [c for c in colors if c != "None"]
+        # 한글 카드명(사용자 확정 2026-08-01: 기본 표시 한글, 영문 폴백) — 크롤 DB에서 추출한
+        # rl/data/card_names_ko.json (커버리지 ~78%, 현행 풀은 대부분 커버)
+        ko_path = RL_DIR / "data" / "card_names_ko.json"
+        if ko_path.exists():
+            names_ko = json.loads(ko_path.read_text(encoding="utf-8"))
+            for cid, name_ko in names_ko.items():
+                if cid in base:
+                    base[cid]["nameKo"] = name_ko
         _cards_meta = base
     return _cards_meta
 
@@ -521,7 +530,8 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
         try:
             if path == "/health":
-                return self._send(200, {"ok": True, "worker_cap": config().get("worker_cap")})
+                return self._send(200, {"ok": True, "worker_cap": config().get("worker_cap"),
+                                        "engineSha": engine_sha()[:12], "started": _STARTED})
             if path == "/config":
                 return self._send(200, config())
             if path == "/cards":
