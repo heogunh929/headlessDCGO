@@ -10,7 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import secrets
+from pathlib import Path
+
+#: 핸들 허용 문자(보안 정리 2026-08-01) — 공개 순위표 렌더 대상이라 마크업 문자 차단
+HANDLE_OK = re.compile(r"[\w가-힣ㄱ-ㅎㅏ-ㅣ .\-]+", re.UNICODE)
 
 from . import db
 
@@ -27,6 +32,10 @@ def signup(handle: str) -> dict:
     handle = handle.strip()
     if not handle or len(handle) > 40:
         return {"error": "handle은 1~40자"}
+    # 저장형 XSS 차단(보안 정리 2026-08-01): 핸들은 공개 순위표에 그대로 렌더된다 —
+    # 관리자 브라우저에서 스크립트가 돌면 운영 토큰(localStorage)이 나간다.
+    if not HANDLE_OK.fullmatch(handle):
+        return {"error": "handle은 한글·영문·숫자와 - _ . 공백만 가능"}
     c = db.conn()
     if c.execute("SELECT 1 FROM participants WHERE handle=?", (handle,)).fetchone():
         return {"error": "이미 존재하는 handle"}
@@ -90,16 +99,68 @@ def auth(key: str | None):
         "SELECT * FROM participants WHERE key_hash=? AND status='active'", (key_hash(key),)).fetchone()
 
 
-def register_policy_participant(handle: str, policy_path: str = "") -> dict:
-    """RL 스냅샷 참가자 등록 게이트(요구 §6.6.5) — kind=policy, 키 발급, 정책 경로 결속."""
+def _recipe_to_deck(deck_recipe: str) -> dict:
+    """rl/decks 레시피(언더스코어 카드번호) → 아레나 덱 JSON(대시) — 풀 검증 우회(운영자 산물)."""
+    recipe_path = Path(__file__).resolve().parent.parent / "decks" / deck_recipe
+    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    return {"name": recipe.get("name") or deck_recipe.replace(".json", ""),
+            "main": [{"card": e["card"].replace("_", "-"), "count": e["count"]} for e in recipe["main"]],
+            "digitama": [{"card": e["card"].replace("_", "-"), "count": e["count"]}
+                         for e in recipe.get("digitama", [])]}
+
+
+def replace_policy_deck(participant_id: int, deck_recipe: str) -> dict:
+    """상시 봇 덱 교체(관리자, 2026-08-01) — 기존 덱 비활성 후 레시피 덱을 활성으로."""
+    c = db.conn()
+    row = c.execute("SELECT handle FROM participants WHERE id=? AND kind='policy'", (participant_id,)).fetchone()
+    if row is None:
+        return {"error": "policy 참가자가 아님"}
+    try:
+        deck = _recipe_to_deck(deck_recipe)
+    except (OSError, json.JSONDecodeError, KeyError) as ex:
+        return {"error": f"레시피 로드 실패: {ex}"}
+    c.execute("UPDATE decks SET active=0 WHERE owner=?", (participant_id,))
+    c.execute("INSERT INTO decks(owner, name, cards_json, active, enabled, disabled_reason, created)"
+              " VALUES(?,?,?,1,1,'',?)",
+              (participant_id, deck["name"], json.dumps(deck, ensure_ascii=False), db.now()))
+    c.commit()
+    return {"ok": True, "deck": deck["name"]}
+
+
+def reset_rating(participant_id: int) -> dict:
+    """레이팅 초기화(관리자) — 현 시즌 행을 Glicko 시작값으로. 봇 교체·시즌 정리용."""
+    c = db.conn()
+    c.execute("UPDATE ratings SET rating=1500, rd=350, vol=0.06, games=0 WHERE participant=? AND season=?",
+              (participant_id, db.active_season()))
+    c.commit()
+    return {"ok": True}
+
+
+def register_policy_participant(handle: str, policy_path: str = "", deck_recipe: str = "") -> dict:
+    """RL 스냅샷 참가자 등록 게이트(요구 §6.6.5) — kind=policy, 키 발급, 정책 경로 결속.
+    deck_recipe(rl/decks/*.json 파일명)를 주면 그 레시피를 활성 덱으로 자동 등록 —
+    상시 봇(2026-08-01)의 학습 덱은 풀 검증을 우회한다(운영자 산물, 정책과 짝)."""
     c = db.conn()
     if c.execute("SELECT 1 FROM participants WHERE handle=?", (handle,)).fetchone():
         return {"error": "이미 존재하는 handle"}
     key = secrets.token_urlsafe(24)
     c.execute("INSERT INTO participants(handle, key_hash, kind, status, created, policy_path, key_plain) VALUES(?,?,?,?,?,?,?)",
               (handle, key_hash(key), "policy", "active", db.now(), policy_path, key))
+    pid = c.execute("SELECT id FROM participants WHERE handle=?", (handle,)).fetchone()["id"]
+    deck_name = None
+    if deck_recipe:
+        try:
+            deck = _recipe_to_deck(deck_recipe)
+            c.execute("INSERT INTO decks(owner, name, cards_json, active, enabled, disabled_reason, created)"
+                      " VALUES(?,?,?,1,1,'',?)",
+                      (pid, deck["name"], json.dumps(deck, ensure_ascii=False), db.now()))
+            deck_name = deck["name"]
+        except (OSError, json.JSONDecodeError, KeyError) as ex:
+            c.commit()
+            return {"handle": handle, "key": key, "kind": "policy", "policyPath": policy_path,
+                    "warning": f"덱 레시피 등록 실패({ex}) — 덱 없이 등록됨"}
     c.commit()
-    return {"handle": handle, "key": key, "kind": "policy", "policyPath": policy_path}
+    return {"handle": handle, "key": key, "kind": "policy", "policyPath": policy_path, "deck": deck_name}
 
 
 # ---------- 덱 (검증 = AS-IS 규칙 전사 + 풀 필터) ----------

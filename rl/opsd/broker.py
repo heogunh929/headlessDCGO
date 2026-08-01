@@ -43,6 +43,8 @@ class Broker:
         self.token = token
         self.connections: dict[int, web.WebSocketResponse] = {}   # participant id -> ws
         self.queue: list[int] = []                                # 래더 큐 (participant id)
+        self.queue_since: dict[int, float] = {}                   # 큐 진입 시각 — 봇 백필 판정
+        self._policy_cache: dict = {}                             # policy_path -> 로드된 모델
         self.rooms: dict[str, dict] = {}                          # 방 코드 -> {pid, deck} (룸 매치)
         self.matches: dict[str, Match] = {}                       # matchId -> Match
         self.by_participant: dict[int, str] = {}                  # participant id -> matchId
@@ -52,7 +54,9 @@ class Broker:
     # ---------- ws 수명 ----------
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
-        participant = arena.auth(request.query.get("key") or request.headers.get("X-Arena-Key"))
+        # 키 인증은 HTTP와 같은 실패 제한을 통과시킨다(보안 정리 2026-08-01: ws가 우회로였다)
+        from .server import arena_participant
+        participant = arena_participant(request)
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
         if participant is None:
@@ -95,6 +99,7 @@ class Broker:
                 del self.connections[pid]
                 if pid in self.queue:
                     self.queue.remove(pid)
+                self.queue_since.pop(pid, None)
                 for code, room in list(self.rooms.items()):
                     if room["pid"] == pid:
                         del self.rooms[code]    # 방 주인 이탈 = 방 소멸
@@ -107,6 +112,9 @@ class Broker:
         if kind == "enqueue":
             if pid in self.by_participant:
                 return await ws.send_json({"type": "error", "code": "busy", "message": "이미 대전 중"})
+            if self._at_capacity():
+                return await ws.send_json({"type": "error", "code": "busy",
+                                           "message": "서버 동시 대전 상한 — 잠시 후 다시 시도"})
             deck = self._active_deck(pid)   # 덱 선택은 웹 전용(2026-07-31 확정) — 항상 활성 덱
             if deck is None:
                 return await ws.send_json({"type": "error", "code": "no_deck", "message": "활성 덱 없음 — 먼저 덱을 등록/지정"})
@@ -119,6 +127,7 @@ class Broker:
                 return
             if pid not in self.queue:
                 self.queue.append(pid)
+                self.queue_since[pid] = time.time()
             await ws.send_json({"type": "queued", "position": self.queue.index(pid) + 1})
             await self._matchmake()
 
@@ -126,6 +135,9 @@ class Broker:
             # 연습판(botPlay 2026-08-01): 하우스 봇과 즉시 1판 — 레이팅·이력 완전 미반영
             if pid in self.by_participant:
                 return await ws.send_json({"type": "error", "code": "busy", "message": "이미 대전 중"})
+            if self._at_capacity():
+                return await ws.send_json({"type": "error", "code": "busy",
+                                           "message": "서버 동시 대전 상한 — 잠시 후 다시 시도"})
             deck = self._active_deck(pid)
             if deck is None:
                 return await ws.send_json({"type": "error", "code": "no_deck", "message": "활성 덱 없음 — 먼저 덱을 등록/지정"})
@@ -138,6 +150,9 @@ class Broker:
             # 상대가 join_room으로 들어오면 즉시 성립.
             if pid in self.by_participant:
                 return await ws.send_json({"type": "error", "code": "busy", "message": "이미 대전 중"})
+            if self._at_capacity():
+                return await ws.send_json({"type": "error", "code": "busy",
+                                           "message": "서버 동시 대전 상한 — 잠시 후 다시 시도"})
             deck = self._active_deck(pid)   # 덱 선택은 웹 전용(2026-07-31 확정) — 항상 활성 덱
             if deck is None:
                 return await ws.send_json({"type": "error", "code": "no_deck", "message": "활성 덱 없음"})
@@ -230,20 +245,122 @@ class Broker:
             await asyncio.sleep(10)
             try:
                 await self._matchmake()
+                await self._bot_backfill()
             except Exception:
                 pass
 
     # ---------- 매치 성립·진행 ----------
 
+    def _at_capacity(self) -> bool:
+        """동시 대전 상한(보안 정리 2026-08-01) — 판 1개 = 엔진 프로세스 1개, OOM 방어선."""
+        try:
+            cap = int(db.setting("max_concurrent_matches"))
+        except (TypeError, ValueError):
+            cap = 6
+        return cap > 0 and len(self.matches) >= cap
+
     async def _matchmake(self) -> None:
         while len(self.queue) >= 2:
+            if self._at_capacity():
+                return   # 큐는 유지 — 다음 펌프(10초)에서 재시도
             pid1, pid2 = self.queue[0], self.queue[1]
             row = lambda pid: db.conn().execute("SELECT * FROM participants WHERE id=?", (pid,)).fetchone()
             deck1, deck2 = self._active_deck(pid1), self._active_deck(pid2)
             self.queue = self.queue[2:]
+            self.queue_since.pop(pid1, None)
+            self.queue_since.pop(pid2, None)
             if deck1 is None or deck2 is None:
                 continue
             await self._start_match(row(pid1), row(pid2), deck1, deck2)
+
+    async def _bot_backfill(self) -> None:
+        """상시 RL 봇(사용자 확정 2026-08-01): 매칭 우선도 최하위 — 사람끼리 짝이 안 잡히고
+        bot_wait_sec 이상 기다린 참가자에게만 붙는다. 봇 = policy 참가자(정책 결속+활성 덱) 첫 행,
+        동시 1판. bot_wait_sec 0 = 비활성."""
+        try:
+            wait = float(db.setting("bot_wait_sec"))
+        except (TypeError, ValueError):
+            wait = 60.0
+        if wait <= 0 or not self.queue or self._at_capacity():
+            return
+        bot = db.conn().execute(
+            "SELECT * FROM participants WHERE kind='policy' AND status='active' AND policy_path != ''"
+            " ORDER BY id LIMIT 1").fetchone()
+        if bot is None or bot["id"] in self.by_participant:
+            return
+        bot_deck = self._active_deck(bot["id"])
+        if bot_deck is None:
+            return
+        now = time.time()
+        for pid in list(self.queue):
+            if now - self.queue_since.get(pid, now) < wait:
+                continue
+            row = db.conn().execute("SELECT * FROM participants WHERE id=?", (pid,)).fetchone()
+            deck = self._active_deck(pid)
+            self.queue.remove(pid)
+            self.queue_since.pop(pid, None)
+            if row is None or deck is None:
+                continue
+            await self._start_bot_match(row, deck, bot, bot_deck)
+            return   # 봇은 동시에 1판만
+
+    def _policy_index(self, match, msg: dict, legal: list[int]) -> int:
+        """상시 봇 착수 — MaskablePPO 추론(지연 로드·캐시), 실패는 무작위 폴백(판 보전 우선).
+        관측 = 호스트 벡터 + 좌석 원핫 2(DcgoSeatEnv._observation과 동일 구성)."""
+        try:
+            path = _resolve_policy(match.house_policy_path)
+            if path is None:
+                raise FileNotFoundError(match.house_policy_path)
+            model = self._policy_cache.get(str(path))
+            if model is None:
+                from sb3_contrib import MaskablePPO
+                model = MaskablePPO.load(str(path), device="cpu")
+                self._policy_cache[str(path)] = model
+                print(f"[bot] 정책 로드: {path}", flush=True)
+            import numpy as np
+            seat_onehot = np.zeros(2, dtype=np.float32)
+            seat_onehot[match.house_seat - 1] = 1.0
+            obs = np.concatenate([np.asarray(msg["observation"], dtype=np.float32), seat_onehot])
+            mask = np.asarray(msg["actionMask"], dtype=bool)
+            # 리그 PolicyOpponent와 동일하게 샘플링(deterministic=False) — 결정론 추론은
+            # 루프성 플레이로 step_cap 무승부를 만들었다(실측 2026-08-01 첫 백필 판)
+            action, _ = model.predict(obs, action_masks=mask, deterministic=False)
+            index = int(action)
+            if index in legal:
+                return index
+        except Exception as ex:
+            print(f"[bot] 정책 추론 실패({type(ex).__name__}: {ex}) — 무작위 폴백", flush=True)
+        return random.choice(legal)
+
+    async def _start_bot_match(self, human, deck: dict, bot, bot_deck: dict) -> None:
+        """봇 백필 랭킹전 — 좌석 2 = 봇(브로커가 정책 추론 대행, ws 없음). 종료 처리는 일반
+        랭킹전 경로(record_match) 그대로."""
+        self._seq += 1
+        match_id = f"am-{time.strftime('%Y%m%d%H%M%S')}-{self._seq}"
+        match = Match(match_id, {1: Seat(human, deck), 2: Seat(bot, bot_deck)}, house_seat=2)
+        match.house_policy_path = bot["policy_path"]
+
+        async with ClientSession() as session:
+            async with session.post(f"{self.runner_url}/arena/match",
+                                    headers={"X-Ops-Token": self.token},
+                                    json={"matchId": match_id, "seed": random.randrange(1, 2 ** 30),
+                                          "decks": {"1": deck, "2": bot_deck}, "maxSteps": 2000}) as response:
+                body = await response.json()
+                if response.status != 201:
+                    if ws := self.connections.get(human["id"]):
+                        await ws.send_json({"type": "error", "code": "engine", "message": str(body)})
+                    return
+        match.log_run, match.log_path = body.get("run", ""), body.get("log", "")
+        self.matches[match_id] = match
+        self.by_participant[human["id"]] = match_id
+        self.by_participant[bot["id"]] = match_id
+        bot_rating = arena.rating_row(bot["id"], db.active_season())["rating"]
+        if ws := self.connections.get(human["id"]):
+            await ws.send_json({"type": "match_start", "matchId": match_id, "seat": 1,
+                                "yourDeck": deck,
+                                "opponent": {"handle": bot["handle"], "rating": round(bot_rating)},
+                                "notice": "대기 시간 초과 — 상시 봇과 랭킹전"})
+        asyncio.create_task(self._drive(match))
 
     async def _start_match(self, p1, p2, deck1: dict, deck2: dict) -> None:
         self._seq += 1
@@ -312,11 +429,14 @@ class Broker:
 
                     seat_no = int(msg["seat"])
                     if seat_no == match.house_seat:
-                        # 하우스 봇 좌석(검증 에피소드): 브로커가 무작위 합법 수를 대행 — ws 없음.
+                        # 하우스 봇 좌석: 브로커가 대행 — ws 없음. 검증/연습 = 무작위,
+                        # 상시 봇(house_policy_path) = RL 정책 추론(2026-08-01).
                         legal = [i for i, v in enumerate(msg.get("actionMask") or []) if v == 1]
+                        index = (self._policy_index(match, msg, legal)
+                                 if getattr(match, "house_policy_path", "") else random.choice(legal))
                         async with session.post(f"{self.runner_url}/arena/match/{match.id}/act",
                                                 headers=headers,
-                                                json={"seat": seat_no, "index": random.choice(legal)}) as response:
+                                                json={"seat": seat_no, "index": index}) as response:
                             await response.json()
                         continue
                     seat = match.seats[seat_no]
@@ -468,6 +588,18 @@ class Broker:
         for seat in match.seats.values():
             if self.by_participant.get(seat.participant["id"]) == match.id:
                 del self.by_participant[seat.participant["id"]]
+
+
+_REPO = __import__("pathlib").Path(__file__).resolve().parents[2]
+
+
+def _resolve_policy(path: str):
+    """policy_path 해석 — 절대/저장소 상대/runs 상대 순으로 시도."""
+    from pathlib import Path
+    for candidate in (Path(path), _REPO / path, _REPO / "runs" / path):
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _iso(epoch: float) -> str:

@@ -228,7 +228,9 @@ label.check input[type=checkbox] { width:auto; margin:0 }
     <label><input type="checkbox" id="ar-auto"> 가입 자동 승인</label>
     <label>착수 제한 <input id="ar-timeout" type="number" style="width:60px">초</label>
     <label>끊김 유예 <input id="ar-grace" type="number" style="width:60px">초</label>
-    <label>키당 덱 상한 <input id="ar-decklimit" type="number" style="width:50px"></label><br>
+    <label>키당 덱 상한 <input id="ar-decklimit" type="number" style="width:50px"></label>
+    <label>봇 대기(초) <input id="ar-botwait" type="number" style="width:60px" title="이 시간 이상 큐 대기 시 상시 봇을 붙임 (0=비활성)"></label>
+    <label>동시 대전 상한 <input id="ar-maxmatch" type="number" style="width:50px" title="판 1개 = 엔진 프로세스 1개 (0=무제한)"></label><br>
     <div style="margin-top:6px"><b style="font-size:13px">카드 풀</b> <small>(쉼표/공백/줄바꿈 구분)</small></div>
     <label>세트 단위 허용 <input id="ar-pool" style="width:260px" placeholder="ST1, ST2, ST3"></label><br>
     <label>개별 카드 허용 <input id="ar-pool-cards" style="width:340px" placeholder="P-157, LM-025 (세트 밖 번호 단위 허용)"></label><br>
@@ -239,15 +241,16 @@ label.check input[type=checkbox] { width:auto; margin:0 }
     <label style="vertical-align:top">금지 페어 <textarea id="ar-ban-pairs" rows="2" style="width:340px;font-family:var(--mono,monospace);font-size:12.5px"
       placeholder="BT20-037 = BT17-035, EX8-037   ← 좌우 카드 공존 불가"></textarea></label><br>
     <button class="act" onclick="arenaSaveSettings()">저장</button> <span id="ar-set-msg"></span>
-    <div style="margin-top:10px"><b style="font-size:13px">데스크탑 앱 exe 배포</b>
-      <small>(윈도우에서 <a href="/static/build_app.bat" download>build_app.bat</a>로 빌드한 DCGOArenaApp.exe 업로드 → 참가자 페이지에 다운로드 노출)</small><br>
-      <input type="file" id="ar-exe" accept=".exe" style="font-size:12.5px">
-      <button class="act" onclick="arenaUploadExe()">업로드</button> <span id="ar-exe-msg" style="font-size:12.5px"></span>
-    </div>
   </div>
-  <div class="card"><b>RL 정책 참가자 등록</b> <small>(스냅샷 참가자 게이트 — 요구 §6.6.5)</small><br>
-    <label>핸들 <input id="ar-policy-handle" placeholder="l0-main-5"></label>
+  <div class="card"><b>상시 봇</b> <small>— 큐 대기가 "봇 대기(초)"를 넘긴 참가자에게 붙는 백필 봇(우선도 최하위, 동시 1판)</small>
+    <div id="ar-bot" style="margin-top:6px">불러오는 중…</div>
+  </div>
+  <div class="card"><b>RL 정책 참가자 등록</b> <small>(스냅샷 참가자 게이트 — 상시 봇은 정책 경로+덱 레시피까지 주면 완성)</small><br>
+    <label>핸들 <input id="ar-policy-handle" placeholder="house-bot"></label>
+    <label>정책 경로 <input id="ar-policy-path" placeholder="league-Bt1_4/c5-Purple_Metalgaruru/round-3/policy.zip" style="width:340px"></label>
+    <label>덱 레시피 <input id="ar-policy-deck" placeholder="Purple_Metalgaruru.json" style="width:200px"></label>
     <button class="act" onclick="arenaRegisterPolicy()">등록(키 발급)</button>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px">상시 봇: 정책 결속 + 활성 덱을 가진 policy 참가자 중 첫 번째가 백필 봇이 됩니다. 대기 임계는 아래 "봇 대기" 설정.</div>
   </div>
   <div class="card"><b>현황</b> <span id="ar-stats"></span></div>
 </section>
@@ -464,6 +467,7 @@ label.check input[type=checkbox] { width:auto; margin:0 }
 </div>
 <script>
 const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let TOKEN = localStorage.getItem('opsToken') || '';
 if (!TOKEN) { TOKEN = prompt('운영자 토큰'); localStorage.setItem('opsToken', TOKEN || ''); }
 const H = () => ({'X-Ops-Token': TOKEN, 'Content-Type': 'application/json'});
@@ -697,7 +701,7 @@ async function rkLoad() {
   $('rk-season').textContent = `시즌 ${r.season}`;
   $('rk-board').innerHTML = '<tr><th>순위</th><th>핸들</th><th>레이팅 ±RD</th><th>판수</th></tr>' +
     (r.rows.length ? r.rows.map(x =>
-      `<tr><td><b>${x.rank}</b></td><td>${x.handle}${x.kind === 'policy' ? ' <span class="pill">하우스 봇</span>' : ''}</td>` +
+      `<tr><td><b>${x.rank}</b></td><td>${esc(x.handle)}${x.kind === 'policy' ? ' <span class="pill">하우스 봇</span>' : ''}</td>` +
       `<td>${x.rating} <small style="color:var(--muted)">±${x.rd}</small></td><td>${x.games}</td></tr>`).join('')
       : '<tr><td colspan="4" style="color:var(--muted)">아직 대전 기록이 없습니다</td></tr>');
 }
@@ -844,7 +848,7 @@ async function apLoadHistory() {
     rows.map(h => {
       const won = h.winner === h.mySeat, draw = h.winner == null;
       return `<tr style="cursor:pointer" onclick="window.open('/static/viewer.html?arena=${h.matchId}&me=${h.mySeat}')">` +
-        `<td>${h.ts}</td><td><b>P${h.mySeat}</b></td><td>${h.opponent}${h.practice ? ' <span class="pill">연습</span>' : h.verification ? ' <span class="pill">검증</span>' : ''}</td><td><span class="pill ${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</span></td>` +
+        `<td>${h.ts}</td><td><b>P${h.mySeat}</b></td><td>${esc(h.opponent)}${h.practice ? ' <span class="pill">연습</span>' : h.verification ? ' <span class="pill">검증</span>' : ''}</td><td><span class="pill ${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</span></td>` +
         `<td>${h.verification || h.practice ? '-' : (h.ratingDelta > 0 ? '+' : '') + h.ratingDelta}</td><td>${h.reason}</td></tr>`;
     }).join('') + '</table></div>' : '대전 기록 없음';
 }
@@ -992,7 +996,7 @@ async function arenaLoad() {
   const o = await api('/api/arena/admin/overview');
   const spill = s => s === 'active' ? 'ok' : s === 'pending' ? 'warn' : 'bad';
   $('ar-participants').innerHTML = '<div class="scroll-x"><table><tr><th>ID</th><th>핸들</th><th>종류</th><th>상태</th><th>API 키</th><th>레이팅</th><th>판수</th><th>대전수</th><th>가입</th><th>결속 정책</th><th></th></tr>'
-    + o.participants.map(p => `<tr><td>${p.id}</td><td><b>${p.handle}</b></td><td>${p.kind}</td><td><span class="pill ${spill(p.status)}">${p.status}</span></td>`
+    + o.participants.map(p => `<tr><td>${p.id}</td><td><b>${esc(p.handle)}</b></td><td>${p.kind}</td><td><span class="pill ${spill(p.status)}">${p.status}</span></td>`
       + `<td style="font-size:11.5px">${p.key_plain
           ? `<code id="pk-${p.id}" style="display:inline-block;width:34ch;font-family:monospace">${KEY_MASK}</code> <button class="act" style="padding:1px 7px;font-size:11px;min-width:4.5em" onclick="arenaKeyToggle(${p.id}, '${p.key_plain}', this)">보기</button>`
           : '<span style="color:var(--muted)">미발급/구계정</span>'}`
@@ -1007,6 +1011,8 @@ async function arenaLoad() {
   $('ar-timeout').value = o.settings.move_timeout_sec;
   $('ar-grace').value = o.settings.disconnect_grace_sec;
   $('ar-decklimit').value = o.settings.deck_limit_per_key;
+  $('ar-botwait').value = o.settings.bot_wait_sec ?? 60;
+  $('ar-maxmatch').value = o.settings.max_concurrent_matches ?? 6;
   const poolCfg = JSON.parse(o.settings.card_pool);
   $('ar-pool').value = (poolCfg.sets || []).join(', ');
   $('ar-pool-cards').value = (poolCfg.cards || []).join(', ');
@@ -1015,6 +1021,25 @@ async function arenaLoad() {
   $('ar-ban-restrict').value = (banCfg.restrictions || []).map(r => `${r.id} ${r.limit}`).join('\n');
   $('ar-ban-pairs').value = (banCfg.banned_pairs || []).map(p => `${p.id} = ${p.pairs.join(', ')}`).join('\n');
   $('ar-stats').textContent = `시즌 ${o.season} · 누적 대전 ${o.matches}판 · 오늘 ${o.matchesToday}판 — 실시간 지표는 현황 탭`;
+  // 상시 봇 카드(사용자 요구 2026-08-01): 첫 policy 참가자(정책 결속) = 백필 봇
+  const bots = o.participants.filter(p => p.kind === 'policy' && p.policy_path);
+  const bot = bots[0];
+  $('ar-bot').innerHTML = !bot
+    ? '<span style="color:var(--muted)">등록된 봇 없음 — 아래 "RL 정책 참가자 등록"에 정책 경로+덱 레시피로 등록하세요</span>'
+    : `<b>${bot.handle}</b> <span class="pill ${spill(bot.status)}">${bot.status}</span>
+       <span class="pill ${bot.status === 'active' ? 'ok' : ''}">${bot.status === 'active' ? '백필 활성' : '백필 정지'}</span>
+       레이팅 ${bot.games ? `${bot.rating} ±${bot.rd}` : '1500 ±350'} · ${bot.games}판 · 덱 <b>${bot.activeDeck || '<span class="bad">없음(백필 불가)</span>'}</b><br>
+       <div style="margin-top:6px;font-size:13px">
+         정책 <input id="bot-path" value="${bot.policy_path}" style="width:360px;font-size:12px">
+         <button class="act" onclick="botBindPolicy(${bot.id})">교체</button>
+         · 덱 레시피 <input id="bot-deck" placeholder="Purple_Metalgaruru.json" style="width:180px;font-size:12px">
+         <button class="act" onclick="botDeck(${bot.id})">교체</button><br>
+         <button class="act" style="margin-top:4px" onclick="arenaStatus(${bot.id}, '${bot.status === 'active' ? 'banned' : 'active'}')">${bot.status === 'active' ? '봇 정지' : '봇 재개'}</button>
+         <button class="act" onclick="botResetRating(${bot.id}, '${bot.handle}')">레이팅 리셋</button>
+         <span style="color:var(--muted);font-size:12px">대기 임계는 아래 설정 "봇 대기(초)" (0=비활성)</span>
+         <span id="bot-msg" class="ok" style="font-size:12.5px"></span>
+       </div>`
+       + (bots.length > 1 ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">대기 봇: ${bots.slice(1).map(b => b.handle).join(', ')} (첫 번째만 백필에 사용)</div>` : '');
 }
 const arenaAdmin = (action, body) => api('/api/arena/admin/' + action, {method: 'POST', body: JSON.stringify(body)});
 async function arenaApprove(id) {
@@ -1043,7 +1068,8 @@ async function statusLoad() {
   const stat = (label, value, cls) => `<span class="stat"><small>${label}</small><b class="${cls || ''}">${value}</b></span>`;
   $('st-arena').innerHTML =
     stat('접속 중', lv.connected ?? '?') + stat('큐 대기', lv.queued ?? '?') +
-    stat('활성 대전', lv.activeMatches ?? '?', lv.activeMatches ? 'ok' : '') +
+    stat('활성 대전', `${lv.activeMatches ?? '?'}<small style="font-size:12px;color:var(--muted)">/${o.settings?.max_concurrent_matches ?? '?'}</small>`,
+         lv.activeMatches ? 'ok' : '') +
     stat('열린 방', lv.openRooms ?? '?') +
     stat('오늘 대전', o.matchesToday) + stat('누적 대전', o.matches) +
     stat('참가자', `${sc.active || 0} <small style="font-size:12px">활성</small>`) +
@@ -1121,6 +1147,8 @@ async function arenaSaveSettings() {
   await arenaAdmin('setting', {key: 'move_timeout_sec', value: $('ar-timeout').value});
   await arenaAdmin('setting', {key: 'disconnect_grace_sec', value: $('ar-grace').value});
   await arenaAdmin('setting', {key: 'deck_limit_per_key', value: $('ar-decklimit').value});
+  await arenaAdmin('setting', {key: 'bot_wait_sec', value: $('ar-botwait').value});
+  await arenaAdmin('setting', {key: 'max_concurrent_matches', value: $('ar-maxmatch').value});
   const tokens = id => $(id).value.split(/[\s,]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
   const r = await arenaAdmin('setting', {key: 'card_pool',
     value: JSON.stringify({sets: tokens('ar-pool'), cards: tokens('ar-pool-cards'), excluded: tokens('ar-pool-ex')})});
@@ -1139,17 +1167,12 @@ async function arenaSaveSettings() {
   $('ar-set-msg').textContent = '저장됨' + (disabled ? ` (풀/금지 변경으로 덱 ${disabled}개 비활성)` : '')
     + (restored ? ` (덱 ${restored}개 복원)` : '');
 }
-async function arenaUploadExe() {
-  const f = $('ar-exe').files[0];
-  if (!f) { $('ar-exe-msg').textContent = '파일을 선택하세요'; return; }
-  $('ar-exe-msg').textContent = `업로드 중… (${(f.size / 1048576).toFixed(1)}MB)`;
-  const r = await fetch('/api/arena/admin/upload-app', {method: 'POST',
-    headers: {'X-Ops-Token': TOKEN}, body: f}).then(x => x.json()).catch(e => ({error: String(e)}));
-  $('ar-exe-msg').textContent = r.error ? '실패: ' + r.error : `배포됨 (${(r.size / 1048576).toFixed(1)}MB) — 참가자 페이지에 노출`;
-}
 async function arenaRegisterPolicy() {
-  const r = await arenaAdmin('register-policy', {handle: $('ar-policy-handle').value});
-  $('ar-key-once').textContent = r.key ? `${r.handle}(policy)의 API 키(1회 표시): ${r.key}` : (r.error || '');
+  const r = await arenaAdmin('register-policy', {handle: $('ar-policy-handle').value,
+    policyPath: $('ar-policy-path').value, deckRecipe: $('ar-policy-deck').value});
+  $('ar-key-once').textContent = r.key
+    ? `${r.handle}(policy) 등록${r.deck ? ` · 덱 "${r.deck}" 활성` : ''}${r.warning ? ` · ${r.warning}` : ''}`
+    : (r.error || '');
   arenaLoad();
 }
 

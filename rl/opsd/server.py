@@ -151,8 +151,22 @@ async def cards_meta(app: web.Application) -> dict:
     return _cards_meta_cache
 
 
+_key_fails: dict[str, list[float]] = {}   # 키 인증 실패 IP 기록(보안 정리 2026-08-01)
+
+
 def arena_participant(request: web.Request):
-    return arena.auth(request.headers.get("X-Arena-Key") or request.query.get("key"))
+    """API 키 인증 + 실패 IP 제한 — 무차별 대입 시도를 분당 20회로 묶는다."""
+    ip = request.remote or "?"
+    fails = [t for t in _key_fails.get(ip, []) if t > time.time() - 60]
+    if len(fails) >= 20:
+        _key_fails[ip] = fails
+        return None
+    p = arena.auth(request.headers.get("X-Arena-Key") or request.query.get("key"))
+    if p is None:
+        _key_fails[ip] = fails + [time.time()]
+    elif ip in _key_fails:
+        del _key_fails[ip]
+    return p
 
 
 async def signup(request: web.Request) -> web.Response:
@@ -298,7 +312,8 @@ async def arena_admin(request: web.Request) -> web.Response:
             "SELECT p.id, p.handle, p.kind, p.status, p.created, p.policy_path, p.key_plain,"
             " ROUND(COALESCE(r.rating, 0)) AS rating, ROUND(COALESCE(r.rd, 0)) AS rd,"
             " COALESCE(r.games, 0) AS games,"
-            " (SELECT COUNT(*) FROM matches m WHERE m.p1=p.id OR m.p2=p.id) AS matches"
+            " (SELECT COUNT(*) FROM matches m WHERE m.p1=p.id OR m.p2=p.id) AS matches,"
+            " (SELECT name FROM decks d WHERE d.owner=p.id AND d.active=1 AND d.enabled=1 LIMIT 1) AS activeDeck"
             " FROM participants p LEFT JOIN ratings r ON r.participant=p.id AND r.season=?"
             " ORDER BY p.id", (db.active_season(),)).fetchall()
         # 실시간 현황(사용자 지시 2026-08-01): 접속/큐/대전/방 + PC 자원 + runner 잡 — 관리자 관측 확장
@@ -374,7 +389,8 @@ async def arena_admin(request: web.Request) -> web.Response:
         return web.json_response({
             "participants": [dict(r) for r in rows],
             "settings": {k: db.setting(k) for k in
-                         ("auto_approve", "card_pool", "ban_list", "move_timeout_sec", "disconnect_grace_sec", "deck_limit_per_key")},
+                         ("auto_approve", "card_pool", "ban_list", "move_timeout_sec", "disconnect_grace_sec",
+                          "deck_limit_per_key", "bot_wait_sec", "max_concurrent_matches")},
             "season": db.active_season(),
             "matches": db.conn().execute("SELECT COUNT(*) AS n FROM matches").fetchone()["n"],
             "matchesToday": db.conn().execute("SELECT COUNT(*) AS n FROM matches WHERE ts LIKE ?",
@@ -406,6 +422,10 @@ async def arena_admin(request: web.Request) -> web.Response:
         return web.json_response(arena.delete_participant(int(data["id"]), force=bool(data.get("force"))))
     if action == "rekey":
         return web.json_response(arena.rekey(int(data["id"])))
+    if action == "bot-deck":
+        return web.json_response(arena.replace_policy_deck(int(data["id"]), str(data.get("deckRecipe", ""))))
+    if action == "reset-rating":
+        return web.json_response(arena.reset_rating(int(data["id"])))
     if action == "setting":
         db.set_setting(str(data["key"]), str(data["value"]))
         changed = {}
@@ -414,7 +434,8 @@ async def arena_admin(request: web.Request) -> web.Response:
         return web.json_response({"ok": True, **changed})
     if action == "register-policy":
         return web.json_response(arena.register_policy_participant(str(data["handle"]),
-                                                                   str(data.get("policyPath", ""))))
+                                                                   str(data.get("policyPath", "")),
+                                                                   str(data.get("deckRecipe", ""))))
     if action == "bind-policy":
         db.conn().execute("UPDATE participants SET policy_path=? WHERE id=? AND kind='policy'",
                           (str(data.get("policyPath", "")), int(data["id"])))
@@ -434,21 +455,6 @@ async def set_lang(request: web.Request) -> web.Response:
     db.conn().execute("UPDATE participants SET lang=? WHERE id=?", (lang, p["id"]))
     db.conn().commit()
     return web.json_response({"ok": True, "lang": lang})
-
-
-async def upload_app_exe(request: web.Request) -> web.Response:
-    """관리자 exe 업로드(사용자 확정 2026-08-01: 윈도우 데스크탑 앱 exe 배포) — 운영 PC에서
-    build_app.bat로 빌드한 DCGOArenaApp.exe를 받아 static/에 배치, 참가자 페이지가 직링크 노출."""
-    if not authed(request):
-        return web.json_response({"error": "token"}, status=401)
-    body = await request.read()
-    if len(body) < 1024 * 100 or body[:2] != b"MZ":   # PE 매직 — exe 아닌 파일 배포 방지
-        return web.json_response({"error": "exe 파일이 아니거나 너무 작습니다"}, status=400)
-    target = STATIC / "DCGOArenaApp.exe"
-    tmp = STATIC / "DCGOArenaApp.exe.tmp"
-    tmp.write_bytes(body)
-    tmp.replace(target)   # 원자 교체 — 다운로드 중 잘린 파일 방지
-    return web.json_response({"ok": True, "size": len(body)})
 
 
 async def index(request: web.Request) -> web.Response:
@@ -474,7 +480,7 @@ def build_single_file_sdk() -> None:
     기법: 모듈 소스를 문자열로 내장하고 로드 시 sys.modules에 실제 패키지로 조립 —
     `import dcgo_arena as da` 와 CLI(`python dcgo_arena.py play|daemon`) 둘 다 동작."""
     package_dir = HERE.parent / "dcgo_arena"
-    order = ["state_text", "policies", "client", "config", "agents", "highlevel", "seatbridge", "app", "__main__"]
+    order = ["state_text", "policies", "client", "config", "agents", "highlevel", "seatbridge", "__main__"]
     sources = {name: (package_dir / f"{name}.py").read_text(encoding="utf-8") for name in order}
     init_source = (package_dir / "__init__.py").read_text(encoding="utf-8")
 
@@ -501,45 +507,7 @@ def build_single_file_sdk() -> None:
         "    sys.modules['dcgo_arena.__main__'].main()",
         "",
     ]
-    # 데스크탑 앱(사용자 확정 2026-08-01): 같은 내장 SDK + 진입점만 GUI(app.main)
-    tail_app = [
-        "if __name__ == '__main__':",
-        "    sys.modules['dcgo_arena.app'].main()",
-        "",
-    ]
     (STATIC / "dcgo_arena.py").write_text("\n".join(out + tail_sdk), encoding="utf-8")
-    app_head = out[0:1] + [
-        "# dcgo_arena_app.py — DCGO 아레나 데스크탑 참가 앱 (서버 자동 생성 — 편집 금지)",
-        "# 사용:  pip install aiohttp  →  python dcgo_arena_app.py  (tkinter GUI)",
-    ] + out[1:]
-    app_text = "\n".join(app_head + tail_app)
-    (STATIC / "dcgo_arena_app.py").write_text(app_text, encoding="utf-8")
-    # 윈도우 기준(사용자 확정 2026-08-01): .pyw = 더블클릭 시 콘솔 창 없이 GUI만(pythonw 연결)
-    (STATIC / "dcgo_arena_app.pyw").write_text(app_text, encoding="utf-8")
-    # exe 빌드 킷(운영 PC 윈도우에서 1회 실행 → dist\DCGOArenaApp.exe → 관리자 페이지 업로드).
-    # PyInstaller는 크로스 컴파일 불가 — 서버(리눅스)가 직접 exe를 만들 수 없다.
-    bat = "\r\n".join([
-        "@echo off",
-        "chcp 65001 >nul",
-        "if not exist dcgo_arena_app.py (",
-        "  echo dcgo_arena_app.py 가 같은 폴더에 없습니다 — 참가자 페이지 커맨드로 먼저 받으세요.",
-        "  pause",
-        "  exit /b 1",
-        ")",
-        "py -m pip install --upgrade pyinstaller aiohttp || goto :err",
-        "py -m PyInstaller --onefile --windowed --name DCGOArenaApp dcgo_arena_app.py || goto :err",
-        "echo.",
-        "echo 완료: dist\\DCGOArenaApp.exe",
-        "echo 관리자 페이지(아레나 관리 탭)에서 이 exe를 업로드하면 참가자에게 배포됩니다.",
-        "pause",
-        "exit /b 0",
-        ":err",
-        "echo 빌드 실패 — 위 메시지를 확인하세요.",
-        "pause",
-        "exit /b 1",
-        "",
-    ])
-    (STATIC / "build_app.bat").write_text(bat, encoding="utf-8")
     # 통합 스킬 배포(사용자 확정 2026-08-01: /digimonAiArena Api|Deck|Play|Plan) — 에이전트 앱 설치용
     skill_src = HERE.parent.parent / "skills" / "digimonAiArena" / "SKILL.md"
     if skill_src.exists():
@@ -555,29 +523,32 @@ async def on_start(app: web.Application) -> None:
     app["watcher"] = asyncio.create_task(watch(app))
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8791)
-    parser.add_argument("--bind", default="0.0.0.0")
-    parser.add_argument("--runner", default="http://127.0.0.1:8790")
-    args = parser.parse_args()
-    if not token():
-        raise SystemExit("DCGO_OPS_TOKEN 미설정 — 운영자 표면은 무인증 금지(요구 §7)")
+#: 관리 표면 접근 허용 대역(보안 정리 2026-08-01) — 로컬 + 사설 LAN만.
+#: 관리 포트를 외부에 포워딩하지 않는 것이 1차 방어, 이 검사가 2차.
+_ADMIN_NETS = ("127.", "::1", "10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.",
+               "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.", "172.26.",
+               "172.27.", "172.28.", "172.29.", "172.30.", "172.31.")
 
-    app = web.Application(client_max_size=80 * 1024 ** 2)   # exe 업로드(관리자) — 기본 1MB로는 불가
-    app["runner"] = args.runner
-    app["broker"] = broker_mod.Broker(args.runner, token())
-    app.router.add_get("/", index)
-    app.router.add_get("/api/thresholds", get_thresholds)
-    app.router.add_put("/api/thresholds", put_thresholds)
-    app.router.add_get("/api/alerts", get_alerts)
-    app.router.add_route("*", "/api/runner/{path:.*}", proxy)
 
-    # 아레나 — 공유 표면(무인증 읽기 + 가입 신청)
+@web.middleware
+async def admin_lan_only(request: web.Request, handler):
+    """관리 앱 게이트 — 로컬/LAN 밖 IP는 토큰과 무관하게 404(존재 자체를 숨긴다)."""
+    ip = request.remote or ""
+    if not any(ip.startswith(prefix) for prefix in _ADMIN_NETS):
+        raise web.HTTPNotFound
+    return await handler(request)
+
+
+def build_public_app(runner: str, broker) -> web.Application:
+    """참가자·공개 표면 — 외부 공개 대상. 관리 라우트는 여기에 없다."""
+    app = web.Application(client_max_size=1024 ** 2)   # 1MB — 덱/클립보드에 충분(자원 남용 방지)
+    app["runner"] = runner
+    app["broker"] = broker
+    # 공유 표면(무인증 읽기 + 가입 신청)
     app.router.add_post("/api/arena/signup", signup)
     app.router.add_post("/api/arena/claim", claim)
     app.router.add_get("/api/arena/rankings", rankings)
-    # 아레나 표면(API 키)
+    # 참가자 표면(API 키)
     app.router.add_get("/api/arena/me", arena_me)
     app.router.add_post("/api/arena/lang", set_lang)
     app.router.add_get("/api/arena/decks", arena_decks)
@@ -590,14 +561,74 @@ def main() -> None:
     app.router.add_get("/api/arena/cards", arena_cards)
     app.router.add_get("/api/arena/log/{match_id}", arena_log)
     app.router.add_get("/arena", lambda request: request.app["broker"].handle_ws(request))
-    # 아레나 관리(운영자 토큰)
-    app.router.add_post("/api/arena/admin/upload-app", upload_app_exe)
-    app.router.add_route("*", "/api/arena/admin/{action}", arena_admin)
+    app.router.add_get("/", lambda request: static_page("arena.html"))   # 공개 진입 = 참가자 페이지
+    app.router.add_get(r"/static/{name:[^/]+\.html}", static_html)
+    app.router.add_static("/static", STATIC)
+    return app
 
+
+def build_admin_app(runner: str, broker) -> web.Application:
+    """운영 표면 — 별도 포트 + LAN 전용 미들웨어. 외부에 포워딩하지 않는다."""
+    app = web.Application(client_max_size=1024 ** 2, middlewares=[admin_lan_only])
+    app["runner"] = runner
+    app["broker"] = broker
+    app.router.add_get("/", index)
+    app.router.add_get("/api/thresholds", get_thresholds)
+    app.router.add_put("/api/thresholds", put_thresholds)
+    app.router.add_get("/api/alerts", get_alerts)
+    app.router.add_route("*", "/api/runner/{path:.*}", proxy)
+    app.router.add_route("*", "/api/arena/admin/{action}", arena_admin)
+    # 관리 화면이 참가자 API도 그대로 쓴다(포털·순위표 탭) — 같은 핸들러를 이 앱에도 건다
+    app.router.add_get("/api/arena/rankings", rankings)
+    app.router.add_post("/api/arena/signup", signup)
+    app.router.add_post("/api/arena/claim", claim)
+    app.router.add_get("/api/arena/me", arena_me)
+    app.router.add_post("/api/arena/lang", set_lang)
+    app.router.add_get("/api/arena/decks", arena_decks)
+    app.router.add_post("/api/arena/decks", arena_decks)
+    app.router.add_post("/api/arena/decks/parse", arena_deck_parse)
+    app.router.add_put("/api/arena/decks/{deck_id}", arena_deck_update)
+    app.router.add_post("/api/arena/decks/{deck_id}/delete", arena_deck_delete)
+    app.router.add_post("/api/arena/decks/{deck_id}/activate", arena_deck_activate)
+    app.router.add_get("/api/arena/history", arena_history)
+    app.router.add_get("/api/arena/cards", arena_cards)
+    app.router.add_get("/api/arena/log/{match_id}", arena_log)
     app.router.add_get(r"/static/{name:[^/]+\.html}", static_html)
     app.router.add_static("/static", STATIC)
     app.on_startup.append(on_start)
-    web.run_app(app, host=args.bind, port=args.port)
+    return app
+
+
+async def run_sites(args) -> None:
+    broker = broker_mod.Broker(args.runner, token())
+    public = build_public_app(args.runner, broker)
+    admin = build_admin_app(args.runner, broker)
+    runners = []
+    for app, host, port in ((public, args.bind, args.port), (admin, args.admin_bind, args.admin_port)):
+        runner_obj = web.AppRunner(app)
+        await runner_obj.setup()
+        await web.TCPSite(runner_obj, host, port).start()
+        runners.append(runner_obj)
+    print(f"공개(참가자) http://{args.bind}:{args.port}  ·  관리(LAN 전용) http://{args.admin_bind}:{args.admin_port}",
+          flush=True)
+    try:
+        await asyncio.Event().wait()
+    finally:
+        for runner_obj in runners:
+            await runner_obj.cleanup()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8791, help="공개(참가자) 포트")
+    parser.add_argument("--bind", default="0.0.0.0")
+    parser.add_argument("--admin-port", type=int, default=8792, help="관리 포트 — 외부 포워딩 금지")
+    parser.add_argument("--admin-bind", default="0.0.0.0", help="관리 바인드(LAN 접속 허용, 미들웨어가 대역 제한)")
+    parser.add_argument("--runner", default="http://127.0.0.1:8790")
+    args = parser.parse_args()
+    if not token():
+        raise SystemExit("DCGO_OPS_TOKEN 미설정 — 운영자 표면은 무인증 금지(요구 §7)")
+    asyncio.run(run_sites(args))
 
 
 if __name__ == "__main__":

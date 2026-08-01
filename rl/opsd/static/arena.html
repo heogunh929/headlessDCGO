@@ -145,6 +145,7 @@ body.locked .sidenav button[data-tab] { opacity:.35; cursor:default }
 </div>
 <script>
 const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let KEY = localStorage.getItem('arenaKey') || '';
 let CARDS = {}, POOL = {sets: [], cards: []}, BAN = {restrictions: [], banned_pairs: []};
 const BUILD = {main: {}, digitama: {}};
@@ -269,7 +270,7 @@ function historyTable(rows) {
       const won = h.winner === h.mySeat;
       const draw = h.winner == null;
       return `<tr style="cursor:pointer" onclick="location='/static/viewer.html?arena=${h.matchId}&me=${h.mySeat}'">` +
-        `<td>${h.ts}</td><td><b>P${h.mySeat}</b></td><td>${h.opponent}${h.practice ? ' <span class="pill">연습</span>' : h.verification ? ' <span class="pill">검증</span>' : ''}</td>` +
+        `<td>${h.ts}</td><td><b>P${h.mySeat}</b></td><td>${esc(h.opponent)}${h.practice ? ' <span class="pill">연습</span>' : h.verification ? ' <span class="pill">검증</span>' : ''}</td>` +
         `<td class="${draw ? '' : won ? 'ok' : 'bad'}">${draw ? '무' : won ? '승' : '패'}</td>` +
         `<td>${h.verification || h.practice ? '-' : (h.ratingDelta > 0 ? '+' : '') + h.ratingDelta}</td><td>${h.reason}</td></tr>`;
     }).join('') + '</table></div>' : '대전 기록 없음';
@@ -294,7 +295,7 @@ async function loadRank() {
   $('rank-season').textContent = `시즌 ${r.season}`;
   $('rank-board').innerHTML = '<tr><th>순위</th><th>핸들</th><th>레이팅 ±RD</th><th>판수</th></tr>' +
     (r.rows.length ? r.rows.map(x =>
-      `<tr><td><b>${x.rank}</b></td><td>${x.handle}${x.kind === 'policy' ? ' <small style="color:var(--muted)">(하우스 봇)</small>' : ''}</td>` +
+      `<tr><td><b>${x.rank}</b></td><td>${esc(x.handle)}${x.kind === 'policy' ? ' <small style="color:var(--muted)">(하우스 봇)</small>' : ''}</td>` +
       `<td>${x.rating} <small style="color:var(--muted)">±${x.rd}</small></td><td>${x.games}</td></tr>`).join('')
       : '<tr><td colspan="4" style="color:#999">아직 대전 기록이 없습니다</td></tr>');
 }

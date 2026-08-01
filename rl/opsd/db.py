@@ -62,6 +62,12 @@ DEFAULT_SETTINGS = {
     "card_pool": json.dumps({"sets": ["ST1", "ST2", "ST3"], "cards": []}),   # 초기=검증된 풀(요구 §6.7)
     # 금지/제한/금지페어 — AS-IS DeckBuildingRule.cs 의미론(limit 0=금지, 1=제한 1장, 페어=양방향 공존 금지)
     "ban_list": json.dumps({"restrictions": [], "banned_pairs": []}),
+    # 상시 봇 백필(사용자 확정 2026-08-01): 매칭 우선도 최하위 — 이 시간 이상 큐 대기 시에만
+    # RL 봇을 붙인다. 0 = 비활성
+    "bot_wait_sec": "60",
+    # 동시 대전 상한(보안 정리 2026-08-01): 판 1개 = 엔진 프로세스 1개 — OOM 방어선.
+    # 초과 시 큐에 남겨두고 다음 펌프에서 재시도. 0 = 무제한
+    "max_concurrent_matches": "6",
     "move_timeout_sec": "60",
     "disconnect_grace_sec": "30",
     "deck_limit_per_key": "10",
