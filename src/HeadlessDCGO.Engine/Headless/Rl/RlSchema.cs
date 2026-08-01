@@ -48,7 +48,11 @@ public static class RlSchema
     public const int ActionSize = LaneChoice + MaxChoice;   // 101
 
     public const string ObsSchemaVersion = "infoset-v2-asis";
-    public const string ActionSchemaVersion = "lanes-v2-asis";
+
+    /// <summary>v3(2026-08-01): MainPhase 결정이 choice 레인으로 "주도 기동"(필드/손패/트래시의
+    /// OnDeclaration ActivateICardEffect — 디지버스트 포함) 후보를 실체화한다. 레인 수·관측 크기는
+    /// 불변이나 MainPhase에서 choice 레인의 합법 의미가 새로 생겨 구정책과 행동 분포 비호환.</summary>
+    public const string ActionSchemaVersion = "lanes-v3-asis";
 
     private const int DecisionKinds = 9;
     private const int Phases = 6;

@@ -46,6 +46,9 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
 
         List<int> playable = new();
         List<int> attackers = new();
+        List<Action> activations = new();
+        List<int> activationCardIds = new();
+        List<string> activationLabels = new();
 
         // AS-IS 술어는 전이 중의 과도 상태에서 스스로 NRE할 수 있다 — 실측 2026-07-29:
         // `CanPlayFromHandDuringMainPhase`(:143)가 프레임 없는 배틀에어리어 퍼머넌트(파괴/이동 도중)를
@@ -71,12 +74,65 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
                     attackers.Add(j);
                 }
             }
+
+            // 주도 기동 열거(결함 확정 2026-08-01: 디지버스트 등 [메인]/[트래시] 기동이 액션 공간에
+            // 없었다). AS-IS가 클릭으로 여는 세 진입로를 같은 술어로 연다 —
+            //   필드: TSM:1472와 동일 = EffectList(OnDeclaration)의 원시 인덱스 중
+            //         ActivateICardEffect && CanUse(null) (SetActSkill:3061이 원시 리스트를 다시 읽음)
+            //   손패: TSM:2801 · 트래시: CheckCardPanel:367 = CanDeclareSkillList의 필터된 인덱스
+            //         (SetActCardSkill:3078이 그 프로퍼티를 다시 읽음)
+            // 인덱스 박제-재독의 결정↔소비 간극은 AS-IS 클릭 경합과 동일 계급 — 큐 소비측 경계검사에 위임.
+            for (int j = 0; j < field.Count && j < RlSchema.MaxField; j++)
+            {
+                List<ICardEffect> declared = field[j].EffectList(EffectTiming.OnDeclaration);
+
+                for (int k = 0; k < declared.Count; k++)
+                {
+                    if (declared[k] is not ActivateICardEffect || !declared[k].CanUse(null))
+                    {
+                        continue;
+                    }
+
+                    int pj = j, pk = k;
+                    activations.Add(() => GManager.instance!.turnStateMachine.QueueMainPhaseAction(
+                        actor, new ActivatePermanentAction(pj, pk)));
+                    activationCardIds.Add(field[j].TopCard is { } top
+                        ? Host!.Vocab.IdOf(top.CardID) : CardVocabulary.PadId);
+                    activationLabels.Add($"기동: 내 필드[{j}] {field[j].TopCard?.CardID} — {declared[k].EffectName}");
+                }
+            }
+
+            void CollectCardActivations(IEnumerable<CardSource> cards, string zoneName)
+            {
+                foreach (CardSource card in cards)
+                {
+                    List<ICardEffect> declarable = card.CanDeclareSkillList;
+
+                    for (int k = 0; k < declarable.Count; k++)
+                    {
+                        CardSource pc = card;
+                        int pk = k;
+                        activations.Add(() => GManager.instance!.turnStateMachine.QueueMainPhaseAction(
+                            actor, new ActivateCardAction(pc.CardIndex, pk)));
+                        activationCardIds.Add(Host!.Vocab.IdOf(card.CardID));
+                        activationLabels.Add($"기동: {zoneName} {card.CardID} — {declarable[k].EffectName}");
+                    }
+                }
+            }
+
+            CollectCardActivations(actor.HandCards, "손패");
+            CollectCardActivations(actor.TrashCards, "트래시");
         }
         catch (Exception ex)
         {
             Host?.Overflows.Add($"transient:{ex.GetType().Name}@MainPhase(다음 틱 재시도)");
 
             return false;
+        }
+
+        if (activations.Count > RlSchema.MaxChoice)
+        {
+            Host?.Overflows.Add($"activations:{activations.Count}@MainPhase");   // 무음 절사 금지
         }
 
         Pending = new DecisionPoint
@@ -86,6 +142,10 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
             NullLegal = true,
             HandSlots = playable,
             MyFieldSlots = attackers,
+            ChoiceCount = Math.Min(activations.Count, RlSchema.MaxChoice),
+            ChoiceCardIds = activationCardIds.Take(RlSchema.MaxChoice).ToList(),
+            ChoiceLabels = activationLabels.Take(RlSchema.MaxChoice).ToList(),
+            ChoiceApply = i => activations[i](),
         };
 
         return true;
@@ -511,6 +571,13 @@ public sealed class PolicyVirtualPlayer : VirtualPlayer
         if (lane == RlSchema.LaneNull)
         {
             GManager.instance.turnStateMachine.QueueMainPhaseAction(point.Seat, new PassAction());
+
+            return;
+        }
+
+        if (lane >= RlSchema.LaneChoice && lane < RlSchema.LaneChoice + RlSchema.MaxChoice)
+        {
+            point.ChoiceApply!(lane - RlSchema.LaneChoice);   // 주도 기동(2026-08-01) — 큐잉은 클로저가
 
             return;
         }

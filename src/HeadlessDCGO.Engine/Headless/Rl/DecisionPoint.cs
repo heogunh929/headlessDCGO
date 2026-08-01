@@ -59,6 +59,10 @@ public sealed class DecisionPoint
     /// <summary>Applies a choice-lane pick (0-based candidate ordinal).</summary>
     public Action<int>? ChoiceApply { get; init; }
 
+    /// <summary>Optional human-readable labels for the choice candidates (describe 전용) —
+    /// 없으면 호스트가 일반 서술("후보 i …")을 쓴다. 주도 기동 후보(2026-08-01)가 첫 사용처.</summary>
+    public IReadOnlyList<string>? ChoiceLabels { get; init; }
+
     /// <summary>Cards already accumulated in the CURRENT multi-selection (the selector's own partial list —
     /// panel `_preSelectedHandCardList`, SelectHandEffect `_targetCards`, SelectPermanentEffect
     /// `_targetPermanents`). Observation channel `choice.selectedCount`.</summary>

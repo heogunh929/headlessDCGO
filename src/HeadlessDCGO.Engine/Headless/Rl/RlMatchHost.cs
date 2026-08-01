@@ -276,6 +276,13 @@ public sealed class RlMatchHost
 
         for (int i = 0; i < point.ChoiceCount; i++)
         {
+            if (point.ChoiceLabels is { } labels && i < labels.Count)
+            {
+                Add(RlSchema.LaneChoice + i, labels[i]);   // 주도 기동 등 명시 라벨 후보(2026-08-01)
+
+                continue;
+            }
+
             string? number = i < point.ChoiceCardIds.Count ? Vocab.NumberOf(point.ChoiceCardIds[i]) : null;
             Add(RlSchema.LaneChoice + i, point.Kind switch
             {

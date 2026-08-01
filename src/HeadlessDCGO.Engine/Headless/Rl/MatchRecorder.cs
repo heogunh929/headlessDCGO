@@ -149,8 +149,60 @@ public sealed class MatchRecorder
         roots = p.DigivolutionCards.Select(c => c.CardID),
         top = p.TopCard?.CardID,
         level = p.Level,
-        dp = p.DP,
+        dp = p.DP,                                   // AS-IS 계산값(버프 반영)
+        baseDp = p.TopCard?.BaseCardDP,              // 카드 원본 DP(CardSource:2376) — 뷰어가 버프 델타 표시
         suspended = p.IsSuspended,
         links = p.LinkedCards.Select(c => c.CardID),
+        // 부여된 지속 효과(사용자 요구 2026-08-01): Until* 부여 리스트에서 효과명 원문 추출.
+        // 팩토리 호출은 AS-IS EffectList(:1373)가 룰 판정마다 하는 것과 동일한 순수 구성 — 실행 아님.
+        effects = GrantedEffects(p),
     };
+
+    /// <summary>퍼머넌트에 부여된 지속 효과의 (효과명, 지속) 목록 — AS-IS 부여 리스트 원문.</summary>
+    private static List<object> GrantedEffects(Permanent p)
+    {
+        List<object> output = new();
+
+        void Collect(IEnumerable<Func<EffectTiming, ICardEffect>>? factories, string until)
+        {
+            if (factories is null)
+            {
+                return;
+            }
+
+            foreach (Func<EffectTiming, ICardEffect> factory in factories)
+            {
+                ICardEffect? effect;
+
+                try
+                {
+                    effect = factory(EffectTiming.None);
+                }
+                catch (Exception)
+                {
+                    continue;   // 구성 단계 예외는 표시 생략 — 기록이 판을 죽이면 안 된다
+                }
+
+                string? name = effect?.EffectName;
+                string? description = effect?.EffectDiscription;
+                string text = !string.IsNullOrEmpty(name) ? name!
+                    : !string.IsNullOrEmpty(description) ? description! : "";
+
+                if (text.Length > 0)
+                {
+                    output.Add(new { text, until });
+                }
+            }
+        }
+
+        Collect(p.UntilEachTurnEndEffects, "이 턴");
+        Collect(p.UntilOwnerTurnEndEffects, "자기 턴 끝");
+        Collect(p.UntilOpponentTurnEndEffects, "상대 턴 끝");
+        Collect(p.UntilEndBattleEffects, "배틀 동안");
+        Collect(p.UntilEndAttackEffects, "어택 동안");
+        Collect(p.UntilNextUntapEffects, "다음 언탭");
+        Collect(p.PermanentEffects, "영구");
+
+        return output;
+    }
 }

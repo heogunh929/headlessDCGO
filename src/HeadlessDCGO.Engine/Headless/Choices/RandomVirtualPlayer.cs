@@ -59,10 +59,60 @@ public sealed class RandomVirtualPlayer : VirtualPlayer
             _tried.Clear();
         }
 
-        MainPhaseAction action = PickAttack(actor, context) ?? PickPlay(actor, context) ?? new PassAction();
+        MainPhaseAction action = PickAttack(actor, context) ?? PickActivate(actor) ?? PickPlay(actor, context) ?? new PassAction();
         GManager.instance.turnStateMachine.QueueMainPhaseAction(actor, action);
 
         return true;
+    }
+
+    /// <summary>A skill activation the AS-IS UI would have allowed, or null. Same predicates as the click
+    /// paths: field = raw OnDeclaration index with ActivateICardEffect+CanUse (TSM:1472→SetActSkill:3061),
+    /// hand/trash = CanDeclareSkillList filtered index (TSM:2801/CheckCardPanel:367→SetActCardSkill:3078).
+    /// 정책 좌석과 함께 추가(주도 기동 부재 결함 수리 2026-08-01) — 무작위 자기대전이 이 경로의 상시 게이트.</summary>
+    private MainPhaseAction? PickActivate(Player actor)
+    {
+        if (_rng.Next(3) != 0)
+        {
+            return null;    // 발동 과점 방지 — 플레이/패스 분포를 유지하며 경로만 상시 표집
+        }
+
+        List<MainPhaseAction> candidates = new();
+        List<string> keys = new();
+        List<Permanent> field = actor.GetFieldPermanents();
+
+        for (int j = 0; j < field.Count; j++)
+        {
+            List<ICardEffect> declared = field[j].EffectList(EffectTiming.OnDeclaration);
+
+            for (int k = 0; k < declared.Count; k++)
+            {
+                if (declared[k] is ActivateICardEffect && declared[k].CanUse(null))
+                {
+                    candidates.Add(new ActivatePermanentAction(j, k));
+                    keys.Add($"actp:{j}:{k}");
+                }
+            }
+        }
+
+        foreach (CardSource card in actor.HandCards.Concat(actor.TrashCards))
+        {
+            List<ICardEffect> declarable = card.CanDeclareSkillList;
+
+            for (int k = 0; k < declarable.Count; k++)
+            {
+                candidates.Add(new ActivateCardAction(card.CardIndex, k));
+                keys.Add($"actc:{card.CardIndex}:{k}");
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        int pick = _rng.Next(candidates.Count);
+
+        return _tried.Add(keys[pick]) ? candidates[pick] : null;
     }
 
     /// <summary>What "the state changed" means for the no-op guard: zone sizes, memory and suspensions —
